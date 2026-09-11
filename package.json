@@ -1,0 +1,59 @@
+{
+  "name": "chiselcode",
+  "version": "0.1.0",
+  "description": "A secure multi-provider coding agent CLI",
+  "type": "module",
+  "bin": {
+    "chisel": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "build": "bun build ./src/cli.ts --outdir ./dist --target bun",
+    "compile": "bun build ./src/cli.ts --compile --outfile ./dist/chisel",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "bunx @biomejs/biome check src tests",
+    "format": "bunx @biomejs/biome format --write src tests"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.124.0",
+    "commander": "15.0.0",
+    "diff": "9.0.0",
+    "execa": "10.0.1",
+    "ink": "7.1.1",
+    "openai": "7.13.0",
+    "react": "19.3.0",
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@types/bun": "1.4.2",
+    "@types/diff": "7.0.2",
+    "@types/react": "19.3.0",
+    "typescript": "7.0.2"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheAsrada/ChiselCode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TheAsrada/ChiselCode/issues"
+  },
+  "homepage": "https://github.com/TheAsrada/ChiselCode#readme",
+  "keywords": [
+    "agent",
+    "cli",
+    "coding-agent",
+    "llm",
+    "bun"
+  ]
+}
