@@ -19,7 +19,7 @@ const program = new Command();
 program
   .name("chisel")
   .description("A secure multi-provider coding agent")
-  .version("0.1.2")
+  .version("0.1.3")
   .argument("[prompt]", "task for the coding agent")
   .option("--provider <provider>", "anthropic, openai, or openai-compatible")
   .option("--model <model>", "provider model ID")
