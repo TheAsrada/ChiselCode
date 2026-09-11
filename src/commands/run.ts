@@ -39,6 +39,22 @@ export interface RunOptions {
   cwd?: string;
 }
 
+export class MissingApiKeyError extends Error {
+  constructor(provider: ProviderKind) {
+    super(
+      `Для ${providerLabel(provider)} не найден API-ключ. Запустите "chisel setup" для быстрой настройки.`,
+    );
+    this.name = "MissingApiKeyError";
+  }
+}
+
+export async function hasApiKey(
+  provider: ProviderKind,
+  keyRef?: string,
+): Promise<boolean> {
+  return Boolean(await resolveApiKey(provider, keyRef, new CredentialStore()));
+}
+
 export async function runPrompt(
   prompt: string,
   options: RunOptions,
@@ -69,6 +85,7 @@ export async function runPrompt(
     providerConfig?.apiKeyRef,
     credentials,
   );
+  if (!apiKey) throw new MissingApiKeyError(session.provider);
   const provider = createProvider(
     session.provider,
     apiKey,
@@ -205,6 +222,12 @@ async function collectFileTree(root: string): Promise<string> {
     if (entries.length >= 200) break;
   }
   return entries.join("\n");
+}
+
+function providerLabel(provider: ProviderKind): string {
+  if (provider === "anthropic") return "Anthropic";
+  if (provider === "openai") return "OpenAI";
+  return "совместимого API";
 }
 
 export const nonInteractiveResolver: ApprovalResolver = {

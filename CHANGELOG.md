@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-12
+
+### Added
+
+- Guided first-run setup, `chisel setup`, and a non-secret `chisel doctor` diagnostic.
+- Automatic setup in interactive mode when no API key is configured.
+- Beginner-focused Windows quick start and troubleshooting guide.
+
+### Changed
+
+- Translate the interactive welcome and approval experience into Russian.
+- Explain missing API-key failures with an actionable setup command.
+
 ## [0.1.3] - 2026-09-11
 
 ### Fixed

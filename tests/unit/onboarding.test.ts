@@ -1,0 +1,52 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { MissingApiKeyError } from "../../src/commands/run.js";
+import { loadGlobalConfig, saveGlobalConfig } from "../../src/config/load.js";
+import { defaultModelFor, isValidApiUrl } from "../../src/ui/setup.js";
+
+describe("onboarding", () => {
+  test("saves and loads global configuration without credentials", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chiselcode-test-"));
+    const path = join(directory, "config.json");
+    try {
+      await Bun.write(path, '{"providers": {}}\n');
+      await saveGlobalConfig(
+        {
+          defaultProvider: "anthropic",
+          defaultModel: "claude-opus-5",
+          providers: {
+            anthropic: {
+              provider: "anthropic",
+              apiKeyRef: "anthropic-default",
+              defaultModel: "claude-opus-5",
+            },
+          },
+        },
+        path,
+      );
+      expect(await loadGlobalConfig(path)).toMatchObject({
+        defaultProvider: "anthropic",
+        providers: { anthropic: { apiKeyRef: "anthropic-default" } },
+      });
+      expect(await readFile(path, "utf8")).not.toContain("test-secret");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("validates setup defaults and compatible API addresses", () => {
+    expect(defaultModelFor("anthropic")).toBe("claude-opus-5");
+    expect(defaultModelFor("openai-compatible")).toBe("");
+    expect(isValidApiUrl("http://localhost:11434/v1")).toBe(true);
+    expect(isValidApiUrl("https://api.example.com/v1")).toBe(true);
+    expect(isValidApiUrl("localhost:11434/v1")).toBe(false);
+  });
+
+  test("gives a safe, actionable missing-key error", () => {
+    const error = new MissingApiKeyError("anthropic");
+    expect(error.message).toContain("chisel setup");
+    expect(error.message).not.toContain("test-secret");
+  });
+});

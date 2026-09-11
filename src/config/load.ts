@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
 
@@ -85,10 +85,26 @@ export function globalConfigPath(): string {
   return join(base, "chiselcode", "config.json");
 }
 
-export async function loadGlobalConfig(): Promise<GlobalConfig> {
-  const source = await readOptional(globalConfigPath());
+export async function loadGlobalConfig(
+  path = globalConfigPath(),
+): Promise<GlobalConfig> {
+  const source = await readOptional(path);
   if (!source) return { providers: {} };
   return GlobalConfigSchema.parse(JSON.parse(source));
+}
+
+export async function saveGlobalConfig(
+  config: GlobalConfig,
+  path = globalConfigPath(),
+): Promise<void> {
+  const validated = GlobalConfigSchema.parse(config);
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await rename(temporary, path);
 }
 
 async function readOptional(path: string): Promise<string | undefined> {

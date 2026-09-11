@@ -55,12 +55,16 @@ export interface TuiAppProps {
   approvalResolver: TuiApprovalResolver;
   bindTranscript: (transcript: TuiTranscript) => void;
   onSubmit: (prompt: string) => void;
+  providerLabel: string;
+  model: string;
 }
 
 export function TuiApp({
   approvalResolver,
   bindTranscript,
   onSubmit,
+  providerLabel,
+  model,
 }: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   const [input, setInput] = useState("");
@@ -68,10 +72,14 @@ export function TuiApp({
   const [transcript, setTranscript] = useState<TuiTranscriptLine[]>([
     {
       id: 0,
-      text: "Type a request and press Enter. Press Ctrl+C to exit.",
+      text: `Готово. ${providerLabel}, модель ${model}. Напишите задачу обычными словами и нажмите Enter.`,
+    },
+    {
+      id: 1,
+      text: "Например: «Объясни структуру проекта» или «Найди ошибки в коде». Изменения всегда требуют подтверждения y/n.",
     },
   ]);
-  const nextTranscriptId = useRef(1);
+  const nextTranscriptId = useRef(2);
 
   useEffect(() => {
     approvalResolver.bind(setRequest);
@@ -127,9 +135,9 @@ export function TuiApp({
       ))}
       {request ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="yellow">Approval required for {request.tool}</Text>
+          <Text color="yellow">Нужно подтверждение для {request.tool}</Text>
           <Text>{request.preview}</Text>
-          <Text>Approve? [y/N]</Text>
+          <Text>Разрешить? [y/N]</Text>
         </Box>
       ) : (
         <Text color="green">› {input}</Text>
