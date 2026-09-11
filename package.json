@@ -1,6 +1,6 @@
 {
   "name": "chiselcode",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A secure multi-provider coding agent CLI",
   "type": "module",
   "bin": {
@@ -20,8 +20,8 @@
     "compile": "bun build ./src/cli.ts --compile --outfile ./dist/chisel",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "bunx @biomejs/biome check src tests",
-    "format": "bunx @biomejs/biome format --write src tests"
+    "lint": "biome check src tests",
+    "format": "biome format --write src tests"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.124.0",
