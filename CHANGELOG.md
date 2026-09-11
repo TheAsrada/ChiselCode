@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-11
+
+### Fixed
+
+- Normalize asynchronous tool failures into structured tool results so policy violations do not terminate the agent loop.
+
 ## [0.1.0] - 2026-09-11
 
 ### Added

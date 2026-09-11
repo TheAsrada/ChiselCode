@@ -144,25 +144,25 @@ export class ToolRegistry {
 		try {
 			switch (name) {
 				case "read_file":
-					return this.readFile(schemas.read_file.parse(rawInput));
+					return await this.readFile(schemas.read_file.parse(rawInput));
 				case "list_dir":
-					return this.listDirectory(schemas.list_dir.parse(rawInput));
+					return await this.listDirectory(schemas.list_dir.parse(rawInput));
 				case "glob":
-					return this.glob(schemas.glob.parse(rawInput));
+					return await this.glob(schemas.glob.parse(rawInput));
 				case "grep":
-					return this.grep(schemas.grep.parse(rawInput));
+					return await this.grep(schemas.grep.parse(rawInput));
 				case "write_file":
-					return this.writeFile(schemas.write_file.parse(rawInput));
+					return await this.writeFile(schemas.write_file.parse(rawInput));
 				case "edit_file":
-					return this.editFile(schemas.edit_file.parse(rawInput));
+					return await this.editFile(schemas.edit_file.parse(rawInput));
 				case "delete_file":
-					return this.deleteFile(schemas.delete_file.parse(rawInput));
+					return await this.deleteFile(schemas.delete_file.parse(rawInput));
 				case "run_shell":
-					return this.runShell(schemas.run_shell.parse(rawInput));
+					return await this.runShell(schemas.run_shell.parse(rawInput));
 				case "git_diff":
-					return this.gitDiff(schemas.git_diff.parse(rawInput));
+					return await this.gitDiff(schemas.git_diff.parse(rawInput));
 				case "git_commit":
-					return this.gitCommit(schemas.git_commit.parse(rawInput));
+					return await this.gitCommit(schemas.git_commit.parse(rawInput));
 			}
 		} catch (error) {
 			return {
