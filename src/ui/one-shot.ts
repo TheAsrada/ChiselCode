@@ -52,7 +52,7 @@ export class OneShotRenderer {
     if (result.text && !result.text.endsWith("\n")) this.stdout.write("\n");
     if (result.status === "approval_required") {
       this.stderr.write(
-        `Approval required. Dry-run preview:\n${result.pendingApproval?.preview ?? "(no preview)"}\n`,
+        `Нужно подтверждение. Предпросмотр изменений:\n${result.pendingApproval?.preview ?? "(нет preview)"}\n`,
       );
     }
     if (result.error) this.stderr.write(`ChiselCode: ${result.error}\n`);

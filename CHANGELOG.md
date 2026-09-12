@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-12
+
+### Fixed
+
+- Retry once when an OpenAI-compatible server ends a successful request without text instead of showing the internal `completed` status.
+- Recognize common streamed reasoning fields without rendering private reasoning as the final answer.
+- Show an actionable diagnostic if a provider still returns no final text.
+
 ## [0.1.4] - 2026-09-12
 
 ### Added

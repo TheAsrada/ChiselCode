@@ -52,6 +52,8 @@ export class OpenAIAdapter implements ProviderAdapter {
         if (!choice) continue;
         finishReason =
           normalizeFinishReason(choice.finish_reason) ?? finishReason;
+        const reasoning = reasoningText(choice.delta);
+        if (reasoning) yield { type: "thinking_delta", text: reasoning };
         if (choice.delta.content) {
           text += choice.delta.content;
           yield { type: "text_delta", text: choice.delta.content };
@@ -197,6 +199,14 @@ function toOpenAIMessages(
     }
   }
   return result;
+}
+
+function reasoningText(delta: unknown): string | undefined {
+  if (!delta || typeof delta !== "object") return undefined;
+  const candidate = delta as Record<string, unknown>;
+  const value =
+    candidate.reasoning_content ?? candidate.reasoning ?? candidate.thinking;
+  return typeof value === "string" && value ? value : undefined;
 }
 
 function normalizeFinishReason(reason: string | null): string | undefined {

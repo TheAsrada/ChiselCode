@@ -22,7 +22,7 @@ const program = new Command();
 program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
-  .version("0.1.4")
+  .version("0.1.5")
   .argument("[prompt]", "задача обычным языком")
   .option("--provider <provider>", "anthropic, openai или openai-compatible")
   .option("--model <model>", "название модели")
@@ -193,7 +193,11 @@ async function startTui(options: RunOptions): Promise<void> {
             },
           });
           if (!responseOpen)
-            transcript.append(result.text || result.error || result.status);
+            transcript.append(
+              result.text ||
+                result.error ||
+                "Сервис завершил запрос без текстового ответа. Повторите запрос или проверьте адрес API и модель в chisel setup.",
+            );
           if (result.status === "approval_required")
             transcript.append(
               `Нужно подтверждение: ${result.pendingApproval?.preview ?? "(нет preview)"}`,

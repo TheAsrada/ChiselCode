@@ -71,4 +71,47 @@ describe("AgentLoop", () => {
     expect(result.text).toBe("Done");
     expect(result.session.messages).toHaveLength(4);
   });
+
+  test("asks once more when a provider returns an empty completed turn", async () => {
+    let requests = 0;
+    const provider: ProviderAdapter = {
+      kind: "openai-compatible",
+      async *streamChat() {
+        requests += 1;
+        if (requests === 1) {
+          yield {
+            type: "turn_complete",
+            message: { role: "assistant", content: [] },
+            stopReason: "end_turn",
+            usage: { inputTokens: 1, outputTokens: 1 },
+          };
+          return;
+        }
+        yield { type: "text_delta", text: "Здравствуйте!" };
+        yield {
+          type: "turn_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Здравствуйте!" }],
+          },
+          stopReason: "end_turn",
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      },
+      async listModels() {
+        return [];
+      },
+      async countTokens() {
+        return 0;
+      },
+    };
+    const tools = { getDefinitions: (): ToolDefinition[] => [] };
+    const result = await new AgentLoop(provider, tools as never, "system").run(
+      createSession("/project", "openai-compatible", "test"),
+      "Привет",
+    );
+    expect(requests).toBe(2);
+    expect(result.status).toBe("completed");
+    expect(result.text).toBe("Здравствуйте!");
+  });
 });

@@ -43,6 +43,7 @@ export class AgentLoop {
       content: [{ type: "text", text: prompt }],
     });
     let finalText = "";
+    let emptyResponseRetries = 0;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       if (options.signal?.aborted)
@@ -96,15 +97,38 @@ export class AgentLoop {
       );
 
       if (toolCalls.length === 0 || completed.stopReason === "refusal") {
-        return {
-          status: completed.stopReason === "refusal" ? "failed" : "completed",
-          text: finalText || extractText(completed.message),
-          session,
-          error:
-            completed.stopReason === "refusal"
-              ? "The provider refused this request."
-              : undefined,
-        };
+        const responseText = finalText || extractText(completed.message);
+        if (completed.stopReason === "refusal") {
+          return {
+            status: "failed",
+            text: responseText,
+            session,
+            error: "The provider refused this request.",
+          };
+        }
+        if (!responseText.trim()) {
+          if (emptyResponseRetries === 0) {
+            emptyResponseRetries += 1;
+            session.messages.push({
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Ответ не был получен. Дайте пользователю короткий текстовый ответ на исходный запрос без вызова инструментов.",
+                },
+              ],
+            });
+            continue;
+          }
+          return {
+            status: "failed",
+            text: "",
+            session,
+            error:
+              "Сервис завершил запрос без текстового ответа. Проверьте адрес API и модель в chisel setup.",
+          };
+        }
+        return { status: "completed", text: responseText, session };
       }
 
       const results = [] as ChatMessage["content"];
