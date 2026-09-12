@@ -42,6 +42,6 @@ export function commandHelpText(): string {
     ...SLASH_COMMANDS.map(
       (command) => `  ${command.name} — ${command.description}`,
     ),
-    "Обычный текст отправляется помощнику. Shift+Enter — новая строка.",
+    "Обычный текст отправляется помощнику. Shift+Enter — новая строка. PgUp/PgDn листают журнал, Home/End — его начало и конец.",
   ].join("\n");
 }

@@ -98,28 +98,45 @@ export interface TuiAppProps {
   baseUrl?: string;
 }
 
-export function TuiApp(props: TuiAppProps): React.JSX.Element {
-  const { exit } = useApp();
-  const { stdout } = useStdout();
-  // Ink перерисовывает весь alternate screen; храним обе координаты, чтобы
-  // менять раскладку и при горизонтальном ресайзе без изменения числа строк.
-  const [viewport, setViewport] = useState(() => ({
+interface TerminalViewport {
+  rows: number;
+  columns: number;
+}
+
+function readTerminalViewport(stdout: NodeJS.WriteStream): TerminalViewport {
+  return {
     rows: stdout.rows ?? 24,
     columns: stdout.columns ?? 80,
-  }));
+  };
+}
+
+function useTerminalViewport(): TerminalViewport {
+  const { stdout } = useStdout();
+  const [viewport, setViewport] = useState(() => readTerminalViewport(stdout));
+
   useEffect(() => {
-    const sync = (): void => {
-      setViewport({
-        rows: stdout.rows ?? 24,
-        columns: stdout.columns ?? 80,
-      });
+    let deferredSync: ReturnType<typeof setTimeout> | undefined;
+    const sync = (): void => setViewport(readTerminalViewport(stdout));
+    const handleResize = (): void => {
+      sync();
+      // Windows Terminal может обновить rows/columns сразу после события resize.
+      if (deferredSync) clearTimeout(deferredSync);
+      deferredSync = setTimeout(sync, 0);
     };
-    sync();
-    stdout.on("resize", sync);
+    handleResize();
+    stdout.on("resize", handleResize);
     return () => {
-      stdout.off("resize", sync);
+      if (deferredSync) clearTimeout(deferredSync);
+      stdout.off("resize", handleResize);
     };
   }, [stdout]);
+
+  return viewport;
+}
+
+export function TuiApp(props: TuiAppProps): React.JSX.Element {
+  const { exit } = useApp();
+  const viewport = useTerminalViewport();
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -137,6 +154,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // alternate screen никогда не получает статический вывод в скроллбэк,
   // а незавершённая строка остаётся частью перерисовываемого кадра.
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
+  const [transcriptOffset, setTranscriptOffset] = useState(0);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
   const nextTranscriptId = useRef(4);
   const suggestions = isSlashInput(editor.value)
@@ -159,6 +177,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         ...(flushed ? [flushed] : []),
         { id, text, tone },
       ]);
+      setTranscriptOffset(0);
     },
     [],
   );
@@ -178,12 +197,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       streamingRef.current = line;
       setStreaming(line);
     }
+    setTranscriptOffset(0);
   }, []);
 
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
     setStreaming(null);
     setTranscript([]);
+    setTranscriptOffset(0);
   }, []);
 
   const wasBusy = useRef(false);
@@ -194,6 +215,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         streamingRef.current = null;
         setStreaming(null);
         setTranscript((lines) => [...lines, flushed]);
+        setTranscriptOffset(0);
       }
     }
     wasBusy.current = busy;
@@ -242,7 +264,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (name === "/clear") {
-      setTranscript([]);
+      clearAll();
       return;
     }
     if (name === "/exit") {
@@ -293,6 +315,34 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (settings || busy) return;
+    if (key.pageUp) {
+      const firstVisible = visible.lines[0];
+      const firstVisibleIndex = firstVisible
+        ? transcriptLines.indexOf(firstVisible)
+        : -1;
+      if (firstVisibleIndex >= 0)
+        setTranscriptOffset(
+          Math.min(
+            transcriptLines.length - firstVisibleIndex,
+            maxTranscriptOffset(transcriptLines),
+          ),
+        );
+      return;
+    }
+    if (key.pageDown) {
+      setTranscriptOffset((offset) =>
+        Math.max(offset - Math.max(visible.lines.length, 1), 0),
+      );
+      return;
+    }
+    if (key.home) {
+      setTranscriptOffset(maxTranscriptOffset(transcriptLines));
+      return;
+    }
+    if (key.end) {
+      setTranscriptOffset(0);
+      return;
+    }
     if (key.ctrl && character === "c") {
       exit();
       return;
@@ -398,25 +448,37 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     columns: viewport.columns,
     suggestionsCount: suggestions.length,
   });
-  const visible = visibleTranscriptTail(
-    streaming ? [...transcript, streaming] : transcript,
+  const transcriptLines = streaming ? [...transcript, streaming] : transcript;
+  const clampedTranscriptOffset = Math.min(
+    transcriptOffset,
+    maxTranscriptOffset(transcriptLines),
+  );
+  const visible = visibleTranscriptWindow(
+    transcriptLines,
     viewport.rows,
     viewport.columns,
     footerRows,
+    clampedTranscriptOffset,
   );
 
   return (
     <Box
+      key={`${viewport.rows}x${viewport.columns}`}
       flexDirection="column"
       height={viewport.rows}
       width={viewport.columns}
       overflow="hidden"
+      alignItems="stretch"
     >
-      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
-        {visible.hiddenCount > 0 ? (
-          <Text dimColor>
-            … ↑ ещё {visible.hiddenCount} записей выше (экран полон)
-          </Text>
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        flexShrink={1}
+        overflow="hidden"
+        width="100%"
+      >
+        {visible.hiddenAboveCount > 0 ? (
+          <Text dimColor>… ↑ ещё {visible.hiddenAboveCount} записей выше</Text>
         ) : null}
         {visible.lines.map((line) => (
           <TranscriptLineView
@@ -426,8 +488,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             model={runtime.model}
           />
         ))}
+        {visible.hiddenBelowCount > 0 ? (
+          <Text dimColor>… ↓ ещё {visible.hiddenBelowCount} записей ниже</Text>
+        ) : null}
       </Box>
-      <Box flexShrink={0}>{footer}</Box>
+      <Box flexShrink={0} width="100%" alignItems="stretch">
+        {footer}
+      </Box>
     </Box>
   );
 }
@@ -569,33 +636,80 @@ export interface VisibleTranscriptTail {
   hiddenCount: number;
 }
 
-/** Выбирает хвост истории, который помещается над закреплённой нижней панелью. */
+export interface VisibleTranscriptWindow {
+  lines: TuiTranscriptLine[];
+  hiddenAboveCount: number;
+  hiddenBelowCount: number;
+}
+
+export function maxTranscriptOffset(lines: TuiTranscriptLine[]): number {
+  return Math.max(lines.length - 1, 0);
+}
+
+function selectTranscriptStart(
+  lines: TuiTranscriptLine[],
+  end: number,
+  columns: number,
+  budget: number,
+): number {
+  let used = 0;
+  let start = end;
+  for (let i = end - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (!line) break;
+    const height = estimateLineHeight(line, columns);
+    // Даже одна высокая запись остаётся доступной в очень маленьком окне.
+    if (used + height > budget && start < end) break;
+    used += height;
+    start = i;
+    if (used >= budget) break;
+  }
+  return start;
+}
+
+/** Выбирает доступное окно истории над закреплённой нижней панелью. */
+export function visibleTranscriptWindow(
+  lines: TuiTranscriptLine[],
+  rows: number,
+  columns: number,
+  footerRows: number,
+  offset = 0,
+): VisibleTranscriptWindow {
+  const contentRows = Math.max(rows - footerRows, 0);
+  const safeOffset = Math.max(0, Math.min(offset, maxTranscriptOffset(lines)));
+  const end = lines.length - safeOffset;
+  const belowRows = safeOffset > 0 ? 1 : 0;
+  let start = selectTranscriptStart(
+    lines,
+    end,
+    columns,
+    Math.max(contentRows - belowRows, 0),
+  );
+  // Верхний индикатор, как и нижний, занимает строку внутри viewport.
+  if (start > 0) {
+    start = selectTranscriptStart(
+      lines,
+      end,
+      columns,
+      Math.max(contentRows - belowRows - 1, 0),
+    );
+  }
+  return {
+    lines: lines.slice(start, end),
+    hiddenAboveCount: start,
+    hiddenBelowCount: lines.length - end,
+  };
+}
+
+/** Совместимый помощник: показывает самый новый хвост истории. */
 export function visibleTranscriptTail(
   lines: TuiTranscriptLine[],
   rows: number,
   columns: number,
   footerRows: number,
 ): VisibleTranscriptTail {
-  const contentRows = Math.max(rows - footerRows, 0);
-  const selectTail = (budget: number): number => {
-    let used = 0;
-    let start = lines.length;
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      const line = lines[i];
-      if (!line) break;
-      const height = estimateLineHeight(line, columns);
-      if (used + height > budget && start < lines.length) break;
-      used += height;
-      start = i;
-      if (used >= budget) break;
-    }
-    return start;
-  };
-
-  let start = selectTail(contentRows);
-  // Индикатор переполнения занимает строку в той же ограниченной области.
-  if (start > 0) start = selectTail(Math.max(contentRows - 1, 0));
-  return { lines: lines.slice(start), hiddenCount: start };
+  const visible = visibleTranscriptWindow(lines, rows, columns, footerRows);
+  return { lines: visible.lines, hiddenCount: visible.hiddenAboveCount };
 }
 
 /** Число строк текста с учётом переноса по ширине терминала. */
@@ -619,7 +733,7 @@ function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
       line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text,
       columns,
     );
-  if (tone === "error" || tone === "warn")
+  if (tone === "info" || tone === "error" || tone === "warn")
     return wrappedLines(line.text, columns);
   // assistant: markdown-раскладка + верхний отступ
   return 1 + estimateMarkdownHeight(line.text, columns);
@@ -682,6 +796,7 @@ function Approval({
       borderColor="yellow"
       paddingX={1}
       marginTop={1}
+      width="100%"
     >
       <Text bold color="yellow">
         ? [{meta.icon}] {meta.label} — нужно подтверждение
@@ -717,7 +832,7 @@ function Editor({
   suggestions: ReturnType<typeof matchingCommands>;
 }): React.JSX.Element {
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} width="100%" alignItems="stretch">
       {suggestions.length && !busy ? (
         <Box
           flexDirection="column"
@@ -725,6 +840,7 @@ function Editor({
           borderColor="gray"
           paddingX={1}
           marginBottom={1}
+          width="100%"
         >
           {suggestions.map((command, index) => (
             <Text key={command.name}>
@@ -749,6 +865,7 @@ function Editor({
         borderStyle="round"
         borderColor={busy ? "yellow" : "cyan"}
         paddingX={1}
+        width="100%"
       >
         {busy ? (
           <Thinking model={model} />
@@ -764,7 +881,8 @@ function Editor({
         )}
       </Box>
       <Text dimColor>
-        Enter — отправить · Shift+Enter — новая строка · ↑/↓ — история
+        Enter — отправить · Shift+Enter — новая строка · ↑/↓ — история ·
+        PgUp/PgDn — журнал
       </Text>
     </Box>
   );

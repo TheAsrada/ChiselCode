@@ -18,7 +18,9 @@ import {
 } from "../../src/ui/editor.js";
 import {
   estimateFooterHeight,
+  maxTranscriptOffset,
   visibleTranscriptTail,
+  visibleTranscriptWindow,
 } from "../../src/ui/tui.js";
 
 describe("interactive commands", () => {
@@ -46,6 +48,7 @@ describe("interactive commands", () => {
     expect(commandHelpText()).toContain("/settings");
     expect(commandHelpText()).toContain("/cwd");
     expect(commandHelpText()).toContain("Shift+Enter");
+    expect(commandHelpText()).toContain("PgUp/PgDn");
   });
 });
 
@@ -161,6 +164,69 @@ describe("interactive viewport layout", () => {
     expect(visibleTranscriptTail(lines, 8, 15, 5)).toEqual({
       lines: [second],
       hiddenCount: 1,
+    });
+  });
+
+  test("browses an in-memory transcript in both directions", () => {
+    const lines = [
+      { id: 0, text: "первая", tone: "info" as const },
+      { id: 1, text: "вторая", tone: "info" as const },
+      { id: 2, text: "третья", tone: "info" as const },
+      { id: 3, text: "четвёртая", tone: "info" as const },
+    ];
+    const first = lines[0];
+    const second = lines[1];
+    const third = lines[2];
+    const fourth = lines[3];
+    if (!first || !second || !third || !fourth)
+      throw new Error("test data is incomplete");
+
+    expect(visibleTranscriptWindow(lines, 8, 20, 5)).toEqual({
+      lines: [third, fourth],
+      hiddenAboveCount: 2,
+      hiddenBelowCount: 0,
+    });
+    expect(visibleTranscriptWindow(lines, 8, 20, 5, 1)).toEqual({
+      lines: [third],
+      hiddenAboveCount: 2,
+      hiddenBelowCount: 1,
+    });
+    expect(visibleTranscriptWindow(lines, 8, 20, 5, 2)).toEqual({
+      lines: [first, second],
+      hiddenAboveCount: 0,
+      hiddenBelowCount: 2,
+    });
+    expect(visibleTranscriptWindow(lines, 8, 20, 5, 3)).toEqual({
+      lines: [first],
+      hiddenAboveCount: 0,
+      hiddenBelowCount: 3,
+    });
+  });
+
+  test("clamps transcript navigation and recomputes its window after resize", () => {
+    const lines = [
+      { id: 0, text: "коротко", tone: "info" as const },
+      {
+        id: 1,
+        text: "длинная запись для проверки пересчёта окна после изменения ширины терминала",
+        tone: "info" as const,
+      },
+      { id: 2, text: "новее", tone: "info" as const },
+    ];
+    const first = lines[0];
+    const second = lines[1];
+    if (!first || !second) throw new Error("test data is incomplete");
+
+    expect(maxTranscriptOffset(lines)).toBe(2);
+    expect(visibleTranscriptWindow(lines, 8, 80, 5, 99)).toEqual({
+      lines: [first],
+      hiddenAboveCount: 0,
+      hiddenBelowCount: 2,
+    });
+    expect(visibleTranscriptWindow(lines, 8, 15, 5, 1)).toEqual({
+      lines: [second],
+      hiddenAboveCount: 1,
+      hiddenBelowCount: 1,
     });
   });
 });
