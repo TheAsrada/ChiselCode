@@ -25,7 +25,9 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
+import { MarkdownText } from "./markdown.js";
 import { SettingsPanel, type TuiSettingsValues } from "./settings.js";
+import { Thinking } from "./thinking.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
   bind(setter?: (request: ApprovalRequest | undefined) => void): void;
@@ -33,12 +35,21 @@ export interface TuiApprovalResolver extends ApprovalResolver {
   dispose(): void;
 }
 
+export type TranscriptTone =
+  | "assistant"
+  | "user"
+  | "tool"
+  | "info"
+  | "warn"
+  | "error";
+
 export interface TuiTranscriptLine {
   id: number;
   text: string;
+  tone?: TranscriptTone;
 }
 export interface TuiTranscript {
-  append(line: string): void;
+  append(line: string, tone?: TranscriptTone): void;
   appendToLast(text: string): void;
   clear(): void;
 }
@@ -101,7 +112,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(
     intro(props.providerLabel, props.model),
   );
-  const nextTranscriptId = useRef(2);
+  const nextTranscriptId = useRef(3);
   const suggestions = isSlashInput(editor.value)
     ? matchingCommands(editor.value)
     : [];
@@ -113,10 +124,10 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   }, [props.approvalResolver]);
   useEffect(() => {
     props.bindTranscript({
-      append: (text) =>
+      append: (text, tone = "assistant") =>
         setTranscript((lines) => [
           ...lines,
-          { id: nextTranscriptId.current++, text },
+          { id: nextTranscriptId.current++, text, tone },
         ]),
       appendToLast: (text) =>
         setTranscript((lines) => {
@@ -129,10 +140,10 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     });
   }, [props.bindTranscript]);
 
-  function append(text: string): void {
+  function append(text: string, tone: TranscriptTone = "assistant"): void {
     setTranscript((lines) => [
       ...lines,
-      { id: nextTranscriptId.current++, text },
+      { id: nextTranscriptId.current++, text, tone },
     ]);
   }
   function submit(value: string): void {
@@ -144,7 +155,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (isSlashInput(prompt)) {
-      append(`Неизвестная команда: ${prompt}. Введите /help.`);
+      append(`Неизвестная команда: ${prompt}. Введите /help.`, "error");
       setEditor((state) => addEditorHistory(state, prompt));
       return;
     }
@@ -155,6 +166,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       .catch((cause) =>
         append(
           `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
         ),
       )
       .finally(() => setBusy(false));
@@ -162,7 +174,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   async function runCommand(name: SlashCommandName, args = ""): Promise<void> {
     setEditor(createEditorState());
     if (name === "/help") {
-      append(commandHelpText());
+      append(commandHelpText(), "info");
       return;
     }
     if (name === "/clear") {
@@ -176,10 +188,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     if (name === "/cwd") {
       setBusy(true);
       try {
-        append(await props.onSwitchProject(args));
+        append(await props.onSwitchProject(args), "info");
       } catch (cause) {
         append(
           `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
         );
       } finally {
         setBusy(false);
@@ -196,10 +209,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     setBusy(true);
     try {
-      append(await props.onStatus());
+      append(await props.onStatus(), "info");
     } catch (cause) {
       append(
         `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+        "error",
       );
     } finally {
       setBusy(false);
@@ -277,7 +291,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   if (settings)
     return (
       <Box flexDirection="column">
-        <Header />
+        <Header providerLabel={runtime.providerLabel} model={runtime.model} />
         <SettingsPanel
           initialValues={{
             provider: runtime.provider,
@@ -304,9 +318,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     );
   return (
     <Box flexDirection="column">
-      <Header />
+      <Header providerLabel={runtime.providerLabel} model={runtime.model} />
       {transcript.map((line) => (
-        <Text key={line.id}>{line.text}</Text>
+        <TranscriptLineView key={line.id} line={line} />
       ))}
       {request ? (
         <Approval request={request} />
@@ -315,6 +329,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           value={editor.value}
           cursor={editor.cursor}
           busy={busy}
+          model={runtime.model}
           suggestions={suggestions}
         />
       )}
@@ -322,11 +337,61 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   );
 }
 
-function Header(): React.JSX.Element {
+function Header({
+  providerLabel,
+  model,
+}: {
+  providerLabel: string;
+  model: string;
+}): React.JSX.Element {
   return (
-    <Text bold color="cyan">
-      ChiselCode
-    </Text>
+    <Box flexDirection="column" marginBottom={1}>
+      <Box>
+        <Text bold color="cyan">
+          ◈ ChiselCode
+        </Text>
+        <Text dimColor> · </Text>
+        <Text color="magenta">{providerLabel}</Text>
+        <Text dimColor> · </Text>
+        <Text color="yellow">{model}</Text>
+      </Box>
+      <Text dimColor>────────────────────────────────────────</Text>
+    </Box>
+  );
+}
+function TranscriptLineView({
+  line,
+}: {
+  line: TuiTranscriptLine;
+}): React.JSX.Element {
+  const tone = line.tone ?? "assistant";
+  if (tone === "user")
+    return (
+      <Box marginTop={1}>
+        <Text bold color="green">
+          ›{" "}
+        </Text>
+        <Text bold>{line.text.replace(/^›\s?/, "")}</Text>
+      </Box>
+    );
+  if (tone === "tool") {
+    const summary = line.text.replace(/^\[chisel\]\s?/, "");
+    const preview =
+      summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
+    return (
+      <Text dimColor>
+        <Text color="cyan">⟡ </Text>
+        {preview}
+      </Text>
+    );
+  }
+  if (tone === "error") return <Text color="red">✗ {line.text}</Text>;
+  if (tone === "warn") return <Text color="yellow">⚠ {line.text}</Text>;
+  if (tone === "info") return <Text>{line.text}</Text>;
+  return (
+    <Box marginTop={1}>
+      <MarkdownText text={line.text} />
+    </Box>
   );
 }
 function providerName(provider: ProviderKind): string {
@@ -335,16 +400,45 @@ function providerName(provider: ProviderKind): string {
   if (provider === "openai") return "OpenAI";
   return "OpenAI-совместимый API";
 }
+const TOOL_META: Record<string, { icon: string; label: string }> = {
+  write_file: { icon: "+", label: "Запись файла" },
+  edit_file: { icon: "~", label: "Редактирование файла" },
+  delete_file: { icon: "×", label: "Удаление файла" },
+  run_shell: { icon: "$", label: "Команда shell" },
+  git_commit: { icon: "#", label: "Git commit" },
+};
+
 function Approval({
   request,
 }: {
   request: ApprovalRequest;
 }): React.JSX.Element {
+  const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Text color="yellow">Нужно подтверждение для {request.tool}</Text>
-      <Text>{request.preview}</Text>
-      <Text>Разрешить? [y/N]</Text>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="yellow"
+      paddingX={1}
+      marginTop={1}
+    >
+      <Text bold color="yellow">
+        ? [{meta.icon}] {meta.label} — нужно подтверждение
+      </Text>
+      <Box marginY={1}>
+        <Text>{request.preview}</Text>
+      </Box>
+      <Text>
+        [
+        <Text bold color="green">
+          y
+        </Text>
+        ] разрешить · [
+        <Text bold color="red">
+          n
+        </Text>
+        ] отклонить <Text dimColor>(Esc — тоже отклонить)</Text>
+      </Text>
     </Box>
   );
 }
@@ -352,35 +446,84 @@ function Editor({
   value,
   cursor,
   busy,
+  model,
   suggestions,
 }: {
   value: string;
   cursor: number;
   busy: boolean;
+  model: string;
   suggestions: ReturnType<typeof matchingCommands>;
 }): React.JSX.Element {
-  const rendered = `${value.slice(0, cursor)}${cursor === value.length ? "█" : ""}${value.slice(cursor)}`;
   return (
     <Box flexDirection="column" marginTop={1}>
-      {busy ? (
-        <Text color="yellow">ChiselCode отвечает…</Text>
-      ) : (
-        <Text color="green">› {rendered}</Text>
-      )}
-      {suggestions.length ? (
-        <Box flexDirection="column">
+      <Box
+        borderStyle="round"
+        borderColor={busy ? "yellow" : "cyan"}
+        paddingX={1}
+      >
+        {busy ? (
+          <Thinking model={model} />
+        ) : value ? (
+          <Text>
+            <Text bold color="green">
+              ›{" "}
+            </Text>
+            {renderWithCursor(value, cursor)}
+          </Text>
+        ) : (
+          <Text dimColor>› Спросите что-нибудь… ( / — команды )</Text>
+        )}
+      </Box>
+      {suggestions.length && !busy ? (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor="gray"
+          paddingX={1}
+        >
           {suggestions.map((command, index) => (
-            <Text key={command.name} color={index === 0 ? "green" : undefined}>
-              {index === 0 ? "› " : "  "}
-              {command.name} — {command.description}
+            <Text key={command.name}>
+              {index === 0 ? (
+                <>
+                  <Text bold color="green">
+                    › {command.name}
+                  </Text>
+                  <Text dimColor> — {command.description}</Text>
+                </>
+              ) : (
+                <Text dimColor>
+                  {" "}
+                  {command.name} — {command.description}
+                </Text>
+              )}
             </Text>
           ))}
         </Box>
       ) : null}
       <Text dimColor>
-        Enter — отправить · Shift+Enter — новая строка · / — команды
+        Enter — отправить · Shift+Enter — новая строка · ↑/↓ — история
       </Text>
     </Box>
+  );
+}
+
+/** Текст ввода с видимым курсором (инверсия символа под курсором). */
+function renderWithCursor(value: string, cursor: number): React.ReactNode {
+  const safeCursor = Math.max(0, Math.min(cursor, value.length));
+  const before = value.slice(0, safeCursor);
+  const at = value[safeCursor];
+  const after = value.slice(safeCursor + 1);
+  return (
+    <>
+      <Text>{before}</Text>
+      {at === undefined ? (
+        <Text color="green">█</Text>
+      ) : (
+        <Text inverse>{at}</Text>
+      )}
+      <Text>{after}</Text>
+    </>
   );
 }
 function intro(providerLabel: string, model: string): TuiTranscriptLine[] {
@@ -388,7 +531,17 @@ function intro(providerLabel: string, model: string): TuiTranscriptLine[] {
     {
       id: 0,
       text: `Готово. ${providerLabel}, модель ${model}. Напишите задачу или /help.`,
+      tone: "info",
     },
-    { id: 1, text: "Изменения всегда требуют подтверждения y/n." },
+    {
+      id: 1,
+      text: "Изменения всегда требуют подтверждения y/n.",
+      tone: "info",
+    },
+    {
+      id: 2,
+      text: "Подсказка: /cwd <путь> — сменить проект, Tab — дополнить команду.",
+      tone: "info",
+    },
   ];
 }

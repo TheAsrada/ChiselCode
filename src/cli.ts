@@ -295,7 +295,7 @@ async function startTui(options: RunOptions): Promise<void> {
         onSubmit: async (prompt: string) => {
           if (active || !transcript) return;
           active = true;
-          transcript.append(`› ${prompt}`);
+          transcript.append(`› ${prompt}`, "user");
           let responseOpen = false;
           try {
             const { result } = await runPrompt(
@@ -312,11 +312,15 @@ async function startTui(options: RunOptions): Promise<void> {
                   responseOpen = false;
                   transcript?.append(
                     `[chisel] ${name} ${JSON.stringify(input)}`,
+                    "tool",
                   );
                 },
                 onToolResult: (name, result) => {
                   if (result.isError)
-                    transcript?.append(`[chisel] ${name}: ${result.output}`);
+                    transcript?.append(
+                      `[chisel] ${name}: ${result.output}`,
+                      "error",
+                    );
                 },
               },
             );
@@ -325,14 +329,17 @@ async function startTui(options: RunOptions): Promise<void> {
                 result.text ||
                   result.error ||
                   "Сервис завершил запрос без текстового ответа. Повторите запрос или проверьте адрес API и модель в chisel setup.",
+                result.error ? "error" : "assistant",
               );
             if (result.status === "approval_required")
               transcript.append(
                 `Нужно подтверждение: ${result.pendingApproval?.preview ?? "(нет preview)"}`,
+                "warn",
               );
           } catch (error) {
             transcript.append(
               `Ошибка: ${error instanceof Error ? error.message : String(error)}`,
+              "error",
             );
           } finally {
             active = false;

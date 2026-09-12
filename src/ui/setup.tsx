@@ -113,11 +113,20 @@ export function SetupApp({
   });
 
   return (
-    <Box flexDirection="column">
-      <Text bold color="cyan">
-        ChiselCode — быстрая настройка
-      </Text>
-      <Text>Настройка займёт меньше минуты. Ctrl+C — отмена.</Text>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="cyan"
+      paddingX={1}
+      marginTop={1}
+    >
+      <Box>
+        <Text bold color="cyan">
+          ✦ ChiselCode — быстрая настройка
+        </Text>
+        <Text dimColor> · {stepLabel(step, provider)}</Text>
+      </Box>
+      <Text dimColor>Настройка займёт меньше минуты. Ctrl+C — отмена.</Text>
       {step === "provider" ? <ProviderSelection /> : null}
       {step === "key" ? <ApiKeyInput value={apiKey} /> : null}
       {step === "base-url" ? <BaseUrlInput value={baseUrl} /> : null}
@@ -132,14 +141,53 @@ export function SetupApp({
   );
 }
 
+function stepLabel(step: Step, provider: ProviderKind): string {
+  if (step === "provider") return "шаг 1/3";
+  if (step === "key") return "шаг 2/4";
+  if (step === "base-url") return "шаг 3/4";
+  if (step === "model")
+    return provider === "anthropic" || provider === "openai"
+      ? "шаг 3/3"
+      : "шаг 4/4";
+  return "сохранение…";
+}
+
 function ProviderSelection(): React.JSX.Element {
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold>1. Выберите сервис:</Text>
-      <Text> [1] Anthropic (Claude) — рекомендуемый вариант</Text>
-      <Text> [2] OpenAI (ChatGPT API)</Text>
-      <Text> [3] Другой OpenAI-совместимый сервис / локальная модель</Text>
-      <Text> [4] Anthropic-совместимый API proxy</Text>
+      <Text>
+        {" "}
+        [
+        <Text bold color="green">
+          1
+        </Text>
+        ] Anthropic (Claude) — рекомендуемый вариант
+      </Text>
+      <Text>
+        {" "}
+        [
+        <Text bold color="green">
+          2
+        </Text>
+        ] OpenAI (ChatGPT API)
+      </Text>
+      <Text>
+        {" "}
+        [
+        <Text bold color="green">
+          3
+        </Text>
+        ] Другой OpenAI-совместимый сервис / локальная модель
+      </Text>
+      <Text>
+        {" "}
+        [
+        <Text bold color="green">
+          4
+        </Text>
+        ] Anthropic-совместимый API proxy
+      </Text>
       <Text color="green">Нажмите 1, 2, 3 или 4.</Text>
     </Box>
   );
