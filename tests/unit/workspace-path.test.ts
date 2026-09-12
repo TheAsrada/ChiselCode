@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveProjectDir } from "../../src/utils/paths.js";
@@ -8,7 +8,11 @@ describe("resolveProjectDir", () => {
   test("keeps an existing directory as the project root", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chiselcode-test-"));
     try {
-      expect(await resolveProjectDir(directory, tmpdir())).toBe(directory);
+      // realpath: tmpdir may contain symlinks (/var -> /private/var on macOS,
+      // 8.3 short names on Windows), and resolveProjectDir canonicalizes them.
+      expect(await resolveProjectDir(directory, tmpdir())).toBe(
+        await realpath(directory),
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -19,7 +23,9 @@ describe("resolveProjectDir", () => {
     const file = join(directory, "main.ts");
     try {
       await writeFile(file, "const x = 1;\n", "utf8");
-      expect(await resolveProjectDir(file, tmpdir())).toBe(directory);
+      expect(await resolveProjectDir(file, tmpdir())).toBe(
+        await realpath(directory),
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -30,7 +36,9 @@ describe("resolveProjectDir", () => {
     const nested = join(directory, "nested");
     try {
       await mkdir(nested, { recursive: true });
-      expect(await resolveProjectDir("nested", directory)).toBe(nested);
+      expect(await resolveProjectDir("nested", directory)).toBe(
+        await realpath(nested),
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
