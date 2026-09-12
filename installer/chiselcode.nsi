@@ -20,6 +20,8 @@
 !include "StrFunc.nsh"
 !include "WinMessages.nsh"
 
+${Using:StrFunc} StrStr
+
 Name "${APPNAME} ${VERSION}"
 OutFile "..\dist\release\ChiselCode-Setup-${VERSION}.exe"
 InstallDir "$LOCALAPPDATA\${APPNAME}"
@@ -30,6 +32,8 @@ BrandingText "${APPNAME}"
 
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey "ProductName" "${APPNAME}"
+VIAddVersionKey "FileDescription" "${APPNAME} Setup"
+VIAddVersionKey "LegalCopyright" "MIT"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 
@@ -110,25 +114,52 @@ Function AddToUserPath
 FunctionEnd
 
 ; Removes $0 from the user PATH (only the exact entry we added).
+; Pure-instruction loop: StrFunc macros cannot be Called from uninstall code.
 Function un.RemoveFromUserPath
   Exch $0
   Push $1
   Push $2
+  Push $3
+  Push $4
+  Push $5
+  Push $6
+  Push $7
   ReadRegStr $1 HKCU "Environment" "Path"
   ${If} $1 != ""
     StrCpy $2 ";$1;"
-    ${StrRep} $2 $2 ";$0;" ";"
-    StrCpy $1 $2 1
-    ${If} $1 == ";"
-      StrCpy $2 $2 "" 1
+    StrCpy $3 ""
+    StrLen $4 ";$0;"
+    ${Do}
+      StrLen $5 $2
+      ${If} $5 == 0
+        ${Break}
+      ${EndIf}
+      StrCpy $6 $2 $4
+      ${If} $6 == ";$0;"
+        StrCpy $3 "$3;"
+        StrCpy $2 $2 "" $4
+      ${Else}
+        StrCpy $7 $2 1
+        StrCpy $3 "$3$7"
+        StrCpy $2 $2 "" 1
+      ${EndIf}
+    ${Loop}
+    StrCpy $6 $3 1
+    ${If} $6 == ";"
+      StrCpy $3 $3 "" 1
     ${EndIf}
-    StrCpy $1 $2 1 -1
-    ${If} $1 == ";"
-      StrCpy $2 $2 -1
+    StrCpy $6 $3 1 -1
+    ${If} $6 == ";"
+      StrCpy $3 $3 -1
     ${EndIf}
-    WriteRegExpandStr HKCU "Environment" "Path" "$2"
+    WriteRegExpandStr HKCU "Environment" "Path" "$3"
   ${EndIf}
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
+  Pop $7
+  Pop $6
+  Pop $5
+  Pop $4
+  Pop $3
   Pop $2
   Pop $1
   Pop $0
