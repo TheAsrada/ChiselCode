@@ -152,7 +152,7 @@ export function SettingsPanel({
   }
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} alignItems="stretch">
       <Text bold color="cyan">
         Настройки
       </Text>

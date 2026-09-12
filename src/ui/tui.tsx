@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -98,45 +98,9 @@ export interface TuiAppProps {
   baseUrl?: string;
 }
 
-interface TerminalViewport {
-  rows: number;
-  columns: number;
-}
-
-function readTerminalViewport(stdout: NodeJS.WriteStream): TerminalViewport {
-  return {
-    rows: stdout.rows ?? 24,
-    columns: stdout.columns ?? 80,
-  };
-}
-
-function useTerminalViewport(): TerminalViewport {
-  const { stdout } = useStdout();
-  const [viewport, setViewport] = useState(() => readTerminalViewport(stdout));
-
-  useEffect(() => {
-    let deferredSync: ReturnType<typeof setTimeout> | undefined;
-    const sync = (): void => setViewport(readTerminalViewport(stdout));
-    const handleResize = (): void => {
-      sync();
-      // Windows Terminal может обновить rows/columns сразу после события resize.
-      if (deferredSync) clearTimeout(deferredSync);
-      deferredSync = setTimeout(sync, 0);
-    };
-    handleResize();
-    stdout.on("resize", handleResize);
-    return () => {
-      if (deferredSync) clearTimeout(deferredSync);
-      stdout.off("resize", handleResize);
-    };
-  }, [stdout]);
-
-  return viewport;
-}
-
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
-  const viewport = useTerminalViewport();
+  const viewport = useWindowSize();
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -404,7 +368,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   if (settings)
     return (
-      <Box flexDirection="column">
+      <Box
+        flexDirection="column"
+        height={viewport.rows}
+        width="100%"
+        overflow="hidden"
+        alignItems="stretch"
+      >
         <Header providerLabel={runtime.providerLabel} model={runtime.model} />
         <SettingsPanel
           initialValues={{
@@ -463,20 +433,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   return (
     <Box
-      key={`${viewport.rows}x${viewport.columns}`}
       flexDirection="column"
       height={viewport.rows}
-      width={viewport.columns}
+      width="100%"
       overflow="hidden"
       alignItems="stretch"
     >
-      <Box
-        flexDirection="column"
-        flexGrow={1}
-        flexShrink={1}
-        overflow="hidden"
-        width="100%"
-      >
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
         {visible.hiddenAboveCount > 0 ? (
           <Text dimColor>… ↑ ещё {visible.hiddenAboveCount} записей выше</Text>
         ) : null}
@@ -492,7 +455,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           <Text dimColor>… ↓ ещё {visible.hiddenBelowCount} записей ниже</Text>
         ) : null}
       </Box>
-      <Box flexShrink={0} width="100%" alignItems="stretch">
+      <Box flexDirection="column" flexShrink={0} alignItems="stretch">
         {footer}
       </Box>
     </Box>
@@ -796,7 +759,6 @@ function Approval({
       borderColor="yellow"
       paddingX={1}
       marginTop={1}
-      width="100%"
     >
       <Text bold color="yellow">
         ? [{meta.icon}] {meta.label} — нужно подтверждение
@@ -832,7 +794,7 @@ function Editor({
   suggestions: ReturnType<typeof matchingCommands>;
 }): React.JSX.Element {
   return (
-    <Box flexDirection="column" marginTop={1} width="100%" alignItems="stretch">
+    <Box flexDirection="column" marginTop={1} alignItems="stretch">
       {suggestions.length && !busy ? (
         <Box
           flexDirection="column"
@@ -840,7 +802,6 @@ function Editor({
           borderColor="gray"
           paddingX={1}
           marginBottom={1}
-          width="100%"
         >
           {suggestions.map((command, index) => (
             <Text key={command.name}>
@@ -865,7 +826,6 @@ function Editor({
         borderStyle="round"
         borderColor={busy ? "yellow" : "cyan"}
         paddingX={1}
-        width="100%"
       >
         {busy ? (
           <Thinking model={model} />
