@@ -11,6 +11,7 @@ import {
 import { loadGlobalConfig, saveGlobalConfig } from "./config/load.js";
 import { CredentialStore } from "./security/credentials.js";
 import type { GlobalConfig, ProviderKind } from "./types/domain.js";
+import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import {
   createTuiApprovalResolver,
@@ -22,7 +23,7 @@ const program = new Command();
 program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
-  .version("0.1.5")
+  .version("0.1.6")
   .argument("[prompt]", "задача обычным языком")
   .option("--provider <provider>", "anthropic, openai или openai-compatible")
   .option("--model <model>", "название модели")
@@ -157,19 +158,77 @@ async function startTui(options: RunOptions): Promise<void> {
   }
 
   const resolver = createTuiApprovalResolver();
+  let activeOptions: RunOptions = { ...options };
   let transcript: TuiTranscript | undefined;
   let active = false;
+  let restartSetup = false;
   const instance = render(
     React.createElement(TuiApp, {
       approvalResolver: resolver,
+      provider,
       providerLabel: providerLabel(provider),
       model:
         options.model ??
         providerConfig?.defaultModel ??
         config.defaultModel ??
         (defaultModelFor(provider) || "не выбрана"),
+      baseUrl: options.baseUrl ?? providerConfig?.baseUrl,
       bindTranscript: (nextTranscript: TuiTranscript) => {
         transcript = nextTranscript;
+      },
+      onStatus: async () => {
+        const current = await loadGlobalConfig();
+        const currentProvider =
+          activeOptions.provider ?? current.defaultProvider ?? provider;
+        const currentConfig = current.providers[currentProvider];
+        const ready = await hasApiKey(
+          currentProvider,
+          currentConfig?.apiKeyRef,
+        );
+        return [
+          "Состояние ChiselCode:",
+          `Сервис: ${providerLabel(currentProvider)}`,
+          `Модель: ${activeOptions.model ?? currentConfig?.defaultModel ?? current.defaultModel ?? "не выбрана"}`,
+          `Проект: ${activeOptions.cwd ?? process.cwd()}`,
+          `API-ключ: ${ready ? "настроен" : "не настроен"}`,
+          activeOptions.resume
+            ? `Сессия: ${activeOptions.resume}`
+            : "Сессия: новая для следующего запроса",
+        ].join("\n");
+      },
+      onSaveSettings: async (values: TuiSettingsValues) => {
+        const current = await loadGlobalConfig();
+        const previous = current.providers[values.provider];
+        const next: GlobalConfig = {
+          ...current,
+          defaultProvider: values.provider,
+          defaultModel: values.model,
+          providers: {
+            ...current.providers,
+            [values.provider]: {
+              provider: values.provider,
+              apiKeyRef: previous?.apiKeyRef,
+              defaultModel: values.model,
+              baseUrl:
+                values.provider === "openai-compatible"
+                  ? values.baseUrl
+                  : undefined,
+            },
+          },
+        };
+        await saveGlobalConfig(next);
+        activeOptions = {
+          ...activeOptions,
+          provider: values.provider,
+          model: values.model,
+          baseUrl: values.baseUrl,
+        };
+        return (await hasApiKey(values.provider, previous?.apiKeyRef))
+          ? "saved"
+          : "setup_required";
+      },
+      onRestartSetup: () => {
+        restartSetup = true;
       },
       onSubmit: async (prompt: string) => {
         if (active || !transcript) return;
@@ -177,7 +236,7 @@ async function startTui(options: RunOptions): Promise<void> {
         transcript.append(`› ${prompt}`);
         let responseOpen = false;
         try {
-          const { result } = await runPrompt(prompt, options, resolver, {
+          const { result } = await runPrompt(prompt, activeOptions, resolver, {
             onText: (text) => {
               if (responseOpen) transcript?.appendToLast(text);
               else transcript?.append(text);
@@ -213,6 +272,7 @@ async function startTui(options: RunOptions): Promise<void> {
     }),
   );
   await instance.waitUntilExit();
+  if (restartSetup && (await startSetup())) await startTui(options);
 }
 
 async function startSetup(initialProvider?: ProviderKind): Promise<boolean> {
