@@ -1,6 +1,6 @@
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput } from "ink";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -41,7 +41,8 @@ export type TranscriptTone =
   | "tool"
   | "info"
   | "warn"
-  | "error";
+  | "error"
+  | "brand";
 
 export interface TuiTranscriptLine {
   id: number;
@@ -112,7 +113,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(
     intro(props.providerLabel, props.model),
   );
-  const nextTranscriptId = useRef(3);
+  // Незавершённый стриминговый ответ живёт отдельно от истории:
+  // история уходит в <Static> (скроллится вверх), а ввод остаётся внизу.
+  const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
+  const streamingRef = useRef<TuiTranscriptLine | null>(null);
+  const nextTranscriptId = useRef(4);
   const suggestions = isSlashInput(editor.value)
     ? matchingCommands(editor.value)
     : [];
@@ -122,29 +127,67 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     props.approvalResolver.bind(setRequest);
     return () => props.approvalResolver.dispose();
   }, [props.approvalResolver]);
+  const pushLine = useCallback(
+    (text: string, tone: TranscriptTone = "assistant"): void => {
+      const flushed = streamingRef.current;
+      streamingRef.current = null;
+      setStreaming(null);
+      const id = nextTranscriptId.current++;
+      setTranscript((lines) => [
+        ...lines,
+        ...(flushed ? [flushed] : []),
+        { id, text, tone },
+      ]);
+    },
+    [],
+  );
+
+  const appendToStreaming = useCallback((text: string): void => {
+    const current = streamingRef.current;
+    if (current) {
+      const next = { ...current, text: current.text + text };
+      streamingRef.current = next;
+      setStreaming(next);
+    } else {
+      const line: TuiTranscriptLine = {
+        id: nextTranscriptId.current++,
+        text,
+        tone: "assistant",
+      };
+      streamingRef.current = line;
+      setStreaming(line);
+    }
+  }, []);
+
+  const clearAll = useCallback((): void => {
+    streamingRef.current = null;
+    setStreaming(null);
+    setTranscript([]);
+  }, []);
+
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy) {
+      const flushed = streamingRef.current;
+      if (flushed) {
+        streamingRef.current = null;
+        setStreaming(null);
+        setTranscript((lines) => [...lines, flushed]);
+      }
+    }
+    wasBusy.current = busy;
+  }, [busy]);
+
   useEffect(() => {
     props.bindTranscript({
-      append: (text, tone = "assistant") =>
-        setTranscript((lines) => [
-          ...lines,
-          { id: nextTranscriptId.current++, text, tone },
-        ]),
-      appendToLast: (text) =>
-        setTranscript((lines) => {
-          const last = lines.at(-1);
-          return last
-            ? [...lines.slice(0, -1), { ...last, text: last.text + text }]
-            : [{ id: nextTranscriptId.current++, text }];
-        }),
-      clear: () => setTranscript([]),
+      append: (text, tone = "assistant") => pushLine(text, tone),
+      appendToLast: (text) => appendToStreaming(text),
+      clear: () => clearAll(),
     });
-  }, [props.bindTranscript]);
+  }, [props.bindTranscript, pushLine, appendToStreaming, clearAll]);
 
   function append(text: string, tone: TranscriptTone = "assistant"): void {
-    setTranscript((lines) => [
-      ...lines,
-      { id: nextTranscriptId.current++, text, tone },
-    ]);
+    pushLine(text, tone);
   }
   function submit(value: string): void {
     const prompt = value.trim();
@@ -318,10 +361,23 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     );
   return (
     <Box flexDirection="column">
-      <Header providerLabel={runtime.providerLabel} model={runtime.model} />
-      {transcript.map((line) => (
-        <TranscriptLineView key={line.id} line={line} />
-      ))}
+      <Static items={transcript}>
+        {(line) => (
+          <TranscriptLineView
+            key={line.id}
+            line={line}
+            providerLabel={runtime.providerLabel}
+            model={runtime.model}
+          />
+        )}
+      </Static>
+      {streaming ? (
+        <TranscriptLineView
+          line={streaming}
+          providerLabel={runtime.providerLabel}
+          model={runtime.model}
+        />
+      ) : null}
       {request ? (
         <Approval request={request} />
       ) : (
@@ -361,10 +417,31 @@ function Header({
 }
 function TranscriptLineView({
   line,
+  providerLabel,
+  model,
 }: {
   line: TuiTranscriptLine;
+  providerLabel: string;
+  model: string;
 }): React.JSX.Element {
   const tone = line.tone ?? "assistant";
+  if (tone === "brand") {
+    const [provider, ...modelParts] = line.text.split(" · ");
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        <Box>
+          <Text bold color="cyan">
+            ◈ ChiselCode
+          </Text>
+          <Text dimColor> · </Text>
+          <Text color="magenta">{provider ?? providerLabel}</Text>
+          <Text dimColor> · </Text>
+          <Text color="yellow">{modelParts.join(" · ") || model}</Text>
+        </Box>
+        <Text dimColor>────────────────────────────────────────</Text>
+      </Box>
+    );
+  }
   if (tone === "user")
     return (
       <Box marginTop={1}>
@@ -457,30 +534,13 @@ function Editor({
 }): React.JSX.Element {
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Box
-        borderStyle="round"
-        borderColor={busy ? "yellow" : "cyan"}
-        paddingX={1}
-      >
-        {busy ? (
-          <Thinking model={model} />
-        ) : value ? (
-          <Text>
-            <Text bold color="green">
-              ›{" "}
-            </Text>
-            {renderWithCursor(value, cursor)}
-          </Text>
-        ) : (
-          <Text dimColor>› Спросите что-нибудь… ( / — команды )</Text>
-        )}
-      </Box>
       {suggestions.length && !busy ? (
         <Box
           flexDirection="column"
           borderStyle="round"
           borderColor="gray"
           paddingX={1}
+          marginBottom={1}
         >
           {suggestions.map((command, index) => (
             <Text key={command.name}>
@@ -501,6 +561,24 @@ function Editor({
           ))}
         </Box>
       ) : null}
+      <Box
+        borderStyle="round"
+        borderColor={busy ? "yellow" : "cyan"}
+        paddingX={1}
+      >
+        {busy ? (
+          <Thinking model={model} />
+        ) : value ? (
+          <Text>
+            <Text bold color="green">
+              ›{" "}
+            </Text>
+            {renderWithCursor(value, cursor)}
+          </Text>
+        ) : (
+          <Text dimColor>› Спросите что-нибудь… ( / — команды )</Text>
+        )}
+      </Box>
       <Text dimColor>
         Enter — отправить · Shift+Enter — новая строка · ↑/↓ — история
       </Text>
@@ -530,16 +608,21 @@ function intro(providerLabel: string, model: string): TuiTranscriptLine[] {
   return [
     {
       id: 0,
+      text: `${providerLabel} · ${model}`,
+      tone: "brand",
+    },
+    {
+      id: 1,
       text: `Готово. ${providerLabel}, модель ${model}. Напишите задачу или /help.`,
       tone: "info",
     },
     {
-      id: 1,
+      id: 2,
       text: "Изменения всегда требуют подтверждения y/n.",
       tone: "info",
     },
     {
-      id: 2,
+      id: 3,
       text: "Подсказка: /cwd <путь> — сменить проект, Tab — дополнить команду.",
       tone: "info",
     },
