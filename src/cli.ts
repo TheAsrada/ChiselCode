@@ -27,7 +27,7 @@ const program = new Command();
 program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
-  .version("0.1.16")
+  .version("0.1.17")
   .option(
     "--provider <provider>",
     "anthropic, anthropic-compatible, openai или openai-compatible",
@@ -346,6 +346,7 @@ async function startTui(options: RunOptions): Promise<void> {
           }
         },
       }),
+      { alternateScreen: true },
     );
   } catch {
     // Ink требует raw mode терминала. В урезанных консолях Windows

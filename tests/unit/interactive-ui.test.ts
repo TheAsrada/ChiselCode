@@ -16,6 +16,10 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "../../src/ui/editor.js";
+import {
+  estimateFooterHeight,
+  visibleTranscriptTail,
+} from "../../src/ui/tui.js";
 
 describe("interactive commands", () => {
   test("parses only known complete slash commands", () => {
@@ -87,5 +91,76 @@ describe("interactive editor", () => {
     state = moveEditorCursor(state, -1);
     expect(isFirstEditorLine(state)).toBe(true);
     expect(isLastEditorLine(state)).toBe(false);
+  });
+});
+
+describe("interactive viewport layout", () => {
+  test("reserves space for multiline editor and command suggestions", () => {
+    expect(
+      estimateFooterHeight({
+        busy: false,
+        editorValue: "первая строка\nвторая строка",
+        columns: 80,
+        suggestionsCount: 2,
+      }),
+    ).toBe(11);
+    expect(
+      estimateFooterHeight({
+        busy: true,
+        editorValue: "",
+        columns: 80,
+        suggestionsCount: 3,
+      }),
+    ).toBe(5);
+  });
+
+  test("reserves the measured approval panel height", () => {
+    expect(
+      estimateFooterHeight({
+        request: {
+          tool: "write_file",
+          preview: "src/example.ts",
+        },
+        busy: false,
+        columns: 80,
+        suggestionsCount: 0,
+      }),
+    ).toBe(7);
+  });
+
+  test("clips transcript tail with room for overflow indicator", () => {
+    const lines = [
+      { id: 0, text: "первая", tone: "info" as const },
+      { id: 1, text: "вторая", tone: "info" as const },
+      { id: 2, text: "третья", tone: "info" as const },
+    ];
+    const third = lines[2];
+    if (!third) throw new Error("test data is incomplete");
+    expect(visibleTranscriptTail(lines, 7, 80, 5)).toEqual({
+      lines: [third],
+      hiddenCount: 2,
+    });
+  });
+
+  test("recalculates clipping when a narrow viewport wraps markdown", () => {
+    const lines = [
+      { id: 0, text: "коротко", tone: "info" as const },
+      {
+        id: 1,
+        text: "очень длинная строка для проверки переноса в узком терминале",
+        tone: "info" as const,
+      },
+    ];
+    const first = lines[0];
+    const second = lines[1];
+    if (!first || !second) throw new Error("test data is incomplete");
+    expect(visibleTranscriptTail(lines, 9, 80, 5)).toEqual({
+      lines: [first, second],
+      hiddenCount: 0,
+    });
+    expect(visibleTranscriptTail(lines, 8, 15, 5)).toEqual({
+      lines: [second],
+      hiddenCount: 1,
+    });
   });
 });

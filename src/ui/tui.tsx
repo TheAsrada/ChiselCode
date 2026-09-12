@@ -101,14 +101,18 @@ export interface TuiAppProps {
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  // Full-screen схема как в Claude Code: приложение владеет только экраном,
-  // ничего не пишется в скроллбэк — листать терминал нельзя и не нужно.
-  const [rows, setRows] = useState(stdout.rows ?? 24);
-  const columnsRef = useRef(stdout.columns ?? 80);
+  // Ink перерисовывает весь alternate screen; храним обе координаты, чтобы
+  // менять раскладку и при горизонтальном ресайзе без изменения числа строк.
+  const [viewport, setViewport] = useState(() => ({
+    rows: stdout.rows ?? 24,
+    columns: stdout.columns ?? 80,
+  }));
   useEffect(() => {
     const sync = (): void => {
-      columnsRef.current = stdout.columns ?? 80;
-      setRows(stdout.rows ?? 24);
+      setViewport({
+        rows: stdout.rows ?? 24,
+        columns: stdout.columns ?? 80,
+      });
     };
     sync();
     stdout.on("resize", sync);
@@ -130,7 +134,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     intro(props.providerLabel, props.model),
   );
   // Незавершённый стриминговый ответ живёт отдельно от истории:
-  // история уходит в <Static> (скроллится вверх), а ввод остаётся внизу.
+  // alternate screen никогда не получает статический вывод в скроллбэк,
+  // а незавершённая строка остаётся частью перерисовываемого кадра.
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
   const nextTranscriptId = useRef(4);
@@ -375,52 +380,54 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         />
       </Box>
     );
-  // Бюджет строк на историю: экран минус нижняя зона (ввод или подтверждение).
-  const bottomReserve = request
-    ? 18
-    : 5 + (!busy && suggestions.length ? suggestions.length + 2 : 0);
-  const budget = Math.max(rows - bottomReserve, 1);
-
-  const allLines = streaming ? [...transcript, streaming] : transcript;
-  // Берём хвост истории, влезающий в бюджет строк.
-  let used = 0;
-  let start = allLines.length;
-  for (let i = allLines.length - 1; i >= 0; i -= 1) {
-    const line = allLines[i];
-    if (!line) break;
-    const height = estimateLineHeight(line, columnsRef.current);
-    if (used + height > budget && start < allLines.length) break;
-    used += height;
-    start = i;
-    if (used >= budget) break;
-  }
-  const visible = allLines.slice(start);
-  const hiddenCount = start;
+  const footer = request ? (
+    <Approval request={request} />
+  ) : (
+    <Editor
+      value={editor.value}
+      cursor={editor.cursor}
+      busy={busy}
+      model={runtime.model}
+      suggestions={suggestions}
+    />
+  );
+  const footerRows = estimateFooterHeight({
+    request,
+    busy,
+    editorValue: editor.value,
+    columns: viewport.columns,
+    suggestionsCount: suggestions.length,
+  });
+  const visible = visibleTranscriptTail(
+    streaming ? [...transcript, streaming] : transcript,
+    viewport.rows,
+    viewport.columns,
+    footerRows,
+  );
 
   return (
-    <Box flexDirection="column">
-      {hiddenCount > 0 ? (
-        <Text dimColor>… ↑ ещё {hiddenCount} записей выше (экран полон)</Text>
-      ) : null}
-      {visible.map((line) => (
-        <TranscriptLineView
-          key={line.id}
-          line={line}
-          providerLabel={runtime.providerLabel}
-          model={runtime.model}
-        />
-      ))}
-      {request ? (
-        <Approval request={request} />
-      ) : (
-        <Editor
-          value={editor.value}
-          cursor={editor.cursor}
-          busy={busy}
-          model={runtime.model}
-          suggestions={suggestions}
-        />
-      )}
+    <Box
+      flexDirection="column"
+      height={viewport.rows}
+      width={viewport.columns}
+      overflow="hidden"
+    >
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+        {visible.hiddenCount > 0 ? (
+          <Text dimColor>
+            … ↑ ещё {visible.hiddenCount} записей выше (экран полон)
+          </Text>
+        ) : null}
+        {visible.lines.map((line) => (
+          <TranscriptLineView
+            key={line.id}
+            line={line}
+            providerLabel={runtime.providerLabel}
+            model={runtime.model}
+          />
+        ))}
+      </Box>
+      <Box flexShrink={0}>{footer}</Box>
     </Box>
   );
 }
@@ -510,8 +517,89 @@ function providerName(provider: ProviderKind): string {
   return "OpenAI-совместимый API";
 }
 
+function approvalPreview(request: ApprovalRequest): string {
+  const previewLines = request.preview.split("\n");
+  return previewLines.length > 12
+    ? `${previewLines.slice(0, 12).join("\n")}\n… (полный текст в скроллбэке не показан)`
+    : request.preview;
+}
+
+function estimateApprovalHeight(
+  request: ApprovalRequest,
+  columns: number,
+): number {
+  const width = Math.max(columns - 4, 10);
+  const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
+  const header = `? [${meta.icon}] ${meta.label} — нужно подтверждение`;
+  const controls = "[y] разрешить · [n] отклонить (Esc — тоже отклонить)";
+  // Рамка (2), вертикальные отступы preview (2), заголовок, preview и controls.
+  return (
+    4 +
+    wrappedLines(header, width) +
+    wrappedLines(approvalPreview(request), width) +
+    wrappedLines(controls, width)
+  );
+}
+
+export interface FooterHeightInput {
+  request?: ApprovalRequest;
+  busy: boolean;
+  editorValue?: string;
+  columns?: number;
+  suggestionsCount: number;
+}
+
+/** Высота нижней панели с учётом подсказок и многострочного черновика. */
+export function estimateFooterHeight({
+  request,
+  busy,
+  editorValue = "",
+  columns = 80,
+  suggestionsCount,
+}: FooterHeightInput): number {
+  if (request) return estimateApprovalHeight(request, columns);
+  const editorRows = busy ? 1 : wrappedLines(editorValue || " ", columns);
+  const suggestionsRows = !busy && suggestionsCount ? suggestionsCount + 3 : 0;
+  // Верхний отступ, рамка редактора и строка горячих клавиш.
+  return editorRows + 4 + suggestionsRows;
+}
+
+export interface VisibleTranscriptTail {
+  lines: TuiTranscriptLine[];
+  hiddenCount: number;
+}
+
+/** Выбирает хвост истории, который помещается над закреплённой нижней панелью. */
+export function visibleTranscriptTail(
+  lines: TuiTranscriptLine[],
+  rows: number,
+  columns: number,
+  footerRows: number,
+): VisibleTranscriptTail {
+  const contentRows = Math.max(rows - footerRows, 0);
+  const selectTail = (budget: number): number => {
+    let used = 0;
+    let start = lines.length;
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (!line) break;
+      const height = estimateLineHeight(line, columns);
+      if (used + height > budget && start < lines.length) break;
+      used += height;
+      start = i;
+      if (used >= budget) break;
+    }
+    return start;
+  };
+
+  let start = selectTail(contentRows);
+  // Индикатор переполнения занимает строку в той же ограниченной области.
+  if (start > 0) start = selectTail(Math.max(contentRows - 1, 0));
+  return { lines: lines.slice(start), hiddenCount: start };
+}
+
 /** Число строк текста с учётом переноса по ширине терминала. */
-function wrappedLines(text: string, columns: number): number {
+export function wrappedLines(text: string, columns: number): number {
   const width = Math.max(columns - 2, 10);
   return text
     .split("\n")
@@ -586,11 +674,7 @@ function Approval({
   request: ApprovalRequest;
 }): React.JSX.Element {
   const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
-  const previewLines = request.preview.split("\n");
-  const preview =
-    previewLines.length > 12
-      ? `${previewLines.slice(0, 12).join("\n")}\n… (полный текст в скроллбэке не показан)`
-      : request.preview;
+  const preview = approvalPreview(request);
   return (
     <Box
       flexDirection="column"
