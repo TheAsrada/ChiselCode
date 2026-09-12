@@ -1,8 +1,10 @@
 ; ChiselCode Windows installer (NSIS 3).
 ; Build from the repository root:
-;   makensis /DVERSION=0.1.9 installer\chiselcode.nsi
+;   makensis /DVERSION=0.1.10 installer\chiselcode.nsi
 ; Produces: dist\release\ChiselCode-Setup-<VERSION>.exe
 ; User-level install: no admin rights needed, adds chisel.exe to the user PATH.
+; NOTE: all file paths use ${__FILEDIR__}, because makensis resolves relative
+; paths against the script directory, not the current working directory.
 
 !ifndef VERSION
   !define VERSION "0.0.0"
@@ -19,7 +21,7 @@
 !include "WinMessages.nsh"
 
 Name "${APPNAME} ${VERSION}"
-OutFile "dist\release\ChiselCode-Setup-${VERSION}.exe"
+OutFile "${__FILEDIR__}\..\dist\release\ChiselCode-Setup-${VERSION}.exe"
 InstallDir "$LOCALAPPDATA\${APPNAME}"
 InstallDirRegKey HKCU "Software\${APPID}" "InstallDir"
 RequestExecutionLevel user
@@ -35,7 +37,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_UNABORTWARNING
 
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "LICENSE"
+!insertmacro MUI_PAGE_LICENSE "${__FILEDIR__}\..\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -47,7 +49,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 Section "Install" SecInstall
   SetOutPath "$INSTDIR"
-  File "/oname=${EXENAME}" "dist\release\chisel-windows-x64.exe"
+  File "/oname=${EXENAME}" "${__FILEDIR__}\..\dist\release\chisel-windows-x64.exe"
   WriteUninstaller "$INSTDIR\${UNINSTALLER}"
 
   WriteRegStr HKCU "Software\${APPID}" "InstallDir" "$INSTDIR"

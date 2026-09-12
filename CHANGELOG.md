@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-09-12
+
+### Fixed
+
+- Сборка установщика: пути к LICENSE и EXE в `installer/chiselcode.nsi` заданы через `${__FILEDIR__}`, так как makensis резолвит относительные пути от папки скрипта. Релиз v0.1.9 вышел без `ChiselCode-Setup-*.exe`; установщик публикуется начиная с v0.1.10.
+- Тесты `resolveProjectDir`: сравнение с `realpath`, так как tmpdir может содержать симлинки (`/var` → `/private/var` на macOS, короткие имена 8.3 на Windows).
+
 ## [0.1.9] - 2026-09-12
 
 ### Added
