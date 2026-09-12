@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    name: Verify, compile, and publish
+    name: Verify and publish
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -32,19 +32,11 @@ jobs:
       - name: Verify tag version
         shell: bash
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
-      - name: Compile standalone binaries
-        shell: bash
-        run: |
-          mkdir -p dist/release
-          bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile=dist/release/chisel-linux-x64
-          bun build ./src/cli.ts --compile --target=bun-darwin-x64 --outfile=dist/release/chisel-macos-x64
-          bun build ./src/cli.ts --compile --target=bun-darwin-arm64 --outfile=dist/release/chisel-macos-arm64
-          bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/release/chisel-windows-x64.exe
       - name: Create GitHub Release
         shell: bash
-        run: gh release create "$GITHUB_REF_NAME" dist/release/* --generate-notes --title "ChiselCode $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --title "ChiselCode $GITHUB_REF_NAME"
 
-  installer:
+  installer-windows:
     name: Build Windows installer
     runs-on: windows-latest
     needs: release
@@ -81,3 +73,74 @@ jobs:
         run: |
           $ver = node -p "require('./package.json').version"
           gh release upload "$env:GITHUB_REF_NAME" "dist/release/ChiselCode-Setup-$ver.exe"
+
+  installer-macos:
+    name: Build macOS installers
+    runs-on: macos-latest
+    needs: release
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.22"
+      - name: Install dependencies
+        run: npm ci
+      - name: Build macOS binaries
+        shell: bash
+        run: |
+          mkdir -p pkg/macos-arm64 pkg/macos-x64
+          bun build ./src/cli.ts --compile --target=bun-darwin-arm64 --outfile=pkg/macos-arm64/chisel
+          bun build ./src/cli.ts --compile --target=bun-darwin-x64 --outfile=pkg/macos-x64/chisel
+          chmod +x pkg/macos-arm64/chisel pkg/macos-x64/chisel
+      - name: Build packages
+        shell: bash
+        run: |
+          ver=$(node -p "require('./package.json').version")
+          pkgbuild --root pkg/macos-arm64 --identifier com.chiselcode.cli --version "$ver" --install-location /usr/local/bin "ChiselCode-Setup-$ver-macos-arm64.pkg"
+          pkgbuild --root pkg/macos-x64 --identifier com.chiselcode.cli --version "$ver" --install-location /usr/local/bin "ChiselCode-Setup-$ver-macos-x64.pkg"
+      - name: Upload installers
+        shell: bash
+        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg
+
+  installer-linux:
+    name: Build Linux installer
+    runs-on: ubuntu-latest
+    needs: release
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.22"
+      - name: Install dependencies
+        run: npm ci
+      - name: Build .deb package
+        shell: bash
+        run: |
+          ver=$(node -p "require('./package.json').version")
+          root="pkg/chiselcode_${ver}_amd64"
+          mkdir -p "$root/DEBIAN" "$root/usr/bin"
+          bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile="$root/usr/bin/chisel"
+          chmod 0755 "$root/usr/bin/chisel"
+          cat > "$root/DEBIAN/control" <<EOF
+          Package: chiselcode
+          Version: $ver
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: ChiselCode <https://github.com/TheAsrada/ChiselCode>
+          Description: Secure multi-provider coding agent CLI
+           ChiselCode reads and explains projects, finds bugs and edits files
+           with confirmation.
+          EOF
+          dpkg-deb --build "$root" "ChiselCode-Setup-${ver}-linux-amd64.deb"
+      - name: Upload installer
+        shell: bash
+        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb

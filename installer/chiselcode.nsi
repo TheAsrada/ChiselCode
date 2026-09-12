@@ -42,6 +42,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "..\LICENSE"
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -51,7 +52,11 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 !insertmacro MUI_LANGUAGE "Russian"
 
-Section "Install" SecInstall
+LangString DESC_SecMain ${LANG_RUSSIAN} "Файлы ChiselCode, команда chisel в PATH и ярлык в меню «Пуск» (обязательно)."
+LangString DESC_SecDesktop ${LANG_RUSSIAN} "Ярлык для запуска ChiselCode на рабочем столе."
+
+Section "ChiselCode" SecMain
+  SectionIn RO
   SetOutPath "$INSTDIR"
   File "/oname=${EXENAME}" "..\dist\release\chisel-windows-x64.exe"
   WriteUninstaller "$INSTDIR\${UNINSTALLER}"
@@ -74,7 +79,17 @@ Section "Install" SecInstall
   Call AddToUserPath
 SectionEnd
 
+Section /o "Ярлык на рабочем столе" SecDesktop
+  CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${EXENAME}"
+SectionEnd
+
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} $(DESC_SecMain)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} $(DESC_SecDesktop)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
 Section "Uninstall"
+  Delete "$DESKTOP\${APPNAME}.lnk"
   Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"
   Delete "$SMPROGRAMS\${APPNAME}\Uninstall.lnk"
   RMDir "$SMPROGRAMS\${APPNAME}"
