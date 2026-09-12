@@ -1,4 +1,4 @@
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -25,7 +25,7 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
-import { MarkdownText } from "./markdown.js";
+import { MarkdownText, parseBlocks } from "./markdown.js";
 import { SettingsPanel, type TuiSettingsValues } from "./settings.js";
 import { Thinking } from "./thinking.js";
 
@@ -100,6 +100,22 @@ export interface TuiAppProps {
 
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  // Full-screen схема как в Claude Code: приложение владеет только экраном,
+  // ничего не пишется в скроллбэк — листать терминал нельзя и не нужно.
+  const [rows, setRows] = useState(stdout.rows ?? 24);
+  const columnsRef = useRef(stdout.columns ?? 80);
+  useEffect(() => {
+    const sync = (): void => {
+      columnsRef.current = stdout.columns ?? 80;
+      setRows(stdout.rows ?? 24);
+    };
+    sync();
+    stdout.on("resize", sync);
+    return () => {
+      stdout.off("resize", sync);
+    };
+  }, [stdout]);
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -142,60 +158,22 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     [],
   );
 
-  // Сколько строк резервируем под ввод, подсказки и подписи снизу.
-  const BOTTOM_RESERVE = 12;
-  // Видимая высота текста с учётом переноса длинных строк.
-  const estimateHeight = useCallback((text: string): number => {
-    const columns = process.stdout.columns ?? 80;
-    return text
-      .split("\n")
-      .reduce(
-        (total, line) => total + Math.max(1, Math.ceil(line.length / columns)),
-        0,
-      );
+  const appendToStreaming = useCallback((text: string): void => {
+    const current = streamingRef.current;
+    if (current) {
+      const next = { ...current, text: current.text + text };
+      streamingRef.current = next;
+      setStreaming(next);
+    } else {
+      const line: TuiTranscriptLine = {
+        id: nextTranscriptId.current++,
+        text,
+        tone: "assistant",
+      };
+      streamingRef.current = line;
+      setStreaming(line);
+    }
   }, []);
-
-  const appendToStreaming = useCallback(
-    (text: string): void => {
-      const current = streamingRef.current;
-      const combined = current ? current.text + text : text;
-      const rows = process.stdout.rows ?? 24;
-      const available = Math.max(rows - BOTTOM_RESERVE, 3);
-      // Динамическая зона (стриминг + ввод) никогда не выше экрана:
-      // готовая часть уходит в скроллбэк, хвост остаётся над вводом.
-      if (current && estimateHeight(combined) > available) {
-        streamingRef.current = null;
-        setStreaming(null);
-        const flushedId = nextTranscriptId.current++;
-        setTranscript((lines) => [
-          ...lines,
-          { id: flushedId, text: current.text, tone: "assistant" },
-        ]);
-        const tail: TuiTranscriptLine = {
-          id: nextTranscriptId.current++,
-          text,
-          tone: "assistant",
-        };
-        streamingRef.current = tail;
-        setStreaming(tail);
-        return;
-      }
-      if (current) {
-        const next = { ...current, text: combined };
-        streamingRef.current = next;
-        setStreaming(next);
-      } else {
-        const line: TuiTranscriptLine = {
-          id: nextTranscriptId.current++,
-          text,
-          tone: "assistant",
-        };
-        streamingRef.current = line;
-        setStreaming(line);
-      }
-    },
-    [estimateHeight],
-  );
 
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
@@ -397,25 +375,41 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         />
       </Box>
     );
+  // Бюджет строк на историю: экран минус нижняя зона (ввод или подтверждение).
+  const bottomReserve = request
+    ? 18
+    : 5 + (!busy && suggestions.length ? suggestions.length + 2 : 0);
+  const budget = Math.max(rows - bottomReserve, 1);
+
+  const allLines = streaming ? [...transcript, streaming] : transcript;
+  // Берём хвост истории, влезающий в бюджет строк.
+  let used = 0;
+  let start = allLines.length;
+  for (let i = allLines.length - 1; i >= 0; i -= 1) {
+    const line = allLines[i];
+    if (!line) break;
+    const height = estimateLineHeight(line, columnsRef.current);
+    if (used + height > budget && start < allLines.length) break;
+    used += height;
+    start = i;
+    if (used >= budget) break;
+  }
+  const visible = allLines.slice(start);
+  const hiddenCount = start;
+
   return (
     <Box flexDirection="column">
-      <Static items={transcript}>
-        {(line) => (
-          <TranscriptLineView
-            key={line.id}
-            line={line}
-            providerLabel={runtime.providerLabel}
-            model={runtime.model}
-          />
-        )}
-      </Static>
-      {streaming ? (
+      {hiddenCount > 0 ? (
+        <Text dimColor>… ↑ ещё {hiddenCount} записей выше (экран полон)</Text>
+      ) : null}
+      {visible.map((line) => (
         <TranscriptLineView
-          line={streaming}
+          key={line.id}
+          line={line}
           providerLabel={runtime.providerLabel}
           model={runtime.model}
         />
-      ) : null}
+      ))}
       {request ? (
         <Approval request={request} />
       ) : (
@@ -514,6 +508,69 @@ function providerName(provider: ProviderKind): string {
   if (provider === "anthropic-compatible") return "Anthropic-совместимый API";
   if (provider === "openai") return "OpenAI";
   return "OpenAI-совместимый API";
+}
+
+/** Число строк текста с учётом переноса по ширине терминала. */
+function wrappedLines(text: string, columns: number): number {
+  const width = Math.max(columns - 2, 10);
+  return text
+    .split("\n")
+    .reduce(
+      (total, line) => total + Math.max(1, Math.ceil(line.length / width)),
+      0,
+    );
+}
+
+/** Оценка высоты строки истории в строках терминала. */
+function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
+  const tone = line.tone ?? "assistant";
+  if (tone === "brand") return 3; // две строки + отступ
+  if (tone === "user") return 1 + wrappedLines(line.text, columns); // отступ + текст
+  if (tone === "tool")
+    return wrappedLines(
+      line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text,
+      columns,
+    );
+  if (tone === "error" || tone === "warn")
+    return wrappedLines(line.text, columns);
+  // assistant: markdown-раскладка + верхний отступ
+  return 1 + estimateMarkdownHeight(line.text, columns);
+}
+
+/** Оценка высоты markdown-ответа (заголовки, списки, код в рамках и т.д.). */
+function estimateMarkdownHeight(text: string, columns: number): number {
+  return parseBlocks(text).reduce((total, block) => {
+    if (block.kind === "heading" || block.kind === "hr") return total + 1;
+    if (block.kind === "paragraph")
+      return total + wrappedLines(block.text, columns);
+    if (block.kind === "quote")
+      return (
+        total +
+        block.text
+          .split("\n")
+          .reduce(
+            (sum, l) =>
+              sum +
+              Math.max(1, Math.ceil(l.length / Math.max(columns - 2, 10))),
+            0,
+          )
+      );
+    if (block.kind === "list")
+      return (
+        total +
+        block.items.reduce(
+          (sum, item) =>
+            sum +
+            Math.max(
+              1,
+              Math.ceil((item.length + 2) / Math.max(columns - 2, 10)),
+            ),
+          0,
+        )
+      );
+    // код: рамки (2) + возможный язык (1) + marginY (2) + строки кода
+    return total + block.code.split("\n").length + 4 + (block.language ? 1 : 0);
+  }, 0);
 }
 const TOOL_META: Record<string, { icon: string; label: string }> = {
   write_file: { icon: "+", label: "Запись файла" },
