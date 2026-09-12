@@ -1,4 +1,4 @@
-import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Static, Text, useApp, useInput } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -100,24 +100,6 @@ export interface TuiAppProps {
 
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
-  const { stdout } = useStdout();
-  // Высота вьюпорта: поле ввода прижимаем к физическому низу окна,
-  // а не к низу контента.
-  const [viewportRows, setViewportRows] = useState(stdout.rows ?? 24);
-  const viewportRef = useRef({ rows: stdout.rows ?? 24, columns: 80 });
-  useEffect(() => {
-    const sync = (): void => {
-      const rows = stdout.rows ?? 24;
-      const columns = stdout.columns ?? 80;
-      viewportRef.current = { rows, columns };
-      setViewportRows(rows);
-    };
-    sync();
-    stdout.on("resize", sync);
-    return () => {
-      stdout.off("resize", sync);
-    };
-  }, [stdout]);
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -160,11 +142,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     [],
   );
 
-  // Сколько строк резервируем под ввод и подписи снизу.
-  const BOTTOM_RESERVE = 8;
+  // Сколько строк резервируем под ввод, подсказки и подписи снизу.
+  const BOTTOM_RESERVE = 12;
   // Видимая высота текста с учётом переноса длинных строк.
   const estimateHeight = useCallback((text: string): number => {
-    const { columns } = viewportRef.current;
+    const columns = process.stdout.columns ?? 80;
     return text
       .split("\n")
       .reduce(
@@ -177,9 +159,10 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     (text: string): void => {
       const current = streamingRef.current;
       const combined = current ? current.text + text : text;
-      const available = Math.max(viewportRef.current.rows - BOTTOM_RESERVE, 3);
-      // Если стриминг стал выше свободного места — уводим готовую часть
-      // в скроллбэк, хвост остаётся прямо над вводом.
+      const rows = process.stdout.rows ?? 24;
+      const available = Math.max(rows - BOTTOM_RESERVE, 3);
+      // Динамическая зона (стриминг + ввод) никогда не выше экрана:
+      // готовая часть уходит в скроллбэк, хвост остаётся над вводом.
       if (current && estimateHeight(combined) > available) {
         streamingRef.current = null;
         setStreaming(null);
@@ -415,7 +398,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       </Box>
     );
   return (
-    <Box flexDirection="column" height={viewportRows}>
+    <Box flexDirection="column">
       <Static items={transcript}>
         {(line) => (
           <TranscriptLineView
@@ -426,8 +409,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           />
         )}
       </Static>
-      {/* Растягивающийся зазор: прижимает ввод к нижней кромке окна. */}
-      <Box flexGrow={1} />
       {streaming ? (
         <TranscriptLineView
           line={streaming}
@@ -548,6 +529,11 @@ function Approval({
   request: ApprovalRequest;
 }): React.JSX.Element {
   const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
+  const previewLines = request.preview.split("\n");
+  const preview =
+    previewLines.length > 12
+      ? `${previewLines.slice(0, 12).join("\n")}\n… (полный текст в скроллбэке не показан)`
+      : request.preview;
   return (
     <Box
       flexDirection="column"
@@ -560,7 +546,7 @@ function Approval({
         ? [{meta.icon}] {meta.label} — нужно подтверждение
       </Text>
       <Box marginY={1}>
-        <Text>{request.preview}</Text>
+        <Text>{preview}</Text>
       </Box>
       <Text>
         [

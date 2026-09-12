@@ -27,7 +27,7 @@ const program = new Command();
 program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
-  .version("0.1.14")
+  .version("0.1.15")
   .option(
     "--provider <provider>",
     "anthropic, anthropic-compatible, openai или openai-compatible",
