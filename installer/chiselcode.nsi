@@ -1,4 +1,4 @@
-; ChiselCode Windows installer (NSIS 3).
+﻿; ChiselCode Windows installer (NSIS 3).
 ; Build from the repository root:
 ;   makensis /DVERSION=0.1.10 installer\chiselcode.nsi
 ; Produces: dist\release\ChiselCode-Setup-<VERSION>.exe
@@ -27,6 +27,7 @@ OutFile "..\dist\release\ChiselCode-Setup-${VERSION}.exe"
 InstallDir "$LOCALAPPDATA\${APPNAME}"
 InstallDirRegKey HKCU "Software\${APPID}" "InstallDir"
 RequestExecutionLevel user
+Unicode true
 SetCompressor /SOLID lzma
 BrandingText "${APPNAME}"
 

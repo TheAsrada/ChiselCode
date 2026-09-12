@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-09-12
+
+### Fixed
+
+- Кракозябры в Windows-установщике: сборка переведена на Unicode (`Unicode true`, скрипт в UTF-8 с BOM) — русский текст на странице компонентов и в описаниях отображается корректно.
+
 ## [0.1.12] - 2026-09-12
 
 ### Added
