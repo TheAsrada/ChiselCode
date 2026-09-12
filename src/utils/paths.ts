@@ -32,6 +32,37 @@ export async function ensureParentDirectory(path: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
 }
 
+/**
+ * Резолвит путь из чата (команда /cwd) в корень проекта.
+ * Принимает папку или файл (тогда проектом считается его папка),
+ * относительные пути резолвятся от текущей папки проекта.
+ */
+export async function resolveProjectDir(
+  input: string,
+  currentCwd: string,
+): Promise<string> {
+  const trimmed = input
+    .trim()
+    .replace(/^["'](.+)["']$/, "$1")
+    .trim();
+  if (!trimmed) throw new Error("Укажите путь: /cwd <путь к папке или файлу>");
+  const absolute = isAbsolute(trimmed)
+    ? resolve(trimmed)
+    : resolve(currentCwd, trimmed);
+  let target = absolute;
+  try {
+    const info = await stat(absolute);
+    if (!info.isDirectory()) target = dirname(absolute);
+  } catch {
+    throw new Error(`Путь не найден: ${trimmed}`);
+  }
+  try {
+    return await realpath(target);
+  } catch {
+    return target;
+  }
+}
+
 function assertWithinProject(
   root: string,
   path: string,

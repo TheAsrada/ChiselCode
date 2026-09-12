@@ -21,12 +21,13 @@ import {
   TuiApp,
   type TuiTranscript,
 } from "./ui/tui.js";
+import { resolveProjectDir } from "./utils/paths.js";
 
 const program = new Command();
 program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
-  .version("0.1.8")
+  .version("0.1.9")
   .option(
     "--provider <provider>",
     "anthropic, anthropic-compatible, openai или openai-compatible",
@@ -244,6 +245,18 @@ async function startTui(options: RunOptions): Promise<void> {
               : "Сессия: новая для следующего запроса",
           ].join("\n");
         },
+        onSwitchProject: async (arg: string) => {
+          const base = activeOptions.cwd ?? process.cwd();
+          if (!arg.trim())
+            return `Проект: ${base}\nЧтобы сменить папку: /cwd <путь>`;
+          const resolved = await resolveProjectDir(arg, base);
+          activeOptions = {
+            ...activeOptions,
+            cwd: resolved,
+            resume: undefined,
+          };
+          return `Проект сменён: ${resolved}\nСледующий запрос начнёт новую сессию в этой папке.`;
+        },
         onSaveSettings: async (values: TuiSettingsValues) => {
           const current = await loadGlobalConfig();
           const previous = current.providers[values.provider];
@@ -358,10 +371,11 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
     const configured = await startSetup(configuredProvider);
     if (!configured) return;
   }
+  let activeOptions: RunOptions = { ...options };
   const rl = createInterface({ input: nodeStdin, output: nodeStdout });
   try {
     process.stdout.write(
-      "Простой режим: введите задачу и нажмите Enter. Команды: /help, /status, /exit.\n",
+      "Простой режим: введите задачу и нажмите Enter. Команды: /help, /status, /cwd <путь>, /exit.\n",
     );
     for (;;) {
       let line: string;
@@ -374,8 +388,30 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       if (line === "/exit") return;
       if (line === "/help") {
         process.stdout.write(
-          "/help — помощь\n/status — состояние\n/exit — выход\nОбычный текст — задача для помощника.\n",
+          "/help — помощь\n/status — состояние\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
         );
+        continue;
+      }
+      if (line === "/cwd" || line.startsWith("/cwd ")) {
+        const arg = line.slice("/cwd".length).trim();
+        try {
+          const base = activeOptions.cwd ?? process.cwd();
+          if (!arg) {
+            process.stdout.write(`Проект: ${base}\n`);
+          } else {
+            const resolved = await resolveProjectDir(arg, base);
+            activeOptions = {
+              ...activeOptions,
+              cwd: resolved,
+              resume: undefined,
+            };
+            process.stdout.write(`Проект сменён: ${resolved}\n`);
+          }
+        } catch (error) {
+          process.stdout.write(
+            `Ошибка: ${error instanceof Error ? error.message : String(error)}\n`,
+          );
+        }
         continue;
       }
       if (line === "/clear") {
@@ -385,7 +421,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       if (line === "/status") {
         const current = await loadGlobalConfig();
         const currentProvider =
-          options.provider ?? current.defaultProvider ?? provider;
+          activeOptions.provider ?? current.defaultProvider ?? provider;
         const currentConfig = current.providers[currentProvider];
         const ready = await hasApiKey(
           currentProvider,
@@ -395,8 +431,8 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
           [
             "Состояние ChiselCode:",
             `Сервис: ${providerLabel(currentProvider)}`,
-            `Модель: ${options.model ?? currentConfig?.defaultModel ?? current.defaultModel ?? "не выбрана"}`,
-            `Проект: ${options.cwd ?? process.cwd()}`,
+            `Модель: ${activeOptions.model ?? currentConfig?.defaultModel ?? current.defaultModel ?? "не выбрана"}`,
+            `Проект: ${activeOptions.cwd ?? process.cwd()}`,
             `API-ключ: ${ready ? "настроен" : "не настроен"}`,
             "",
           ].join("\n"),
@@ -427,7 +463,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         },
       };
       try {
-        const { result } = await runPrompt(line, options, resolver);
+        const { result } = await runPrompt(line, activeOptions, resolver);
         process.stdout.write(
           `${result.text || result.error || "Сервис завершил запрос без текстового ответа."}\n`,
         );

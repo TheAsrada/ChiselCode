@@ -75,6 +75,7 @@ export interface TuiAppProps {
   bindTranscript(transcript: TuiTranscript): void;
   onSubmit(prompt: string): Promise<void>;
   onStatus(): Promise<string>;
+  onSwitchProject(path: string): Promise<string>;
   onSaveSettings(
     values: TuiSettingsValues,
   ): Promise<"saved" | "setup_required">;
@@ -139,7 +140,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     if (!prompt) return;
     const command = parseSlashCommand(prompt);
     if (command) {
-      void runCommand(command.name);
+      void runCommand(command.name, command.args);
       return;
     }
     if (isSlashInput(prompt)) {
@@ -158,7 +159,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       )
       .finally(() => setBusy(false));
   }
-  async function runCommand(name: SlashCommandName): Promise<void> {
+  async function runCommand(name: SlashCommandName, args = ""): Promise<void> {
     setEditor(createEditorState());
     if (name === "/help") {
       append(commandHelpText());
@@ -170,6 +171,19 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     if (name === "/exit") {
       exit();
+      return;
+    }
+    if (name === "/cwd") {
+      setBusy(true);
+      try {
+        append(await props.onSwitchProject(args));
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     if (name === "/settings") {

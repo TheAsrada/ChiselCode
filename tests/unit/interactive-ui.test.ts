@@ -19,8 +19,13 @@ import {
 
 describe("interactive commands", () => {
   test("parses only known complete slash commands", () => {
-    expect(parseSlashCommand(" /help ")).toEqual({ name: "/help" });
+    expect(parseSlashCommand(" /help ")).toEqual({ name: "/help", args: "" });
     expect(parseSlashCommand("/unknown")).toBeUndefined();
+    expect(parseSlashCommand("/cwd C:\\projects\\demo")).toEqual({
+      name: "/cwd",
+      args: "C:\\projects\\demo",
+    });
+    expect(parseSlashCommand("/cwd")).toEqual({ name: "/cwd", args: "" });
     expect(isSlashInput(" /model")).toBe(true);
     expect(isSlashInput("объясни /model")).toBe(false);
   });
@@ -30,7 +35,12 @@ describe("interactive commands", () => {
       "/settings",
       "/status",
     ]);
+    expect(matchingCommands("/c").map((command) => command.name)).toEqual([
+      "/clear",
+      "/cwd",
+    ]);
     expect(commandHelpText()).toContain("/settings");
+    expect(commandHelpText()).toContain("/cwd");
     expect(commandHelpText()).toContain("Shift+Enter");
   });
 });
