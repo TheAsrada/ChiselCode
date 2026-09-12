@@ -317,8 +317,9 @@ function Header(): React.JSX.Element {
 }
 function providerName(provider: ProviderKind): string {
   if (provider === "anthropic") return "Anthropic (Claude)";
+  if (provider === "anthropic-compatible") return "Anthropic-совместимый API";
   if (provider === "openai") return "OpenAI";
-  return "совместимый API";
+  return "OpenAI-совместимый API";
 }
 function Approval({
   request,

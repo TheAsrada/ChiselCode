@@ -76,7 +76,7 @@ export function SetupApp({
         return;
       }
       setError("");
-      setStep(provider === "openai-compatible" ? "base-url" : "model");
+      setStep(isCompatibleProvider(provider) ? "base-url" : "model");
       return;
     }
     if (step === "base-url") {
@@ -138,8 +138,9 @@ function ProviderSelection(): React.JSX.Element {
       <Text bold>1. Выберите сервис:</Text>
       <Text> [1] Anthropic (Claude) — рекомендуемый вариант</Text>
       <Text> [2] OpenAI (ChatGPT API)</Text>
-      <Text> [3] Другой совместимый сервис / локальная модель</Text>
-      <Text color="green">Нажмите 1, 2 или 3.</Text>
+      <Text> [3] Другой OpenAI-совместимый сервис / локальная модель</Text>
+      <Text> [4] Anthropic-совместимый API proxy</Text>
+      <Text color="green">Нажмите 1, 2, 3 или 4.</Text>
     </Box>
   );
 }
@@ -161,7 +162,7 @@ function BaseUrlInput({ value }: { value: string }): React.JSX.Element {
     <Box flexDirection="column" marginTop={1}>
       <Text bold>3. Введите адрес API и нажмите Enter:</Text>
       <Text>
-        Например: http://localhost:11434/v1 или https://api.example.com/v1
+        Для OpenAI API добавьте /v1; для Anthropic proxy укажите корень.
       </Text>
       <Text color="green">› {value}</Text>
     </Box>
@@ -175,12 +176,12 @@ function ModelInput({
   provider: ProviderKind;
   value: string;
 }): React.JSX.Element {
-  const step = provider === "openai-compatible" ? "4" : "3";
+  const step = isCompatibleProvider(provider) ? "4" : "3";
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold>{step}. Выберите модель и нажмите Enter:</Text>
       <Text>
-        {provider === "openai-compatible"
+        {isCompatibleProvider(provider)
           ? "Укажите модель, доступную на выбранном сервере."
           : "Можно оставить предложенную модель или отредактировать её."}
       </Text>
@@ -193,7 +194,14 @@ function providerForKey(value: string): ProviderKind | undefined {
   if (value === "1") return "anthropic";
   if (value === "2") return "openai";
   if (value === "3") return "openai-compatible";
+  if (value === "4") return "anthropic-compatible";
   return undefined;
+}
+
+function isCompatibleProvider(provider: ProviderKind): boolean {
+  return (
+    provider === "anthropic-compatible" || provider === "openai-compatible"
+  );
 }
 
 function valueSetterFor(

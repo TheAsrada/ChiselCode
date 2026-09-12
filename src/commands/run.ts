@@ -6,7 +6,10 @@ import {
 } from "../config/load.js";
 import { AgentLoop } from "../core/agent-loop.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
-import { AnthropicAdapter } from "../providers/anthropic.js";
+import {
+  AnthropicAdapter,
+  AnthropicCompatibleAdapter,
+} from "../providers/anthropic.js";
 import { OpenAIAdapter, OpenAICompatibleAdapter } from "../providers/openai.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import { CredentialStore } from "../security/credentials.js";
@@ -158,6 +161,10 @@ function createProvider(
   baseUrl: string | undefined,
 ): ProviderAdapter {
   if (kind === "anthropic") return new AnthropicAdapter({ apiKey });
+  if (kind === "anthropic-compatible") {
+    if (!apiKey) throw new MissingApiKeyError(kind);
+    return new AnthropicCompatibleAdapter({ authToken: apiKey, baseUrl });
+  }
   if (kind === "openai") return new OpenAIAdapter({ apiKey });
   return new OpenAICompatibleAdapter({ apiKey, baseUrl });
 }
@@ -168,7 +175,11 @@ async function resolveApiKey(
   credentials: CredentialStore,
 ): Promise<string | undefined> {
   const environmentName =
-    kind === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+    kind === "anthropic-compatible"
+      ? "ANTHROPIC_AUTH_TOKEN"
+      : kind === "anthropic"
+        ? "ANTHROPIC_API_KEY"
+        : "OPENAI_API_KEY";
   if (process.env[environmentName]) return process.env[environmentName];
   return keyRef ? credentials.get(keyRef) : undefined;
 }
@@ -226,8 +237,9 @@ async function collectFileTree(root: string): Promise<string> {
 
 function providerLabel(provider: ProviderKind): string {
   if (provider === "anthropic") return "Anthropic";
+  if (provider === "anthropic-compatible") return "Anthropic-совместимого API";
   if (provider === "openai") return "OpenAI";
-  return "совместимого API";
+  return "OpenAI-совместимого API";
 }
 
 export const nonInteractiveResolver: ApprovalResolver = {

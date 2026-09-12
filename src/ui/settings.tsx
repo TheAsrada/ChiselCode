@@ -22,8 +22,9 @@ export interface SettingsPanelProps {
 type Screen = "menu" | "provider" | "model" | "base-url" | "saving";
 const PROVIDERS: { value: ProviderKind; label: string }[] = [
   { value: "anthropic", label: "Anthropic (Claude)" },
+  { value: "anthropic-compatible", label: "Anthropic-совместимый API" },
   { value: "openai", label: "OpenAI" },
-  { value: "openai-compatible", label: "Совместимый API" },
+  { value: "openai-compatible", label: "OpenAI-совместимый API" },
 ];
 
 export function SettingsPanel({
@@ -88,8 +89,7 @@ export function SettingsPanel({
         setValues((current) => ({
           provider,
           model: defaultModelFor(provider) || current.model,
-          baseUrl:
-            provider === "openai-compatible" ? current.baseUrl : undefined,
+          baseUrl: isCompatibleProvider(provider) ? current.baseUrl : undefined,
         }));
         setScreen("menu");
       }
@@ -120,10 +120,10 @@ export function SettingsPanel({
       return;
     }
     if (
-      values.provider === "openai-compatible" &&
+      isCompatibleProvider(values.provider) &&
       !isValidApiUrl(values.baseUrl ?? "")
     ) {
-      setError("Введите полный адрес API, например http://localhost:11434/v1.");
+      setError("Введите полный адрес API, например https://api.example.com.");
       return;
     }
     setError("");
@@ -183,11 +183,17 @@ function menuItems(provider: ProviderKind): string[] {
   return [
     "provider",
     "model",
-    ...(provider === "openai-compatible" ? ["base-url"] : []),
+    ...(isCompatibleProvider(provider) ? ["base-url"] : []),
     "save",
     "setup",
     "close",
   ];
+}
+
+function isCompatibleProvider(provider: ProviderKind): boolean {
+  return (
+    provider === "anthropic-compatible" || provider === "openai-compatible"
+  );
 }
 
 function Menu({

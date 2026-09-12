@@ -14,7 +14,7 @@ const ProjectConfigSchema = z.object({
 
 const GlobalConfigSchema = z.object({
   defaultProvider: z
-    .enum(["anthropic", "openai", "openai-compatible"])
+    .enum(["anthropic", "anthropic-compatible", "openai", "openai-compatible"])
     .optional(),
   defaultModel: z.string().min(1).optional(),
   providers: z
@@ -23,6 +23,14 @@ const GlobalConfigSchema = z.object({
         .object({
           provider: z.literal("anthropic"),
           apiKeyRef: z.string().optional(),
+          defaultModel: z.string().optional(),
+        })
+        .optional(),
+      "anthropic-compatible": z
+        .object({
+          provider: z.literal("anthropic-compatible"),
+          apiKeyRef: z.string().optional(),
+          baseUrl: z.string().url().optional(),
           defaultModel: z.string().optional(),
         })
         .optional(),

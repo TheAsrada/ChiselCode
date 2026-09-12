@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-12
+
+### Added
+
+- Режим `anthropic-compatible` для прокси, которые реализуют Anthropic Messages API: `POST /v1/messages` с Bearer-токеном, отдельным базовым URL и моделью.
+- Четвёртый вариант `chisel setup` и настройка `/settings` для Anthropic-совместимого API.
+
 ## [0.1.6] - 2026-09-12
 
 ### Added

@@ -36,6 +36,39 @@ describe("onboarding", () => {
     }
   });
 
+  test("saves Anthropic-compatible proxy configuration without credentials", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chiselcode-test-"));
+    const path = join(directory, "config.json");
+    try {
+      await saveGlobalConfig(
+        {
+          defaultProvider: "anthropic-compatible",
+          defaultModel: "gpt-5.6-terra",
+          providers: {
+            "anthropic-compatible": {
+              provider: "anthropic-compatible",
+              apiKeyRef: "anthropic-compatible-default",
+              baseUrl: "https://proxy.example.test",
+              defaultModel: "gpt-5.6-terra",
+            },
+          },
+        },
+        path,
+      );
+      expect(await loadGlobalConfig(path)).toMatchObject({
+        defaultProvider: "anthropic-compatible",
+        providers: {
+          "anthropic-compatible": {
+            apiKeyRef: "anthropic-compatible-default",
+            baseUrl: "https://proxy.example.test",
+          },
+        },
+      });
+      expect(await readFile(path, "utf8")).not.toContain("test-secret");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   test("validates setup defaults and compatible API addresses", () => {
     expect(defaultModelFor("anthropic")).toBe("claude-opus-5");
     expect(defaultModelFor("openai-compatible")).toBe("");

@@ -23,9 +23,11 @@ const program = new Command();
 program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
-  .version("0.1.6")
-  .argument("[prompt]", "задача обычным языком")
-  .option("--provider <provider>", "anthropic, openai или openai-compatible")
+  .version("0.1.7")
+  .option(
+    "--provider <provider>",
+    "anthropic, anthropic-compatible, openai или openai-compatible",
+  )
   .option("--model <model>", "название модели")
   .option("--base-url <url>", "адрес OpenAI-compatible API")
   .option("--yes", "разрешить все изменения без подтверждения")
@@ -59,7 +61,10 @@ program
 program
   .command("setup")
   .description("Настроить ключ API и сервис через понятный мастер")
-  .option("--provider <provider>", "anthropic, openai или openai-compatible")
+  .option(
+    "--provider <provider>",
+    "anthropic, anthropic-compatible, openai или openai-compatible",
+  )
   .action(async (raw: Record<string, unknown>) => {
     const provider = raw.provider as string | undefined;
     if (provider && !isProvider(provider))
@@ -81,7 +86,7 @@ program
       `Модель: ${providerConfig?.defaultModel ?? config.defaultModel ?? "не выбрана"}\n`,
     );
     process.stdout.write(`API-ключ: ${ready ? "сохранён" : "не настроен"}\n`);
-    if (provider === "openai-compatible")
+    if (provider === "anthropic-compatible" || provider === "openai-compatible")
       process.stdout.write(
         `Адрес API: ${providerConfig?.baseUrl ?? "не настроен"}\n`,
       );
@@ -139,7 +144,10 @@ function toOptions(raw: Record<string, unknown>): RunOptions {
 
 function isProvider(value: string): value is ProviderKind {
   return (
-    value === "anthropic" || value === "openai" || value === "openai-compatible"
+    value === "anthropic" ||
+    value === "anthropic-compatible" ||
+    value === "openai" ||
+    value === "openai-compatible"
   );
 }
 
@@ -210,6 +218,7 @@ async function startTui(options: RunOptions): Promise<void> {
               apiKeyRef: previous?.apiKeyRef,
               defaultModel: values.model,
               baseUrl:
+                values.provider === "anthropic-compatible" ||
                 values.provider === "openai-compatible"
                   ? values.baseUrl
                   : undefined,
@@ -318,6 +327,7 @@ async function saveSetup(values: SetupValues): Promise<void> {
 
 function providerLabel(provider: ProviderKind): string {
   if (provider === "anthropic") return "Anthropic (Claude)";
+  if (provider === "anthropic-compatible") return "Anthropic-совместимый API";
   if (provider === "openai") return "OpenAI";
-  return "совместимый API";
+  return "OpenAI-совместимый API";
 }

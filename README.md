@@ -59,9 +59,20 @@ ChiselCode не предоставляет собственную модель: 
 
 - **Anthropic (Claude)** — создайте ключ в [Anthropic Console](https://console.anthropic.com/). В мастере выберите `1`.
 - **OpenAI** — создайте ключ на [OpenAI Platform](https://platform.openai.com/api-keys). В мастере выберите `2`.
-- **Ollama, OpenRouter, Groq, LM Studio или другой совместимый сервис** — выберите `3`, укажите полный адрес API (например `http://localhost:11434/v1`) и имя модели, которое поддерживает ваш сервер.
+- **Anthropic-compatible proxy** — выберите `4`, укажите корень API (например, `https://proxy.example.com`) и модель прокси. Этот режим использует Anthropic Messages API (`/v1/messages`) и Bearer-токен — подходит для прокси, настроенных как Claude Code.
+- **Ollama, OpenRouter, Groq, LM Studio или другой OpenAI-совместимый сервис** — выберите `3`, укажите полный адрес API с `/v1` (например `http://localhost:11434/v1`) и имя модели, которое поддерживает ваш сервер.
 
-Запустить настройку повторно или сменить сервис можно так:
+### Anthropic-compatible proxy
+
+Если API уже работает в Claude Code через `ANTHROPIC_BASE_URL`, в ChiselCode выберите **Anthropic-compatible proxy** (`chisel setup`, вариант `4`). Укажите тот же базовый адрес — **без** добавления `/v1` — и модель, заданную для Claude Code. Например:
+
+```text
+Адрес API: https://proxy.example.com
+Модель: model-name-from-proxy
+```
+
+ChiselCode сам вызывает `/v1/messages` в формате Anthropic и передаёт токен только в заголовке `Authorization: Bearer …`. Для OpenAI-совместимого сервиса, напротив, выберите вариант `3` и укажите базовый адрес с `/v1`, поскольку он использует `/chat/completions`.
+
 
 ```powershell
 C:\Tools\ChiselCode\chisel-windows-x64.exe setup
@@ -120,7 +131,7 @@ bun run lint
 chisel setup                         пройти настройку
 chisel doctor                        проверить настройку без показа ключей
 chisel "задача"                       выполнить задачу
---provider anthropic|openai|openai-compatible
+--provider anthropic|anthropic-compatible|openai|openai-compatible
 --model <model-id>
 --base-url <url>
 --yes                                разрешить все изменения

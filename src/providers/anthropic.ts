@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ModelInfo,
   ProviderAdapter,
+  ProviderKind,
   ProviderRequest,
   StreamEvent,
   ToolDefinition,
@@ -13,20 +14,28 @@ import { ToolNameSchema } from "../types/domain.js";
 const DEFAULT_MODEL = "claude-opus-5";
 
 export interface AnthropicAdapterOptions {
-  apiKey?: string;
+  apiKey?: string | null;
+  authToken?: string;
+  baseUrl?: string;
+  kind?: Extract<ProviderKind, "anthropic" | "anthropic-compatible">;
   maxRetries?: number;
   timeoutMs?: number;
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
 export class AnthropicAdapter implements ProviderAdapter {
-  readonly kind = "anthropic" as const;
+  readonly kind: Extract<ProviderKind, "anthropic" | "anthropic-compatible">;
   private readonly client: Anthropic;
 
   constructor(options: AnthropicAdapterOptions = {}) {
+    this.kind = options.kind ?? "anthropic";
     this.client = new Anthropic({
       apiKey: options.apiKey,
+      authToken: options.authToken,
+      baseURL: options.baseUrl,
       maxRetries: options.maxRetries ?? 2,
       timeout: options.timeoutMs ?? 10 * 60 * 1_000,
+      fetch: options.fetch,
     });
   }
 
@@ -102,6 +111,18 @@ export class AnthropicAdapter implements ProviderAdapter {
       tools: toAnthropicTools(request.tools),
     });
     return result.input_tokens;
+  }
+}
+
+export class AnthropicCompatibleAdapter extends AnthropicAdapter {
+  constructor(
+    options: Omit<AnthropicAdapterOptions, "apiKey" | "kind"> & {
+      authToken: string;
+    },
+  ) {
+    if (!options.baseUrl)
+      throw new Error("Anthropic-compatible providers require baseUrl.");
+    super({ ...options, apiKey: null, kind: "anthropic-compatible" });
   }
 }
 
