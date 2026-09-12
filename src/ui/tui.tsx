@@ -1,4 +1,4 @@
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -100,6 +100,24 @@ export interface TuiAppProps {
 
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  // Высота вьюпорта: поле ввода прижимаем к физическому низу окна,
+  // а не к низу контента.
+  const [viewportRows, setViewportRows] = useState(stdout.rows ?? 24);
+  const viewportRef = useRef({ rows: stdout.rows ?? 24, columns: 80 });
+  useEffect(() => {
+    const sync = (): void => {
+      const rows = stdout.rows ?? 24;
+      const columns = stdout.columns ?? 80;
+      viewportRef.current = { rows, columns };
+      setViewportRows(rows);
+    };
+    sync();
+    stdout.on("resize", sync);
+    return () => {
+      stdout.off("resize", sync);
+    };
+  }, [stdout]);
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -142,22 +160,59 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     [],
   );
 
-  const appendToStreaming = useCallback((text: string): void => {
-    const current = streamingRef.current;
-    if (current) {
-      const next = { ...current, text: current.text + text };
-      streamingRef.current = next;
-      setStreaming(next);
-    } else {
-      const line: TuiTranscriptLine = {
-        id: nextTranscriptId.current++,
-        text,
-        tone: "assistant",
-      };
-      streamingRef.current = line;
-      setStreaming(line);
-    }
+  // Сколько строк резервируем под ввод и подписи снизу.
+  const BOTTOM_RESERVE = 8;
+  // Видимая высота текста с учётом переноса длинных строк.
+  const estimateHeight = useCallback((text: string): number => {
+    const { columns } = viewportRef.current;
+    return text
+      .split("\n")
+      .reduce(
+        (total, line) => total + Math.max(1, Math.ceil(line.length / columns)),
+        0,
+      );
   }, []);
+
+  const appendToStreaming = useCallback(
+    (text: string): void => {
+      const current = streamingRef.current;
+      const combined = current ? current.text + text : text;
+      const available = Math.max(viewportRef.current.rows - BOTTOM_RESERVE, 3);
+      // Если стриминг стал выше свободного места — уводим готовую часть
+      // в скроллбэк, хвост остаётся прямо над вводом.
+      if (current && estimateHeight(combined) > available) {
+        streamingRef.current = null;
+        setStreaming(null);
+        const flushedId = nextTranscriptId.current++;
+        setTranscript((lines) => [
+          ...lines,
+          { id: flushedId, text: current.text, tone: "assistant" },
+        ]);
+        const tail: TuiTranscriptLine = {
+          id: nextTranscriptId.current++,
+          text,
+          tone: "assistant",
+        };
+        streamingRef.current = tail;
+        setStreaming(tail);
+        return;
+      }
+      if (current) {
+        const next = { ...current, text: combined };
+        streamingRef.current = next;
+        setStreaming(next);
+      } else {
+        const line: TuiTranscriptLine = {
+          id: nextTranscriptId.current++,
+          text,
+          tone: "assistant",
+        };
+        streamingRef.current = line;
+        setStreaming(line);
+      }
+    },
+    [estimateHeight],
+  );
 
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
@@ -360,7 +415,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       </Box>
     );
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={viewportRows}>
       <Static items={transcript}>
         {(line) => (
           <TranscriptLineView
@@ -371,6 +426,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           />
         )}
       </Static>
+      {/* Растягивающийся зазор: прижимает ввод к нижней кромке окна. */}
+      <Box flexGrow={1} />
       {streaming ? (
         <TranscriptLineView
           line={streaming}
