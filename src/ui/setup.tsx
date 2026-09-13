@@ -1,6 +1,7 @@
 import { Box, Text, useApp, useInput } from "ink";
 import type React from "react";
 import { useState } from "react";
+import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import type { ProviderKind } from "../types/domain.js";
 import { VERSION } from "../version.js";
 
@@ -126,7 +127,8 @@ export function SetupApp({
     void onComplete({
       provider,
       apiKey: apiKey.trim(),
-      baseUrl: baseUrl.trim() || undefined,
+      baseUrl:
+        normalizeBaseUrlForProvider(provider, baseUrl.trim()) || undefined,
       model: model.trim(),
     })
       .then(() => {

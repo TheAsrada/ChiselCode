@@ -17,6 +17,7 @@ import {
   RELEASES_PAGE_URL,
 } from "./commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "./config/load.js";
+import { normalizeBaseUrlForProvider } from "./providers/base-url.js";
 import { CredentialStore } from "./security/credentials.js";
 import type { GlobalConfig, ProviderKind } from "./types/domain.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
@@ -372,7 +373,10 @@ async function startTui(options: RunOptions): Promise<void> {
                 baseUrl:
                   values.provider === "anthropic-compatible" ||
                   values.provider === "openai-compatible"
-                    ? values.baseUrl
+                    ? normalizeBaseUrlForProvider(
+                        values.provider,
+                        values.baseUrl,
+                      )
                     : undefined,
               },
             },
@@ -722,7 +726,7 @@ async function persistSetup(values: SetupValues): Promise<void> {
       [values.provider]: {
         provider: values.provider,
         apiKeyRef: credentialName,
-        baseUrl: values.baseUrl,
+        baseUrl: normalizeBaseUrlForProvider(values.provider, values.baseUrl),
         defaultModel: values.model,
       },
     },

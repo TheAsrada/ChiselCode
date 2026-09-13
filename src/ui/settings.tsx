@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import type React from "react";
 import { useState } from "react";
+import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import type { ProviderKind } from "../types/domain.js";
 import { defaultModelFor, isValidApiUrl } from "./setup.js";
 
@@ -140,7 +141,11 @@ export function SettingsPanel({
         (await onSave({
           ...values,
           model: values.model.trim(),
-          baseUrl: values.baseUrl?.trim() || undefined,
+          baseUrl:
+            normalizeBaseUrlForProvider(
+              values.provider,
+              values.baseUrl?.trim(),
+            ) || undefined,
         })) === "setup_required"
       )
         onSetupRequested();

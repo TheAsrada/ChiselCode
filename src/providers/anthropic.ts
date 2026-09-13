@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from "../types/domain.js";
 import { ToolNameSchema } from "../types/domain.js";
+import { normalizeAnthropicCompatibleBaseUrl } from "./base-url.js";
 
 const DEFAULT_MODEL = "claude-opus-5";
 
@@ -122,7 +123,12 @@ export class AnthropicCompatibleAdapter extends AnthropicAdapter {
   ) {
     if (!options.baseUrl)
       throw new Error("Anthropic-compatible providers require baseUrl.");
-    super({ ...options, apiKey: null, kind: "anthropic-compatible" });
+    super({
+      ...options,
+      baseUrl: normalizeAnthropicCompatibleBaseUrl(options.baseUrl),
+      apiKey: null,
+      kind: "anthropic-compatible",
+    });
   }
 }
 
