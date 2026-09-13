@@ -204,15 +204,28 @@ function renderInline(
 }
 
 /** Ответ помощника с лёгким markdown-оформлением. */
-export function MarkdownText({ text }: { text: string }): React.JSX.Element {
+export function MarkdownText({
+  text,
+  columns = 80,
+}: {
+  text: string;
+  columns?: number;
+}): React.JSX.Element {
   const blocks = parseBlocks(text);
+  const safeColumns = Math.max(Math.floor(columns) || 80, 20);
+  const rule = "─".repeat(safeColumns);
   return (
-    <>
+    <Box flexDirection="column" width="100%">
       {blocks.map((block, index) => {
         const key = `block-${index}`;
         if (block.kind === "heading")
           return (
-            <Text key={key} bold color={block.level === 1 ? "cyan" : "white"}>
+            <Text
+              key={key}
+              bold
+              color={block.level === 1 ? "cyan" : "white"}
+              wrap="wrap"
+            >
               {block.text}
             </Text>
           );
@@ -225,17 +238,18 @@ export function MarkdownText({ text }: { text: string }): React.JSX.Element {
               borderColor="gray"
               paddingX={1}
               marginY={1}
+              width="100%"
             >
               {block.language ? <Text dimColor>{block.language}</Text> : null}
-              <Text>{block.code}</Text>
+              <Text wrap="wrap">{block.code}</Text>
             </Box>
           );
         if (block.kind === "list")
           return (
-            <Box key={key} flexDirection="column">
+            <Box key={key} flexDirection="column" width="100%">
               {block.items.map((item, itemIndex) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: пункты markdown статичны
-                <Text key={`${key}-item-${itemIndex}`}>
+                <Text key={`${key}-item-${itemIndex}`} wrap="wrap">
                   <Text color="cyan">
                     {block.ordered ? `${itemIndex + 1}. ` : "• "}
                   </Text>
@@ -246,10 +260,10 @@ export function MarkdownText({ text }: { text: string }): React.JSX.Element {
           );
         if (block.kind === "quote")
           return (
-            <Box key={key} flexDirection="column">
+            <Box key={key} flexDirection="column" width="100%">
               {block.text.split("\n").map((line, lineIndex) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: строки цитаты статичны
-                <Text key={`${key}-quote-${lineIndex}`} dimColor>
+                <Text key={`${key}-quote-${lineIndex}`} dimColor wrap="wrap">
                   <Text color="cyan">▌ </Text>
                   {renderInline(parseInline(line), `${key}-quote-${lineIndex}`)}
                 </Text>
@@ -258,14 +272,16 @@ export function MarkdownText({ text }: { text: string }): React.JSX.Element {
           );
         if (block.kind === "hr")
           return (
-            <Text key={key} dimColor>
-              ──────────
+            <Text key={key} dimColor wrap="truncate">
+              {rule}
             </Text>
           );
         return (
-          <Text key={key}>{renderInline(parseInline(block.text), key)}</Text>
+          <Text key={key} wrap="wrap">
+            {renderInline(parseInline(block.text), key)}
+          </Text>
         );
       })}
-    </>
+    </Box>
   );
 }

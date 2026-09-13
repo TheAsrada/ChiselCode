@@ -18,9 +18,13 @@ import {
 } from "../../src/ui/editor.js";
 import {
   estimateFooterHeight,
+  fullWidthSeparator,
   maxTranscriptOffset,
+  normalizeViewport,
+  TUI_HEADER_ROWS,
   visibleTranscriptTail,
   visibleTranscriptWindow,
+  wrappedLines,
 } from "../../src/ui/tui.js";
 
 describe("interactive commands", () => {
@@ -128,7 +132,55 @@ describe("interactive viewport layout", () => {
         columns: 80,
         suggestionsCount: 0,
       }),
-    ).toBe(7);
+    ).toBe(8);
+  });
+
+  test("adapts layout to fullscreen width without moving the input", () => {
+    // Разделитель всегда во всю ширину окна.
+    expect(fullWidthSeparator(80).length).toBe(80);
+    expect(fullWidthSeparator(200).length).toBe(200);
+    // Вьюпорт нормализуется: нули и крошечные окна не ломают математику.
+    expect(normalizeViewport({ columns: 0, rows: 0 })).toEqual({
+      columns: 80,
+      rows: 24,
+    });
+    expect(normalizeViewport({ columns: 10, rows: 5 }).columns).toBe(20);
+    expect(normalizeViewport({ columns: 10, rows: 5 }).rows).toBe(10);
+    // Широкое окно: длинная строка ввода занимает меньше строк,
+    // высота футера уменьшается, а шапка фиксирована.
+    const narrow = estimateFooterHeight({
+      busy: false,
+      editorValue: "x".repeat(100),
+      columns: 40,
+      suggestionsCount: 0,
+    });
+    const wide = estimateFooterHeight({
+      busy: false,
+      editorValue: "x".repeat(100),
+      columns: 200,
+      suggestionsCount: 0,
+    });
+    expect(wide).toBeLessThan(narrow);
+    expect(TUI_HEADER_ROWS).toBe(2);
+    // wrappedLines считает по доступной ширине, а не по окну минус магия.
+    expect(wrappedLines("x".repeat(100), 100)).toBe(1);
+    expect(wrappedLines("x".repeat(101), 100)).toBe(2);
+    // Зарезервированная шапка уменьшает окно истории, но хвост тот же.
+    const lines = [
+      { id: 0, text: "первая", tone: "info" as const },
+      { id: 1, text: "вторая", tone: "info" as const },
+      { id: 2, text: "третья", tone: "info" as const },
+    ];
+    const withoutHeader = visibleTranscriptWindow(lines, 8, 80, 5, 0, 0);
+    const withHeader = visibleTranscriptWindow(
+      lines,
+      8 + TUI_HEADER_ROWS,
+      80,
+      5,
+      0,
+      TUI_HEADER_ROWS,
+    );
+    expect(withHeader).toEqual(withoutHeader);
   });
 
   test("clips transcript tail with room for overflow indicator", () => {

@@ -55,6 +55,49 @@ export interface TuiTranscript {
   clear(): void;
 }
 
+/**
+ * Адаптивная раскладка как в Claude Code:
+ * - шапка закреплена сверху и занимает всю ширину окна;
+ * - история занимает всё свободное место и пересчитывается при ресайзе;
+ * - поле ввода / подтверждение закреплены снизу на всю ширину и растут вверх.
+ * Все оценки высоты считаются от актуального числа колонок, поэтому при
+ * разворачивании окна ввод не «съезжает», а текст просто переоборачивается.
+ */
+export const TUI_MIN_COLUMNS = 20;
+export const TUI_MIN_ROWS = 10;
+export const TUI_HEADER_ROWS = 2;
+export const TUI_FALLBACK_COLUMNS = 80;
+export const TUI_FALLBACK_ROWS = 24;
+
+export interface TuiViewport {
+  columns: number;
+  rows: number;
+}
+
+/** Нормализует размеры Ink к безопасному диапазону для математики layout. */
+export function normalizeViewport(viewport: {
+  columns?: number;
+  rows?: number;
+}): TuiViewport {
+  const columns = Math.floor(viewport.columns ?? TUI_FALLBACK_COLUMNS);
+  const rows = Math.floor(viewport.rows ?? TUI_FALLBACK_ROWS);
+  return {
+    columns: Math.max(
+      Number.isFinite(columns) && columns > 0 ? columns : TUI_FALLBACK_COLUMNS,
+      TUI_MIN_COLUMNS,
+    ),
+    rows: Math.max(
+      Number.isFinite(rows) && rows > 0 ? rows : TUI_FALLBACK_ROWS,
+      TUI_MIN_ROWS,
+    ),
+  };
+}
+
+/** Полноширинный разделитель под актуальную ширину окна. */
+export function fullWidthSeparator(columns: number): string {
+  return "─".repeat(Math.max(Math.floor(columns) || TUI_FALLBACK_COLUMNS, 10));
+}
+
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
   let setRequest: ((request: ApprovalRequest | undefined) => void) | undefined;
@@ -100,7 +143,8 @@ export interface TuiAppProps {
 
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
-  const viewport = useWindowSize();
+  const rawViewport = useWindowSize();
+  const viewport = normalizeViewport(rawViewport);
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -120,7 +164,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
   const [transcriptOffset, setTranscriptOffset] = useState(0);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
-  const nextTranscriptId = useRef(4);
+  const nextTranscriptId = useRef(3);
   const suggestions = isSlashInput(editor.value)
     ? matchingCommands(editor.value)
     : [];
@@ -371,37 +415,48 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       <Box
         flexDirection="column"
         height={viewport.rows}
-        width="100%"
+        width={viewport.columns}
         overflow="hidden"
-        alignItems="stretch"
       >
-        <Header providerLabel={runtime.providerLabel} model={runtime.model} />
-        <SettingsPanel
-          initialValues={{
-            provider: runtime.provider,
-            model: runtime.model,
-            baseUrl: runtime.baseUrl,
-          }}
-          initialScreen={settings}
-          onSave={props.onSaveSettings}
-          onClose={() => setSettings(undefined)}
-          onSetupRequested={() => {
-            props.onRestartSetup();
-            exit();
-          }}
-          onSaved={(values) =>
-            setRuntime({
-              provider: values.provider,
-              providerLabel: providerName(values.provider),
-              model: values.model,
-              baseUrl: values.baseUrl,
-            })
-          }
+        <Header
+          providerLabel={runtime.providerLabel}
+          model={runtime.model}
+          columns={viewport.columns}
         />
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          flexShrink={1}
+          overflow="hidden"
+          width="100%"
+        >
+          <SettingsPanel
+            initialValues={{
+              provider: runtime.provider,
+              model: runtime.model,
+              baseUrl: runtime.baseUrl,
+            }}
+            initialScreen={settings}
+            onSave={props.onSaveSettings}
+            onClose={() => setSettings(undefined)}
+            onSetupRequested={() => {
+              props.onRestartSetup();
+              exit();
+            }}
+            onSaved={(values) =>
+              setRuntime({
+                provider: values.provider,
+                providerLabel: providerName(values.provider),
+                model: values.model,
+                baseUrl: values.baseUrl,
+              })
+            }
+          />
+        </Box>
       </Box>
     );
   const footer = request ? (
-    <Approval request={request} />
+    <Approval request={request} columns={viewport.columns} />
   ) : (
     <Editor
       value={editor.value}
@@ -409,6 +464,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       busy={busy}
       model={runtime.model}
       suggestions={suggestions}
+      columns={viewport.columns}
     />
   );
   const footerRows = estimateFooterHeight({
@@ -429,33 +485,47 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     viewport.columns,
     footerRows,
     clampedTranscriptOffset,
+    TUI_HEADER_ROWS,
   );
 
   return (
     <Box
       flexDirection="column"
       height={viewport.rows}
-      width="100%"
+      width={viewport.columns}
       overflow="hidden"
-      alignItems="stretch"
     >
-      <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
+      <Header
+        providerLabel={runtime.providerLabel}
+        model={runtime.model}
+        columns={viewport.columns}
+      />
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        flexShrink={1}
+        overflow="hidden"
+        width="100%"
+      >
         {visible.hiddenAboveCount > 0 ? (
-          <Text dimColor>… ↑ ещё {visible.hiddenAboveCount} записей выше</Text>
+          <Text dimColor wrap="truncate">
+            … ↑ ещё {visible.hiddenAboveCount} записей выше
+          </Text>
         ) : null}
         {visible.lines.map((line) => (
           <TranscriptLineView
             key={line.id}
             line={line}
-            providerLabel={runtime.providerLabel}
-            model={runtime.model}
+            columns={viewport.columns}
           />
         ))}
         {visible.hiddenBelowCount > 0 ? (
-          <Text dimColor>… ↓ ещё {visible.hiddenBelowCount} записей ниже</Text>
+          <Text dimColor wrap="truncate">
+            … ↓ ещё {visible.hiddenBelowCount} записей ниже
+          </Text>
         ) : null}
       </Box>
-      <Box flexDirection="column" flexShrink={0} alignItems="stretch">
+      <Box flexDirection="column" flexShrink={0} width="100%">
         {footer}
       </Box>
     </Box>
@@ -465,78 +535,118 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 function Header({
   providerLabel,
   model,
+  columns,
 }: {
   providerLabel: string;
   model: string;
+  columns: number;
 }): React.JSX.Element {
+  const safeColumns = normalizeViewport({ columns }).columns;
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Box>
+    <Box flexDirection="column" flexShrink={0} width="100%">
+      <Box width="100%">
         <Text bold color="cyan">
           ◈ ChiselCode
         </Text>
         <Text dimColor> · </Text>
-        <Text color="magenta">{providerLabel}</Text>
+        <Text color="magenta" wrap="truncate-end">
+          {providerLabel}
+        </Text>
         <Text dimColor> · </Text>
-        <Text color="yellow">{model}</Text>
+        <Text color="yellow" wrap="truncate-end">
+          {model}
+        </Text>
       </Box>
-      <Text dimColor>────────────────────────────────────────</Text>
+      <Text dimColor wrap="truncate">
+        {fullWidthSeparator(safeColumns)}
+      </Text>
     </Box>
   );
 }
 function TranscriptLineView({
   line,
-  providerLabel,
-  model,
+  columns,
 }: {
   line: TuiTranscriptLine;
-  providerLabel: string;
-  model: string;
+  columns: number;
 }): React.JSX.Element {
   const tone = line.tone ?? "assistant";
   if (tone === "brand") {
     const [provider, ...modelParts] = line.text.split(" · ");
     return (
-      <Box flexDirection="column" marginBottom={1}>
-        <Box>
+      <Box flexDirection="column" marginBottom={1} width="100%">
+        <Box width="100%">
           <Text bold color="cyan">
             ◈ ChiselCode
           </Text>
           <Text dimColor> · </Text>
-          <Text color="magenta">{provider ?? providerLabel}</Text>
+          <Text color="magenta" wrap="truncate-end">
+            {provider ?? ""}
+          </Text>
           <Text dimColor> · </Text>
-          <Text color="yellow">{modelParts.join(" · ") || model}</Text>
+          <Text color="yellow" wrap="truncate-end">
+            {modelParts.join(" · ")}
+          </Text>
         </Box>
-        <Text dimColor>────────────────────────────────────────</Text>
+        <Text dimColor wrap="truncate">
+          {fullWidthSeparator(columns)}
+        </Text>
       </Box>
     );
   }
-  if (tone === "user")
+  if (tone === "user") {
+    // Одна Text-нода во всю ширину: при ресайзе Ink сам переоборачивает
+    // строку и ввод/история не «съезжают» по горизонтали.
+    const clean = line.text.replace(/^›\s?/, "");
     return (
-      <Box marginTop={1}>
-        <Text bold color="green">
-          ›{" "}
+      <Box marginTop={1} width="100%">
+        <Text bold wrap="wrap">
+          <Text bold color="green">
+            ›{" "}
+          </Text>
+          {clean}
         </Text>
-        <Text bold>{line.text.replace(/^›\s?/, "")}</Text>
       </Box>
     );
+  }
   if (tone === "tool") {
     const summary = line.text.replace(/^\[chisel\]\s?/, "");
     const preview =
       summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
     return (
-      <Text dimColor>
-        <Text color="cyan">⟡ </Text>
-        {preview}
-      </Text>
+      <Box width="100%">
+        <Text dimColor wrap="wrap">
+          <Text color="cyan">⟡ </Text>
+          {preview}
+        </Text>
+      </Box>
     );
   }
-  if (tone === "error") return <Text color="red">✗ {line.text}</Text>;
-  if (tone === "warn") return <Text color="yellow">⚠ {line.text}</Text>;
-  if (tone === "info") return <Text>{line.text}</Text>;
+  if (tone === "error")
+    return (
+      <Box width="100%">
+        <Text color="red" wrap="wrap">
+          ✗ {line.text}
+        </Text>
+      </Box>
+    );
+  if (tone === "warn")
+    return (
+      <Box width="100%">
+        <Text color="yellow" wrap="wrap">
+          ⚠ {line.text}
+        </Text>
+      </Box>
+    );
+  if (tone === "info")
+    return (
+      <Box width="100%">
+        <Text wrap="wrap">{line.text}</Text>
+      </Box>
+    );
   return (
-    <Box marginTop={1}>
-      <MarkdownText text={line.text} />
+    <Box marginTop={1} width="100%">
+      <MarkdownText text={line.text} columns={columns} />
     </Box>
   );
 }
@@ -558,13 +668,15 @@ function estimateApprovalHeight(
   request: ApprovalRequest,
   columns: number,
 ): number {
-  const width = Math.max(columns - 4, 10);
+  const safeColumns = normalizeViewport({ columns }).columns;
+  const width = Math.max(safeColumns - 4, 10);
   const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
   const header = `? [${meta.icon}] ${meta.label} — нужно подтверждение`;
   const controls = "[y] разрешить · [n] отклонить (Esc — тоже отклонить)";
-  // Рамка (2), вертикальные отступы preview (2), заголовок, preview и controls.
+  // marginTop (1) + рамка (2) + вертикальные отступы preview (2) +
+  // заголовок, preview и controls с переносом по внутренней ширине.
   return (
-    4 +
+    5 +
     wrappedLines(header, width) +
     wrappedLines(approvalPreview(request), width) +
     wrappedLines(controls, width)
@@ -587,8 +699,12 @@ export function estimateFooterHeight({
   columns = 80,
   suggestionsCount,
 }: FooterHeightInput): number {
-  if (request) return estimateApprovalHeight(request, columns);
-  const editorRows = busy ? 1 : wrappedLines(editorValue || " ", columns);
+  const safeColumns = normalizeViewport({ columns }).columns;
+  if (request) return estimateApprovalHeight(request, safeColumns);
+  // Ввод живёт внутри рамки (2) + paddingX (2) + префикс «› » (2).
+  const editorRows = busy
+    ? 1
+    : wrappedLines(editorValue || " ", Math.max(safeColumns - 6, 10));
   const suggestionsRows = !busy && suggestionsCount ? suggestionsCount + 3 : 0;
   // Верхний отступ, рамка редактора и строка горячих клавиш.
   return editorRows + 4 + suggestionsRows;
@@ -637,15 +753,18 @@ export function visibleTranscriptWindow(
   columns: number,
   footerRows: number,
   offset = 0,
+  topRows = 0,
 ): VisibleTranscriptWindow {
-  const contentRows = Math.max(rows - footerRows, 0);
+  const safeRows = Math.max(Math.floor(rows) || TUI_FALLBACK_ROWS, 1);
+  const safeColumns = normalizeViewport({ columns }).columns;
+  const contentRows = Math.max(safeRows - footerRows - topRows, 0);
   const safeOffset = Math.max(0, Math.min(offset, maxTranscriptOffset(lines)));
   const end = lines.length - safeOffset;
   const belowRows = safeOffset > 0 ? 1 : 0;
   let start = selectTranscriptStart(
     lines,
     end,
-    columns,
+    safeColumns,
     Math.max(contentRows - belowRows, 0),
   );
   // Верхний индикатор, как и нижний, занимает строку внутри viewport.
@@ -653,7 +772,7 @@ export function visibleTranscriptWindow(
     start = selectTranscriptStart(
       lines,
       end,
-      columns,
+      safeColumns,
       Math.max(contentRows - belowRows - 1, 0),
     );
   }
@@ -670,14 +789,27 @@ export function visibleTranscriptTail(
   rows: number,
   columns: number,
   footerRows: number,
+  topRows = 0,
 ): VisibleTranscriptTail {
-  const visible = visibleTranscriptWindow(lines, rows, columns, footerRows);
+  const visible = visibleTranscriptWindow(
+    lines,
+    rows,
+    columns,
+    footerRows,
+    0,
+    topRows,
+  );
   return { lines: visible.lines, hiddenCount: visible.hiddenAboveCount };
 }
 
-/** Число строк текста с учётом переноса по ширине терминала. */
-export function wrappedLines(text: string, columns: number): number {
-  const width = Math.max(columns - 2, 10);
+/**
+ * Число строк текста с учётом переноса.
+ * Второй аргумент — уже доступная ширина (usable width), а не ширина окна.
+ * Вызывающий вычитает рамки/отступы/префиксы сам — так оценка совпадает
+ * с реальным рендером Ink при любом размере окна.
+ */
+export function wrappedLines(text: string, usableWidth: number): number {
+  const width = Math.max(Math.floor(usableWidth) || 10, 10);
   return text
     .split("\n")
     .reduce(
@@ -688,35 +820,40 @@ export function wrappedLines(text: string, columns: number): number {
 
 /** Оценка высоты строки истории в строках терминала. */
 function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
+  const safeColumns = normalizeViewport({ columns }).columns;
   const tone = line.tone ?? "assistant";
   if (tone === "brand") return 3; // две строки + отступ
-  if (tone === "user") return 1 + wrappedLines(line.text, columns); // отступ + текст
-  if (tone === "tool")
-    return wrappedLines(
-      line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text,
-      columns,
-    );
+  if (tone === "user")
+    return 1 + wrappedLines(line.text, Math.max(safeColumns - 2, 10)); // отступ + «› »
+  if (tone === "tool") {
+    const summary =
+      line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text;
+    return wrappedLines(summary, Math.max(safeColumns - 2, 10)); // префикс «⟡ »
+  }
   if (tone === "info" || tone === "error" || tone === "warn")
-    return wrappedLines(line.text, columns);
+    return wrappedLines(line.text, safeColumns);
   // assistant: markdown-раскладка + верхний отступ
-  return 1 + estimateMarkdownHeight(line.text, columns);
+  return 1 + estimateMarkdownHeight(line.text, safeColumns);
 }
 
 /** Оценка высоты markdown-ответа (заголовки, списки, код в рамках и т.д.). */
 function estimateMarkdownHeight(text: string, columns: number): number {
+  const safeColumns = normalizeViewport({ columns }).columns;
+  const quoteWidth = Math.max(safeColumns - 2, 10);
+  const codeWidth = Math.max(safeColumns - 4, 10);
   return parseBlocks(text).reduce((total, block) => {
-    if (block.kind === "heading" || block.kind === "hr") return total + 1;
+    if (block.kind === "hr") return total + 1;
+    if (block.kind === "heading")
+      return total + wrappedLines(block.text, safeColumns);
     if (block.kind === "paragraph")
-      return total + wrappedLines(block.text, columns);
+      return total + wrappedLines(block.text, safeColumns);
     if (block.kind === "quote")
       return (
         total +
         block.text
           .split("\n")
           .reduce(
-            (sum, l) =>
-              sum +
-              Math.max(1, Math.ceil(l.length / Math.max(columns - 2, 10))),
+            (sum, l) => sum + Math.max(1, Math.ceil(l.length / quoteWidth)),
             0,
           )
       );
@@ -725,16 +862,18 @@ function estimateMarkdownHeight(text: string, columns: number): number {
         total +
         block.items.reduce(
           (sum, item) =>
-            sum +
-            Math.max(
-              1,
-              Math.ceil((item.length + 2) / Math.max(columns - 2, 10)),
-            ),
+            sum + Math.max(1, Math.ceil((item.length + 2) / safeColumns)),
           0,
         )
       );
-    // код: рамки (2) + возможный язык (1) + marginY (2) + строки кода
-    return total + block.code.split("\n").length + 4 + (block.language ? 1 : 0);
+    // код: рамки (2) + marginY (2) + возможный язык (1) + строки с переносом
+    const codeRows = block.code
+      .split("\n")
+      .reduce(
+        (sum, l) => sum + Math.max(1, Math.ceil(l.length / codeWidth)),
+        0,
+      );
+    return total + codeRows + 4 + (block.language ? 1 : 0);
   }, 0);
 }
 const TOOL_META: Record<string, { icon: string; label: string }> = {
@@ -747,11 +886,14 @@ const TOOL_META: Record<string, { icon: string; label: string }> = {
 
 function Approval({
   request,
+  columns,
 }: {
   request: ApprovalRequest;
+  columns: number;
 }): React.JSX.Element {
   const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
   const preview = approvalPreview(request);
+  void columns;
   return (
     <Box
       flexDirection="column"
@@ -759,14 +901,16 @@ function Approval({
       borderColor="yellow"
       paddingX={1}
       marginTop={1}
+      width="100%"
+      flexShrink={0}
     >
-      <Text bold color="yellow">
+      <Text bold color="yellow" wrap="wrap">
         ? [{meta.icon}] {meta.label} — нужно подтверждение
       </Text>
-      <Box marginY={1}>
-        <Text>{preview}</Text>
+      <Box marginY={1} width="100%">
+        <Text wrap="wrap">{preview}</Text>
       </Box>
-      <Text>
+      <Text wrap="wrap">
         [
         <Text bold color="green">
           y
@@ -786,15 +930,18 @@ function Editor({
   busy,
   model,
   suggestions,
+  columns,
 }: {
   value: string;
   cursor: number;
   busy: boolean;
   model: string;
   suggestions: ReturnType<typeof matchingCommands>;
+  columns: number;
 }): React.JSX.Element {
+  void columns;
   return (
-    <Box flexDirection="column" marginTop={1} alignItems="stretch">
+    <Box flexDirection="column" marginTop={1} width="100%" flexShrink={0}>
       {suggestions.length && !busy ? (
         <Box
           flexDirection="column"
@@ -802,9 +949,11 @@ function Editor({
           borderColor="gray"
           paddingX={1}
           marginBottom={1}
+          width="100%"
+          flexShrink={0}
         >
           {suggestions.map((command, index) => (
-            <Text key={command.name}>
+            <Text key={command.name} wrap="truncate-end">
               {index === 0 ? (
                 <>
                   <Text bold color="green">
@@ -826,21 +975,27 @@ function Editor({
         borderStyle="round"
         borderColor={busy ? "yellow" : "cyan"}
         paddingX={1}
+        width="100%"
+        flexShrink={0}
       >
         {busy ? (
           <Thinking model={model} />
         ) : value ? (
-          <Text>
-            <Text bold color="green">
-              ›{" "}
+          <Box width="100%">
+            <Text wrap="wrap">
+              <Text bold color="green">
+                ›{" "}
+              </Text>
+              {renderWithCursor(value, cursor)}
             </Text>
-            {renderWithCursor(value, cursor)}
-          </Text>
+          </Box>
         ) : (
-          <Text dimColor>› Спросите что-нибудь… ( / — команды )</Text>
+          <Text dimColor wrap="truncate-end">
+            › Спросите что-нибудь… ( / — команды )
+          </Text>
         )}
       </Box>
-      <Text dimColor>
+      <Text dimColor wrap="wrap">
         Enter — отправить · Shift+Enter — новая строка · ↑/↓ — история ·
         PgUp/PgDn — журнал
       </Text>
@@ -867,24 +1022,22 @@ function renderWithCursor(value: string, cursor: number): React.ReactNode {
   );
 }
 function intro(providerLabel: string, model: string): TuiTranscriptLine[] {
+  // Шапка теперь закреплена сверху окна (Header), поэтому в истории
+  // остаются только приветственные строки — задвоения нет и после
+  // /clear шапка не пропадает, как в Claude Code.
   return [
     {
       id: 0,
-      text: `${providerLabel} · ${model}`,
-      tone: "brand",
-    },
-    {
-      id: 1,
       text: `Готово. ${providerLabel}, модель ${model}. Напишите задачу или /help.`,
       tone: "info",
     },
     {
-      id: 2,
+      id: 1,
       text: "Изменения всегда требуют подтверждения y/n.",
       tone: "info",
     },
     {
-      id: 3,
+      id: 2,
       text: "Подсказка: /cwd <путь> — сменить проект, Tab — дополнить команду.",
       tone: "info",
     },
