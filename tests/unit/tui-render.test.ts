@@ -74,6 +74,9 @@ function visualWidth(line: string): number {
   return Array.from(line).length;
 }
 
+/** Первая строка каждого полного кадра — шапка приложения. */
+const FRAME_MARKER = "◈ ChiselCode";
+
 /** Номера «строка истории номер N», видимые в кадре, по порядку. */
 function historyNumbers(frame: string[]): number[] {
   const result: number[] = [];
@@ -125,6 +128,10 @@ async function startApp(columns: number, rows: number): Promise<Harness> {
       stdin: stdin as unknown as NodeJS.ReadStream,
       exitOnCtrlC: false,
       patchConsole: false,
+      // debug: Ink пишет каждый кадр статичным текстом без кодов
+      // перерисовки — одинаково локально и в CI, где интерактивный
+      // режим отключён и кадры иначе не прочитать из потока.
+      debug: true,
     },
   );
   await tick();
@@ -136,18 +143,16 @@ async function startApp(columns: number, rows: number): Promise<Harness> {
     },
     chunks: () => stripAnsi(output),
     /**
-     * Последний полный кадр. На Windows Ink очищает экран (ESC[2J) перед
-     * каждым полноэкранным кадром, поэтому честный кадр — это текст после
-     * последней очистки, а не последние N строк склеенного потока
-     * (там строки соседних кадров склеиваются без \n).
+     * Последний полный кадр. В debug-режиме кадры идут друг за другом
+     * сплошным текстом (последняя строка кадра склеена с шапкой
+     * следующего), поэтому кадр вырезаем по маркеру первой строки —
+     * он же первая строка каждого полного кадра.
      */
     frame: (frameRows: number) => {
-      const segments = output.split("\x1b[2J");
-      const last = segments.at(-1) ?? "";
-      const lines = stripAnsi(last).split("\n");
-      // Возможный инкрементальный хвост после полного кадра отбрасываем:
-      // полный кадр всегда ровно frameRows строк.
-      return lines.slice(0, frameRows);
+      const text = stripAnsi(output);
+      const parts = text.split(FRAME_MARKER);
+      const lastFrameText = FRAME_MARKER + (parts.at(-1) ?? "");
+      return lastFrameText.split("\n").slice(0, frameRows);
     },
     unmount: () => instance.unmount(),
   };
