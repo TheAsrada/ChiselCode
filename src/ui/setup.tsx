@@ -2,6 +2,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import type React from "react";
 import { useState } from "react";
 import type { ProviderKind } from "../types/domain.js";
+import { VERSION } from "../version.js";
 
 export interface SetupValues {
   provider: ProviderKind;
@@ -22,6 +23,15 @@ export function defaultModelFor(provider: ProviderKind): string {
   if (provider === "openai") return "gpt-5";
   return "";
 }
+
+const PROVIDER_HINT: Record<ProviderKind, string> = {
+  anthropic: "Ключ создаётся в Anthropic Console → console.anthropic.com",
+  openai: "Ключ создаётся на OpenAI Platform → platform.openai.com/api-keys",
+  "openai-compatible":
+    "Подойдёт Ollama, OpenRouter, Groq, LM Studio и любой OpenAI-совместимый сервер.",
+  "anthropic-compatible":
+    "Прокси с Anthropic Messages API (как для Claude Code через ANTHROPIC_BASE_URL).",
+};
 
 export function SetupApp({
   initialProvider,
@@ -122,21 +132,25 @@ export function SetupApp({
     >
       <Box>
         <Text bold color="cyan">
-          ✦ ChiselCode — быстрая настройка
+          ✦ ChiselCode
         </Text>
-        <Text dimColor> · {stepLabel(step, provider)}</Text>
+        <Text dimColor> v{VERSION} · быстрая настройка · </Text>
+        <Text color="yellow">{stepLabel(step, provider)}</Text>
+        <Text dimColor> {progressDots(step)}</Text>
       </Box>
-      <Text dimColor>Настройка займёт меньше минуты. Ctrl+C — отмена.</Text>
+      <Text dimColor>Займёт меньше минуты. Ctrl+C — отмена.</Text>
       {step === "provider" ? <ProviderSelection /> : null}
-      {step === "key" ? <ApiKeyInput value={apiKey} /> : null}
+      {step === "key" ? (
+        <ApiKeyInput provider={provider} value={apiKey} />
+      ) : null}
       {step === "base-url" ? <BaseUrlInput value={baseUrl} /> : null}
       {step === "model" ? (
         <ModelInput provider={provider} value={model} />
       ) : null}
       {step === "saving" ? (
-        <Text color="yellow">Сохраняю настройки…</Text>
+        <Text color="yellow">⠋ Сохраняю настройки…</Text>
       ) : null}
-      {error ? <Text color="red">{error}</Text> : null}
+      {error ? <Text color="red">✗ {error}</Text> : null}
     </Box>
   );
 }
@@ -152,6 +166,12 @@ function stepLabel(step: Step, provider: ProviderKind): string {
   return "сохранение…";
 }
 
+function progressDots(step: Step): string {
+  const order: Step[] = ["provider", "key", "base-url", "model", "saving"];
+  const active = order.indexOf(step);
+  return order.map((_, index) => (index <= active ? "●" : "○")).join("");
+}
+
 function ProviderSelection(): React.JSX.Element {
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -162,7 +182,7 @@ function ProviderSelection(): React.JSX.Element {
         <Text bold color="green">
           1
         </Text>
-        ] Anthropic (Claude) — рекомендуемый вариант
+        ] Anthropic (Claude) <Text color="cyan">★ рекомендуемый вариант</Text>
       </Text>
       <Text>
         {" "}
@@ -193,14 +213,21 @@ function ProviderSelection(): React.JSX.Element {
   );
 }
 
-function ApiKeyInput({ value }: { value: string }): React.JSX.Element {
+function ApiKeyInput({
+  provider,
+  value,
+}: {
+  provider: ProviderKind;
+  value: string;
+}): React.JSX.Element {
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold>2. Вставьте API-ключ и нажмите Enter:</Text>
-      <Text color="yellow">
+      <Text dimColor>{PROVIDER_HINT[provider]}</Text>
+      <Text dimColor>
         Ключ скрыт и сохраняется только в зашифрованном локальном хранилище.
       </Text>
-      <Text color="green">› {"•".repeat(value.length)}</Text>
+      <Text color="green">› {"•".repeat(value.length) || "…"}</Text>
     </Box>
   );
 }
@@ -209,10 +236,11 @@ function BaseUrlInput({ value }: { value: string }): React.JSX.Element {
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold>3. Введите адрес API и нажмите Enter:</Text>
-      <Text>
-        Для OpenAI API добавьте /v1; для Anthropic proxy укажите корень.
+      <Text dimColor>
+        Для OpenAI API добавьте /v1 (например http://localhost:11434/v1); для
+        Anthropic proxy укажите корень без /v1.
       </Text>
-      <Text color="green">› {value}</Text>
+      <Text color="green">› {value || "…"}</Text>
     </Box>
   );
 }
@@ -228,12 +256,12 @@ function ModelInput({
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold>{step}. Выберите модель и нажмите Enter:</Text>
-      <Text>
+      <Text dimColor>
         {isCompatibleProvider(provider)
           ? "Укажите модель, доступную на выбранном сервере."
           : "Можно оставить предложенную модель или отредактировать её."}
       </Text>
-      <Text color="green">› {value}</Text>
+      <Text color="green">› {value || "…"}</Text>
     </Box>
   );
 }

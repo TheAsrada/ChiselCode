@@ -5,6 +5,8 @@ export const SLASH_COMMANDS = [
   { name: "/settings", description: "открыть настройки" },
   { name: "/model", description: "сменить модель" },
   { name: "/status", description: "показать состояние сессии" },
+  { name: "/update", description: "проверить обновление ChiselCode" },
+  { name: "/doctor", description: "проверить настройку без показа ключей" },
   { name: "/exit", description: "закрыть ChiselCode" },
 ] as const;
 
@@ -38,10 +40,18 @@ export function matchingCommands(input: string) {
 
 export function commandHelpText(): string {
   return [
-    "Быстрые команды:",
-    ...SLASH_COMMANDS.map(
-      (command) => `  ${command.name} — ${command.description}`,
-    ),
+    "◈ ChiselCode — быстрые команды",
+    "  /help — показать справку по командам",
+    "  /clear — очистить экран",
+    "  /cwd <путь> — сменить папку проекта (можно путь к файлу)",
+    "  /settings — открыть настройки сервиса и модели",
+    "  /model — быстро сменить модель для текущего сеанса",
+    "  /status — показать состояние сессии",
+    "  /update — проверить обновление ChiselCode",
+    "  /doctor — проверить настройку без показа ключей",
+    "  /exit — закрыть ChiselCode",
+    "",
     "Обычный текст отправляется помощнику. Shift+Enter — новая строка. PgUp/PgDn листают журнал, Home/End — его начало и конец.",
+    "При запросе изменения нажмите y (разрешить) или n / Esc (отклонить).",
   ].join("\n");
 }

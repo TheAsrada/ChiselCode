@@ -27,6 +27,7 @@ import {
 } from "./editor.js";
 import { MarkdownText, parseBlocks } from "./markdown.js";
 import { SettingsPanel, type TuiSettingsValues } from "./settings.js";
+import { toolDisplay, welcomeLines } from "./theme.js";
 import { Thinking } from "./thinking.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
@@ -42,6 +43,7 @@ export type TranscriptTone =
   | "info"
   | "warn"
   | "error"
+  | "success"
   | "brand";
 
 export interface TuiTranscriptLine {
@@ -143,6 +145,8 @@ export interface TuiAppProps {
   onSubmit(prompt: string): Promise<void>;
   onStatus(): Promise<string>;
   onSwitchProject(path: string): Promise<string>;
+  onCheckUpdate?(): Promise<string>;
+  onDoctor?(): Promise<string>;
   onSaveSettings(
     values: TuiSettingsValues,
   ): Promise<"saved" | "setup_required">;
@@ -151,6 +155,7 @@ export interface TuiAppProps {
   providerLabel: string;
   model: string;
   baseUrl?: string;
+  version?: string;
 }
 
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
@@ -168,7 +173,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     baseUrl: props.baseUrl,
   }));
   const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(
-    intro(props.providerLabel, props.model),
+    intro(props.providerLabel, props.model, props.version),
   );
   // Незавершённый стриминговый ответ живёт отдельно от истории:
   // alternate screen никогда не получает статический вывод в скроллбэк,
@@ -313,6 +318,38 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       setSettings("model");
       return;
     }
+    if (name === "/update") {
+      setBusy(true);
+      try {
+        append(
+          (await props.onCheckUpdate?.()) ??
+            "Проверка обновлений недоступна в этом сеансе. Откройте https://github.com/TheAsrada/ChiselCode/releases",
+          "info",
+        );
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (name === "/doctor") {
+      setBusy(true);
+      try {
+        append(await (props.onDoctor?.() ?? props.onStatus()), "info");
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     try {
       append(await props.onStatus(), "info");
@@ -451,6 +488,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           providerLabel={runtime.providerLabel}
           model={runtime.model}
           columns={viewport.columns}
+          version={props.version}
         />
         <Box
           flexDirection="column"
@@ -532,6 +570,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         providerLabel={runtime.providerLabel}
         model={runtime.model}
         columns={viewport.columns}
+        version={props.version}
       />
       <Box
         flexDirection="column"
@@ -573,10 +612,12 @@ function Header({
   providerLabel,
   model,
   columns,
+  version,
 }: {
   providerLabel: string;
   model: string;
   columns: number;
+  version?: string;
 }): React.JSX.Element {
   const safeColumns = normalizeViewport({ columns }).columns;
   return (
@@ -585,6 +626,7 @@ function Header({
         <Text bold color="cyan">
           ◈ ChiselCode
         </Text>
+        {version ? <Text dimColor> v{version}</Text> : null}
         <Text dimColor> · </Text>
         <Text color="magenta" wrap="truncate-end">
           {providerLabel}
@@ -661,6 +703,14 @@ function TranscriptLineView({
       </Box>
     );
   }
+  if (tone === "success")
+    return (
+      <Box width="100%" flexShrink={0}>
+        <Text color="green" wrap="wrap">
+          {line.text}
+        </Text>
+      </Box>
+    );
   if (tone === "error")
     return (
       <Box width="100%" flexShrink={0}>
@@ -709,7 +759,7 @@ function estimateApprovalHeight(
 ): number {
   const safeColumns = normalizeViewport({ columns }).columns;
   const width = Math.max(safeColumns - 4, 10);
-  const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
+  const meta = toolDisplay(request.tool);
   const header = `? [${meta.icon}] ${meta.label} — нужно подтверждение`;
   const controls = "[y] разрешить · [n] отклонить (Esc — тоже отклонить)";
   // marginTop (1) + рамка (2) + вертикальные отступы preview (2) +
@@ -889,6 +939,7 @@ function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
   // иначе смета занижена и Yoga схлопывает соседние строки истории.
   if (tone === "error") return wrappedLines(`✗ ${line.text}`, safeColumns);
   if (tone === "warn") return wrappedLines(`⚠ ${line.text}`, safeColumns);
+  if (tone === "success") return wrappedLines(line.text, safeColumns);
   if (tone === "info") return wrappedLines(line.text, safeColumns);
   // assistant: markdown-раскладка + верхний отступ
   return 1 + estimateMarkdownHeight(line.text, safeColumns);
@@ -934,14 +985,6 @@ function estimateMarkdownHeight(text: string, columns: number): number {
     return total + codeRows + 4 + (block.language ? 1 : 0);
   }, 0);
 }
-const TOOL_META: Record<string, { icon: string; label: string }> = {
-  write_file: { icon: "+", label: "Запись файла" },
-  edit_file: { icon: "~", label: "Редактирование файла" },
-  delete_file: { icon: "×", label: "Удаление файла" },
-  run_shell: { icon: "$", label: "Команда shell" },
-  git_commit: { icon: "#", label: "Git commit" },
-};
-
 function Approval({
   request,
   columns,
@@ -949,7 +992,7 @@ function Approval({
   request: ApprovalRequest;
   columns: number;
 }): React.JSX.Element {
-  const meta = TOOL_META[request.tool] ?? { icon: "?", label: request.tool };
+  const meta = toolDisplay(request.tool);
   const preview = approvalPreview(request);
   void columns;
   return (
@@ -1078,25 +1121,18 @@ function renderWithCursor(value: string, cursor: number): React.ReactNode {
     </>
   );
 }
-function intro(providerLabel: string, model: string): TuiTranscriptLine[] {
+function intro(
+  providerLabel: string,
+  model: string,
+  version?: string,
+): TuiTranscriptLine[] {
   // Шапка теперь закреплена сверху окна (Header), поэтому в истории
   // остаются только приветственные строки — задвоения нет и после
   // /clear шапка не пропадает, как в Claude Code.
-  return [
-    {
-      id: 0,
-      text: `Готово. ${providerLabel}, модель ${model}. Напишите задачу или /help.`,
-      tone: "info",
-    },
-    {
-      id: 1,
-      text: "Изменения всегда требуют подтверждения y/n.",
-      tone: "info",
-    },
-    {
-      id: 2,
-      text: "Подсказка: /cwd <путь> — сменить проект, Tab — дополнить команду.",
-      tone: "info",
-    },
-  ];
+  const lines = welcomeLines(providerLabel, model, version ?? "");
+  return lines.map((text, index) => ({
+    id: index,
+    text,
+    tone: "info" as const,
+  }));
 }

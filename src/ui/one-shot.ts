@@ -1,4 +1,10 @@
 import type { AgentResult, ToolExecutionResult } from "../types/domain.js";
+import {
+  formatToolSummary,
+  paint,
+  supportsColor,
+  toolDisplay,
+} from "./theme.js";
 
 export interface OneShotRendererOptions {
   json: boolean;
@@ -9,10 +15,12 @@ export interface OneShotRendererOptions {
 export class OneShotRenderer {
   private readonly stdout: NodeJS.WriteStream;
   private readonly stderr: NodeJS.WriteStream;
+  private readonly color: boolean;
 
   constructor(private readonly options: OneShotRendererOptions) {
     this.stdout = options.stdout ?? process.stdout;
     this.stderr = options.stderr ?? process.stderr;
+    this.color = !options.json && supportsColor(this.stderr);
   }
 
   text(text: string): void {
@@ -24,13 +32,18 @@ export class OneShotRenderer {
   }
 
   toolStart(name: string, input: Record<string, unknown>): void {
-    if (!this.options.json)
-      this.stderr.write(`\n[chisel] ${name} ${JSON.stringify(input)}\n`);
+    if (this.options.json) return;
+    const meta = toolDisplay(name);
+    this.stderr.write(
+      `\n${paint("⟡", "cyan", this.color)} ${paint(`[${meta.icon}] ${meta.label}`, "bold", this.color)} ${paint(formatToolSummary(name, input), "gray", this.color)}\n`,
+    );
   }
 
   toolResult(name: string, result: ToolExecutionResult): void {
-    if (!this.options.json && result.isError)
-      this.stderr.write(`[chisel] ${name}: ${result.output}\n`);
+    if (this.options.json || !result.isError) return;
+    this.stderr.write(
+      `${paint(`✗ ${name}`, "red", this.color)}: ${result.output}\n`,
+    );
   }
 
   complete(result: AgentResult): void {
@@ -50,12 +63,23 @@ export class OneShotRenderer {
     }
 
     if (result.text && !result.text.endsWith("\n")) this.stdout.write("\n");
-    if (result.status === "approval_required") {
+    const tokens =
+      result.session.totalTokens.inputTokens +
+      result.session.totalTokens.outputTokens;
+    if (result.status === "completed") {
       this.stderr.write(
-        `Нужно подтверждение. Предпросмотр изменений:\n${result.pendingApproval?.preview ?? "(нет preview)"}\n`,
+        `${paint(`✓ Готово · ${tokens} токенов · сессия ${result.session.id.slice(0, 8)}`, "green", this.color)}\n`,
       );
     }
-    if (result.error) this.stderr.write(`ChiselCode: ${result.error}\n`);
+    if (result.status === "approval_required") {
+      this.stderr.write(
+        `${paint("⚠ Нужно подтверждение. Предпросмотр изменений:", "yellow", this.color)}\n${result.pendingApproval?.preview ?? "(нет preview)"}\n`,
+      );
+    }
+    if (result.error)
+      this.stderr.write(
+        `${paint(`✗ ChiselCode: ${result.error}`, "red", this.color)}\n`,
+      );
   }
 }
 

@@ -62,6 +62,8 @@ sudo apt install ./ChiselCode-Setup-<версия>-linux-amd64.deb
 | `/settings` | меню смены сервиса, модели и адреса API |
 | `/model` | быстро сменить модель для текущего сеанса |
 | `/status` | показать сервис, модель, папку проекта и готовность ключа |
+| `/update` | проверить обновление ChiselCode на GitHub Releases |
+| `/doctor` | проверить настройку без показа ключей |
 | `/exit` | закрыть ChiselCode |
 
 Управление полем ввода:
@@ -105,6 +107,12 @@ chisel setup
 
 ```powershell
 chisel doctor
+```
+
+Проверить обновление (для скриптов есть `chisel update --json`):
+
+```powershell
+chisel update
 ```
 
 > Без установщика (portable-вариант): соберите EXE из исходников (см. «Установка на macOS и Linux») и вызывайте по полному пути вместо `chisel`.

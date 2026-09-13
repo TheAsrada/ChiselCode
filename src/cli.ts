@@ -11,23 +11,36 @@ import {
   type RunOptions,
   runPrompt,
 } from "./commands/run.js";
+import {
+  checkForUpdates,
+  installerAssetHint,
+  RELEASES_PAGE_URL,
+} from "./commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "./config/load.js";
 import { CredentialStore } from "./security/credentials.js";
 import type { GlobalConfig, ProviderKind } from "./types/domain.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import {
+  formatDoneSummary,
+  formatStatusDashboard,
+  formatToolSummary,
+  paint,
+  supportsColor,
+} from "./ui/theme.js";
+import {
   createTuiApprovalResolver,
   TuiApp,
   type TuiTranscript,
 } from "./ui/tui.js";
 import { resolveProjectDir } from "./utils/paths.js";
+import { VERSION } from "./version.js";
 
 const program = new Command();
 program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
-  .version("0.1.21")
+  .version(VERSION)
   .option(
     "--provider <provider>",
     "anthropic, anthropic-compatible, openai или openai-compatible",
@@ -90,7 +103,8 @@ program
     "anthropic, anthropic-compatible, openai или openai-compatible",
   )
   .action(async (raw: Record<string, unknown>) => {
-    const provider = raw.provider as string | undefined;
+    const provider =
+      (raw.provider as string | undefined) ?? argvFlagValue("--provider");
     if (provider && !isProvider(provider))
       throw new Error(`Неизвестный сервис: ${provider}`);
     await startSetup(provider as ProviderKind | undefined);
@@ -101,19 +115,26 @@ program
   .command("doctor")
   .description("Проверить настройку, не раскрывая ключи")
   .action(async () => {
+    const color = supportsColor(process.stdout);
     const config = await loadGlobalConfig();
     const provider = config.defaultProvider ?? "anthropic";
     const providerConfig = config.providers[provider];
     const ready = await hasApiKey(provider, providerConfig?.apiKeyRef);
-    process.stdout.write("ChiselCode: проверка настройки\n");
-    process.stdout.write(`Сервис: ${providerLabel(provider)}\n`);
+    const mark = (ok: boolean): string =>
+      paint(ok ? "✓" : "✗", ok ? "green" : "red", color);
     process.stdout.write(
-      `Модель: ${providerConfig?.defaultModel ?? config.defaultModel ?? "не выбрана"}\n`,
+      `${paint("◈ ChiselCode", "cyan", color)} ${paint(`v${VERSION}`, "gray", color)} — проверка настройки\n`,
     );
-    process.stdout.write(`API-ключ: ${ready ? "сохранён" : "не настроен"}\n`);
+    process.stdout.write(`${mark(true)} Сервис: ${providerLabel(provider)}\n`);
+    process.stdout.write(
+      `${mark(true)} Модель: ${providerConfig?.defaultModel ?? config.defaultModel ?? "не выбрана"}\n`,
+    );
+    process.stdout.write(
+      `${mark(ready)} API-ключ: ${ready ? "сохранён" : "не настроен"}\n`,
+    );
     if (provider === "anthropic-compatible" || provider === "openai-compatible")
       process.stdout.write(
-        `Адрес API: ${providerConfig?.baseUrl ?? "не настроен"}\n`,
+        `${mark(Boolean(providerConfig?.baseUrl))} Адрес API: ${providerConfig?.baseUrl ?? "не настроен"}\n`,
       );
     process.stdout.write(
       ready
@@ -122,6 +143,43 @@ program
     );
     process.exitCode = ready ? 0 : 2;
     await pauseBeforeExit();
+  });
+
+program
+  .command("update")
+  .description("Проверить обновление ChiselCode на GitHub Releases")
+  .option("--json", "вывести результат проверки одним JSON-объектом")
+  .action(async (raw: Record<string, unknown>) => {
+    // Commander возвращает сабкоманде {}, если флаг совпадает с корневым
+    // (update --json, setup --provider), — смотрим напрямую в argv.
+    const json = Boolean(raw.json) || process.argv.includes("--json");
+    const color = supportsColor(process.stdout) && !json;
+    const result = await checkForUpdates(VERSION);
+    if (json) {
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      process.exitCode = result.error ? 1 : 0;
+      return;
+    }
+    if (result.error) {
+      process.stdout.write(
+        `${paint("⚠", "yellow", color)} Не удалось проверить обновление: ${result.error}\n`,
+      );
+      process.stdout.write(`Релизы вручную: ${RELEASES_PAGE_URL}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    if (result.updateAvailable) {
+      process.stdout.write(
+        `${paint("◈ ChiselCode", "cyan", color)}: доступна новая версия ${paint(`v${result.latest}`, "green", color)} (у вас v${result.current})\n`,
+      );
+      process.stdout.write(
+        `Скачайте ${installerAssetHint(result.latest ?? result.current)} со страницы:\n  ${result.latestUrl}\n`,
+      );
+    } else {
+      process.stdout.write(
+        `${paint(`✓ У вас последняя версия ChiselCode v${result.current}`, "green", color)}\n`,
+      );
+    }
   });
 
 const auth = program
@@ -190,6 +248,44 @@ function isProvider(value: string): value is ProviderKind {
   );
 }
 
+/**
+ * Значение флага напрямую из argv. Нужно сабкомандам, чьи флаги совпадают
+ * с корневыми (setup --provider, update --json): commander в этом случае
+ * отдаёт обработчику сабкоманды пустой объект опций.
+ */
+function argvFlagValue(flag: string): string | undefined {
+  const index = process.argv.indexOf(flag);
+  if (index === -1) return undefined;
+  const value = process.argv[index + 1];
+  return value && !value.startsWith("-") ? value : undefined;
+}
+
+async function doctorText(): Promise<string> {
+  const config = await loadGlobalConfig();
+  const provider = config.defaultProvider ?? "anthropic";
+  const providerConfig = config.providers[provider];
+  const ready = await hasApiKey(provider, providerConfig?.apiKeyRef);
+  return formatStatusDashboard({
+    providerLabel: providerLabel(provider),
+    model: providerConfig?.defaultModel ?? config.defaultModel ?? "не выбрана",
+    cwd: process.cwd(),
+    keyReady: ready,
+  });
+}
+
+async function updateText(): Promise<string> {
+  const result = await checkForUpdates(VERSION);
+  if (result.error)
+    return `⚠ Не удалось проверить обновление: ${result.error}\nРелизы вручную: ${RELEASES_PAGE_URL}`;
+  if (result.updateAvailable)
+    return [
+      `◈ ChiselCode: доступна новая версия v${result.latest} (у вас v${result.current})`,
+      `Скачайте ${installerAssetHint(result.latest ?? result.current)} со страницы:`,
+      `${result.latestUrl}`,
+    ].join("\n");
+  return `✓ У вас последняя версия ChiselCode v${result.current}`;
+}
+
 async function startTui(options: RunOptions): Promise<void> {
   const config = await loadGlobalConfig();
   const configuredProvider = options.provider ?? config.defaultProvider;
@@ -222,6 +318,7 @@ async function startTui(options: RunOptions): Promise<void> {
           config.defaultModel ??
           (defaultModelFor(provider) || "не выбрана"),
         baseUrl: options.baseUrl ?? providerConfig?.baseUrl,
+        version: VERSION,
         bindTranscript: (nextTranscript: TuiTranscript) => {
           transcript = nextTranscript;
         },
@@ -234,17 +331,20 @@ async function startTui(options: RunOptions): Promise<void> {
             currentProvider,
             currentConfig?.apiKeyRef,
           );
-          return [
-            "Состояние ChiselCode:",
-            `Сервис: ${providerLabel(currentProvider)}`,
-            `Модель: ${activeOptions.model ?? currentConfig?.defaultModel ?? current.defaultModel ?? "не выбрана"}`,
-            `Проект: ${activeOptions.cwd ?? process.cwd()}`,
-            `API-ключ: ${ready ? "настроен" : "не настроен"}`,
-            activeOptions.resume
-              ? `Сессия: ${activeOptions.resume}`
-              : "Сессия: новая для следующего запроса",
-          ].join("\n");
+          return formatStatusDashboard({
+            providerLabel: providerLabel(currentProvider),
+            model:
+              activeOptions.model ??
+              currentConfig?.defaultModel ??
+              current.defaultModel ??
+              "не выбрана",
+            cwd: activeOptions.cwd ?? process.cwd(),
+            keyReady: ready,
+            sessionId: activeOptions.resume ?? undefined,
+          });
         },
+        onDoctor: async () => doctorText(),
+        onCheckUpdate: async () => updateText(),
         onSwitchProject: async (arg: string) => {
           const base = activeOptions.cwd ?? process.cwd();
           if (!arg.trim())
@@ -255,7 +355,7 @@ async function startTui(options: RunOptions): Promise<void> {
             cwd: resolved,
             resume: undefined,
           };
-          return `Проект сменён: ${resolved}\nСледующий запрос начнёт новую сессию в этой папке.`;
+          return `✓ Проект сменён: ${resolved}\nСледующий запрос начнёт новую сессию в этой папке.`;
         },
         onSaveSettings: async (values: TuiSettingsValues) => {
           const current = await loadGlobalConfig();
@@ -297,6 +397,7 @@ async function startTui(options: RunOptions): Promise<void> {
           active = true;
           transcript.append(`› ${prompt}`, "user");
           let responseOpen = false;
+          const started = Date.now();
           try {
             const { result } = await runPrompt(
               prompt,
@@ -311,16 +412,13 @@ async function startTui(options: RunOptions): Promise<void> {
                 onToolStart: (name, input) => {
                   responseOpen = false;
                   transcript?.append(
-                    `[chisel] ${name} ${JSON.stringify(input)}`,
+                    `[chisel] ${formatToolSummary(name, input)}`,
                     "tool",
                   );
                 },
                 onToolResult: (name, result) => {
                   if (result.isError)
-                    transcript?.append(
-                      `[chisel] ${name}: ${result.output}`,
-                      "error",
-                    );
+                    transcript?.append(`✗ ${name}: ${result.output}`, "error");
                 },
               },
             );
@@ -333,12 +431,26 @@ async function startTui(options: RunOptions): Promise<void> {
               );
             if (result.status === "approval_required")
               transcript.append(
-                `Нужно подтверждение: ${result.pendingApproval?.preview ?? "(нет preview)"}`,
+                `⚠ Нужно подтверждение: ${result.pendingApproval?.preview ?? "(нет preview)"}`,
                 "warn",
               );
+            if (result.status === "completed") {
+              const tokens =
+                result.session.totalTokens.inputTokens +
+                result.session.totalTokens.outputTokens;
+              transcript.append(
+                formatDoneSummary({
+                  elapsedMs: Date.now() - started,
+                  totalTokens: tokens,
+                  totalCost: result.session.totalCost,
+                  sessionId: result.session.id,
+                }),
+                "success",
+              );
+            }
           } catch (error) {
             transcript.append(
-              `Ошибка: ${error instanceof Error ? error.message : String(error)}`,
+              `✗ Ошибка: ${error instanceof Error ? error.message : String(error)}`,
               "error",
             );
           } finally {
@@ -383,7 +495,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
   const rl = createInterface({ input: nodeStdin, output: nodeStdout });
   try {
     process.stdout.write(
-      "Простой режим: введите задачу и нажмите Enter. Команды: /help, /status, /cwd <путь>, /exit.\n",
+      `◈ ChiselCode v${VERSION} — простой режим: введите задачу и нажмите Enter.\nКоманды: /help, /status, /doctor, /update, /cwd <путь>, /exit.\n`,
     );
     for (;;) {
       let line: string;
@@ -396,7 +508,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       if (line === "/exit") return;
       if (line === "/help") {
         process.stdout.write(
-          "/help — помощь\n/status — состояние\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
+          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить обновление\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
         );
         continue;
       }
@@ -413,7 +525,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
               cwd: resolved,
               resume: undefined,
             };
-            process.stdout.write(`Проект сменён: ${resolved}\n`);
+            process.stdout.write(`✓ Проект сменён: ${resolved}\n`);
           }
         } catch (error) {
           process.stdout.write(
@@ -426,7 +538,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         process.stdout.write("\n".repeat(2));
         continue;
       }
-      if (line === "/status") {
+      if (line === "/status" || line === "/doctor") {
         const current = await loadGlobalConfig();
         const currentProvider =
           activeOptions.provider ?? current.defaultProvider ?? provider;
@@ -436,15 +548,22 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
           currentConfig?.apiKeyRef,
         );
         process.stdout.write(
-          [
-            "Состояние ChiselCode:",
-            `Сервис: ${providerLabel(currentProvider)}`,
-            `Модель: ${activeOptions.model ?? currentConfig?.defaultModel ?? current.defaultModel ?? "не выбрана"}`,
-            `Проект: ${activeOptions.cwd ?? process.cwd()}`,
-            `API-ключ: ${ready ? "настроен" : "не настроен"}`,
-            "",
-          ].join("\n"),
+          `${formatStatusDashboard({
+            providerLabel: providerLabel(currentProvider),
+            model:
+              activeOptions.model ??
+              currentConfig?.defaultModel ??
+              current.defaultModel ??
+              "не выбрана",
+            cwd: activeOptions.cwd ?? process.cwd(),
+            keyReady: ready,
+            sessionId: activeOptions.resume ?? undefined,
+          })}\n`,
         );
+        continue;
+      }
+      if (line === "/update") {
+        process.stdout.write(`${await updateText()}\n`);
         continue;
       }
       if (line === "/settings" || line === "/model") {
@@ -595,7 +714,7 @@ async function saveSetup(values: SetupValues): Promise<void> {
     },
   };
   await saveGlobalConfig(next);
-  process.stdout.write("\nГотово! Настройка сохранена.\n");
+  process.stdout.write(`\n✓ Готово! ChiselCode v${VERSION} настроен.\n`);
 }
 
 function providerLabel(provider: ProviderKind): string {

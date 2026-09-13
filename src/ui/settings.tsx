@@ -152,10 +152,20 @@ export function SettingsPanel({
   }
 
   return (
-    <Box flexDirection="column" marginTop={1} alignItems="stretch">
-      <Text bold color="cyan">
-        Настройки
-      </Text>
+    <Box
+      flexDirection="column"
+      marginTop={1}
+      alignItems="stretch"
+      borderStyle="round"
+      borderColor="cyan"
+      paddingX={1}
+    >
+      <Box>
+        <Text bold color="cyan">
+          ◈ Настройки
+        </Text>
+        <Text dimColor> · Enter — открыть · Esc — назад</Text>
+      </Box>
       {screen === "menu" ? (
         <Menu items={items} selected={selected} values={values} />
       ) : null}
@@ -171,10 +181,12 @@ export function SettingsPanel({
       ) : null}
       <Text dimColor>
         {screen === "menu"
-          ? "↑/↓ — выбор, Enter — открыть, Esc — назад"
-          : "Enter — готово, Esc — назад"}
+          ? "↑/↓ — выбор · Enter — открыть · Esc — закрыть"
+          : screen === "saving"
+            ? "Сохраняю…"
+            : "↑/↓ — выбор · Enter — готово · Esc — назад"}
       </Text>
-      {error ? <Text color="red">{error}</Text> : null}
+      {error ? <Text color="red">✗ {error}</Text> : null}
     </Box>
   );
 }
@@ -206,11 +218,11 @@ function Menu({
   values: TuiSettingsValues;
 }): React.JSX.Element {
   const labels: Record<string, string> = {
-    provider: `Сервис: ${providerLabel(values.provider)}`,
-    model: `Модель: ${values.model || "не выбрана"}`,
-    "base-url": `Адрес API: ${values.baseUrl || "не настроен"}`,
-    save: "Сохранить изменения",
-    setup: "Пройти настройку заново",
+    provider: `◈ Сервис: ${providerLabel(values.provider)}`,
+    model: `✎ Модель: ${values.model || "не выбрана"}`,
+    "base-url": `⌁ Адрес API: ${values.baseUrl || "не настроен"}`,
+    save: "✓ Сохранить изменения",
+    setup: "↺ Пройти настройку заново",
     close: "Закрыть настройки",
   };
   return (

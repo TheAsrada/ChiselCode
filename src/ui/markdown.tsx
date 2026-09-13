@@ -177,7 +177,7 @@ function renderInline(
     const key = `${keyPrefix}-${index}`;
     if (segment.code)
       return (
-        <Text key={key} color="cyan">
+        <Text key={key} bold color="cyan">
           {segment.text}
         </Text>
       );
@@ -203,6 +203,36 @@ function renderInline(
   });
 }
 
+/** Строки кода с подсветкой diff (+/−/@@) — на высоту не влияет. */
+function renderCodeLines(code: string, keyPrefix: string): React.ReactNode {
+  const lines = code.split("\n");
+  if (
+    !lines.some(
+      (line) =>
+        line.startsWith("+") || line.startsWith("-") || line.startsWith("@@"),
+    )
+  )
+    return <Text wrap="wrap">{code}</Text>;
+  return (
+    <>
+      {lines.map((line, i) => {
+        const color = line.startsWith("+")
+          ? "green"
+          : line.startsWith("-")
+            ? "red"
+            : line.startsWith("@@")
+              ? "yellow"
+              : undefined;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: строки кода статичны
+          <Text key={`${keyPrefix}-${i}`} wrap="wrap" color={color}>
+            {line === "" ? " " : line}
+          </Text>
+        );
+      })}
+    </>
+  );
+}
 /** Ответ помощника с лёгким markdown-оформлением. */
 export function MarkdownText({
   text,
@@ -223,7 +253,15 @@ export function MarkdownText({
             <Text
               key={key}
               bold
-              color={block.level === 1 ? "cyan" : "white"}
+              color={
+                block.level === 1
+                  ? "cyan"
+                  : block.level === 2
+                    ? "magenta"
+                    : block.level === 3
+                      ? "yellow"
+                      : "white"
+              }
               wrap="wrap"
             >
               {block.text}
@@ -241,7 +279,7 @@ export function MarkdownText({
               width="100%"
             >
               {block.language ? <Text dimColor>{block.language}</Text> : null}
-              <Text wrap="wrap">{block.code}</Text>
+              {renderCodeLines(block.code, key)}
             </Box>
           );
         if (block.kind === "list")
