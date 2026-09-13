@@ -39,10 +39,17 @@ export function SettingsPanel({
   const [screen, setScreen] = useState<Screen>(initialScreen);
   const [selected, setSelected] = useState(0);
   const [providerIndex, setProviderIndex] = useState(() =>
-    PROVIDERS.findIndex(({ value }) => value === initialValues.provider),
+    Math.max(
+      0,
+      PROVIDERS.findIndex(({ value }) => value === initialValues.provider),
+    ),
   );
   const [error, setError] = useState("");
   const items = menuItems(values.provider);
+  // Пункты зависят от провайдера (base-url только для совместимых):
+  // после смены сервиса прежний индекс может оказаться за границей,
+  // поэтому для подсветки и Enter всегда используем зажатое значение.
+  const safeSelected = Math.min(selected, items.length - 1);
   const move = (direction: -1 | 1) =>
     setSelected((value) => (value + direction + items.length) % items.length);
 
@@ -66,7 +73,7 @@ export function SettingsPanel({
         return;
       }
       if (!key.return) return;
-      const item = items[selected];
+      const item = items[safeSelected];
       if (item === "provider") setScreen("provider");
       else if (item === "model") setScreen("model");
       else if (item === "base-url") setScreen("base-url");
@@ -167,7 +174,7 @@ export function SettingsPanel({
         <Text dimColor> · Enter — открыть · Esc — назад</Text>
       </Box>
       {screen === "menu" ? (
-        <Menu items={items} selected={selected} values={values} />
+        <Menu items={items} selected={safeSelected} values={values} />
       ) : null}
       {screen === "provider" ? <ProviderMenu selected={providerIndex} /> : null}
       {screen === "model" ? (

@@ -14,6 +14,18 @@ export interface SetupValues {
 export interface SetupAppProps {
   initialProvider?: ProviderKind;
   onComplete(values: SetupValues): Promise<void>;
+  /**
+   * Вызывается по Ctrl+C вместо выхода из приложения.
+   * Нужно при встраивании мастера в другой Ink-экран (например, рестарт
+   * настройки из TUI): без этого `exit()` размонтировал бы весь интерфейс.
+   */
+  onCancel?(): void;
+  /**
+   * Выходить из Ink-приложения после успешного завершения.
+   * Для отдельно запущенного `chisel setup` — true; при встраивании —
+   * false, навигацией владеет родитель.
+   */
+  exitOnComplete?: boolean;
 }
 
 type Step = "provider" | "key" | "base-url" | "model" | "saving";
@@ -36,6 +48,8 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
 export function SetupApp({
   initialProvider,
   onComplete,
+  onCancel,
+  exitOnComplete = true,
 }: SetupAppProps): React.JSX.Element {
   const { exit } = useApp();
   const [step, setStep] = useState<Step>(initialProvider ? "key" : "provider");
@@ -51,6 +65,10 @@ export function SetupApp({
 
   useInput((character, key) => {
     if (key.ctrl && character === "c") {
+      if (onCancel) {
+        onCancel();
+        return;
+      }
       exit();
       return;
     }
@@ -111,7 +129,9 @@ export function SetupApp({
       baseUrl: baseUrl.trim() || undefined,
       model: model.trim(),
     })
-      .then(() => exit())
+      .then(() => {
+        if (exitOnComplete) exit();
+      })
       .catch((cause: unknown) => {
         setStep("model");
         setError(

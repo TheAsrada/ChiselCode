@@ -304,7 +304,6 @@ async function startTui(options: RunOptions): Promise<void> {
   let activeOptions: RunOptions = { ...options };
   let transcript: TuiTranscript | undefined;
   let active = false;
-  let restartSetup = false;
   let instance: ReturnType<typeof render> | undefined;
   try {
     instance = render(
@@ -389,8 +388,14 @@ async function startTui(options: RunOptions): Promise<void> {
             ? "saved"
             : "setup_required";
         },
-        onRestartSetup: () => {
-          restartSetup = true;
+        onCompleteSetup: async (values: SetupValues) => {
+          await persistSetup(values);
+          activeOptions = {
+            ...activeOptions,
+            provider: values.provider,
+            model: values.model,
+            baseUrl: values.baseUrl,
+          };
         },
         onSubmit: async (prompt: string) => {
           if (active || !transcript) return;
@@ -474,9 +479,7 @@ async function startTui(options: RunOptions): Promise<void> {
     await instance.waitUntilExit();
   } catch {
     await startTuiFallback(options);
-    return;
   }
-  if (restartSetup && (await startSetup())) await startTui(options);
 }
 
 async function startTuiFallback(options: RunOptions): Promise<void> {
@@ -696,6 +699,17 @@ async function startSetupFallback(
 }
 
 async function saveSetup(values: SetupValues): Promise<void> {
+  await persistSetup(values);
+  process.stdout.write(`\n✓ Готово! ChiselCode v${VERSION} настроен.\n`);
+}
+
+/**
+ * Сохраняет ключ и конфиг без вывода в stdout.
+ * Отдельно от saveSetup: встроенный в TUI мастер работает в alternate
+ * screen, где прямой write в stdout портит кадр Ink — итог там
+ * показывает сам интерфейс строкой в журнале.
+ */
+async function persistSetup(values: SetupValues): Promise<void> {
   const config = await loadGlobalConfig();
   const credentialName = `${values.provider}-default`;
   await new CredentialStore().set(credentialName, values.apiKey);
@@ -714,7 +728,6 @@ async function saveSetup(values: SetupValues): Promise<void> {
     },
   };
   await saveGlobalConfig(next);
-  process.stdout.write(`\n✓ Готово! ChiselCode v${VERSION} настроен.\n`);
 }
 
 function providerLabel(provider: ProviderKind): string {

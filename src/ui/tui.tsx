@@ -27,6 +27,7 @@ import {
 } from "./editor.js";
 import { MarkdownText, parseBlocks } from "./markdown.js";
 import { SettingsPanel, type TuiSettingsValues } from "./settings.js";
+import { SetupApp, type SetupValues } from "./setup.js";
 import { toolDisplay, welcomeLines } from "./theme.js";
 import { Thinking } from "./thinking.js";
 
@@ -150,7 +151,12 @@ export interface TuiAppProps {
   onSaveSettings(
     values: TuiSettingsValues,
   ): Promise<"saved" | "setup_required">;
-  onRestartSetup(): void;
+  /**
+   * Сохранение заново пройденного мастера настройки.
+   * Выполняется внутри того же Ink-приложения: TUI не размонтируется,
+   * поэтому перезапуск настройки больше не роняет интерфейс.
+   */
+  onCompleteSetup(values: SetupValues): Promise<void>;
   provider: ProviderKind;
   providerLabel: string;
   model: string;
@@ -166,6 +172,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<"menu" | "model">();
+  // Мастер настройки поверх чата: тот же Ink-экран, без exit()/render().
+  const [restartingSetup, setRestartingSetup] = useState(false);
   const [runtime, setRuntime] = useState(() => ({
     provider: props.provider,
     providerLabel: props.providerLabel,
@@ -363,6 +371,30 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
   }
 
+  function requestSetupRestart(): void {
+    setSettings(undefined);
+    setRestartingSetup(true);
+  }
+
+  async function completeRestartedSetup(values: SetupValues): Promise<void> {
+    await props.onCompleteSetup(values);
+    setRuntime({
+      provider: values.provider,
+      providerLabel: providerName(values.provider),
+      model: values.model,
+      baseUrl: values.baseUrl,
+    });
+    setRestartingSetup(false);
+    pushLine(
+      `✓ Настройка обновлена: ${providerName(values.provider)}, модель ${values.model}.`,
+      "success",
+    );
+  }
+
+  function cancelRestartedSetup(): void {
+    setRestartingSetup(false);
+  }
+
   useInput((character, key) => {
     if (request) {
       if (character.toLowerCase() === "y")
@@ -371,7 +403,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         props.approvalResolver.resolve("denied");
       return;
     }
-    if (settings || busy) return;
+    if (settings || restartingSetup || busy) return;
     // Скролл журнала как в Claude Code: ввод закреплён снизу,
     // история листается постранично (PgUp/PgDn), построчно (Shift+↑/↓),
     // Home/End — начало/конец, Esc — вернуться вниз к вводу.
@@ -476,6 +508,35 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       setEditor((state) => insertEditorText(state, character));
   });
 
+  if (restartingSetup)
+    return (
+      <Box
+        flexDirection="column"
+        height={viewport.rows}
+        width={viewport.columns}
+        overflow="hidden"
+      >
+        <Header
+          providerLabel={runtime.providerLabel}
+          model={runtime.model}
+          columns={viewport.columns}
+          version={props.version}
+        />
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          flexShrink={1}
+          overflow="hidden"
+          width="100%"
+        >
+          <SetupApp
+            onComplete={completeRestartedSetup}
+            onCancel={cancelRestartedSetup}
+            exitOnComplete={false}
+          />
+        </Box>
+      </Box>
+    );
   if (settings)
     return (
       <Box
@@ -506,10 +567,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             initialScreen={settings}
             onSave={props.onSaveSettings}
             onClose={() => setSettings(undefined)}
-            onSetupRequested={() => {
-              props.onRestartSetup();
-              exit();
-            }}
+            onSetupRequested={requestSetupRestart}
             onSaved={(values) =>
               setRuntime({
                 provider: values.provider,
