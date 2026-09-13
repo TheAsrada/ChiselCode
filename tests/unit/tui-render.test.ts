@@ -1,0 +1,305 @@
+import { describe, expect, test } from "bun:test";
+import { PassThrough } from "node:stream";
+import { render } from "ink";
+import React from "react";
+import {
+  createTuiApprovalResolver,
+  TuiApp,
+  type TuiTranscript,
+} from "../../src/ui/tui.js";
+
+type MockStdout = PassThrough & {
+  columns: number;
+  rows: number;
+  isTTY: boolean;
+};
+
+type MockStdin = PassThrough & {
+  isTTY: boolean;
+  setRawMode(mode: boolean): void;
+  ref(): unknown;
+  unref(): unknown;
+};
+
+function createMockStdout(columns: number, rows: number): MockStdout {
+  const stdout = new PassThrough() as MockStdout;
+  stdout.columns = columns;
+  stdout.rows = rows;
+  stdout.isTTY = true;
+  return stdout;
+}
+
+function createMockStdin(): MockStdin {
+  const stdin = new PassThrough() as MockStdin;
+  stdin.isTTY = true;
+  stdin.setRawMode = () => {};
+  stdin.ref = () => stdin;
+  stdin.unref = () => stdin;
+  return stdin;
+}
+
+/** Убирает управляющие последовательности Ink, оставляя видимый текст. */
+function stripAnsi(input: string): string {
+  const ESC = String.fromCharCode(27);
+  const BEL = String.fromCharCode(7);
+  const chunks = input.split(ESC);
+  let result = chunks[0] ?? "";
+  for (const chunk of chunks.slice(1)) {
+    if (chunk.startsWith("]")) {
+      // OSC-последовательность — всё до BEL.
+      const end = chunk.indexOf(BEL);
+      result += end === -1 ? "" : chunk.slice(end + 1);
+      continue;
+    }
+    const csi = /^\[[0-9;?]*[A-Za-z]/.exec(chunk);
+    if (csi) {
+      result += chunk.slice(csi[0].length);
+      continue;
+    }
+    if (
+      chunk.startsWith("(") ||
+      chunk.startsWith(")") ||
+      chunk.startsWith("#")
+    ) {
+      result += chunk.slice(2);
+      continue;
+    }
+    // Одиночные управляющие (M, =, >, 7, 8 …) — пропускаем первый символ.
+    result += chunk.slice(1);
+  }
+  return result.replace(/\r/g, "");
+}
+
+function visualWidth(line: string): number {
+  return Array.from(line).length;
+}
+
+/** Номера «строка истории номер N», видимые в кадре, по порядку. */
+function historyNumbers(frame: string[]): number[] {
+  const result: number[] = [];
+  for (const line of frame) {
+    const match = /строка истории номер (\d+)/.exec(line);
+    if (match?.[1] !== undefined) result.push(Number(match[1]));
+  }
+  return result;
+}
+
+const tick = (ms = 60): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+interface Harness {
+  stdin: MockStdin;
+  stdout: MockStdout;
+  transcript?: TuiTranscript;
+  chunks(): string;
+  frame(rows: number): string[];
+  unmount(): void;
+}
+
+async function startApp(columns: number, rows: number): Promise<Harness> {
+  const stdout = createMockStdout(columns, rows);
+  const stdin = createMockStdin();
+  let output = "";
+  stdout.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  let transcript: TuiTranscript | undefined;
+  const resolver = createTuiApprovalResolver();
+  const instance = render(
+    React.createElement(TuiApp, {
+      approvalResolver: resolver,
+      bindTranscript: (next: TuiTranscript) => {
+        transcript = next;
+      },
+      onSubmit: async () => {},
+      onStatus: async () => "status",
+      onSwitchProject: async (path: string) => path,
+      onSaveSettings: async () => "saved" as const,
+      onRestartSetup: () => {},
+      provider: "anthropic",
+      providerLabel: "Anthropic (Claude)",
+      model: "test-model",
+    }),
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  );
+  await tick();
+  return {
+    stdin,
+    stdout,
+    get transcript() {
+      return transcript;
+    },
+    chunks: () => stripAnsi(output),
+    /**
+     * Последний полный кадр. На Windows Ink очищает экран (ESC[2J) перед
+     * каждым полноэкранным кадром, поэтому честный кадр — это текст после
+     * последней очистки, а не последние N строк склеенного потока
+     * (там строки соседних кадров склеиваются без \n).
+     */
+    frame: (frameRows: number) => {
+      const segments = output.split("\x1b[2J");
+      const last = segments.at(-1) ?? "";
+      const lines = stripAnsi(last).split("\n");
+      // Возможный инкрементальный хвост после полного кадра отбрасываем:
+      // полный кадр всегда ровно frameRows строк.
+      return lines.slice(0, frameRows);
+    },
+    unmount: () => instance.unmount(),
+  };
+}
+
+describe("tui fullscreen render", () => {
+  test("idle frame fits the window and pins input to the bottom", async () => {
+    const app = await startApp(100, 30);
+    try {
+      const frame = app.frame(30);
+      expect(frame.length).toBe(30);
+      for (const line of frame) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(100);
+      }
+      // Шапка сверху.
+      expect(frame[0]).toContain("ChiselCode");
+      // Разделитель шапки — во всю ширину окна.
+      expect(visualWidth(frame[1] ?? "")).toBe(100);
+      // Поле ввода — внизу кадра.
+      const bottom = frame.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
+      expect(bottom).toContain("PgUp/PgDn");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("frame adapts after window resize without overflow", async () => {
+    const app = await startApp(100, 30);
+    try {
+      app.stdout.columns = 60;
+      app.stdout.rows = 20;
+      app.stdout.emit("resize");
+      await tick();
+      const frame = app.frame(20);
+      expect(frame.length).toBe(20);
+      for (const line of frame) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(60);
+      }
+      expect(frame[0]).toContain("ChiselCode");
+      expect(visualWidth(frame[1] ?? "")).toBe(60);
+      const bottom = frame.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("long history keeps input pinned and paging works", async () => {
+    const app = await startApp(80, 24);
+    try {
+      for (let i = 0; i < 50; i += 1) {
+        app.transcript?.append(`строка истории номер ${i}`, "info");
+      }
+      await tick(150);
+      const frame = app.frame(24);
+      expect(frame.length).toBe(24);
+      for (const line of frame) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(80);
+      }
+      const bottom = frame.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
+      // Самая свежая строка видна, старые скрыты за индикатором.
+      expect(frame.join("\n")).toContain("строка истории номер 49");
+      expect(frame.join("\n")).toContain("ещё");
+      // Видимые строки идут подряд без дыр: Yoga не схлопывает строки.
+      expect(historyNumbers(frame)).toEqual(
+        Array.from(
+          { length: historyNumbers(frame).length },
+          (_, index) => (historyNumbers(frame)[0] ?? 0) + index,
+        ),
+      );
+
+      // PageUp уходит вверх — появляется счётчик записей ниже.
+      app.stdin.write("\x1b[5~");
+      await tick(150);
+      const up = app.frame(24).join("\n");
+      expect(up).toContain("записей ниже");
+      // PageDown несколько раз возвращается вниз, End — сразу вниз.
+      app.stdin.write("\x1b[6~");
+      await tick(150);
+      app.stdin.write("\x1b[F");
+      await tick(150);
+      const down = app.frame(24);
+      expect(down.join("\n")).toContain("строка истории номер 49");
+      expect(down.join("\n")).not.toContain("записей ниже");
+      // Esc тоже возвращает к вводу после прокрутки вверх.
+      app.stdin.write("\x1b[5~");
+      await tick(150);
+      expect(app.frame(24).join("\n")).toContain("записей ниже");
+      app.stdin.write("\x1b");
+      await tick(150);
+      expect(app.frame(24).join("\n")).toContain("строка истории номер 49");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("narrow window with long history drops no lines", async () => {
+    // Регрессия: смета футера не учитывала перенос строки горячих клавиш,
+    // Yoga схлопывал случайную строку истории в ноль (дыра в журнале).
+    const app = await startApp(60, 20);
+    try {
+      for (let i = 0; i < 50; i += 1) {
+        app.transcript?.append(`строка истории номер ${i}`, "info");
+      }
+      await tick(150);
+      const frame = app.frame(20);
+      expect(frame.length).toBe(20);
+      for (const line of frame) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(60);
+      }
+      const numbers = historyNumbers(frame);
+      expect(numbers.length).toBeGreaterThan(5);
+      expect(numbers).toEqual(
+        Array.from(
+          { length: numbers.length },
+          (_, index) => (numbers[0] ?? 0) + index,
+        ),
+      );
+      expect(numbers.at(-1)).toBe(49);
+      const bottom = frame.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("narrow window wraps long error lines without overflow", async () => {
+    const app = await startApp(60, 20);
+    try {
+      app.transcript?.append(
+        'Anthropic API error (503): 503 {"error":{"code":"model_not_found","message":"No available channel for model gpt-5-6-sol under group default (distributor) (request id: 20260913074845429824002868d9d60KCSdWH1)","type":"new_api_error"}}',
+        "error",
+      );
+      await tick(150);
+      const frame = app.frame(20);
+      expect(frame.length).toBe(20);
+      for (const line of frame) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(60);
+      }
+      const bottom = frame.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
+      // Видимые строки истории идут подряд без дыр.
+      expect(historyNumbers(frame)).toEqual(
+        Array.from(
+          { length: historyNumbers(frame).length },
+          (_, index) => (historyNumbers(frame)[0] ?? 0) + index,
+        ),
+      );
+    } finally {
+      app.unmount();
+    }
+  });
+});

@@ -98,6 +98,18 @@ export function fullWidthSeparator(columns: number): string {
   return "─".repeat(Math.max(Math.floor(columns) || TUI_FALLBACK_COLUMNS, 10));
 }
 
+/**
+ * Подсказка горячих клавиш под полем ввода. Держим в одну строку на 80
+ * колонках, чтобы высота футера была предсказуема при любом размере окна.
+ */
+export const HOTKEYS_HINT =
+  "Enter — отправить · Shift+Enter — строка · ↑/↓ — история · PgUp/PgDn — журнал";
+
+/** Строка подсказки команды — та же, что рисует Editor. */
+export function suggestionLineText(name: string, description: string): string {
+  return `› ${name} — ${description}`;
+}
+
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
   let setRequest: ((request: ApprovalRequest | undefined) => void) | undefined;
@@ -323,6 +335,23 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (settings || busy) return;
+    // Скролл журнала как в Claude Code: ввод закреплён снизу,
+    // история листается постранично (PgUp/PgDn), построчно (Shift+↑/↓),
+    // Home/End — начало/конец, Esc — вернуться вниз к вводу.
+    if (key.escape && transcriptOffset > 0) {
+      setTranscriptOffset(0);
+      return;
+    }
+    if (key.shift && key.upArrow) {
+      setTranscriptOffset((offset) =>
+        Math.min(offset + 1, maxTranscriptOffset(transcriptLines)),
+      );
+      return;
+    }
+    if (key.shift && key.downArrow) {
+      setTranscriptOffset((offset) => Math.max(offset - 1, 0));
+      return;
+    }
     if (key.pageUp) {
       const firstVisible = visible.lines[0];
       const firstVisibleIndex = firstVisible
@@ -473,6 +502,10 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     editorValue: editor.value,
     columns: viewport.columns,
     suggestionsCount: suggestions.length,
+    suggestionLines: suggestions.map((command) =>
+      suggestionLineText(command.name, command.description),
+    ),
+    model: runtime.model,
   });
   const transcriptLines = streaming ? [...transcript, streaming] : transcript;
   const clampedTranscriptOffset = Math.min(
@@ -508,9 +541,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         width="100%"
       >
         {visible.hiddenAboveCount > 0 ? (
-          <Text dimColor wrap="truncate">
-            … ↑ ещё {visible.hiddenAboveCount} записей выше
-          </Text>
+          <Box width="100%" flexShrink={0}>
+            <Text dimColor wrap="truncate">
+              … ↑ ещё {visible.hiddenAboveCount} записей выше
+            </Text>
+          </Box>
         ) : null}
         {visible.lines.map((line) => (
           <TranscriptLineView
@@ -520,9 +555,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           />
         ))}
         {visible.hiddenBelowCount > 0 ? (
-          <Text dimColor wrap="truncate">
-            … ↓ ещё {visible.hiddenBelowCount} записей ниже
-          </Text>
+          <Box width="100%" flexShrink={0}>
+            <Text dimColor wrap="truncate">
+              … ↓ ещё {visible.hiddenBelowCount} записей ниже
+            </Text>
+          </Box>
         ) : null}
       </Box>
       <Box flexDirection="column" flexShrink={0} width="100%">
@@ -574,7 +611,7 @@ function TranscriptLineView({
   if (tone === "brand") {
     const [provider, ...modelParts] = line.text.split(" · ");
     return (
-      <Box flexDirection="column" marginBottom={1} width="100%">
+      <Box flexDirection="column" marginBottom={1} width="100%" flexShrink={0}>
         <Box width="100%">
           <Text bold color="cyan">
             ◈ ChiselCode
@@ -597,9 +634,11 @@ function TranscriptLineView({
   if (tone === "user") {
     // Одна Text-нода во всю ширину: при ресайзе Ink сам переоборачивает
     // строку и ввод/история не «съезжают» по горизонтали.
+    // flexShrink={0}: Yoga никогда не схлопывает строки истории в ноль
+    // при неточной смете — переполнение режется снизу, а не в середине.
     const clean = line.text.replace(/^›\s?/, "");
     return (
-      <Box marginTop={1} width="100%">
+      <Box marginTop={1} width="100%" flexShrink={0}>
         <Text bold wrap="wrap">
           <Text bold color="green">
             ›{" "}
@@ -614,7 +653,7 @@ function TranscriptLineView({
     const preview =
       summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
     return (
-      <Box width="100%">
+      <Box width="100%" flexShrink={0}>
         <Text dimColor wrap="wrap">
           <Text color="cyan">⟡ </Text>
           {preview}
@@ -624,7 +663,7 @@ function TranscriptLineView({
   }
   if (tone === "error")
     return (
-      <Box width="100%">
+      <Box width="100%" flexShrink={0}>
         <Text color="red" wrap="wrap">
           ✗ {line.text}
         </Text>
@@ -632,7 +671,7 @@ function TranscriptLineView({
     );
   if (tone === "warn")
     return (
-      <Box width="100%">
+      <Box width="100%" flexShrink={0}>
         <Text color="yellow" wrap="wrap">
           ⚠ {line.text}
         </Text>
@@ -640,12 +679,12 @@ function TranscriptLineView({
     );
   if (tone === "info")
     return (
-      <Box width="100%">
+      <Box width="100%" flexShrink={0}>
         <Text wrap="wrap">{line.text}</Text>
       </Box>
     );
   return (
-    <Box marginTop={1} width="100%">
+    <Box marginTop={1} width="100%" flexShrink={0}>
       <MarkdownText text={line.text} columns={columns} />
     </Box>
   );
@@ -689,6 +728,10 @@ export interface FooterHeightInput {
   editorValue?: string;
   columns?: number;
   suggestionsCount: number;
+  /** Точные строки подсказок (для переноса на узких окнах). */
+  suggestionLines?: string[];
+  /** Модель для строки спиннера «Думаю…». */
+  model?: string;
 }
 
 /** Высота нижней панели с учётом подсказок и многострочного черновика. */
@@ -698,16 +741,28 @@ export function estimateFooterHeight({
   editorValue = "",
   columns = 80,
   suggestionsCount,
+  suggestionLines,
+  model = "",
 }: FooterHeightInput): number {
   const safeColumns = normalizeViewport({ columns }).columns;
   if (request) return estimateApprovalHeight(request, safeColumns);
+  const innerWidth = Math.max(safeColumns - 4, 10);
   // Ввод живёт внутри рамки (2) + paddingX (2) + префикс «› » (2).
+  // Спиннер: рамка + paddingX, текст «⠋ Думаю 99с · модель» с запасом под секундомер.
   const editorRows = busy
-    ? 1
+    ? wrappedLines(`⠋ Думаю 99с · ${model}`, innerWidth)
     : wrappedLines(editorValue || " ", Math.max(safeColumns - 6, 10));
-  const suggestionsRows = !busy && suggestionsCount ? suggestionsCount + 3 : 0;
-  // Верхний отступ, рамка редактора и строка горячих клавиш.
-  return editorRows + 4 + suggestionsRows;
+  const lines =
+    suggestionLines ??
+    Array.from({ length: Math.max(suggestionsCount, 0) }, () => " ");
+  const suggestionsRows =
+    !busy && lines.length > 0
+      ? 3 + lines.reduce((sum, l) => sum + wrappedLines(l, innerWidth), 0)
+      : 0;
+  // Верхний отступ (1) + рамка редактора (2) + строка горячих клавиш.
+  return (
+    editorRows + 3 + wrappedLines(HOTKEYS_HINT, safeColumns) + suggestionsRows
+  );
 }
 
 export interface VisibleTranscriptTail {
@@ -830,8 +885,11 @@ function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
       line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text;
     return wrappedLines(summary, Math.max(safeColumns - 2, 10)); // префикс «⟡ »
   }
-  if (tone === "info" || tone === "error" || tone === "warn")
-    return wrappedLines(line.text, safeColumns);
+  // Префиксы «✗ »/«⚠ » занимают клетки первой строки — считаем вместе с текстом,
+  // иначе смета занижена и Yoga схлопывает соседние строки истории.
+  if (tone === "error") return wrappedLines(`✗ ${line.text}`, safeColumns);
+  if (tone === "warn") return wrappedLines(`⚠ ${line.text}`, safeColumns);
+  if (tone === "info") return wrappedLines(line.text, safeColumns);
   // assistant: markdown-раскладка + верхний отступ
   return 1 + estimateMarkdownHeight(line.text, safeColumns);
 }
@@ -996,8 +1054,7 @@ function Editor({
         )}
       </Box>
       <Text dimColor wrap="wrap">
-        Enter — отправить · Shift+Enter — новая строка · ↑/↓ — история ·
-        PgUp/PgDn — журнал
+        {HOTKEYS_HINT}
       </Text>
     </Box>
   );
