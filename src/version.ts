@@ -1,2 +1,2 @@
 /** Единый источник версии CLI. Синхронизируется с package.json. */
-export const VERSION = "0.2.22";
+export const VERSION = "0.2.23";
