@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import { Box, Text, useApp, useInput, useStdout, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
@@ -66,6 +66,10 @@ export interface TuiTranscript {
  * - поле ввода / подтверждение закреплены снизу на всю ширину и растут вверх.
  * Все оценки высоты считаются от актуального числа колонок, поэтому при
  * разворачивании окна ввод не «съезжает», а текст просто переоборачивается.
+ * Кадр клампится к живому размеру окна (clampViewportToTerminal) и тянется
+ * по ширине через width="100%": даже в переходный кадр ресайза вывод не
+ * шире физического окна, иначе терминал переносит строки сам и счётчик
+ * строк Ink рассинхронизируется — весь интерфейс «искажает» навсегда.
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
@@ -103,8 +107,12 @@ const MAX_VISIBLE_COLUMNS = 1000;
 const MAX_VISIBLE_ROWS = 400;
 /** Как часто перепроверяем размер окна (событие resize в Bun/Windows ненадёжно).
  * Опрос дешёвый: только поля TTY и переменные окружения, без дочерних
- * процессов — интерфейс никогда не блокируется на время опроса. */
-const VIEWPORT_POLL_MS = 2000;
+ * процессов — интерфейс никогда не блокируется на время опроса.
+ * Интервал короткий, чтобы пропущенное событие resize быстро подхватить
+ * следующим опросом: кадр при этом всегда клампится к живому размеру
+ * (см. clampViewportToTerminal), поэтому промежуточные кадры только уже —
+ * уже безопасно, шире — нет. */
+const VIEWPORT_POLL_MS = 500;
 
 function saneDimension(
   value: unknown,
@@ -170,6 +178,46 @@ export function resolveTerminalSize(
     saneDimension(sources.inkRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
     saneDimension(sources.consoleRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
   return { columns, rows };
+}
+
+/**
+ * Кламп вьюпорта к живому размеру терминала — главный фикс искажения
+ * текста при ресайзе.
+ *
+ * Проблема: состояние вьюпорта (`useLiveViewport`/`useWindowSize`) отстаёт
+ * от реального окна на один кадр — событие resize уже пришло в Ink
+ * (корневой Yoga-узел уже новой ширины), а пропсы кадра ещё старые.
+ * Если окно сузили (120 → 80), а кадр отрисован шириной 120, Ink выводит
+ * строки длиннее физического окна: терминал сам переносит их, счётчик
+ * строк log-update рассинхронизируется — и дальше каждый кадр стирает
+ * не то число строк. Отсюда «весь интерфейс искажает», и артефакты уже
+ * не уходят сами.
+ *
+ * Правило: кадр никогда не шире/выше живого окна. Уже — безопасно
+ * (пустая кромка на один кадр), шире — нет (перенос терминалом и вечные
+ * артефакты). Поэтому берём минимум, когда оба размера известны;
+ * когда живой размер недоступен (pipe/CI) — остаётся вьюпорт.
+ */
+export function clampViewportToTerminal(
+  viewport: TuiViewport,
+  terminal: { columns?: unknown; rows?: unknown },
+): TuiViewport {
+  const liveColumns = saneDimension(
+    terminal.columns,
+    TUI_MIN_COLUMNS,
+    MAX_VISIBLE_COLUMNS,
+  );
+  const liveRows = saneDimension(terminal.rows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
+  return {
+    columns:
+      liveColumns !== undefined
+        ? Math.min(viewport.columns, liveColumns)
+        : viewport.columns,
+    rows:
+      liveRows !== undefined
+        ? Math.min(viewport.rows, liveRows)
+        : viewport.rows,
+  };
 }
 
 /**
@@ -338,6 +386,20 @@ export interface TuiAppProps {
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   const viewport = useLiveViewport();
+  const { stdout } = useStdout();
+  /**
+   * Живой размер из того же stdout, что видит Ink. Свойство `columns/rows`
+   * обновляется рантаймом синхронно при ресайзе — раньше, чем состояние
+   * `viewport`/`useWindowSize` (оно приходит следующим рендером).
+   * Кламп гарантирует: кадр никогда не шире/выше физического окна,
+   * иначе терминал переносит длинные строки сам и счётчик строк Ink
+   * рассинхронизируется навсегда (искажение всего интерфейса).
+   */
+  const liveTerminal = stdout as unknown as {
+    columns?: unknown;
+    rows?: unknown;
+  };
+  const { columns, rows } = clampViewportToTerminal(viewport, liveTerminal);
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -813,16 +875,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   if (restartingSetup)
     return (
-      <Box
-        flexDirection="column"
-        height={viewport.rows}
-        width={viewport.columns}
-        overflow="hidden"
-      >
+      <Box flexDirection="column" height={rows} width="100%" overflow="hidden">
         <Header
           providerLabel={runtime.providerLabel}
           model={runtime.model}
-          columns={viewport.columns}
+          columns={columns}
           version={props.version}
         />
         <Box
@@ -842,16 +899,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     );
   if (settings)
     return (
-      <Box
-        flexDirection="column"
-        height={viewport.rows}
-        width={viewport.columns}
-        overflow="hidden"
-      >
+      <Box flexDirection="column" height={rows} width="100%" overflow="hidden">
         <Header
           providerLabel={runtime.providerLabel}
           model={runtime.model}
-          columns={viewport.columns}
+          columns={columns}
           version={props.version}
         />
         <Box
@@ -885,7 +937,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       </Box>
     );
   const footer = request ? (
-    <Approval request={request} columns={viewport.columns} />
+    <Approval request={request} columns={columns} />
   ) : (
     <Editor
       value={editor.value}
@@ -893,14 +945,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       busy={busy}
       model={runtime.model}
       suggestions={suggestions}
-      columns={viewport.columns}
+      columns={columns}
     />
   );
   const footerRows = estimateFooterHeight({
     request,
     busy,
     editorValue: editor.value,
-    columns: viewport.columns,
+    columns: columns,
     suggestionsCount: suggestions.length,
     suggestionLines: suggestions.map((command) =>
       suggestionLineText(command.name, command.description),
@@ -914,24 +966,19 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   );
   const visible = visibleTranscriptWindow(
     transcriptLines,
-    viewport.rows,
-    viewport.columns,
+    rows,
+    columns,
     footerRows,
     clampedTranscriptOffset,
     TUI_HEADER_ROWS,
   );
 
   return (
-    <Box
-      flexDirection="column"
-      height={viewport.rows}
-      width={viewport.columns}
-      overflow="hidden"
-    >
+    <Box flexDirection="column" height={rows} width="100%" overflow="hidden">
       <Header
         providerLabel={runtime.providerLabel}
         model={runtime.model}
-        columns={viewport.columns}
+        columns={columns}
         version={props.version}
       />
       <Box
@@ -949,11 +996,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           </Box>
         ) : null}
         {visible.lines.map((line) => (
-          <TranscriptLineView
-            key={line.id}
-            line={line}
-            columns={viewport.columns}
-          />
+          <TranscriptLineView key={line.id} line={line} columns={columns} />
         ))}
         {visible.lines.length === 0 &&
         visible.hiddenAboveCount === 0 &&

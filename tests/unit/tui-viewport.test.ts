@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeViewport, resolveTerminalSize } from "../../src/ui/tui.js";
+import {
+  clampViewportToTerminal,
+  normalizeViewport,
+  resolveTerminalSize,
+} from "../../src/ui/tui.js";
 
 describe("resolveTerminalSize", () => {
   test("takes stdout size when it is sane", () => {
@@ -85,5 +89,49 @@ describe("resolveTerminalSize", () => {
       columns: 80,
       rows: 24,
     });
+  });
+});
+
+describe("clampViewportToTerminal", () => {
+  test("never renders wider or taller than the live window", () => {
+    // Окно сузили 120x40 → 80x20, а состояние вьюпорта ещё старое:
+    // кадр обязан ужаться до живого размера, иначе терминал перенесёт
+    // длинные строки сам и счётчик строк Ink рассинхронизируется.
+    expect(
+      clampViewportToTerminal(
+        { columns: 120, rows: 40 },
+        { columns: 80, rows: 20 },
+      ),
+    ).toEqual({ columns: 80, rows: 20 });
+  });
+
+  test("stays narrower while the window grows", () => {
+    // Окно расширили, состояние ещё старое: уже — безопасно,
+    // следующий кадр подтянется опросом/событием resize.
+    expect(
+      clampViewportToTerminal(
+        { columns: 80, rows: 24 },
+        { columns: 200, rows: 60 },
+      ),
+    ).toEqual({ columns: 80, rows: 24 });
+  });
+
+  test("keeps the viewport when the live size is unavailable", () => {
+    expect(
+      clampViewportToTerminal(
+        { columns: 100, rows: 30 },
+        { columns: undefined, rows: undefined },
+      ),
+    ).toEqual({ columns: 100, rows: 30 });
+  });
+
+  test("ignores insane live values outside the visible window", () => {
+    // Высота буфера conhost (3000) — не экран: не даём ей раздуть кадр.
+    expect(
+      clampViewportToTerminal(
+        { columns: 100, rows: 30 },
+        { columns: 120, rows: 3000 },
+      ),
+    ).toEqual({ columns: 100, rows: 30 });
   });
 });

@@ -221,6 +221,47 @@ describe("tui fullscreen render", () => {
     }
   });
 
+  test("frame survives rapid shrink-grow without overflow", async () => {
+    // Регрессия искажения при ресайзе: переходный кадр никогда не шире
+    // живого окна — иначе терминал переносит длинные строки сам и весь
+    // интерфейс «плывёт». Сужаем и тут же разворачиваем обратно: оба кадра
+    // обязаны влезать в актуальное окно, шапка сверху, ввод снизу.
+    const app = await startApp(100, 30);
+    try {
+      for (let i = 0; i < 20; i += 1) {
+        app.transcript?.append(
+          `длинная строка истории номер ${i} для проверки переоборачивания при изменении ширины окна терминала`,
+          "info",
+        );
+      }
+      await tick(150);
+      app.stdout.columns = 60;
+      app.stdout.rows = 20;
+      app.stdout.emit("resize");
+      await tick();
+      const narrow = app.frame(20);
+      expect(narrow.length).toBe(20);
+      for (const line of narrow) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(60);
+      }
+      expect(narrow[0]).toContain("ChiselCode");
+      expect(narrow.slice(-6).join("\n")).toContain("Спросите что-нибудь");
+      app.stdout.columns = 120;
+      app.stdout.rows = 40;
+      app.stdout.emit("resize");
+      await tick();
+      const wide = app.frame(40);
+      expect(wide.length).toBe(40);
+      for (const line of wide) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(120);
+      }
+      expect(wide[0]).toContain("ChiselCode");
+      expect(wide.slice(-6).join("\n")).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("long history keeps input pinned and paging works", async () => {
     const app = await startApp(80, 24);
     try {
