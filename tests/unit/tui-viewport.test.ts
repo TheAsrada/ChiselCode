@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   clampViewportToTerminal,
+  describeTerminalSize,
+  formatTerminalSizeLine,
   normalizeViewport,
   readLiveTerminalSize,
   resolveTerminalSize,
@@ -214,5 +216,58 @@ describe("syncTerminalSizeToStdout", () => {
       (stdout as Record<string, unknown>).columns = originalColumns;
       (stdout as Record<string, unknown>).rows = originalRows;
     }
+  });
+
+  test("describeTerminalSize exposes raw sources for doctor", () => {
+    // Классика conhost: rows равен высоте буфера, а не окна.
+    const stdout = process.stdout as unknown as {
+      columns?: unknown;
+      rows?: unknown;
+      isTTY?: unknown;
+      getWindowSize?: () => [number, number];
+    };
+    const originalColumns = stdout.columns;
+    const originalRows = stdout.rows;
+    const originalGetWindowSize = stdout.getWindowSize;
+    try {
+      (stdout as Record<string, unknown>).columns = 237;
+      (stdout as Record<string, unknown>).rows = 3000;
+      stdout.getWindowSize = () => [237, 63];
+      const report = describeTerminalSize();
+      expect(report.stdoutColumns).toBe(237);
+      expect(report.stdoutRows).toBe(3000);
+      expect(report.windowColumns).toBe(237);
+      expect(report.windowRows).toBe(63);
+      expect(report.hasGetWindowSize).toBe(true);
+      // Live берёт ширину окна и отбрасывает высоту буфера.
+      expect(report.liveColumns).toBe(237);
+      expect(report.liveRows).toBe(63);
+      const line = formatTerminalSizeLine(report);
+      expect(line).toContain("237x63");
+      expect(line).toContain("3000");
+    } finally {
+      if (originalGetWindowSize === undefined)
+        delete (stdout as Record<string, unknown>).getWindowSize;
+      else stdout.getWindowSize = originalGetWindowSize;
+      (stdout as Record<string, unknown>).columns = originalColumns;
+      (stdout as Record<string, unknown>).rows = originalRows;
+    }
+  });
+
+  test("formatTerminalSizeLine marks missing size explicitly", () => {
+    const line = formatTerminalSizeLine({
+      stdoutColumns: undefined,
+      stdoutRows: undefined,
+      windowColumns: undefined,
+      windowRows: undefined,
+      hasGetWindowSize: false,
+      envColumns: undefined,
+      envRows: undefined,
+      liveColumns: undefined,
+      liveRows: undefined,
+      isTTY: false,
+    });
+    expect(line).toContain("не определён");
+    expect(line).toContain("нет метода");
   });
 });

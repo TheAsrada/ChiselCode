@@ -42,6 +42,8 @@ import {
 } from "./ui/theme.js";
 import {
   createTuiApprovalResolver,
+  describeTerminalSize,
+  formatTerminalSizeLine,
   syncTerminalSizeToStdout,
   TuiApp,
   type TuiTranscript,
@@ -149,6 +151,9 @@ program
       process.stdout.write(
         `${mark(Boolean(providerConfig?.baseUrl))} Адрес API: ${providerConfig?.baseUrl ?? "не настроен"}\n`,
       );
+    process.stdout.write(
+      `${mark(true)} ${formatTerminalSizeLine(describeTerminalSize())}\n`,
+    );
     process.stdout.write(
       ready
         ? "Готово. Запустите chisel в папке проекта и напишите задачу.\n"
