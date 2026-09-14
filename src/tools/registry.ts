@@ -11,6 +11,7 @@ import type {
   ToolName,
   UndoEntry,
 } from "../types/domain.js";
+import { scanGlob } from "../utils/fs-scan.js";
 import {
   ensureParentDirectory,
   exists,
@@ -401,7 +402,7 @@ export class ToolRegistry {
       const current = queue.shift();
       if (!current) break;
       const entries = await Array.fromAsync(
-        new Bun.Glob("*").scan({
+        scanGlob("*", {
           cwd: current,
           onlyFiles: false,
           absolute: true,

@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.25] - 2026-09-14
+
+### Changed
+
+- Убран рантайм-специфичный код Bun (`Bun.Glob`, `Bun.write`): новый модуль `src/utils/fs-scan.ts` на чистых `node:fs`/`node:path` с той же семантикой — под Bun работает как раньше, под Node 22+ тоже заведётся.
+- Размер окна TUI сведён в чистую функцию `resolveTerminalSize()` с приоритетом видимого окна консоли Windows и покрыт тестами; первый кадр больше не спавнит процессы.
+
 ## [0.2.24] - 2026-09-14
 
 ### Changed

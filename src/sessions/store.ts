@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Session } from "../types/domain.js";
+import { scanGlob } from "../utils/fs-scan.js";
 
 function userDataDir(): string {
   if (process.platform === "win32") {
@@ -70,7 +71,7 @@ export async function listSessions(projectPath?: string): Promise<Session[]> {
   const directory = sessionsDirectory();
   try {
     const files = await Array.fromAsync(
-      new Bun.Glob("*.json").scan({ cwd: directory, absolute: true }),
+      scanGlob("*.json", { cwd: directory, absolute: true }),
     );
     const sessions = await Promise.all(
       files.map(

@@ -30,6 +30,7 @@ import type {
   ToolName,
 } from "../types/domain.js";
 import { exitCodeFor, OneShotRenderer } from "../ui/one-shot.js";
+import { scanGlob } from "../utils/fs-scan.js";
 
 export interface RunEventHandlers {
   onText?(text: string): void;
@@ -351,7 +352,7 @@ async function runGit(
 async function collectFileTree(root: string): Promise<string> {
   const ignored = new Set([".git", "node_modules", ".chisel"]);
   const entries: string[] = [];
-  for await (const file of new Bun.Glob("**/*").scan({
+  for await (const file of scanGlob("**/*", {
     cwd: root,
     onlyFiles: true,
   })) {

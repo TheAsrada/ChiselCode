@@ -5,6 +5,7 @@
  * никогда не висел в плохом сетевом окружении.
  */
 import { spawn } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -223,7 +224,7 @@ export async function downloadReleaseAsset(
       );
     const bytes = new Uint8Array(await response.arrayBuffer());
     const path = join(options.destDir ?? tmpdir(), asset);
-    await Bun.write(path, bytes);
+    await writeFile(path, bytes);
     return { path, bytes: bytes.byteLength };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError")
