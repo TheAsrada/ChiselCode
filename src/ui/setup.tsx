@@ -154,7 +154,7 @@ export function SetupApp({
     >
       <Box>
         <Text bold color="cyan">
-          ✦ ChiselCode
+          ◈ ChiselCode
         </Text>
         <Text dimColor> v{VERSION} · быстрая настройка · </Text>
         <Text color="yellow">{stepLabel(step, provider)}</Text>
@@ -249,7 +249,7 @@ function ApiKeyInput({
       <Text dimColor>
         Ключ скрыт и сохраняется только в зашифрованном локальном хранилище.
       </Text>
-      <Text color="green">› {"•".repeat(value.length) || "…"}</Text>
+      <Text color="green">❯ {"•".repeat(value.length) || "…"}</Text>
     </Box>
   );
 }
@@ -262,7 +262,7 @@ function BaseUrlInput({ value }: { value: string }): React.JSX.Element {
         Для OpenAI API добавьте /v1 (например http://localhost:11434/v1); для
         Anthropic proxy укажите корень без /v1.
       </Text>
-      <Text color="green">› {value || "…"}</Text>
+      <Text color="green">❯ {value || "…"}</Text>
     </Box>
   );
 }
@@ -283,7 +283,7 @@ function ModelInput({
           ? "Укажите модель, доступную на выбранном сервере."
           : "Можно оставить предложенную модель или отредактировать её."}
       </Text>
-      <Text color="green">› {value || "…"}</Text>
+      <Text color="green">❯ {value || "…"}</Text>
     </Box>
   );
 }

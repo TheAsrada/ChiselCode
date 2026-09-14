@@ -29,7 +29,7 @@ import {
 import { MarkdownText, parseBlocks } from "./markdown.js";
 import { SettingsPanel, type TuiSettingsValues } from "./settings.js";
 import { SetupApp, type SetupValues } from "./setup.js";
-import { toolDisplay } from "./theme.js";
+import { type ToolTone, toolDisplay, toolTone } from "./theme.js";
 import { Thinking } from "./thinking.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
@@ -267,7 +267,7 @@ export const HOTKEYS_HINT =
 
 /** Строка подсказки команды — та же, что рисует Editor. */
 export function suggestionLineText(name: string, description: string): string {
-  return `› ${name} — ${description}`;
+  return `❯ ${name} — ${description}`;
 }
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
@@ -958,9 +958,15 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         {visible.lines.length === 0 &&
         visible.hiddenAboveCount === 0 &&
         visible.hiddenBelowCount === 0 ? (
-          <Box width="100%" flexShrink={0}>
+          <Box flexDirection="column" width="100%" flexShrink={0}>
             <Text dimColor wrap="wrap">
-              Введите задачу и нажмите Enter — или /help для списка команд.
+              <Text bold color="green">
+                ❯{" "}
+              </Text>
+              Введите задачу и нажмите Enter
+            </Text>
+            <Text dimColor wrap="wrap">
+              {"  "}/help — команды · /status — состояние · /sessions — сеансы
             </Text>
           </Box>
         ) : null}
@@ -1055,12 +1061,12 @@ function TranscriptLineView({
     // строку и ввод/история не «съезжают» по горизонтали.
     // flexShrink={0}: Yoga никогда не схлопывает строки истории в ноль
     // при неточной смете — переполнение режется снизу, а не в середине.
-    const clean = line.text.replace(/^›\s?/, "");
+    const clean = line.text.replace(/^[❯›]\s?/, "");
     return (
       <Box marginTop={1} width="100%" flexShrink={0}>
         <Text bold wrap="wrap">
           <Text bold color="green">
-            ›{" "}
+            ❯{" "}
           </Text>
           {clean}
         </Text>
@@ -1071,10 +1077,11 @@ function TranscriptLineView({
     const summary = line.text.replace(/^\[chisel\]\s?/, "");
     const preview =
       summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
+    const tone_ = toolToneFromSummary(summary);
     return (
       <Box width="100%" flexShrink={0}>
         <Text dimColor wrap="wrap">
-          <Text color="cyan">⟡ </Text>
+          <Text color={tone_}>⟡ </Text>
           {preview}
         </Text>
       </Box>
@@ -1115,6 +1122,11 @@ function TranscriptLineView({
       <MarkdownText text={line.text} columns={columns} />
     </Box>
   );
+}
+/** Цвет искры тул-линии по первому слову сводки (там имя инструмента). */
+function toolToneFromSummary(summary: string): ToolTone {
+  const first = summary.split(/\s/, 1)[0] ?? "";
+  return toolTone(first);
 }
 function providerName(provider: ProviderKind): string {
   if (provider === "anthropic") return "Anthropic (Claude)";
@@ -1174,7 +1186,7 @@ export function estimateFooterHeight({
   const safeColumns = normalizeViewport({ columns }).columns;
   if (request) return estimateApprovalHeight(request, safeColumns);
   const innerWidth = Math.max(safeColumns - 4, 10);
-  // Ввод живёт внутри рамки (2) + paddingX (2) + префикс «› » (2).
+  // Ввод живёт внутри рамки (2) + paddingX (2) + префикс «❯ » (2).
   // Спиннер: рамка + paddingX, текст «⠋ Думаю 99с · модель» с запасом под секундомер.
   const editorRows = busy
     ? wrappedLines(`⠋ Думаю 99с · ${model}`, innerWidth)
@@ -1306,7 +1318,7 @@ function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
   const tone = line.tone ?? "assistant";
   if (tone === "brand") return 3; // две строки + отступ
   if (tone === "user")
-    return 1 + wrappedLines(line.text, Math.max(safeColumns - 2, 10)); // отступ + «› »
+    return 1 + wrappedLines(line.text, Math.max(safeColumns - 2, 10)); // отступ + «❯ »
   if (tone === "tool") {
     const summary =
       line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text;
@@ -1433,12 +1445,9 @@ function Editor({
           {suggestions.map((command, index) => (
             <Text key={command.name} wrap="truncate-end">
               {index === 0 ? (
-                <>
-                  <Text bold color="green">
-                    › {command.name}
-                  </Text>
-                  <Text dimColor> — {command.description}</Text>
-                </>
+                <Text bold inverse color="green">
+                  ❯ {command.name} — {command.description}
+                </Text>
               ) : (
                 <Text dimColor>
                   {" "}
@@ -1462,14 +1471,17 @@ function Editor({
           <Box width="100%">
             <Text wrap="wrap">
               <Text bold color="green">
-                ›{" "}
+                ❯{" "}
               </Text>
               {renderWithCursor(value, cursor)}
             </Text>
           </Box>
         ) : (
           <Text dimColor wrap="truncate-end">
-            › Спросите что-нибудь… ( / — команды )
+            <Text bold color="green">
+              ❯{" "}
+            </Text>
+            Спросите что-нибудь… ( / — команды )
           </Text>
         )}
       </Box>

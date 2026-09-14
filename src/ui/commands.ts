@@ -1,13 +1,13 @@
 export const SLASH_COMMANDS = [
   { name: "/help", description: "показать справку по командам" },
   { name: "/clear", description: "очистить экран" },
-  { name: "/cwd", description: "сменить папку проекта: /cwd <путь>" },
+  { name: "/cwd", description: "сменить папку проекта: <путь>" },
   { name: "/settings", description: "открыть настройки" },
   { name: "/model", description: "сменить модель" },
   { name: "/status", description: "показать состояние сессии" },
   { name: "/new", description: "начать новый сеанс" },
   { name: "/sessions", description: "список сеансов проекта" },
-  { name: "/resume", description: "вернуться к сеансу: /resume <номер>" },
+  { name: "/resume", description: "вернуться к сеансу: <номер>" },
   { name: "/update", description: "проверить и установить обновление" },
   { name: "/doctor", description: "проверить настройку без показа ключей" },
   { name: "/exit", description: "закрыть ChiselCode" },
@@ -41,23 +41,32 @@ export function matchingCommands(input: string) {
   return SLASH_COMMANDS.filter((command) => command.name.startsWith(query));
 }
 
+const HELP_GROUPS: { title: string; commands: string[] }[] = [
+  { title: "Сессия", commands: ["/new", "/sessions", "/resume", "/clear"] },
+  { title: "Проект", commands: ["/cwd", "/status", "/doctor"] },
+  {
+    title: "Приложение",
+    commands: ["/settings", "/model", "/update", "/help", "/exit"],
+  },
+];
+
 export function commandHelpText(): string {
-  return [
-    "◈ ChiselCode — быстрые команды",
-    "  /help — показать справку по командам",
-    "  /clear — очистить экран",
-    "  /cwd <путь> — сменить папку проекта (можно путь к файлу)",
-    "  /settings — открыть настройки сервиса и модели",
-    "  /model — быстро сменить модель для текущего сеанса",
-    "  /status — показать состояние сессии",
-    "  /new — начать новый сеанс",
-    "  /sessions — список сеансов проекта",
-    "  /resume <номер> — вернуться к сеансу",
-    "  /update — проверить и установить обновление ChiselCode",
-    "  /doctor — проверить настройку без показа ключей",
-    "  /exit — закрыть ChiselCode",
+  const byName = new Map<string, string>(
+    SLASH_COMMANDS.map((c) => [c.name, c.description]),
+  );
+  const width = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
+  const lines = ["◈ ChiselCode — быстрые команды"];
+  for (const group of HELP_GROUPS) {
+    lines.push("", `── ${group.title} ──`);
+    for (const name of group.commands) {
+      lines.push(`  ${name.padEnd(width, " ")} — ${byName.get(name) ?? ""}`);
+    }
+  }
+  lines.push(
     "",
-    "Обычный текст отправляется помощнику. Shift+Enter — новая строка. PgUp/PgDn листают журнал, Home/End — его начало и конец.",
+    "Обычный текст отправляется помощнику. Shift+Enter — новая строка.",
+    "PgUp/PgDn листают журнал, Home/End — его начало и конец, Esc — назад к вводу.",
     "При запросе изменения нажмите y (разрешить) или n / Esc (отклонить).",
-  ].join("\n");
+  );
+  return lines.join("\n");
 }

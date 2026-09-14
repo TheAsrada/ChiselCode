@@ -222,10 +222,10 @@ export function SettingsPanel({
       ) : null}
       {screen === "provider" ? <ProviderMenu selected={providerIndex} /> : null}
       {screen === "model" ? (
-        <Text color="green">Модель › {values.model}</Text>
+        <Text color="green">Модель ❯ {values.model}</Text>
       ) : null}
       {screen === "base-url" ? (
-        <Text color="green">Адрес API › {values.baseUrl ?? ""}</Text>
+        <Text color="green">Адрес API ❯ {values.baseUrl ?? ""}</Text>
       ) : null}
       {screen === "saving" ? (
         <Text color="yellow">Сохраняю настройки…</Text>
@@ -286,12 +286,18 @@ function Menu({
   };
   return (
     <Box flexDirection="column">
-      {items.map((item, index) => (
-        <Text key={item} color={index === selected ? "green" : undefined}>
-          {index === selected ? "› " : "  "}
-          {labels[item]}
-        </Text>
-      ))}
+      {items.map((item, index) =>
+        index === selected ? (
+          <Text key={item} bold inverse color="green">
+            ❯ {labels[item]}
+          </Text>
+        ) : (
+          <Text key={item} dimColor>
+            {" "}
+            {labels[item]}
+          </Text>
+        ),
+      )}
     </Box>
   );
 }
@@ -300,15 +306,18 @@ function ProviderMenu({ selected }: { selected: number }): React.JSX.Element {
   return (
     <Box flexDirection="column">
       <Text>Выберите сервис:</Text>
-      {PROVIDERS.map((provider, index) => (
-        <Text
-          key={provider.value}
-          color={index === selected ? "green" : undefined}
-        >
-          {index === selected ? "› " : "  "}
-          {provider.label}
-        </Text>
-      ))}
+      {PROVIDERS.map((provider, index) =>
+        index === selected ? (
+          <Text key={provider.value} bold inverse color="green">
+            ❯ {provider.label}
+          </Text>
+        ) : (
+          <Text key={provider.value} dimColor>
+            {" "}
+            {provider.label}
+          </Text>
+        ),
+      )}
     </Box>
   );
 }

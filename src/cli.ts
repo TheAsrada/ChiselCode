@@ -521,7 +521,7 @@ async function startTui(options: RunOptions): Promise<void> {
         onSubmit: async (prompt: string) => {
           if (active || !transcript) return;
           active = true;
-          transcript.append(`› ${prompt}`, "user");
+          transcript.append(`❯ ${prompt}`, "user");
           let responseOpen = false;
           const started = Date.now();
           try {
@@ -626,7 +626,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
     for (;;) {
       let line: string;
       try {
-        line = (await rl.question("› ")).trim();
+        line = (await rl.question("❯ ")).trim();
       } catch {
         return;
       }

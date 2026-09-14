@@ -7,7 +7,7 @@
  */
 
 export const BRAND_MARK = "◈";
-export const USER_ARROW = "›";
+export const USER_ARROW = "❯";
 export const TOOL_SPARK = "⟡";
 export const OK_MARK = "✓";
 export const FAIL_MARK = "✗";
@@ -38,6 +38,34 @@ export const TOOL_DISPLAY: Record<string, ToolDisplay> = {
 
 export function toolDisplay(tool: string): ToolDisplay {
   return TOOL_DISPLAY[tool] ?? { icon: "?", label: tool };
+}
+
+export type ToolTone = "cyan" | "yellow" | "magenta" | "blue" | "green";
+
+/**
+ * Цвет искры вызова инструмента в журнале — как группируют операции
+ * топовые CLI: чтение/поиск — спокойный cyan, изменения файлов — заметный
+ * yellow, shell — magenta, git — blue, остальное — green.
+ */
+export function toolTone(name: string): ToolTone {
+  if (name === "run_shell" || name.startsWith("$")) return "magenta";
+  if (
+    name === "write_file" ||
+    name === "edit_file" ||
+    name === "delete_file" ||
+    name === "self_update"
+  )
+    return "yellow";
+  if (name === "git_diff" || name === "git_commit" || name.startsWith("git"))
+    return "blue";
+  if (
+    name === "read_file" ||
+    name === "list_dir" ||
+    name === "glob" ||
+    name === "grep"
+  )
+    return "cyan";
+  return "green";
 }
 
 function singleLine(value: unknown, maxLength: number): string {
@@ -154,17 +182,25 @@ export interface StatusDashboardInput {
   totalCost?: number;
 }
 
-/** Панель `/status`: те же строки, что раньше, но с шапкой и подсказкой. */
+/** Панель `/status`: аккуратный дашборд с выровненными значениями. */
 export function formatStatusDashboard(input: StatusDashboardInput): string {
+  const row = (label: string, value: string): string =>
+    `${label.padEnd(9, " ")} ${value}`;
   const lines = [
     `${BRAND_MARK} ChiselCode — состояние`,
-    `Сервис: ${input.providerLabel}`,
-    `Модель: ${input.model}`,
-    `Проект: ${input.cwd}`,
-    `API-ключ: ${input.keyReady ? "настроен" : `не настроен ${DOT} запустите chisel setup`}`,
-    input.sessionId
-      ? `Сессия: ${input.sessionTitle ? `${input.sessionTitle} · ` : ""}${input.sessionId}`
-      : "Сессия: новая для следующего запроса",
+    row("Сервис:", input.providerLabel),
+    row("Модель:", input.model),
+    row("Проект:", input.cwd),
+    row(
+      "API-ключ:",
+      input.keyReady ? "✓ настроен" : `✗ не настроен ${DOT} chisel setup`,
+    ),
+    row(
+      "Сессия:",
+      input.sessionId
+        ? `${input.sessionTitle ? `«${input.sessionTitle}» ${DOT} ` : ""}${input.sessionId}`
+        : "новая — откроется следующим запросом",
+    ),
   ];
   if (input.totalTokens !== undefined && input.totalTokens > 0) {
     const cost =
@@ -172,12 +208,12 @@ export function formatStatusDashboard(input: StatusDashboardInput): string {
         ? ` ${DOT} ${formatCost(input.totalCost)}`
         : "";
     lines.push(
-      `Контекст сессии: ${formatTokens(input.totalTokens)} токенов${cost}`,
+      row("Контекст:", `${formatTokens(input.totalTokens)} токенов${cost}`),
     );
   }
   lines.push(
     "",
-    `/model ${DOT} сменить модель   /cwd <путь> ${DOT} сменить проект`,
+    `/model ${DOT} сменить модель    /cwd <путь> ${DOT} сменить проект    /sessions ${DOT} список сеансов`,
   );
   return lines.join("\n");
 }
