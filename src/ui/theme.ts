@@ -182,17 +182,13 @@ export function formatStatusDashboard(input: StatusDashboardInput): string {
   return lines.join("\n");
 }
 
-/** Три приветственные строки TUI (id 0, 1, 2 — см. nextTranscriptId в tui.tsx). */
+/** Стартовых приветственных строк больше нет: шапка показывает сервис/модель, подсказки — в /help. */
 export function welcomeLines(
-  providerLabel: string,
-  model: string,
-  version: string,
+  _providerLabel: string,
+  _model: string,
+  _version: string,
 ): string[] {
-  return [
-    `${OK_MARK} Готово — ${providerLabel}, модель ${model} (ChiselCode v${version}). Напишите задачу или /help.`,
-    "Изменения всегда требуют подтверждения y/n.",
-    "Подсказка: /cwd <путь> — сменить проект, Tab — дополнить команду, /update — обновить ChiselCode.",
-  ];
+  return [];
 }
 
 export interface DoneSummaryInput {

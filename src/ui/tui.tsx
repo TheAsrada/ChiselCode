@@ -29,7 +29,7 @@ import {
 import { MarkdownText, parseBlocks } from "./markdown.js";
 import { SettingsPanel, type TuiSettingsValues } from "./settings.js";
 import { SetupApp, type SetupValues } from "./setup.js";
-import { toolDisplay, welcomeLines } from "./theme.js";
+import { toolDisplay } from "./theme.js";
 import { Thinking } from "./thinking.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
@@ -95,6 +95,75 @@ export function normalizeViewport(viewport: {
       TUI_MIN_ROWS,
     ),
   };
+}
+
+/** Читает реальный размер TTY напрямую: Ink useWindowSize на Windows/conhost
+ * часто отдаёт 80x24 или нули, из-за чего кадр рисуется сверху и остаток
+ * экрана остаётся чёрным (как на скриншоте). getWindowSize — первоисточник. */
+function readLiveTerminalSize(): { columns?: number; rows?: number } {
+  try {
+    const stdout = process.stdout as NodeJS.WriteStream & {
+      getWindowSize?: () => [number, number];
+    };
+    if (typeof stdout?.getWindowSize === "function") {
+      const size = stdout.getWindowSize();
+      const columns = size?.[0];
+      const rows = size?.[1];
+      if (
+        Number.isFinite(columns) &&
+        (columns as number) > 0 &&
+        Number.isFinite(rows) &&
+        (rows as number) > 0
+      ) {
+        return { columns, rows };
+      }
+    }
+    const columns = (process.stdout as NodeJS.WriteStream)?.columns;
+    const rows = (process.stdout as NodeJS.WriteStream)?.rows;
+    if (
+      Number.isFinite(columns) &&
+      (columns as number) > 0 &&
+      Number.isFinite(rows) &&
+      (rows as number) > 0
+    ) {
+      return { columns, rows };
+    }
+  } catch {
+    // Нет TTY — дальше сработает fallback 80x24.
+  }
+  return {};
+}
+
+/** Живой вьюпорт: Ink-сигнал + прямой опрос TTY + событие resize stdout. */
+function useLiveViewport(): TuiViewport {
+  const inkSize = useWindowSize();
+  const [live, setLive] = useState(readLiveTerminalSize);
+  useEffect(() => {
+    const update = (): void => {
+      const next = readLiveTerminalSize();
+      setLive((prev) => {
+        if (prev.columns === next.columns && prev.rows === next.rows)
+          return prev;
+        return next;
+      });
+    };
+    update();
+    const stdout = process.stdout as unknown as {
+      on?: (event: string, listener: () => void) => void;
+      off?: (event: string, listener: () => void) => void;
+    };
+    if (typeof stdout?.on === "function") {
+      stdout.on("resize", update);
+      return () => {
+        stdout.off?.("resize", update);
+      };
+    }
+    return;
+  }, []);
+  const columns =
+    live.columns ?? inkSize.columns ?? process.stdout?.columns ?? undefined;
+  const rows = live.rows ?? inkSize.rows ?? process.stdout?.rows ?? undefined;
+  return normalizeViewport({ columns, rows });
 }
 
 /** Полноширинный разделитель под актуальную ширину окна. */
@@ -181,8 +250,7 @@ export interface TuiAppProps {
 
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
-  const rawViewport = useWindowSize();
-  const viewport = normalizeViewport(rawViewport);
+  const viewport = useLiveViewport();
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -204,7 +272,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
   const [transcriptOffset, setTranscriptOffset] = useState(0);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
-  const nextTranscriptId = useRef(3);
+  const nextTranscriptId = useRef(0);
   const suggestions = isSlashInput(editor.value)
     ? matchingCommands(editor.value)
     : [];
@@ -1329,17 +1397,11 @@ function renderWithCursor(value: string, cursor: number): React.ReactNode {
   );
 }
 function intro(
-  providerLabel: string,
-  model: string,
-  version?: string,
+  _providerLabel: string,
+  _model: string,
+  _version?: string,
 ): TuiTranscriptLine[] {
-  // Шапка теперь закреплена сверху окна (Header), поэтому в истории
-  // остаются только приветственные строки — задвоения нет и после
-  // /clear шапка не пропадает, как в Claude Code.
-  const lines = welcomeLines(providerLabel, model, version ?? "");
-  return lines.map((text, index) => ({
-    id: index,
-    text,
-    tone: "info" as const,
-  }));
+  // Стартовый транскрипт пустой: сервис/модель уже в закреплённой шапке,
+  // подсказки — в /help и в строке горячих клавиш. Ничего не пишем при запуске.
+  return [];
 }
