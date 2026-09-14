@@ -34,7 +34,26 @@ jobs:
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
       - name: Create GitHub Release
         shell: bash
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --title "ChiselCode $GITHUB_REF_NAME"
+        run: |
+          ver=$(node -p "require('./package.json').version")
+          # Вырезаем секцию ## [ver] из CHANGELOG.md до следующего ## [
+          awk -v ver="$ver" '
+            $0 == "## [" ver "]" || $0 ~ "^## \\[" ver "\\] " {flag=1; next}
+            /^## \[/ {if (flag) exit; next}
+            flag {print}
+          ' CHANGELOG.md > /tmp/release-notes.md
+          # Убираем пустые строки по краям, проверяем что осталось непустое
+          sed -i -e :a -e '/./,$!d' -e :b -e '/^\n*$/{$d;N;ba' -e '}' /tmp/release-notes.md
+          if grep -q '[^[:space:]]' /tmp/release-notes.md 2>/dev/null; then
+            # Предыдущий релиз = последний созданный (текущий тег ещё не опубликован)
+            prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
+            if [ -n "$prev" ]; then
+              printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$GITHUB_REF_NAME" >> /tmp/release-notes.md
+            fi
+            gh release create "$GITHUB_REF_NAME" --title "ChiselCode $GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --generate-notes --title "ChiselCode $GITHUB_REF_NAME"
+          fi
 
   installer-windows:
     name: Build Windows installer
