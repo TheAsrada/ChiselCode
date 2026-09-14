@@ -111,3 +111,65 @@ export function stableSessionFingerprint(session: Session): string {
     .digest("hex")
     .slice(0, 12);
 }
+
+/** Короткий id для показа: первые 8 символов UUID. */
+export function shortSessionId(id: string): string {
+  return id.slice(0, 8);
+}
+
+/** Название сессии из промпта: первая строка, до 60 символов. */
+export function sessionTitleForPrompt(prompt: string): string {
+  const first = prompt.split("\n", 1)[0]?.trim() ?? "";
+  return first.length > 60 ? `${first.slice(0, 60)}…` : first;
+}
+
+function formatSessionDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day}.${month} ${hours}:${minutes}`;
+}
+
+/** Человекочитаемый список сессий для `/sessions` (порядок — как в хранилище). */
+export function formatSessionList(sessions: Session[]): string {
+  if (sessions.length === 0)
+    return "Сессий этого проекта пока нет. Новое сообщение начнёт первую.";
+  const lines = sessions.map((session, index) => {
+    const title = session.title?.trim() || "без названия";
+    const tokens =
+      session.totalTokens.inputTokens + session.totalTokens.outputTokens;
+    return (
+      `${index + 1}. ${title} · ${session.model} · ` +
+      `${session.messages.length} сообщ. · ${tokens} токенов · ` +
+      `${formatSessionDate(session.updatedAt)} · ${shortSessionId(session.id)}`
+    );
+  });
+  return ["Сессии проекта:", ...lines].join("\n");
+}
+
+/**
+ * Поиск сессии по номеру из `/sessions` (1-based) или префиксу id.
+ * Возвращает undefined, если ничего не подошло.
+ */
+export function resolveSessionRef(
+  sessions: Session[],
+  ref: string,
+): Session | undefined {
+  const trimmed = ref.trim();
+  if (!trimmed) return undefined;
+  const byIndex = Number.parseInt(trimmed, 10);
+  if (
+    Number.isInteger(byIndex) &&
+    String(byIndex) === trimmed &&
+    byIndex >= 1 &&
+    byIndex <= sessions.length
+  )
+    return sessions[byIndex - 1];
+  const lowered = trimmed.toLowerCase();
+  return sessions.find((session) =>
+    session.id.toLowerCase().startsWith(lowered),
+  );
+}

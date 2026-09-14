@@ -44,6 +44,7 @@ describe("interactive commands", () => {
     expect(matchingCommands("/s").map((command) => command.name)).toEqual([
       "/settings",
       "/status",
+      "/sessions",
     ]);
     expect(matchingCommands("/c").map((command) => command.name)).toEqual([
       "/clear",

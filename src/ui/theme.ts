@@ -149,6 +149,7 @@ export interface StatusDashboardInput {
   cwd: string;
   keyReady: boolean;
   sessionId?: string;
+  sessionTitle?: string;
   totalTokens?: number;
   totalCost?: number;
 }
@@ -162,7 +163,7 @@ export function formatStatusDashboard(input: StatusDashboardInput): string {
     `Проект: ${input.cwd}`,
     `API-ключ: ${input.keyReady ? "настроен" : `не настроен ${DOT} запустите chisel setup`}`,
     input.sessionId
-      ? `Сессия: ${input.sessionId}`
+      ? `Сессия: ${input.sessionTitle ? `${input.sessionTitle} · ` : ""}${input.sessionId}`
       : "Сессия: новая для следующего запроса",
   ];
   if (input.totalTokens !== undefined && input.totalTokens > 0) {

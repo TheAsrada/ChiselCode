@@ -23,7 +23,14 @@ import {
 import { loadGlobalConfig, saveGlobalConfig } from "./config/load.js";
 import { normalizeBaseUrlForProvider } from "./providers/base-url.js";
 import { CredentialStore } from "./security/credentials.js";
-import type { GlobalConfig, ProviderKind } from "./types/domain.js";
+import {
+  formatSessionList,
+  listSessions,
+  loadSession,
+  resolveSessionRef,
+  shortSessionId,
+} from "./sessions/store.js";
+import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import {
@@ -291,6 +298,59 @@ async function updateText(): Promise<string> {
   return `✓ У вас последняя версия ChiselCode v${result.current}`;
 }
 
+/** Сводка сессии для /status: не падает, если файл пропал. */
+async function readSessionSummary(
+  id: string,
+): Promise<{ id: string; title?: string; totalTokens: number } | undefined> {
+  try {
+    const session = await loadSession(id);
+    return {
+      id: session.id,
+      title: session.title?.trim() || undefined,
+      totalTokens:
+        session.totalTokens.inputTokens + session.totalTokens.outputTokens,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+const REPLAY_MESSAGE_LIMIT = 30;
+
+/**
+ * Показывает историю сессии в журнале TUI при /resume: тексты пользователя
+ * и ассистента по порядку, вызовы инструментов — одной строкой. Чистые
+ * tool_result без текста пропускаются, чтобы не шуметь.
+ */
+function replaySessionIntoTranscript(
+  view: TuiTranscript,
+  session: Session,
+): void {
+  const tail = session.messages.slice(-REPLAY_MESSAGE_LIMIT);
+  if (session.messages.length > tail.length)
+    view.append(
+      `… показаны последние ${tail.length} из ${session.messages.length} сообщений сессии.`,
+      "info",
+    );
+  for (const message of tail) {
+    const texts = message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text.trim())
+      .filter(Boolean);
+    const tools = message.content.filter((block) => block.type === "tool_use");
+    if (message.role === "user") {
+      if (texts.length > 0) view.append(texts.join("\n"), "user");
+      continue;
+    }
+    if (texts.length > 0) view.append(texts.join("\n"), "assistant");
+    if (tools.length > 0)
+      view.append(
+        `[chisel] ${tools.map((tool) => tool.name).join(", ")}`,
+        "tool",
+      );
+  }
+}
+
 async function startTui(options: RunOptions): Promise<void> {
   const config = await loadGlobalConfig();
   const configuredProvider = options.provider ?? config.defaultProvider;
@@ -309,6 +369,7 @@ async function startTui(options: RunOptions): Promise<void> {
   let activeOptions: RunOptions = { ...options };
   let transcript: TuiTranscript | undefined;
   let active = false;
+  let cachedSessionList: Session[] = [];
   let instance: ReturnType<typeof render> | undefined;
   try {
     instance = render(
@@ -335,6 +396,9 @@ async function startTui(options: RunOptions): Promise<void> {
             currentProvider,
             currentConfig?.apiKeyRef,
           );
+          const resumed = activeOptions.resume
+            ? await readSessionSummary(activeOptions.resume)
+            : undefined;
           return formatStatusDashboard({
             providerLabel: providerLabel(currentProvider),
             model:
@@ -344,7 +408,9 @@ async function startTui(options: RunOptions): Promise<void> {
               "не выбрана",
             cwd: activeOptions.cwd ?? process.cwd(),
             keyReady: ready,
-            sessionId: activeOptions.resume ?? undefined,
+            sessionId: resumed ? shortSessionId(resumed.id) : undefined,
+            sessionTitle: resumed?.title,
+            totalTokens: resumed?.totalTokens,
           });
         },
         onDoctor: async () => doctorText(),
@@ -422,6 +488,36 @@ async function startTui(options: RunOptions): Promise<void> {
           });
           return result.ok ? `✓ ${result.message}` : `✗ ${result.message}`;
         },
+        onNewSession: async () => {
+          activeOptions = { ...activeOptions, resume: undefined };
+          return "Начат новый сеанс: следующее сообщение откроет новую сессию.";
+        },
+        onListSessions: async () => {
+          cachedSessionList = await listSessions(
+            activeOptions.cwd ?? process.cwd(),
+          );
+          return formatSessionList(cachedSessionList);
+        },
+        onResumeSession: async (ref: string) => {
+          const trimmed = ref.trim();
+          if (!trimmed)
+            return "Укажите номер из /sessions или начало id: /resume <номер>.";
+          const sessions = await listSessions(
+            activeOptions.cwd ?? process.cwd(),
+          );
+          cachedSessionList = sessions;
+          const found = resolveSessionRef(sessions, trimmed);
+          if (!found)
+            return `Сеанс «${trimmed}» не найден. Покажите /sessions.`;
+          activeOptions = { ...activeOptions, resume: found.id };
+          transcript?.clear();
+          if (transcript) replaySessionIntoTranscript(transcript, found);
+          const title = found.title?.trim() || "без названия";
+          return (
+            `✓ Возобновлён сеанс «${title}» (${found.model}, ` +
+            `${found.messages.length} сообщ., контекст восстановлен).`
+          );
+        },
         onSubmit: async (prompt: string) => {
           if (active || !transcript) return;
           active = true;
@@ -452,6 +548,8 @@ async function startTui(options: RunOptions): Promise<void> {
                 },
               },
             );
+            // Сессия живёт между сообщениями: следующее продолжит эту же.
+            activeOptions = { ...activeOptions, resume: result.session.id };
             if (!responseOpen)
               transcript.append(
                 result.text ||
@@ -536,7 +634,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       if (line === "/exit") return;
       if (line === "/help") {
         process.stdout.write(
-          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить обновление\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
+          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить обновление\n/new — новый сеанс\n/sessions — список сеансов\n/resume <номер> — вернуться к сеансу\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
         );
         continue;
       }
@@ -563,7 +661,42 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         continue;
       }
       if (line === "/clear") {
-        process.stdout.write("\n".repeat(2));
+        activeOptions = { ...activeOptions, resume: undefined };
+        process.stdout.write("Начат новый сеанс.\n");
+        continue;
+      }
+      if (line === "/new") {
+        activeOptions = { ...activeOptions, resume: undefined };
+        process.stdout.write(
+          "Начат новый сеанс: следующее сообщение откроет новую сессию.\n",
+        );
+        continue;
+      }
+      if (line === "/sessions") {
+        const sessions = await listSessions(activeOptions.cwd ?? process.cwd());
+        process.stdout.write(`${formatSessionList(sessions)}\n`);
+        continue;
+      }
+      if (line === "/resume" || line.startsWith("/resume ")) {
+        const ref = line.slice("/resume".length).trim();
+        if (!ref) {
+          process.stdout.write(
+            "Укажите номер из /sessions или начало id: /resume <номер>.\n",
+          );
+          continue;
+        }
+        const sessions = await listSessions(activeOptions.cwd ?? process.cwd());
+        const found = resolveSessionRef(sessions, ref);
+        if (!found) {
+          process.stdout.write(
+            `Сеанс «${ref}» не найден. Покажите /sessions.\n`,
+          );
+          continue;
+        }
+        activeOptions = { ...activeOptions, resume: found.id };
+        process.stdout.write(
+          `✓ Возобновлён сеанс «${found.title?.trim() || "без названия"}» (${found.model}, ${found.messages.length} сообщ.).\n`,
+        );
         continue;
       }
       if (line === "/status" || line === "/doctor") {
@@ -575,6 +708,9 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
           currentProvider,
           currentConfig?.apiKeyRef,
         );
+        const resumed = activeOptions.resume
+          ? await readSessionSummary(activeOptions.resume)
+          : undefined;
         process.stdout.write(
           `${formatStatusDashboard({
             providerLabel: providerLabel(currentProvider),
@@ -585,7 +721,9 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
               "не выбрана",
             cwd: activeOptions.cwd ?? process.cwd(),
             keyReady: ready,
-            sessionId: activeOptions.resume ?? undefined,
+            sessionId: resumed ? shortSessionId(resumed.id) : undefined,
+            sessionTitle: resumed?.title,
+            totalTokens: resumed?.totalTokens,
           })}\n`,
         );
         continue;
@@ -619,6 +757,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       };
       try {
         const { result } = await runPrompt(line, activeOptions, resolver);
+        activeOptions = { ...activeOptions, resume: result.session.id };
         process.stdout.write(
           `${result.text || result.error || "Сервис завершил запрос без текстового ответа."}\n`,
         );

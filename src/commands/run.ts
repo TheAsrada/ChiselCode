@@ -15,7 +15,12 @@ import {
 import { OpenAIAdapter, OpenAICompatibleAdapter } from "../providers/openai.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import { CredentialStore } from "../security/credentials.js";
-import { createSession, loadSession, saveSession } from "../sessions/store.js";
+import {
+  createSession,
+  loadSession,
+  saveSession,
+  sessionTitleForPrompt,
+} from "../sessions/store.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type {
   AgentResult,
@@ -195,6 +200,8 @@ export async function runPrompt(
         resolveProvider(options, global.defaultProvider),
         resolveModel(options, global.defaultModel),
       );
+  if (!options.resume && prompt.trim())
+    session.title = sessionTitleForPrompt(prompt);
 
   if (session.projectPath !== projectRoot) {
     throw new Error(

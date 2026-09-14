@@ -152,6 +152,8 @@ export interface Session {
   undoStack: UndoEntry[];
   createdAt: string;
   updatedAt: string;
+  /** Короткое название для списков: первая строка первого промпта. */
+  title?: string;
 }
 
 export interface ToolExecutionResult {

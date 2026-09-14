@@ -149,6 +149,12 @@ export interface TuiAppProps {
   onSwitchProject(path: string): Promise<string>;
   onCheckUpdate?(): Promise<string>;
   onDoctor?(): Promise<string>;
+  /** Начать новый сеанс: следующее сообщение откроет новую сессию. */
+  onNewSession?(): Promise<string>;
+  /** Список сеансов проекта человекочитаемым текстом. */
+  onListSessions?(): Promise<string>;
+  /** Возврат к сеансу по номеру из списка или id (+реплей истории в вид). */
+  onResumeSession?(ref: string): Promise<string>;
   /** План самообновления: проверка релиза + файл установщика. */
   onPlanUpdate?(): Promise<SelfUpdatePlan>;
   /** Скачивание установщика во временную папку. */
@@ -307,6 +313,61 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     if (name === "/clear") {
       clearAll();
+      try {
+        append((await props.onNewSession?.()) ?? "Экран очищен.", "info");
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
+        );
+      }
+      return;
+    }
+    if (name === "/new") {
+      clearAll();
+      try {
+        append((await props.onNewSession?.()) ?? "Начат новый сеанс.", "info");
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
+        );
+      }
+      return;
+    }
+    if (name === "/sessions") {
+      setBusy(true);
+      try {
+        append(
+          (await props.onListSessions?.()) ?? "Список сеансов недоступен.",
+          "info",
+        );
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (name === "/resume") {
+      setBusy(true);
+      try {
+        append(
+          (await props.onResumeSession?.(args)) ??
+            "Возврат к сеансу недоступен.",
+          "info",
+        );
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
+        );
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     if (name === "/exit") {
