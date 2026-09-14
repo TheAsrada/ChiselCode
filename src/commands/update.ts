@@ -6,7 +6,7 @@
  */
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 
 export const RELEASES_LATEST_URL =
   "https://api.github.com/repos/TheAsrada/ChiselCode/releases/latest";
@@ -127,9 +127,15 @@ export function releaseDownloadUrl(version: string, asset: string): string {
  * для установленного бинарника.
  */
 export function isInstalledBinary(execPath = process.execPath): boolean {
-  const name = basename(execPath)
-    .toLowerCase()
-    .replace(/\.exe$/, "");
+  // basename() из node:path на POSIX не режет обратные слэши, поэтому
+  // разбираем обе нотации вручную — иначе Windows-пути не распознаются
+  // на macOS/Linux (и в CI-тестах).
+  const name =
+    execPath
+      .split(/[\\/]/)
+      .at(-1)
+      ?.toLowerCase()
+      .replace(/\.exe$/, "") ?? "";
   return name === "chisel" || name.startsWith("chisel-");
 }
 
