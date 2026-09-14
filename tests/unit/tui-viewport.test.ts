@@ -22,7 +22,9 @@ describe("resolveTerminalSize", () => {
     ).toEqual({ columns: 120, rows: 40 });
   });
 
-  test("prefers console window over stdout when asked (win32)", () => {
+  test("keeps live TTY size over console fallback (no header offset)", () => {
+    // Переоценка размера уводила шапку за верхний край: Console больше
+    // не перекрывает живой размер TTY даже с preferConsole.
     expect(
       resolveTerminalSize(
         {
@@ -33,18 +35,29 @@ describe("resolveTerminalSize", () => {
         },
         { preferConsole: true },
       ),
-    ).toEqual({ columns: 236, rows: 62 });
+    ).toEqual({ columns: 80, rows: 24 });
   });
 
-  test("ignores console sources without preferConsole", () => {
+  test("uses console sources only when everything else is missing", () => {
     expect(
       resolveTerminalSize({
-        stdoutColumns: 80,
-        stdoutRows: 24,
         consoleColumns: 236,
         consoleRows: 62,
       }),
-    ).toEqual({ columns: 80, rows: 24 });
+    ).toEqual({ columns: 236, rows: 62 });
+  });
+
+  test("prefers env and ink over console fallback", () => {
+    expect(
+      resolveTerminalSize({
+        envColumns: "100",
+        envRows: "30",
+        inkColumns: 90,
+        inkRows: 25,
+        consoleColumns: 236,
+        consoleRows: 62,
+      }),
+    ).toEqual({ columns: 100, rows: 30 });
   });
 
   test("falls back to env and then ink", () => {

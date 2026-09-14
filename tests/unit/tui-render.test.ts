@@ -181,6 +181,25 @@ describe("tui fullscreen render", () => {
     }
   });
 
+  test("fullscreen frame keeps header on top and input pinned", async () => {
+    const app = await startApp(200, 60);
+    try {
+      const frame = app.frame(60);
+      expect(frame.length).toBe(60);
+      for (const line of frame) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(200);
+      }
+      // Шапка закреплена сверху даже в полном экране.
+      expect(frame[0]).toContain("ChiselCode");
+      expect(visualWidth(frame[1] ?? "")).toBe(200);
+      const bottom = frame.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
+      expect(bottom).toContain("PgUp/PgDn");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("frame adapts after window resize without overflow", async () => {
     const app = await startApp(100, 30);
     try {

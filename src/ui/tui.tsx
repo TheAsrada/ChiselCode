@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -102,7 +101,9 @@ export function normalizeViewport(viewport: {
  * буфера conhost, а не экрана (в Bun stdout.rows бывает и 3000). */
 const MAX_VISIBLE_COLUMNS = 1000;
 const MAX_VISIBLE_ROWS = 400;
-/** Как часто перепроверяем размер окна (событие resize в Bun/Windows ненадёжно). */
+/** Как часто перепроверяем размер окна (событие resize в Bun/Windows ненадёжно).
+ * Опрос дешёвый: только поля TTY и переменные окружения, без дочерних
+ * процессов — интерфейс никогда не блокируется на время опроса. */
 const VIEWPORT_POLL_MS = 2000;
 
 function saneDimension(
@@ -117,58 +118,14 @@ function saneDimension(
   return floored;
 }
 
-let consoleWindowCache: {
-  at: number;
-  size: { columns?: number; rows?: number };
-} = { at: 0, size: {} };
-
-/**
- * Видимый размер окна консоли Windows. В Bun под conhost/Windows Terminal
- * `stdout.columns/rows` пусты, `getWindowSize` отсутствует, а `mode con`
- * отдаёт высоту буфера (3000), а не экрана — спрашиваем сам Console.
- */
-function readWindowsConsoleSize(): { columns?: number; rows?: number } {
-  if (process.platform !== "win32") return {};
-  if (Date.now() - consoleWindowCache.at < VIEWPORT_POLL_MS)
-    return consoleWindowCache.size;
-  try {
-    const out = execFileSync(
-      "powershell",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "[Console]::WindowWidth; [Console]::WindowHeight",
-      ],
-      { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] },
-    );
-    const nums = String(out ?? "")
-      .split(/[^0-9]+/)
-      .filter(Boolean)
-      .map(Number);
-    const size = {
-      columns: saneDimension(nums[0], TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS),
-      rows: saneDimension(nums[1], TUI_MIN_ROWS, MAX_VISIBLE_ROWS),
-    };
-    if (size.columns !== undefined || size.rows !== undefined) {
-      consoleWindowCache = { at: Date.now(), size };
-      return size;
-    }
-  } catch {
-    // PowerShell недоступен или нет консоли (pipe/CI): фиксируем время
-    // попытки, чтобы не спавнить процесс на каждый опрос, старый размер живёт.
-    consoleWindowCache = { at: Date.now(), size: consoleWindowCache.size };
-  }
-  return consoleWindowCache.size;
-}
-
 /** Все источники размера терминала в одном месте — чистые данные для тестов. */
 export interface TerminalSizeSources {
   stdoutColumns?: unknown;
   stdoutRows?: unknown;
   windowColumns?: unknown;
   windowRows?: unknown;
-  /** Видимое окно консоли Windows ([Console]::WindowWidth/Height). */
+  /** Запасной источник (legacy): видимое окно консоли Windows.
+   * Больше не опрашивается в пути рендера — только для совместимости. */
   consoleColumns?: unknown;
   consoleRows?: unknown;
   envColumns?: unknown;
@@ -179,68 +136,53 @@ export interface TerminalSizeSources {
 
 /**
  * Сводит источники размера в один. Правила:
- * - stdout → getWindowSize → env → Ink (по приоритету заполнения);
+ * - stdout → getWindowSize → env → Ink → Console (по приоритету заполнения);
  * - значения вне пределов видимого окна отбрасываются (высота буфера
  *   conhost 3000 — не экран);
- * - при preferConsole источник Console перекрывает остальные
- *   (на win32 он точнее stdout: видимое окно, а не буфер).
+ * - источник Console — только запасной вариант на случай, если все
+ *   остальные пусты: он никогда не перекрывает живой размер TTY/Ink.
+ *   Переоценка размера страшнее недооценки: кадр выше окна уводит
+ *   закреплённую шапку за верхний край, а опрос с дочерними процессами
+ *   блокирует интерфейс — поэтому никаких спаунов в пути рендера.
  */
 export function resolveTerminalSize(
   sources: TerminalSizeSources,
-  options?: { preferConsole?: boolean },
+  _options?: { preferConsole?: boolean },
 ): { columns?: number; rows?: number } {
-  let columns =
+  const columns =
     saneDimension(
       sources.stdoutColumns,
       TUI_MIN_COLUMNS,
       MAX_VISIBLE_COLUMNS,
     ) ??
-    saneDimension(sources.windowColumns, TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS);
-  let rows =
-    saneDimension(sources.stdoutRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
-    saneDimension(sources.windowRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
-  if (options?.preferConsole === true) {
-    const consoleColumns = saneDimension(
-      sources.consoleColumns,
+    saneDimension(
+      sources.windowColumns,
       TUI_MIN_COLUMNS,
       MAX_VISIBLE_COLUMNS,
-    );
-    const consoleRows = saneDimension(
-      sources.consoleRows,
-      TUI_MIN_ROWS,
-      MAX_VISIBLE_ROWS,
-    );
-    if (consoleColumns !== undefined) columns = consoleColumns;
-    if (consoleRows !== undefined) rows = consoleRows;
-  }
-  columns ??= saneDimension(
-    sources.envColumns,
-    TUI_MIN_COLUMNS,
-    MAX_VISIBLE_COLUMNS,
-  );
-  rows ??= saneDimension(sources.envRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
-  columns ??= saneDimension(
-    sources.inkColumns,
-    TUI_MIN_COLUMNS,
-    MAX_VISIBLE_COLUMNS,
-  );
-  rows ??= saneDimension(sources.inkRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
+    ) ??
+    saneDimension(sources.envColumns, TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS) ??
+    saneDimension(sources.inkColumns, TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS) ??
+    saneDimension(sources.consoleColumns, TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS);
+  const rows =
+    saneDimension(sources.stdoutRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
+    saneDimension(sources.windowRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
+    saneDimension(sources.envRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
+    saneDimension(sources.inkRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
+    saneDimension(sources.consoleRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
   return { columns, rows };
 }
 
 /**
- * Реальный размер терминала: прямой опрос TTY, на Windows — видимое окно
- * консоли (иначе кадр 80x24 рисуется сверху и остаток экрана чёрный,
- * а ввод висит в середине вместо низа).
- *
- * С allowSpawn=false — только дешёвые источники без дочерних процессов,
- * для первого кадра без блокировки; полный опрос — в эффекте после маунта.
+ * Реальный размер терминала: прямой опрос TTY (stdout + getWindowSize)
+ * плюс переменные окружения. Только дешёвые синхронные чтения —
+ * никаких дочерних процессов: кадр собирается мгновенно, а полноэкранный
+ * режим и максимизация подхватываются через событие resize и опрос.
+ * Источник Ink подмешивается вызывающим кодом как запасной вариант.
  */
-function readLiveTerminalSize(options?: { allowSpawn?: boolean }): {
+function readLiveTerminalSize(): {
   columns?: number;
   rows?: number;
 } {
-  const allowSpawn = options?.allowSpawn !== false;
   let windowColumns: unknown;
   let windowRows: unknown;
   let stdoutColumns: unknown;
@@ -259,40 +201,26 @@ function readLiveTerminalSize(options?: { allowSpawn?: boolean }): {
   } catch {
     // Нет TTY — дальше другие источники и fallback 80x24.
   }
-  let consoleColumns: unknown;
-  let consoleRows: unknown;
-  if (process.platform === "win32" && allowSpawn) {
-    // Источник Console точнее stdout: видимое окно, а не буфер.
-    const win = readWindowsConsoleSize();
-    consoleColumns = win.columns;
-    consoleRows = win.rows;
-  }
-  return resolveTerminalSize(
-    {
-      stdoutColumns,
-      stdoutRows,
-      windowColumns,
-      windowRows,
-      consoleColumns,
-      consoleRows,
-      envColumns: process.env.COLUMNS,
-      envRows: process.env.LINES,
-    },
-    { preferConsole: process.platform === "win32" },
-  );
+  return resolveTerminalSize({
+    stdoutColumns,
+    stdoutRows,
+    windowColumns,
+    windowRows,
+    envColumns: process.env.COLUMNS,
+    envRows: process.env.LINES,
+  });
 }
 
 /**
- * Живой вьюпорт: Ink-сигнал + прямой опрос TTY/Console + событие resize
- * + опрос раз в VIEWPORT_POLL_MS (в Bun событие resize может не приходить,
- * тогда максимизация окна подхватывается опросом).
+ * Живой вьюпорт: Ink-сигнал + прямой опрос TTY + событие resize
+ * + дешёвый опрос раз в VIEWPORT_POLL_MS (в Bun событие resize может
+ * не приходить, тогда максимизация окна подхватывается опросом).
+ * Живой опрос TTY — первичен (Ink на conhost бывает застревает на 80x24),
+ * размер Ink — запасной вариант, когда TTY недоступен (pipe/CI).
  */
 function useLiveViewport(): TuiViewport {
   const inkSize = useWindowSize();
-  // Первый кадр — без дочерних процессов, полный опрос сразу после маунта.
-  const [live, setLive] = useState(() =>
-    readLiveTerminalSize({ allowSpawn: false }),
-  );
+  const [live, setLive] = useState(() => readLiveTerminalSize());
   useEffect(() => {
     let disposed = false;
     const update = (): void => {
@@ -1027,6 +955,15 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             columns={viewport.columns}
           />
         ))}
+        {visible.lines.length === 0 &&
+        visible.hiddenAboveCount === 0 &&
+        visible.hiddenBelowCount === 0 ? (
+          <Box width="100%" flexShrink={0}>
+            <Text dimColor wrap="wrap">
+              Введите задачу и нажмите Enter — или /help для списка команд.
+            </Text>
+          </Box>
+        ) : null}
         {visible.hiddenBelowCount > 0 ? (
           <Box width="100%" flexShrink={0}>
             <Text dimColor wrap="truncate">
@@ -1042,6 +979,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   );
 }
 
+/**
+ * Закреплённая шапка: ровно две строки (заголовок + разделитель) при любой
+ * ширине окна. Первая строка — единый инлайн-Text с truncate-end, поэтому
+ * длинный сервис/модель обрезаются в одну строку и никогда не раздувают
+ * шапку до трёх строк и не сдвигают смету истории (TUI_HEADER_ROWS).
+ */
 function Header({
   providerLabel,
   model,
@@ -1055,24 +998,24 @@ function Header({
 }): React.JSX.Element {
   const safeColumns = normalizeViewport({ columns }).columns;
   return (
-    <Box flexDirection="column" flexShrink={0} width="100%">
-      <Box width="100%">
-        <Text bold color="cyan">
-          ◈ ChiselCode
-        </Text>
-        {version ? <Text dimColor> v{version}</Text> : null}
-        <Text dimColor> · </Text>
-        <Text color="magenta" wrap="truncate-end">
-          {providerLabel}
-        </Text>
-        <Text dimColor> · </Text>
-        <Text color="yellow" wrap="truncate-end">
-          {model}
+    <Box flexDirection="column" flexShrink={0} width="100%" height={2}>
+      <Box width="100%" height={1} overflow="hidden">
+        <Text wrap="truncate-end">
+          <Text bold color="cyan">
+            ◈ ChiselCode
+          </Text>
+          {version ? <Text dimColor> v{version}</Text> : null}
+          <Text dimColor> · </Text>
+          <Text color="magenta">{providerLabel}</Text>
+          <Text dimColor> · </Text>
+          <Text color="yellow">{model}</Text>
         </Text>
       </Box>
-      <Text dimColor wrap="truncate">
-        {fullWidthSeparator(safeColumns)}
-      </Text>
+      <Box width="100%" height={1} overflow="hidden">
+        <Text dimColor wrap="truncate">
+          {fullWidthSeparator(safeColumns)}
+        </Text>
+      </Box>
     </Box>
   );
 }
