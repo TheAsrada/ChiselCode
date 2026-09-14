@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.30] - 2026-09-14
+
+### Fixed
+
+- Убран ре-entrant рендер, который сам устраивал вечный рассинхрон: `syncTerminalSizeToStdout()` больше не эмитит `resize` в пути React-рендера (TuiApp вызывает его с `emitResize=false`) — подписчик Ink срабатывал синхронно посреди рендера и портил счётчик строк `log-update` на каждом ресайзе. Эмит остался только вне рендера (опрос `useLiveViewport`, синхрон до `render()`), где он безопасен и даёт штатный clear при сужении.
+- Мастер `chisel setup` тоже прогревает размер до `render()` — на полном экране больше не стартует узким с кэшированных 80x24.
+
 ## [0.2.29] - 2026-09-14
 
 ### Fixed

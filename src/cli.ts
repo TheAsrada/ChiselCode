@@ -784,6 +784,9 @@ async function startSetup(initialProvider?: ProviderKind): Promise<boolean> {
       "Первичная настройка требует интерактивного терминала. Запустите chisel setup в PowerShell.",
     );
   let completed = false;
+  // Тот же прогрев размера, что и для TUI: иначе мастер на полном экране
+  // стартует с кэшированных 80x24.
+  syncTerminalSizeToStdout();
   try {
     const instance = render(
       React.createElement(SetupApp, {

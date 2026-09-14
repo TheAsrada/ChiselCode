@@ -286,10 +286,17 @@ export function readLiveTerminalSize(): {
  * событие сам: иначе переходный широкий кадр оставляет вечные артефакты,
  * которые уходили только после ввода текста (следующего ре-рендера).
  *
+ * ВАЖНО: эмит запрещён в пути React-рендера (TuiApp вызывает с
+ * emitResize=false). Подписчик Ink (`resized()`) срабатывает синхронно:
+ * эмит посреди рендера даёт ре-entrant рендер Ink внутри рендера React —
+ * состояние log-update (счётчик строк) портится и интерфейс уходит
+ * в вечный рассинхрон на каждом ресайзе. Эмитить можно только вне рендера:
+ * опрос useLiveViewport, синхрон до render() в cli.ts.
+ *
  * Чистый эффект: только присвоение полей TTY, без дочерних процессов.
  * Возвращает живой размер для клампа текущего кадра.
  */
-export function syncTerminalSizeToStdout(): {
+export function syncTerminalSizeToStdout(emitResize = true): {
   columns?: number;
   rows?: number;
 } {
@@ -317,7 +324,7 @@ export function syncTerminalSizeToStdout(): {
       stdout.rows = live.rows;
       changed = true;
     }
-    if (changed && typeof stdout.emit === "function") {
+    if (changed && emitResize && typeof stdout.emit === "function") {
       try {
         stdout.emit("resize");
       } catch {
@@ -468,11 +475,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
    * Заодно проталкиваем размер в `process.stdout`, чтобы Yoga-корень Ink
    * (он читает только `stdout.columns/rows`) уже этот кадр считал layout
    * на правильной ширине — иначе полноэкранный кадр остаётся узким 80.
+   * Без эмита resize: эмит посреди рендера даёт ре-entrant рендер Ink
+   * (см. syncTerminalSizeToStdout) — resize рассылает только опрос
+   * вне рендера. Присвоение полей подписчиков не триггерит и безопасно.
    * Кламп гарантирует: кадр никогда не шире/выше физического окна,
    * иначе терминал переносит длинные строки сам и счётчик строк Ink
    * рассинхронизируется навсегда (искажение всего интерфейса).
    */
-  const liveTerminal = syncTerminalSizeToStdout();
+  const liveTerminal = syncTerminalSizeToStdout(false);
   const { columns, rows } = clampViewportToTerminal(viewport, liveTerminal);
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();

@@ -196,6 +196,16 @@ describe("syncTerminalSizeToStdout", () => {
       const again = syncTerminalSizeToStdout();
       expect(again).toEqual({ columns: 197, rows: 53 });
       expect(resized).toBe(1);
+      // Путь рендера (TuiApp): поля обновляются, но resize не эмитится —
+      // эмит посреди React-рендера даёт ре-entrant рендер Ink и вечный
+      // рассинхрон счётчика строк на каждом ресайзе.
+      (stdout as Record<string, unknown>).columns = 80;
+      (stdout as Record<string, unknown>).rows = 24;
+      const fromRender = syncTerminalSizeToStdout(false);
+      expect(fromRender).toEqual({ columns: 197, rows: 53 });
+      expect(stdout.columns).toBe(197);
+      expect(stdout.rows).toBe(53);
+      expect(resized).toBe(1);
     } finally {
       stdout.off?.("resize", onResize);
       if (originalGetWindowSize === undefined)
