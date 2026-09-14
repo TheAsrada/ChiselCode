@@ -42,6 +42,7 @@ import {
 } from "./ui/theme.js";
 import {
   createTuiApprovalResolver,
+  syncTerminalSizeToStdout,
   TuiApp,
   type TuiTranscript,
 } from "./ui/tui.js";
@@ -371,6 +372,11 @@ async function startTui(options: RunOptions): Promise<void> {
   let active = false;
   let cachedSessionList: Session[] = [];
   let instance: ReturnType<typeof render> | undefined;
+  // Первый кадр должен сразу знать полноэкранный размер: проталкиваем живой
+  // сисколл getWindowSize() в stdout.columns/rows до создания Yoga-корня Ink.
+  // Иначе Ink стартует с кэшированных 80x24 — шапка узкая, ввод посреди
+  // экрана, а выравнивание приходит только после ввода текста.
+  syncTerminalSizeToStdout();
   try {
     instance = render(
       React.createElement(TuiApp, {

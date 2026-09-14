@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput, useStdout, useWindowSize } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
@@ -66,10 +66,14 @@ export interface TuiTranscript {
  * - поле ввода / подтверждение закреплены снизу на всю ширину и растут вверх.
  * Все оценки высоты считаются от актуального числа колонок, поэтому при
  * разворачивании окна ввод не «съезжает», а текст просто переоборачивается.
- * Кадр клампится к живому размеру окна (clampViewportToTerminal) и тянется
- * по ширине через width="100%": даже в переходный кадр ресайза вывод не
- * шире физического окна, иначе терминал переносит строки сам и счётчик
- * строк Ink рассинхронизируется — весь интерфейс «искажает» навсегда.
+ * Кадр клампится к живому размеру окна (clampViewportToTerminal) и рисуется
+ * явным width={columns}: даже в переходный кадр ресайза вывод не шире
+ * физического окна, иначе терминал переносит строки сам и счётчик строк
+ * Ink рассинхронизируется — весь интерфейс «искажает» навсегда.
+ * Живой размер проталкивается в process.stdout (syncTerminalSizeToStdout),
+ * потому что Yoga-корень Ink читает только stdout.columns/rows и на
+ * Windows застревает на 80x24 без этого синхрона (узкий кадр посреди
+ * полного экрана).
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
@@ -144,7 +148,7 @@ export interface TerminalSizeSources {
 
 /**
  * Сводит источники размера в один. Правила:
- * - stdout → getWindowSize → env → Ink → Console (по приоритету заполнения);
+ * - getWindowSize → stdout → env → Ink → Console (по приоритету заполнения);
  * - значения вне пределов видимого окна отбрасываются (высота буфера
  *   conhost 3000 — не экран);
  * - источник Console — только запасной вариант на случай, если все
@@ -152,6 +156,12 @@ export interface TerminalSizeSources {
  *   Переоценка размера страшнее недооценки: кадр выше окна уводит
  *   закреплённую шапку за верхний край, а опрос с дочерними процессами
  *   блокирует интерфейс — поэтому никаких спаунов в пути рендера.
+ *
+ * Почему getWindowSize первым: `stdout.columns/rows` — кэшированное поле,
+ * которое на Windows/conhost застревает на 80x24 (событие resize в Bun
+ * ненадёжно), а Ink читает именно его и рисует узкий кадр посреди полного
+ * экрана. Сисколл `getWindowSize()` опрашивает консоль вживую и отдаёт
+ * реальный полноэкранный размер — поэтому он первичен.
  */
 export function resolveTerminalSize(
   sources: TerminalSizeSources,
@@ -159,12 +169,12 @@ export function resolveTerminalSize(
 ): { columns?: number; rows?: number } {
   const columns =
     saneDimension(
-      sources.stdoutColumns,
+      sources.windowColumns,
       TUI_MIN_COLUMNS,
       MAX_VISIBLE_COLUMNS,
     ) ??
     saneDimension(
-      sources.windowColumns,
+      sources.stdoutColumns,
       TUI_MIN_COLUMNS,
       MAX_VISIBLE_COLUMNS,
     ) ??
@@ -172,8 +182,8 @@ export function resolveTerminalSize(
     saneDimension(sources.inkColumns, TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS) ??
     saneDimension(sources.consoleColumns, TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS);
   const rows =
-    saneDimension(sources.stdoutRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
     saneDimension(sources.windowRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
+    saneDimension(sources.stdoutRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
     saneDimension(sources.envRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
     saneDimension(sources.inkRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS) ??
     saneDimension(sources.consoleRows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
@@ -221,13 +231,15 @@ export function clampViewportToTerminal(
 }
 
 /**
- * Реальный размер терминала: прямой опрос TTY (stdout + getWindowSize)
+ * Реальный размер терминала: прямой опрос TTY (getWindowSize + stdout)
  * плюс переменные окружения. Только дешёвые синхронные чтения —
  * никаких дочерних процессов: кадр собирается мгновенно, а полноэкранный
  * режим и максимизация подхватываются через событие resize и опрос.
  * Источник Ink подмешивается вызывающим кодом как запасной вариант.
+ * Порядок важен: живой сисколл getWindowSize() первее кэшированных
+ * `stdout.columns/rows` (см. resolveTerminalSize).
  */
-function readLiveTerminalSize(): {
+export function readLiveTerminalSize(): {
   columns?: number;
   rows?: number;
 } {
@@ -260,6 +272,65 @@ function readLiveTerminalSize(): {
 }
 
 /**
+ * Проталкивает живой размер обратно в `process.stdout.columns/rows`.
+ *
+ * Зачем: Ink вычисляет ширину Yoga-корня только из `stdout.columns/rows`
+ * (см. `getWindowSize()` в `node_modules/ink/build/utils.js` — сисколл
+ * `getWindowSize()` он не вызывает). На Windows/conhost эти поля застревают
+ * на 80x24, и корневой узел остаётся узким: `width="100%"` рисует узкий
+ * кадр посреди полного экрана (пустота справа, как на баг-репорте), а
+ * `clampViewportToTerminal` по stale-значению не даёт вырасти.
+ *
+ * После записи эмитим `resize`, чтобы Ink выполнил свой штатный путь
+ * сужения (clear экрана + пересчёт layout) даже когда Bun не прислал
+ * событие сам: иначе переходный широкий кадр оставляет вечные артефакты,
+ * которые уходили только после ввода текста (следующего ре-рендера).
+ *
+ * Чистый эффект: только присвоение полей TTY, без дочерних процессов.
+ * Возвращает живой размер для клампа текущего кадра.
+ */
+export function syncTerminalSizeToStdout(): {
+  columns?: number;
+  rows?: number;
+} {
+  const live = readLiveTerminalSize();
+  try {
+    const stdout = process.stdout as unknown as {
+      columns?: unknown;
+      rows?: unknown;
+      emit?: (event: string) => boolean;
+    };
+    let changed = false;
+    if (
+      live.columns !== undefined &&
+      stdout.columns !== live.columns &&
+      Number.isFinite(live.columns)
+    ) {
+      stdout.columns = live.columns;
+      changed = true;
+    }
+    if (
+      live.rows !== undefined &&
+      stdout.rows !== live.rows &&
+      Number.isFinite(live.rows)
+    ) {
+      stdout.rows = live.rows;
+      changed = true;
+    }
+    if (changed && typeof stdout.emit === "function") {
+      try {
+        stdout.emit("resize");
+      } catch {
+        // Эмит — best effort: Ink и наш опрос подхватят размер и без него.
+      }
+    }
+  } catch {
+    // Pipe/CI без TTY: нечего синхронизировать, размер возьмётся из Ink.
+  }
+  return live;
+}
+
+/**
  * Живой вьюпорт: Ink-сигнал + прямой опрос TTY + событие resize
  * + дешёвый опрос раз в VIEWPORT_POLL_MS (в Bun событие resize может
  * не приходить, тогда максимизация окна подхватывается опросом).
@@ -273,7 +344,9 @@ function useLiveViewport(): TuiViewport {
     let disposed = false;
     const update = (): void => {
       if (disposed) return;
-      const next = readLiveTerminalSize();
+      // Синхрон вперёд: Yoga-корень Ink сразу видит живой размер,
+      // следующий кадр Ink уже правильной ширины.
+      const next = syncTerminalSizeToStdout();
       setLive((prev) => {
         if (prev.columns === next.columns && prev.rows === next.rows)
           return prev;
@@ -386,19 +459,20 @@ export interface TuiAppProps {
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   const viewport = useLiveViewport();
-  const { stdout } = useStdout();
   /**
-   * Живой размер из того же stdout, что видит Ink. Свойство `columns/rows`
-   * обновляется рантаймом синхронно при ресайзе — раньше, чем состояние
-   * `viewport`/`useWindowSize` (оно приходит следующим рендером).
+   * Живой размер — синхронный опрос консоли прямо во время рендера
+   * (дешёвый, без спаунов). Это раньше, чем состояние
+   * `viewport`/`useWindowSize` (оно приходит следующим рендером через
+   * интервал или событие resize): ввод символа сразу пересчитывает кадр
+   * на актуальную ширину, а не ждёт 500 мс опроса.
+   * Заодно проталкиваем размер в `process.stdout`, чтобы Yoga-корень Ink
+   * (он читает только `stdout.columns/rows`) уже этот кадр считал layout
+   * на правильной ширине — иначе полноэкранный кадр остаётся узким 80.
    * Кламп гарантирует: кадр никогда не шире/выше физического окна,
    * иначе терминал переносит длинные строки сам и счётчик строк Ink
    * рассинхронизируется навсегда (искажение всего интерфейса).
    */
-  const liveTerminal = stdout as unknown as {
-    columns?: unknown;
-    rows?: unknown;
-  };
+  const liveTerminal = syncTerminalSizeToStdout();
   const { columns, rows } = clampViewportToTerminal(viewport, liveTerminal);
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
@@ -875,7 +949,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   if (restartingSetup)
     return (
-      <Box flexDirection="column" height={rows} width="100%" overflow="hidden">
+      <Box
+        flexDirection="column"
+        height={rows}
+        width={columns}
+        overflow="hidden"
+      >
         <Header
           providerLabel={runtime.providerLabel}
           model={runtime.model}
@@ -899,7 +978,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     );
   if (settings)
     return (
-      <Box flexDirection="column" height={rows} width="100%" overflow="hidden">
+      <Box
+        flexDirection="column"
+        height={rows}
+        width={columns}
+        overflow="hidden"
+      >
         <Header
           providerLabel={runtime.providerLabel}
           model={runtime.model}
@@ -974,7 +1058,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   );
 
   return (
-    <Box flexDirection="column" height={rows} width="100%" overflow="hidden">
+    <Box flexDirection="column" height={rows} width={columns} overflow="hidden">
       <Header
         providerLabel={runtime.providerLabel}
         model={runtime.model}
