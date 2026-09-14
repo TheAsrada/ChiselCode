@@ -151,6 +151,8 @@ export interface TuiAppProps {
   onSaveSettings(
     values: TuiSettingsValues,
   ): Promise<"saved" | "setup_required">;
+  /** Проверка подключения к отредактированным настройкам из /settings. */
+  onCheckConnection(values: TuiSettingsValues): Promise<string>;
   /**
    * Сохранение заново пройденного мастера настройки.
    * Выполняется внутри того же Ink-приложения: TUI не размонтируется,
@@ -567,6 +569,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             initialScreen={settings}
             onSave={props.onSaveSettings}
             onClose={() => setSettings(undefined)}
+            onCheckConnection={props.onCheckConnection}
             onSetupRequested={requestSetupRestart}
             onSaved={(values) =>
               setRuntime({

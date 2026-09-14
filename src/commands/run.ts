@@ -1,4 +1,6 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { execa } from "execa";
+import OpenAI from "openai";
 import {
   loadGlobalConfig,
   loadProjectConfig,
@@ -56,6 +58,125 @@ export async function hasApiKey(
   keyRef?: string,
 ): Promise<boolean> {
   return Boolean(await resolveApiKey(provider, keyRef, new CredentialStore()));
+}
+
+export interface ConnectionCheckInput {
+  provider: ProviderKind;
+  baseUrl?: string;
+  model?: string;
+}
+
+export interface ConnectionCheckResult {
+  ok: boolean;
+  message: string;
+}
+
+const CONNECTION_CHECK_TIMEOUT_MS = 25_000;
+
+/**
+ * Проверка подключения к провайдеру: ключ + адрес + список моделей.
+ * Используется кнопкой «Проверить подключение» в /settings, чтобы вместо
+ * «не работает» показать точную причину: 401 — ключ, 404 — адрес
+ * (для OpenAI нужен /v1 в конце), model_not_found — название модели.
+ */
+export async function checkProviderConnection(
+  input: ConnectionCheckInput,
+  options?: { configPath?: string },
+): Promise<ConnectionCheckResult> {
+  const global = await loadGlobalConfig(options?.configPath);
+  const providerConfig = global.providers[input.provider];
+  const apiKey = await resolveApiKey(
+    input.provider,
+    providerConfig?.apiKeyRef,
+    new CredentialStore(),
+  );
+  if (!apiKey)
+    return {
+      ok: false,
+      message: `Нет API-ключа для ${providerLabel(input.provider)}: пройдите настройку заново и вставьте ключ.`,
+    };
+  const baseUrl = input.baseUrl ?? providerConfig?.baseUrl;
+  let adapter: ProviderAdapter;
+  try {
+    adapter = createProvider(input.provider, apiKey, baseUrl);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+  let models: { id: string }[];
+  try {
+    models = await withTimeout(
+      adapter.listModels(),
+      CONNECTION_CHECK_TIMEOUT_MS,
+      `Превышено время ожидания (${CONNECTION_CHECK_TIMEOUT_MS / 1000}с): проверьте адрес API и доступность сервера.`,
+    );
+  } catch (error) {
+    return { ok: false, message: formatConnectionError(error, baseUrl) };
+  }
+  const shown = models.slice(0, 3).map((model) => model.id);
+  let message =
+    `Подключение OK${baseUrl ? `: ${baseUrl}` : ""} — моделей доступно: ${models.length}` +
+    (shown.length ? ` (первые: ${shown.join(", ")})` : "");
+  const wanted = input.model?.trim();
+  if (
+    wanted &&
+    models.length > 0 &&
+    !models.some(
+      (model) =>
+        model.id === wanted ||
+        model.id.toLowerCase().includes(wanted.toLowerCase()),
+    )
+  )
+    message += ` — модели «${wanted}» нет в списке шлюза, сверьте название в консоли провайдера.`;
+  return { ok: true, message };
+}
+
+async function withTimeout<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function connectionErrorStatus(error: unknown): number | undefined {
+  if (error instanceof OpenAI.APIError) return error.status;
+  if (error instanceof Anthropic.APIError) return error.status;
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : undefined;
+}
+
+function formatConnectionError(error: unknown, baseUrl?: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = connectionErrorStatus(error);
+  if (
+    status === 401 ||
+    /unauthenticated|unauthorized|incorrect api key|invalid api key|authentication/i.test(
+      message,
+    )
+  )
+    return `Сервер отклонил API-ключ (401): вставьте действующий ключ через «Пройти настройку заново». ${message}`;
+  if (status === 404)
+    return (
+      `Сервер не нашёл адрес API (404${baseUrl ? `: ${baseUrl}` : ""}): ` +
+      "для OpenAI-совместимого адрес должен заканчиваться /v1 " +
+      "(например https://agentrouter.org/v1), для Anthropic-совместимого — быть корнем без /v1."
+    );
+  if (/model_not_found|no available channel|does not exist/i.test(message))
+    return `Сервер не знает такую модель: ${message}`;
+  return message;
 }
 
 export async function runPrompt(

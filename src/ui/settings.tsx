@@ -18,9 +18,21 @@ export interface SettingsPanelProps {
   onClose(): void;
   onSetupRequested(): void;
   onSaved(values: TuiSettingsValues): void;
+  /**
+   * Проверка подключения к отредактированным значениям (сервис, модель,
+   * адрес). Ключ берётся из сохранённой настройки. Возвращает человекочитаемый
+   * итог: успех — показать зелёным, текст с «✗» в начале — красным как ошибку.
+   */
+  onCheckConnection(values: TuiSettingsValues): Promise<string>;
 }
 
-type Screen = "menu" | "provider" | "model" | "base-url" | "saving";
+type Screen =
+  | "menu"
+  | "provider"
+  | "model"
+  | "base-url"
+  | "saving"
+  | "checking";
 const PROVIDERS: { value: ProviderKind; label: string }[] = [
   { value: "anthropic", label: "Anthropic (Claude)" },
   { value: "anthropic-compatible", label: "Anthropic-совместимый API" },
@@ -35,6 +47,7 @@ export function SettingsPanel({
   onClose,
   onSetupRequested,
   onSaved,
+  onCheckConnection,
 }: SettingsPanelProps): React.JSX.Element {
   const [values, setValues] = useState(initialValues);
   const [screen, setScreen] = useState<Screen>(initialScreen);
@@ -46,6 +59,7 @@ export function SettingsPanel({
     ),
   );
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const items = menuItems(values.provider);
   // Пункты зависят от провайдера (base-url только для совместимых):
   // после смены сервиса прежний индекс может оказаться за границей,
@@ -55,7 +69,7 @@ export function SettingsPanel({
     setSelected((value) => (value + direction + items.length) % items.length);
 
   useInput((character, key) => {
-    if (screen === "saving") return;
+    if (screen === "saving" || screen === "checking") return;
     if (key.escape) {
       if (screen === "menu") onClose();
       else {
@@ -79,6 +93,7 @@ export function SettingsPanel({
       else if (item === "model") setScreen("model");
       else if (item === "base-url") setScreen("base-url");
       else if (item === "setup") onSetupRequested();
+      else if (item === "check") void checkConnection();
       else if (item === "close") onClose();
       else void save();
       return;
@@ -135,6 +150,7 @@ export function SettingsPanel({
       return;
     }
     setError("");
+    setNotice("");
     setScreen("saving");
     try {
       if (
@@ -159,6 +175,29 @@ export function SettingsPanel({
         cause instanceof Error
           ? cause.message
           : "Не удалось сохранить настройки.",
+      );
+    }
+  }
+
+  async function checkConnection(): Promise<void> {
+    setError("");
+    setNotice("");
+    setScreen("checking");
+    try {
+      const verdict = await onCheckConnection({
+        ...values,
+        model: values.model.trim(),
+        baseUrl: values.baseUrl?.trim() || undefined,
+      });
+      setScreen("menu");
+      if (verdict.startsWith("✗")) setError(verdict.slice(1).trim());
+      else setNotice(verdict.replace(/^✓\s*/, ""));
+    } catch (cause) {
+      setScreen("menu");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Не удалось проверить подключение.",
       );
     }
   }
@@ -191,14 +230,20 @@ export function SettingsPanel({
       {screen === "saving" ? (
         <Text color="yellow">Сохраняю настройки…</Text>
       ) : null}
+      {screen === "checking" ? (
+        <Text color="yellow">Проверяю подключение…</Text>
+      ) : null}
       <Text dimColor>
         {screen === "menu"
           ? "↑/↓ — выбор · Enter — открыть · Esc — закрыть"
           : screen === "saving"
             ? "Сохраняю…"
-            : "↑/↓ — выбор · Enter — готово · Esc — назад"}
+            : screen === "checking"
+              ? "Проверяю…"
+              : "↑/↓ — выбор · Enter — готово · Esc — назад"}
       </Text>
       {error ? <Text color="red">✗ {error}</Text> : null}
+      {notice ? <Text color="green">✓ {notice}</Text> : null}
     </Box>
   );
 }
@@ -209,6 +254,7 @@ function menuItems(provider: ProviderKind): string[] {
     "model",
     ...(isCompatibleProvider(provider) ? ["base-url"] : []),
     "save",
+    "check",
     "setup",
     "close",
   ];
@@ -234,6 +280,7 @@ function Menu({
     model: `✎ Модель: ${values.model || "не выбрана"}`,
     "base-url": `⌁ Адрес API: ${values.baseUrl || "не настроен"}`,
     save: "✓ Сохранить изменения",
+    check: "⇄ Проверить подключение",
     setup: "↺ Пройти настройку заново",
     close: "Закрыть настройки",
   };

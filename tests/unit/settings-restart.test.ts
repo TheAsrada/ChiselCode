@@ -93,6 +93,7 @@ describe("settings restart setup", () => {
         onStatus: async () => "status",
         onSwitchProject: async (path: string) => path,
         onSaveSettings: async () => "saved" as const,
+        onCheckConnection: async () => "ok",
         onCompleteSetup: async (values: SetupValues) => {
           completed.push(values);
         },
@@ -121,7 +122,8 @@ describe("settings restart setup", () => {
       expect(stripAnsi(output)).toContain("Настройки");
 
       // provider(0), model(1), save(2), setup(3): три шага вниз + Enter.
-      for (let i = 0; i < 3; i += 1) {
+      // provider(0), model(1), save(2), check(3), setup(4): четыре шага вниз + Enter.
+      for (let i = 0; i < 4; i += 1) {
         stdin.write("\x1b[B");
         await tick(100);
       }
@@ -169,6 +171,7 @@ describe("settings restart setup", () => {
         onStatus: async () => "status",
         onSwitchProject: async (path: string) => path,
         onSaveSettings: async () => "saved" as const,
+        onCheckConnection: async () => "ok",
         onCompleteSetup: async (values: SetupValues) => {
           completed.push(values);
         },
@@ -192,7 +195,8 @@ describe("settings restart setup", () => {
       }
       stdin.write("\r");
       await tick(200);
-      for (let i = 0; i < 3; i += 1) {
+      // provider(0), model(1), save(2), check(3), setup(4): четыре шага вниз + Enter.
+      for (let i = 0; i < 4; i += 1) {
         stdin.write("\x1b[B");
         await tick(100);
       }

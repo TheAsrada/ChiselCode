@@ -6,6 +6,7 @@ import { Command } from "commander";
 import { render } from "ink";
 import React from "react";
 import {
+  checkProviderConnection,
   hasApiKey,
   nonInteractiveResolver,
   type RunOptions,
@@ -400,6 +401,17 @@ async function startTui(options: RunOptions): Promise<void> {
             model: values.model,
             baseUrl: values.baseUrl,
           };
+        },
+        onCheckConnection: async (values: TuiSettingsValues) => {
+          const result = await checkProviderConnection({
+            provider: values.provider,
+            baseUrl: normalizeBaseUrlForProvider(
+              values.provider,
+              values.baseUrl,
+            ),
+            model: values.model,
+          });
+          return result.ok ? `✓ ${result.message}` : `✗ ${result.message}`;
         },
         onSubmit: async (prompt: string) => {
           if (active || !transcript) return;

@@ -49,8 +49,15 @@ export class AnthropicAdapter implements ProviderAdapter {
           system: request.system,
           messages: toAnthropicMessages(request.messages),
           tools: toAnthropicTools(request.tools),
-          thinking: { type: "adaptive" },
-          output_config: { effort: "high" },
+          // Новые параметры (adaptive thinking, effort) шлём только
+          // официальному API: совместимые шлюзы их часто не знают и
+          // отвечают 400 на весь запрос.
+          ...(this.kind === "anthropic"
+            ? {
+                thinking: { type: "adaptive" },
+                output_config: { effort: "high" },
+              }
+            : {}),
         },
         { signal: request.signal },
       );

@@ -118,6 +118,7 @@ async function startApp(columns: number, rows: number): Promise<Harness> {
       onStatus: async () => "status",
       onSwitchProject: async (path: string) => path,
       onSaveSettings: async () => "saved" as const,
+      onCheckConnection: async () => "ok",
       onCompleteSetup: async () => {},
       provider: "anthropic",
       providerLabel: "Anthropic (Claude)",
