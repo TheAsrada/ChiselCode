@@ -1,6 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -148,6 +149,12 @@ export interface TuiAppProps {
   onSwitchProject(path: string): Promise<string>;
   onCheckUpdate?(): Promise<string>;
   onDoctor?(): Promise<string>;
+  /** План самообновления: проверка релиза + файл установщика. */
+  onPlanUpdate?(): Promise<SelfUpdatePlan>;
+  /** Скачивание установщика во временную папку. */
+  onDownloadUpdate?(plan: SelfUpdatePlan): Promise<DownloadedAsset>;
+  /** Запуск установщика (Windows): после вызова приложение закрывается. */
+  onLaunchInstaller?(path: string): Promise<void>;
   onSaveSettings(
     values: TuiSettingsValues,
   ): Promise<"saved" | "setup_required">;
@@ -329,21 +336,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (name === "/update") {
-      setBusy(true);
-      try {
-        append(
-          (await props.onCheckUpdate?.()) ??
-            "Проверка обновлений недоступна в этом сеансе. Откройте https://github.com/TheAsrada/ChiselCode/releases",
-          "info",
-        );
-      } catch (cause) {
-        append(
-          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
-          "error",
-        );
-      } finally {
-        setBusy(false);
-      }
+      await runSelfUpdate();
       return;
     }
     if (name === "/doctor") {
@@ -366,6 +359,98 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     } catch (cause) {
       append(
         `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * `/update`: проверка релиза → подтверждение y/n → скачивание →
+   * установка и выход. Без новых пропов падает назад на текстовую проверку.
+   */
+  async function runSelfUpdate(): Promise<void> {
+    if (!props.onPlanUpdate) {
+      setBusy(true);
+      try {
+        append(
+          (await props.onCheckUpdate?.()) ??
+            "Проверка обновлений недоступна в этом сеансе. Откройте https://github.com/TheAsrada/ChiselCode/releases",
+          "info",
+        );
+      } catch (cause) {
+        append(
+          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "error",
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    setBusy(true);
+    try {
+      const plan = await props.onPlanUpdate();
+      if (plan.error) {
+        append(`⚠ Не удалось проверить обновление: ${plan.error}`, "warn");
+        return;
+      }
+      if (!plan.updateAvailable) {
+        append(
+          `✓ У вас последняя версия ChiselCode v${plan.current}`,
+          "success",
+        );
+        return;
+      }
+      const version = plan.latest ?? plan.current;
+      if (!plan.installedBinary) {
+        append(
+          [
+            `◈ ChiselCode: доступна новая версия v${version} (у вас v${plan.current})`,
+            "Запущено из исходников, поэтому ставлю вручную: скачайте установщик со страницы релиза",
+            `${plan.latestUrl ?? "https://github.com/TheAsrada/ChiselCode/releases"}`,
+            `или обновите код: git pull`,
+          ].join("\n"),
+          "info",
+        );
+        return;
+      }
+      const decision = await props.approvalResolver.requestApproval({
+        tool: "self_update",
+        preview: `Установить ChiselCode v${version}? Сейчас v${plan.current}.\nФайл: ${plan.asset}\nПосле запуска установки приложение закроется — затем запустите chisel заново.`,
+      });
+      if (decision !== "approved") {
+        append("Обновление отменено.", "info");
+        return;
+      }
+      if (!props.onDownloadUpdate) {
+        append("Скачивание недоступно в этом сеансе.", "warn");
+        return;
+      }
+      append(`Скачиваю ${plan.asset}…`, "info");
+      const downloaded = await props.onDownloadUpdate(plan);
+      append(
+        `Скачано ${(downloaded.bytes / 1024 / 1024).toFixed(1)} МБ: ${downloaded.path}`,
+        "info",
+      );
+      if (!plan.autoInstall) {
+        append(
+          [
+            "Автоматическая установка на этой платформе требует прав.",
+            "Завершите вручную:",
+            `${plan.manualCommand ?? plan.url}`,
+          ].join("\n"),
+          "info",
+        );
+        return;
+      }
+      append("Запускаю установщик и закрываю ChiselCode…", "info");
+      await props.onLaunchInstaller?.(downloaded.path);
+      exit();
+    } catch (cause) {
+      append(
+        `Ошибка обновления: ${cause instanceof Error ? cause.message : String(cause)}`,
         "error",
       );
     } finally {

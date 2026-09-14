@@ -5,7 +5,7 @@ export const SLASH_COMMANDS = [
   { name: "/settings", description: "открыть настройки" },
   { name: "/model", description: "сменить модель" },
   { name: "/status", description: "показать состояние сессии" },
-  { name: "/update", description: "проверить обновление ChiselCode" },
+  { name: "/update", description: "проверить и установить обновление" },
   { name: "/doctor", description: "проверить настройку без показа ключей" },
   { name: "/exit", description: "закрыть ChiselCode" },
 ] as const;
@@ -47,7 +47,7 @@ export function commandHelpText(): string {
     "  /settings — открыть настройки сервиса и модели",
     "  /model — быстро сменить модель для текущего сеанса",
     "  /status — показать состояние сессии",
-    "  /update — проверить обновление ChiselCode",
+    "  /update — проверить и установить обновление ChiselCode",
     "  /doctor — проверить настройку без показа ключей",
     "  /exit — закрыть ChiselCode",
     "",

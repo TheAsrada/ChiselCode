@@ -14,7 +14,10 @@ import {
 } from "./commands/run.js";
 import {
   checkForUpdates,
+  downloadReleaseAsset,
   installerAssetHint,
+  launchWindowsInstaller,
+  planSelfUpdate,
   RELEASES_PAGE_URL,
 } from "./commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "./config/load.js";
@@ -345,7 +348,13 @@ async function startTui(options: RunOptions): Promise<void> {
           });
         },
         onDoctor: async () => doctorText(),
-        onCheckUpdate: async () => updateText(),
+        onPlanUpdate: async () =>
+          planSelfUpdate(await checkForUpdates(VERSION), VERSION),
+        onDownloadUpdate: async (plan) =>
+          downloadReleaseAsset(plan.url, plan.asset),
+        onLaunchInstaller: async (path) => {
+          launchWindowsInstaller(path);
+        },
         onSwitchProject: async (arg: string) => {
           const base = activeOptions.cwd ?? process.cwd();
           if (!arg.trim())

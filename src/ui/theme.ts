@@ -33,6 +33,7 @@ export const TOOL_DISPLAY: Record<string, ToolDisplay> = {
   run_shell: { icon: "$", label: "Команда shell" },
   git_diff: { icon: "≠", label: "Git diff" },
   git_commit: { icon: "#", label: "Git commit" },
+  self_update: { icon: "⇪", label: "Обновление ChiselCode" },
 };
 
 export function toolDisplay(tool: string): ToolDisplay {
@@ -189,7 +190,7 @@ export function welcomeLines(
   return [
     `${OK_MARK} Готово — ${providerLabel}, модель ${model} (ChiselCode v${version}). Напишите задачу или /help.`,
     "Изменения всегда требуют подтверждения y/n.",
-    "Подсказка: /cwd <путь> — сменить проект, Tab — дополнить команду, /update — проверить обновление.",
+    "Подсказка: /cwd <путь> — сменить проект, Tab — дополнить команду, /update — обновить ChiselCode.",
   ];
 }
 

@@ -1,6 +1,6 @@
 import type { ProjectConfig, ToolName } from "../types/domain.js";
 
-const MUTATING_TOOLS = new Set<ToolName>([
+const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "write_file",
   "edit_file",
   "delete_file",
@@ -11,7 +11,12 @@ const MUTATING_TOOLS = new Set<ToolName>([
 export type ApprovalDecision = "approved" | "denied" | "unavailable";
 
 export interface ApprovalRequest {
-  tool: ToolName;
+  /**
+   * Имя инструмента или псевдодействия (например `self_update` для
+   * подтверждения установки обновления). Человекочитаемая подпись
+   * берётся из TOOL_DISPLAY с запасным вариантом на само имя.
+   */
+  tool: string;
   preview: string;
   command?: string;
 }
@@ -40,7 +45,7 @@ export class ApprovalGate {
     if (
       this.options.autoApprove ||
       this.config.autoApprove ||
-      this.options.allowedTools.has(request.tool)
+      this.options.allowedTools.has(request.tool as ToolName)
     )
       return "approved";
     if (this.options.nonInteractive) return "unavailable";
