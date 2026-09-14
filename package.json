@@ -1,6 +1,6 @@
 {
   "name": "chiselcode",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "description": "A secure multi-provider coding agent CLI",
   "type": "module",
   "bin": {
