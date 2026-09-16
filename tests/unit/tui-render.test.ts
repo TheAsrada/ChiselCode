@@ -4,6 +4,7 @@ import { render } from "ink";
 import React from "react";
 import {
   createTuiApprovalResolver,
+  syncTerminalSizeToStdout,
   TuiApp,
   type TuiTranscript,
 } from "../../src/ui/tui.js";
@@ -366,6 +367,88 @@ describe("tui fullscreen render", () => {
       );
     } finally {
       app.unmount();
+    }
+  });
+
+  test("frame recovers from lost resize event without input", async () => {
+    // Регрессия «съезжания» при fullscreen/resize на Windows: событие
+    // resize ОС потеряно (conhost/Bun его часто не шлёт) и ввода нет —
+    // кадр обязан сам перестроиться по опросу живого размера, а не висеть
+    // кривым до первой нажатой клавиши. Симулируем именно потерю события:
+    // живой сисколл getWindowSize() уже отдаёт новый размер, а emit
+    // 'resize' никто не делает и в stdin ничего не пишем.
+    //
+    // Важно: тихий синхрон пути рендера (TuiApp, emitResize=false) уже
+    // прописал новый размер в stdout.columns БЕЗ эмита — как бывает при
+    // любом конкурентном рендере до тика опроса. Старый код после этого
+    // видел changed=false и НЕ уведомлял Ink вообще (корень Yoga и счётчики
+    // строк log-update оставались stale — визуальное «съезжание» на живом
+    // терминале, которое в debug-моках не видно, там нет erase-логики).
+    // Новый код уведомляет по ref-флагу последнего уведомлённого размера,
+    // а не по сравнению с полями TTY — эмит обязан произойти.
+    const realStdout = process.stdout as unknown as {
+      getWindowSize?: () => [number, number];
+      columns?: number;
+      rows?: number;
+      emit?: (event: string) => boolean;
+    };
+    const hadGetWindowSize = typeof realStdout.getWindowSize === "function";
+    const prevGetWindowSize = realStdout.getWindowSize;
+    const prevColumns = realStdout.columns;
+    const prevRows = realStdout.rows;
+    const prevEmit = realStdout.emit?.bind(realStdout) as
+      | ((event: string, ...args: unknown[]) => boolean)
+      | undefined;
+    let liveColumns = 100;
+    let liveRows = 30;
+    let resizeEmits = 0;
+    realStdout.getWindowSize = () => [liveColumns, liveRows];
+    realStdout.emit = ((event: string, ...args: unknown[]) => {
+      if (event === "resize") resizeEmits += 1;
+      return prevEmit?.(event, ...args) ?? false;
+    }) as typeof realStdout.emit;
+    const app = await startApp(100, 30);
+    try {
+      const initial = app.frame(30);
+      expect(initial.length).toBe(30);
+      expect(visualWidth(initial[1] ?? "")).toBe(100);
+      // Счётчик эмитов сбрасываем после монтирования: дальше считаем только
+      // уведомления, вызванные самим ресайзом.
+      resizeEmits = 0;
+      // Окно сузили, событие потеряно; конкурентный рендер уже тихо
+      // протолкнул новый размер в stdout.columns без эмита.
+      liveColumns = 60;
+      liveRows = 20;
+      syncTerminalSizeToStdout(false);
+      const stale = app.frame(30);
+      expect(visualWidth(stale[1] ?? "")).toBe(100);
+      // Ждём тик опроса (VIEWPORT_POLL_MS) + перерисовку — без emit и ввода.
+      await tick(900);
+      // Опрос обязан уведомить Ink штатным путём resized() — иначе корень
+      // Yoga и счётчики строк останутся stale навсегда (старый код: 0).
+      expect(resizeEmits).toBeGreaterThanOrEqual(1);
+      // Но без шторма: одно изменение — пара уведомлений максимум
+      // (опрос + догоняющий эффект), а не цикл.
+      expect(resizeEmits).toBeLessThanOrEqual(3);
+      const healed = app.frame(20);
+      expect(healed.length).toBe(20);
+      for (const line of healed) {
+        expect(visualWidth(line)).toBeLessThanOrEqual(60);
+      }
+      expect(healed[0]).toContain("ChiselCode");
+      expect(visualWidth(healed[1] ?? "")).toBe(60);
+      const bottom = healed.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+      if (hadGetWindowSize) {
+        realStdout.getWindowSize = prevGetWindowSize;
+      } else {
+        delete realStdout.getWindowSize;
+      }
+      realStdout.columns = prevColumns;
+      realStdout.rows = prevRows;
+      if (prevEmit !== undefined) realStdout.emit = prevEmit;
     }
   });
 });

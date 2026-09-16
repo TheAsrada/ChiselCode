@@ -434,6 +434,19 @@ export function pickSafeViewportDimension(
 }
 
 /**
+ * Отличается ли размер A от размера B. Единая точка сравнения для пути
+ * уведомлений о ресайзе: решение «надо ли пинать Ink» принимается по
+ * ref-флагу последнего уведомлённого размера, а НЕ по сравнению живого
+ * размера с полями `stdout.columns/rows` (см. lastNotifiedRef ниже).
+ */
+export function isViewportSizeChanged(
+  next: { columns?: number; rows?: number },
+  prev: { columns?: number; rows?: number },
+): boolean {
+  return next.columns !== prev.columns || next.rows !== prev.rows;
+}
+
+/**
  * Живой вьюпорт: Ink-сигнал + прямой опрос TTY + событие resize
  * + дешёвый опрос раз в VIEWPORT_POLL_MS (в Bun событие resize может
  * не приходить, тогда максимизация окна подхватывается опросом).
@@ -450,16 +463,41 @@ export function pickSafeViewportDimension(
 function useLiveViewport(): TuiViewport {
   const inkSize = useWindowSize();
   const [live, setLive] = useState(() => readLiveTerminalSize());
+  // Последний размер, о котором мы УЖЕ уведомили Ink через emit('resize').
+  // Отдельный флаг, а не сравнение с полями stdout.columns/rows: тихий
+  // синхрон в пути рендера (TuiApp, emitResize=false) пишет туда свежий
+  // размер без эмита — и старое сравнение «live vs stdout» видело
+  // changed=false и глотало уведомление. Итог: событие resize ОС потеряно
+  // (conhost/Bun его часто не шлёт) + уведомление съедено тихим синхроном
+  // + в idle нет рендеров — корень Yoga Ink и счётчики строк log-update
+  // оставались stale НАВСЕГДА, интерфейс «съезжал» при fullscreen/resize
+  // и чинился только следующим вводом (первым же setState с пересчётом).
+  // Ref-флаг неуязвим к порядку записи: уведомили один раз на каждое
+  // distinct-изменение живого размера — и Ink всегда получает свой штатный
+  // путь resized() (clear при сужении + пересчёт layout + перерисовка).
+  const lastNotifiedRef = useRef(live);
   useEffect(() => {
     let disposed = false;
     const update = (): void => {
       if (disposed) return;
-      // Синхрон вперёд: Yoga-корень Ink сразу видит живой размер,
-      // следующий кадр Ink уже правильной ширины.
-      const next = syncTerminalSizeToStdout();
+      // Только запись, без эмита внутри: эмит ниже — один на изменение,
+      // по ref-флагу. Порядок важен: флаг обновляем ДО эмита, потому что
+      // update сам подписан на 'resize' — вложенный вызов должен увидеть,
+      // что уведомление уже отправлено, иначе будет рекурсия.
+      const next = syncTerminalSizeToStdout(false);
+      if (isViewportSizeChanged(next, lastNotifiedRef.current)) {
+        lastNotifiedRef.current = next;
+        try {
+          const stdout = process.stdout as unknown as {
+            emit?: (event: string) => boolean;
+          };
+          stdout.emit?.("resize");
+        } catch {
+          // Best effort: Ink и следующий ввод догонят размер и без пинка.
+        }
+      }
       setLive((prev) => {
-        if (prev.columns === next.columns && prev.rows === next.rows)
-          return prev;
+        if (!isViewportSizeChanged(next, prev)) return prev;
         return next;
       });
     };

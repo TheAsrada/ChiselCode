@@ -3,6 +3,7 @@ import {
   clampViewportToTerminal,
   describeTerminalSize,
   formatTerminalSizeLine,
+  isViewportSizeChanged,
   normalizeViewport,
   pickSafeViewportDimension,
   readLiveTerminalSize,
@@ -33,6 +34,35 @@ describe("pickSafeViewportDimension", () => {
     // Устоявшийся полный экран: live и Ink сошлись — кадр во всё окно.
     expect(pickSafeViewportDimension(200, 200)).toBe(200);
     expect(pickSafeViewportDimension(60, 60)).toBe(60);
+  });
+});
+
+describe("isViewportSizeChanged", () => {
+  test("detects any side change for the resize notify gate", () => {
+    // Флаг lastNotifiedRef: уведомляем Ink один раз на distinct-изменение.
+    expect(
+      isViewportSizeChanged(
+        { columns: 60, rows: 20 },
+        { columns: 100, rows: 30 },
+      ),
+    ).toBe(true);
+    // Чисто высотный ресайз (разворот в полный экран) — тоже изменение:
+    // для Ink это был no-op, кадр висел криво до первого ввода.
+    expect(
+      isViewportSizeChanged(
+        { columns: 100, rows: 30 },
+        { columns: 100, rows: 50 },
+      ),
+    ).toBe(true);
+    expect(
+      isViewportSizeChanged(
+        { columns: 100, rows: 30 },
+        { columns: 100, rows: 30 },
+      ),
+    ).toBe(false);
+    // Неизвестные стороны считаются изменением только при появлении.
+    expect(isViewportSizeChanged({ columns: 100, rows: 30 }, {})).toBe(true);
+    expect(isViewportSizeChanged({}, {})).toBe(false);
   });
 });
 
