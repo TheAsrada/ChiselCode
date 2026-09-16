@@ -4,10 +4,37 @@ import {
   describeTerminalSize,
   formatTerminalSizeLine,
   normalizeViewport,
+  pickSafeViewportDimension,
   readLiveTerminalSize,
   resolveTerminalSize,
   syncTerminalSizeToStdout,
 } from "../../src/ui/tui.js";
+
+describe("pickSafeViewportDimension", () => {
+  test("takes the smaller side when live and ink disagree", () => {
+    // Запуск через ярлык: живой TTY уже вырос (120x30), а корень Ink ещё
+    // старый (80x25). Кадр обязан ужаться до корня — иначе шапка уезжает
+    // за верхний край до первого ввода.
+    expect(pickSafeViewportDimension(120, 80)).toBe(80);
+    expect(pickSafeViewportDimension(30, 25)).toBe(25);
+    // Сужение наоборот: свежий маленький live важнее старого большого Ink.
+    expect(pickSafeViewportDimension(80, 120)).toBe(80);
+    expect(pickSafeViewportDimension(20, 40)).toBe(20);
+  });
+
+  test("keeps the known side when the other is missing", () => {
+    // Pipe/CI: живого TTY нет — кадр равен размеру Ink, как раньше.
+    expect(pickSafeViewportDimension(undefined, 100)).toBe(100);
+    expect(pickSafeViewportDimension(120, undefined)).toBe(120);
+    expect(pickSafeViewportDimension(undefined, undefined)).toBeUndefined();
+  });
+
+  test("keeps equal sides as is", () => {
+    // Устоявшийся полный экран: live и Ink сошлись — кадр во всё окно.
+    expect(pickSafeViewportDimension(200, 200)).toBe(200);
+    expect(pickSafeViewportDimension(60, 60)).toBe(60);
+  });
+});
 
 describe("resolveTerminalSize", () => {
   test("takes stdout size when it is sane", () => {

@@ -417,11 +417,35 @@ export function syncTerminalSizeToStdout(emitResize = true): {
 }
 
 /**
+ * Безопасное слияние двух источников размера: кадр никогда не больше
+ * меньшего из известных размеров. Переоценка страшнее недооценки: кадр
+ * выше/шире физического окна (или шире Yoga-корня Ink) терминал переносит
+ * сам — счётчик строк Ink рассинхронизируется, а закреплённая шапка уезжает
+ * за верхний край навсегда. Недооценка даёт лишь узкий кадр на один опрос,
+ * который следующим resize догоняет полный экран.
+ */
+export function pickSafeViewportDimension(
+  liveValue: number | undefined,
+  inkValue: number | undefined,
+): number | undefined {
+  if (liveValue !== undefined && inkValue !== undefined)
+    return Math.min(liveValue, inkValue);
+  return liveValue ?? inkValue;
+}
+
+/**
  * Живой вьюпорт: Ink-сигнал + прямой опрос TTY + событие resize
  * + дешёвый опрос раз в VIEWPORT_POLL_MS (в Bun событие resize может
  * не приходить, тогда максимизация окна подхватывается опросом).
- * Живой опрос TTY — первичен (Ink на conhost бывает застревает на 80x24),
- * размер Ink — запасной вариант, когда TTY недоступен (pipe/CI).
+ *
+ * Кадр берёт МИНИМУМ живого TTY и размера Ink, а не приоритет live:
+ * при запуске через ярлык размер консоли «устаканивается» уже после
+ * пре-рендер синхрона (cli.ts) — свежий live больше stale-корня Ink,
+ * созданного в render(), и широкий кадр выталкивает шапку за верхний
+ * край до первого ввода. Минимум держит кадр внутри корня (шапка видна
+ * сразу), а эффект ниже догоняет корень форсированным resize без ожидания
+ * ввода: Ink перечитывает уже синхронизированный stdout и кадр сам
+ * вырастает до полного экрана за пару кадров.
  */
 function useLiveViewport(): TuiViewport {
   const inkSize = useWindowSize();
@@ -452,11 +476,41 @@ function useLiveViewport(): TuiViewport {
       stdout?.off?.("resize", update);
     };
   }, []);
-  const columns =
-    live.columns ??
-    saneDimension(inkSize.columns, TUI_MIN_COLUMNS, MAX_VISIBLE_COLUMNS);
-  const rows =
-    live.rows ?? saneDimension(inkSize.rows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
+  const liveColumns = live.columns;
+  const liveRows = live.rows;
+  const inkColumns = saneDimension(
+    inkSize.columns,
+    TUI_MIN_COLUMNS,
+    MAX_VISIBLE_COLUMNS,
+  );
+  const inkRows = saneDimension(inkSize.rows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
+  // Догоняющий resize вне пути рендера (в эффекте — безопасно, см.
+  // syncTerminalSizeToStdout): если корень Ink отстал от живого TTY,
+  // штатный опрос молчит (live стабилен — changed=false, эмита нет),
+  // и без пинка Ink так и останется узким навсегда. Эмит дёргает
+  // подписчиков Ink (resized + useWindowSize): корень перечитывает stdout
+  // и кадр вырастает до полного экрана сам, без ввода текста.
+  // Эффект срабатывает один раз на расхождение: после догона размеры
+  // равны и эмит прекращается — цикла нет.
+  useEffect(() => {
+    if (liveColumns === undefined && liveRows === undefined) return;
+    const mismatch =
+      (liveColumns !== undefined &&
+        inkColumns !== undefined &&
+        liveColumns !== inkColumns) ||
+      (liveRows !== undefined && inkRows !== undefined && liveRows !== inkRows);
+    if (!mismatch) return;
+    try {
+      const stdout = process.stdout as unknown as {
+        emit?: (event: string) => boolean;
+      };
+      stdout.emit?.("resize");
+    } catch {
+      // Best effort: опрос и следующий ввод догонят размер и без пинка.
+    }
+  }, [liveColumns, liveRows, inkColumns, inkRows]);
+  const columns = pickSafeViewportDimension(liveColumns, inkColumns);
+  const rows = pickSafeViewportDimension(liveRows, inkRows);
   return normalizeViewport({ columns, rows });
 }
 
