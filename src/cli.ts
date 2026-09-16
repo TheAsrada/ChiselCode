@@ -453,6 +453,15 @@ async function startTui(options: RunOptions): Promise<void> {
         onSaveSettings: async (values: TuiSettingsValues) => {
           const current = await loadGlobalConfig();
           const previous = current.providers[values.provider];
+          // Новый ключ из /settings сохраняем в хранилище (в конфиг пишется
+          // только ссылка). Без нового ключа остаётся прежняя ссылка.
+          const typedKey = values.apiKey?.trim() || undefined;
+          const keyRef =
+            typedKey != null
+              ? (previous?.apiKeyRef ?? `${values.provider}-default`)
+              : previous?.apiKeyRef;
+          if (typedKey != null && keyRef != null)
+            await new CredentialStore().set(keyRef, typedKey);
           const next: GlobalConfig = {
             ...current,
             defaultProvider: values.provider,
@@ -461,7 +470,7 @@ async function startTui(options: RunOptions): Promise<void> {
               ...current.providers,
               [values.provider]: {
                 provider: values.provider,
-                apiKeyRef: previous?.apiKeyRef,
+                apiKeyRef: keyRef,
                 defaultModel: values.model,
                 baseUrl:
                   values.provider === "anthropic-compatible" ||
@@ -482,9 +491,13 @@ async function startTui(options: RunOptions): Promise<void> {
             model: values.model,
             baseUrl: values.baseUrl,
           };
-          return (await hasApiKey(values.provider, previous?.apiKeyRef))
+          return (await hasApiKey(values.provider, keyRef))
             ? "saved"
             : "setup_required";
+        },
+        onKeyStatus: async (provider) => {
+          const current = await loadGlobalConfig();
+          return hasApiKey(provider, current.providers[provider]?.apiKeyRef);
         },
         onCompleteSetup: async (values: SetupValues) => {
           await persistSetup(values);
@@ -498,6 +511,7 @@ async function startTui(options: RunOptions): Promise<void> {
         onCheckConnection: async (values: TuiSettingsValues) => {
           const result = await checkProviderConnection({
             provider: values.provider,
+            apiKey: values.apiKey?.trim() || undefined,
             baseUrl: normalizeBaseUrlForProvider(
               values.provider,
               values.baseUrl,

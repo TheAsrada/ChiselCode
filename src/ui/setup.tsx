@@ -43,7 +43,8 @@ export function defaultModelFor(provider: ProviderKind): string {
   return "";
 }
 
-const PROVIDER_HINT: Record<ProviderKind, string> = {
+/** Где взять ключ для каждого сервиса. Переиспользуется экраном ключа в /settings. */
+export const PROVIDER_HINT: Record<ProviderKind, string> = {
   anthropic: "Ключ создаётся в Anthropic Console → console.anthropic.com",
   openai: "Ключ создаётся на OpenAI Platform → platform.openai.com/api-keys",
   "openai-compatible":

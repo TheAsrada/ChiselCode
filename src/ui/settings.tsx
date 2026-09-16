@@ -1,15 +1,21 @@
 import { Box, Text, useInput } from "ink";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { defaultBaseUrlForProvider } from "../providers/agentrouter.js";
 import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import type { ProviderKind } from "../types/domain.js";
-import { defaultModelFor, isValidApiUrl } from "./setup.js";
+import { defaultModelFor, isValidApiUrl, PROVIDER_HINT } from "./setup.js";
 
 export interface TuiSettingsValues {
   provider: ProviderKind;
   model: string;
   baseUrl?: string;
+  /**
+   * Новый ключ, введённый прямо здесь (на экране виден только маской).
+   * Пусто — оставить сохранённый. В конфиг никогда не пишется открытым
+   * текстом: cli сохраняет его в зашифрованное хранилище под apiKeyRef.
+   */
+  apiKey?: string;
 }
 
 export interface SettingsPanelProps {
@@ -20,8 +26,13 @@ export interface SettingsPanelProps {
   onSetupRequested(): void;
   onSaved(values: TuiSettingsValues): void;
   /**
-   * Проверка подключения к отредактированным значениям (сервис, модель,
-   * адрес). Ключ берётся из сохранённой настройки. Возвращает человекочитаемый
+   * Есть ли сохранённый ключ для сервиса (для строки статуса).
+   * Необязателен: без него строка ключа показывает только ввод.
+   */
+  onKeyStatus?(provider: ProviderKind): Promise<boolean>;
+  /**
+   * Проверка подключения к значениям С ЭКРАНА (включая ещё не сохранённый
+   * ключ). Ключ берётся из сохранённой настройки. Возвращает человекочитаемый
    * итог: успех — показать зелёным, текст с «✗» в начале — красным как ошибку.
    */
   onCheckConnection(values: TuiSettingsValues): Promise<string>;
@@ -30,16 +41,37 @@ export interface SettingsPanelProps {
 type Screen =
   | "menu"
   | "provider"
+  | "key"
   | "model"
   | "base-url"
   | "saving"
   | "checking";
-const PROVIDERS: { value: ProviderKind; label: string }[] = [
-  { value: "anthropic", label: "Anthropic (Claude)" },
-  { value: "anthropic-compatible", label: "Anthropic-совместимый API" },
-  { value: "openai", label: "OpenAI" },
-  { value: "openai-compatible", label: "OpenAI-совместимый API" },
-  { value: "agentrouter", label: "AgentRouter" },
+const PROVIDERS: { value: ProviderKind; label: string; hint: string }[] = [
+  {
+    value: "anthropic",
+    label: "Anthropic (Claude)",
+    hint: "Официальный API · нужен ключ console.anthropic.com",
+  },
+  {
+    value: "anthropic-compatible",
+    label: "Anthropic-совместимый API",
+    hint: "Прокси с протоколом Anthropic, как для Claude Code · нужен адрес",
+  },
+  {
+    value: "openai",
+    label: "OpenAI",
+    hint: "Официальный API · нужен ключ platform.openai.com",
+  },
+  {
+    value: "openai-compatible",
+    label: "OpenAI-совместимый API",
+    hint: "Ollama, LM Studio, свой сервер · нужен адрес с /v1",
+  },
+  {
+    value: "agentrouter",
+    label: "AgentRouter",
+    hint: "Один ключ к Claude, GPT, DeepSeek · адрес подставится сам",
+  },
 ];
 
 export function SettingsPanel({
@@ -49,6 +81,7 @@ export function SettingsPanel({
   onClose,
   onSetupRequested,
   onSaved,
+  onKeyStatus,
   onCheckConnection,
 }: SettingsPanelProps): React.JSX.Element {
   const [values, setValues] = useState(initialValues);
@@ -62,6 +95,27 @@ export function SettingsPanel({
   );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // Есть ли сохранённый ключ для выбранного сервиса. undefined — ещё
+  // проверяем (или проверять нечем — тогда строка ключа нейтральна).
+  const [savedKey, setSavedKey] = useState<boolean | undefined>(undefined);
+  const onKeyStatusRef = useRef(onKeyStatus);
+  onKeyStatusRef.current = onKeyStatus;
+  useEffect(() => {
+    let cancelled = false;
+    setSavedKey(undefined);
+    const check = onKeyStatusRef.current;
+    if (!check) return;
+    void check(values.provider)
+      .then((has) => {
+        if (!cancelled) setSavedKey(has);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedKey(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [values.provider]);
   const items = menuItems(values.provider);
   // Пункты зависят от провайдера (base-url только для совместимых):
   // после смены сервиса прежний индекс может оказаться за границей,
@@ -92,6 +146,7 @@ export function SettingsPanel({
       if (!key.return) return;
       const item = items[safeSelected];
       if (item === "provider") setScreen("provider");
+      else if (item === "key") setScreen("key");
       else if (item === "model") setScreen("model");
       else if (item === "base-url") setScreen("base-url");
       else if (item === "setup") onSetupRequested();
@@ -114,6 +169,9 @@ export function SettingsPanel({
         setValues((current) => ({
           provider,
           model: defaultModelFor(provider) || current.model,
+          // Введённый, но не сохранённый ключ принадлежит другому сервису —
+          // при смене сервиса сбрасываем, иначе чужой ключ уйдёт не туда.
+          apiKey: undefined,
           baseUrl: isCompatibleProvider(provider)
             ? current.baseUrl || defaultBaseUrlForProvider(provider)
             : undefined,
@@ -122,7 +180,8 @@ export function SettingsPanel({
       }
       return;
     }
-    const update = screen === "model" ? "model" : "baseUrl";
+    const update =
+      screen === "model" ? "model" : screen === "key" ? "apiKey" : "baseUrl";
     if (key.backspace || key.delete) {
       setValues((current) => ({
         ...current,
@@ -161,6 +220,7 @@ export function SettingsPanel({
         (await onSave({
           ...values,
           model: values.model.trim(),
+          apiKey: values.apiKey?.trim() || undefined,
           baseUrl:
             normalizeBaseUrlForProvider(
               values.provider,
@@ -191,6 +251,7 @@ export function SettingsPanel({
       const verdict = await onCheckConnection({
         ...values,
         model: values.model.trim(),
+        apiKey: values.apiKey?.trim() || undefined,
         baseUrl: values.baseUrl?.trim() || undefined,
       });
       setScreen("menu");
@@ -222,9 +283,32 @@ export function SettingsPanel({
         <Text dimColor> · Enter — открыть · Esc — назад</Text>
       </Box>
       {screen === "menu" ? (
-        <Menu items={items} selected={safeSelected} values={values} />
+        <Menu
+          items={items}
+          selected={safeSelected}
+          values={values}
+          savedKey={savedKey}
+        />
       ) : null}
       {screen === "provider" ? <ProviderMenu selected={providerIndex} /> : null}
+      {screen === "key" ? (
+        <Box flexDirection="column">
+          <Text bold>API-ключ для {providerLabel(values.provider)}:</Text>
+          <Text dimColor>{PROVIDER_HINT[values.provider]}</Text>
+          <Text dimColor>
+            Ключ скрыт и сохраняется только в зашифрованном локальном хранилище.
+            Пусто + Enter — оставить как было.
+          </Text>
+          <Text color="green">
+            ❯{" "}
+            {values.apiKey
+              ? "•".repeat(Math.min(values.apiKey.length, 24))
+              : savedKey
+                ? "(сохранён, введите новый для замены)"
+                : "…"}
+          </Text>
+        </Box>
+      ) : null}
       {screen === "model" ? (
         <Text color="green">Модель ❯ {values.model}</Text>
       ) : null}
@@ -255,6 +339,7 @@ export function SettingsPanel({
 function menuItems(provider: ProviderKind): string[] {
   return [
     "provider",
+    "key",
     "model",
     ...(isCompatibleProvider(provider) ? ["base-url"] : []),
     "save",
@@ -276,19 +361,29 @@ function Menu({
   items,
   selected,
   values,
+  savedKey,
 }: {
   items: string[];
   selected: number;
   values: TuiSettingsValues;
+  savedKey: boolean | undefined;
 }): React.JSX.Element {
+  const keyLabel = values.apiKey
+    ? `🔑 API-ключ: введён новый ${"•".repeat(Math.min(values.apiKey.length, 8))}`
+    : savedKey === undefined
+      ? "🔑 API-ключ: …"
+      : savedKey
+        ? "🔑 API-ключ: сохранён ✓"
+        : "🔑 API-ключ: не введён — открыть, чтобы вставить";
   const labels: Record<string, string> = {
     provider: `◈ Сервис: ${providerLabel(values.provider)}`,
+    key: keyLabel,
     model: `✎ Модель: ${values.model || "не выбрана"}`,
     "base-url": `⌁ Адрес API: ${values.baseUrl || "не настроен"}`,
-    save: "✓ Сохранить изменения",
-    check: "⇄ Проверить подключение",
-    setup: "↺ Пройти настройку заново",
-    close: "Закрыть настройки",
+    save: "✓ Сохранить и применить",
+    check: "⇄ Проверить подключение (то, что на экране)",
+    setup: "↺ Мастер настройки (все шаги заново)",
+    close: "✕ Закрыть без сохранения",
   };
   return (
     <Box flexDirection="column">
@@ -318,10 +413,10 @@ function ProviderMenu({ selected }: { selected: number }): React.JSX.Element {
             ❯ {provider.label}
           </Text>
         ) : (
-          <Text key={provider.value} dimColor>
-            {" "}
-            {provider.label}
-          </Text>
+          <Box key={provider.value} flexDirection="column">
+            <Text dimColor> {provider.label}</Text>
+            <Text dimColor> {provider.hint}</Text>
+          </Box>
         ),
       )}
     </Box>

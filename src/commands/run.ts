@@ -74,6 +74,11 @@ export interface ConnectionCheckInput {
   provider: ProviderKind;
   baseUrl?: string;
   model?: string;
+  /**
+   * Ключ, введённый, но ещё не сохранённый (из /settings). Приоритет над
+   * сохранённым: проверка тестирует то, что на экране, а не прошлое.
+   */
+  apiKey?: string;
 }
 
 export interface ConnectionCheckResult {
@@ -95,11 +100,13 @@ export async function checkProviderConnection(
 ): Promise<ConnectionCheckResult> {
   const global = await loadGlobalConfig(options?.configPath);
   const providerConfig = global.providers[input.provider];
-  const apiKey = await resolveApiKey(
-    input.provider,
-    providerConfig?.apiKeyRef,
-    new CredentialStore(),
-  );
+  const apiKey =
+    input.apiKey?.trim() ||
+    (await resolveApiKey(
+      input.provider,
+      providerConfig?.apiKeyRef,
+      new CredentialStore(),
+    ));
   if (!apiKey)
     return {
       ok: false,

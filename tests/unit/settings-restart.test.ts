@@ -121,9 +121,8 @@ describe("settings restart setup", () => {
       await tick(200);
       expect(stripAnsi(output)).toContain("Настройки");
 
-      // provider(0), model(1), save(2), setup(3): три шага вниз + Enter.
-      // provider(0), model(1), save(2), check(3), setup(4): четыре шага вниз + Enter.
-      for (let i = 0; i < 4; i += 1) {
+      // provider(0), key(1), model(2), save(3), check(4), setup(5): пять шагов + Enter.
+      for (let i = 0; i < 5; i += 1) {
         stdin.write("\x1b[B");
         await tick(100);
       }
@@ -195,8 +194,8 @@ describe("settings restart setup", () => {
       }
       stdin.write("\r");
       await tick(200);
-      // provider(0), model(1), save(2), check(3), setup(4): четыре шага вниз + Enter.
-      for (let i = 0; i < 4; i += 1) {
+      // provider(0), key(1), model(2), save(3), check(4), setup(5): пять шагов + Enter.
+      for (let i = 0; i < 5; i += 1) {
         stdin.write("\x1b[B");
         await tick(100);
       }
