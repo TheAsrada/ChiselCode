@@ -15,11 +15,14 @@ import { normalizeOpenAiCompatibleBaseUrl } from "./base-url.js";
 export interface OpenAIAdapterOptions {
   apiKey?: string;
   baseUrl?: string;
-  kind?: Extract<ProviderKind, "openai" | "openai-compatible">;
+  kind?: Extract<ProviderKind, "openai" | "openai-compatible" | "agentrouter">;
 }
 
 export class OpenAIAdapter implements ProviderAdapter {
-  readonly kind: Extract<ProviderKind, "openai" | "openai-compatible">;
+  readonly kind: Extract<
+    ProviderKind,
+    "openai" | "openai-compatible" | "agentrouter"
+  >;
   private readonly client: OpenAI;
 
   constructor(options: OpenAIAdapterOptions = {}) {
@@ -34,7 +37,9 @@ export class OpenAIAdapter implements ProviderAdapter {
    * Создаёт стриминговый completion. Для совместимых шлюзов при 400
    * на параметр лимита токенов повторяет запрос один раз с другим именем
    * параметра: часть шлюзов принимает только `max_tokens`, часть
-   * (новые модели OpenAI) — только `max_completion_tokens`.
+   * (новые модели OpenAI) — только `max_completion_tokens`. AgentRouter —
+   * такой же шлюз (Claude-модели за ним понимают только `max_tokens`),
+   * поэтому повтор включён и для него; настоящий OpenAI — без повтора.
    */
   private async createCompletionStream(
     request: ProviderRequest,
@@ -55,7 +60,7 @@ export class OpenAIAdapter implements ProviderAdapter {
     } catch (error) {
       if (
         !useLegacyMaxTokens &&
-        this.kind === "openai-compatible" &&
+        (this.kind === "openai-compatible" || this.kind === "agentrouter") &&
         isTokenLimitError(error)
       ) {
         return this.createCompletionStream(request, true);

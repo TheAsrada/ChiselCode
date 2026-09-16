@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-16
+
+### Added
+
+- Новый сервис в настройках — **AgentRouter** (единый шлюз к Claude, GPT, DeepSeek, GLM за одним ключом): пункт `5` в `chisel setup`, пункт в `/settings`, флаг `--provider agentrouter`, строка в `chisel doctor`. Адрес `https://agentrouter.org/v1` подставляется сам (голому хосту достраивается `/v1` — без него шлюз отдаёт HTML главной), модель по умолчанию `claude-opus-5` (свободная строка: идентификаторы у шлюза меняются, источник правды — консоль аккаунта), ключ `sk-...` из agentrouter.org/console/token — плюс поддержка `AGENTROUTER_API_KEY` из окружения. Повтор с `max_tokens` при 400 включён и для AgentRouter (Claude-модели за шлюзом понимают только это имя параметра), кнопка «Проверить подключение» честно сообщает, если модели нет в списке шлюза.
+
 ## [0.3.0] - 2026-09-16
 
 ### Fixed

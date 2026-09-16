@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import type React from "react";
 import { useState } from "react";
+import { defaultBaseUrlForProvider } from "../providers/agentrouter.js";
 import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import type { ProviderKind } from "../types/domain.js";
 import { defaultModelFor, isValidApiUrl } from "./setup.js";
@@ -38,6 +39,7 @@ const PROVIDERS: { value: ProviderKind; label: string }[] = [
   { value: "anthropic-compatible", label: "Anthropic-совместимый API" },
   { value: "openai", label: "OpenAI" },
   { value: "openai-compatible", label: "OpenAI-совместимый API" },
+  { value: "agentrouter", label: "AgentRouter" },
 ];
 
 export function SettingsPanel({
@@ -112,7 +114,9 @@ export function SettingsPanel({
         setValues((current) => ({
           provider,
           model: defaultModelFor(provider) || current.model,
-          baseUrl: isCompatibleProvider(provider) ? current.baseUrl : undefined,
+          baseUrl: isCompatibleProvider(provider)
+            ? current.baseUrl || defaultBaseUrlForProvider(provider)
+            : undefined,
         }));
         setScreen("menu");
       }
@@ -262,7 +266,9 @@ function menuItems(provider: ProviderKind): string[] {
 
 function isCompatibleProvider(provider: ProviderKind): boolean {
   return (
-    provider === "anthropic-compatible" || provider === "openai-compatible"
+    provider === "anthropic-compatible" ||
+    provider === "openai-compatible" ||
+    provider === "agentrouter"
   );
 }
 

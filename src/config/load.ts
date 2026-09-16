@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
+import { ProviderKindSchema } from "../types/domain.js";
 
 const ProjectConfigSchema = z.object({
   allowedCommands: z.array(z.string()).default([]),
@@ -13,9 +14,7 @@ const ProjectConfigSchema = z.object({
 });
 
 const GlobalConfigSchema = z.object({
-  defaultProvider: z
-    .enum(["anthropic", "anthropic-compatible", "openai", "openai-compatible"])
-    .optional(),
+  defaultProvider: ProviderKindSchema.optional(),
   defaultModel: z.string().min(1).optional(),
   providers: z
     .object({
@@ -44,6 +43,14 @@ const GlobalConfigSchema = z.object({
       "openai-compatible": z
         .object({
           provider: z.literal("openai-compatible"),
+          apiKeyRef: z.string().optional(),
+          baseUrl: z.string().url().optional(),
+          defaultModel: z.string().optional(),
+        })
+        .optional(),
+      agentrouter: z
+        .object({
+          provider: z.literal("agentrouter"),
           apiKeyRef: z.string().optional(),
           baseUrl: z.string().url().optional(),
           defaultModel: z.string().optional(),

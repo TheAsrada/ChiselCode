@@ -1440,6 +1440,7 @@ function providerName(provider: ProviderKind): string {
   if (provider === "anthropic") return "Anthropic (Claude)";
   if (provider === "anthropic-compatible") return "Anthropic-совместимый API";
   if (provider === "openai") return "OpenAI";
+  if (provider === "agentrouter") return "AgentRouter";
   return "OpenAI-совместимый API";
 }
 

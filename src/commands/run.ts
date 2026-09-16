@@ -9,6 +9,10 @@ import {
 import { AgentLoop } from "../core/agent-loop.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
 import {
+  AGENTROUTER_API_KEY_ENV,
+  AgentRouterAdapter,
+} from "../providers/agentrouter.js";
+import {
   AnthropicAdapter,
   AnthropicCompatibleAdapter,
 } from "../providers/anthropic.js";
@@ -295,6 +299,8 @@ function createProvider(
     return new AnthropicCompatibleAdapter({ authToken: apiKey, baseUrl });
   }
   if (kind === "openai") return new OpenAIAdapter({ apiKey });
+  if (kind === "agentrouter")
+    return new AgentRouterAdapter({ apiKey, baseUrl });
   return new OpenAICompatibleAdapter({ apiKey, baseUrl });
 }
 
@@ -304,11 +310,13 @@ async function resolveApiKey(
   credentials: CredentialStore,
 ): Promise<string | undefined> {
   const environmentName =
-    kind === "anthropic-compatible"
-      ? "ANTHROPIC_AUTH_TOKEN"
-      : kind === "anthropic"
-        ? "ANTHROPIC_API_KEY"
-        : "OPENAI_API_KEY";
+    kind === "agentrouter"
+      ? AGENTROUTER_API_KEY_ENV
+      : kind === "anthropic-compatible"
+        ? "ANTHROPIC_AUTH_TOKEN"
+        : kind === "anthropic"
+          ? "ANTHROPIC_API_KEY"
+          : "OPENAI_API_KEY";
   if (process.env[environmentName]) return process.env[environmentName];
   return keyRef ? credentials.get(keyRef) : undefined;
 }
@@ -368,6 +376,7 @@ function providerLabel(provider: ProviderKind): string {
   if (provider === "anthropic") return "Anthropic";
   if (provider === "anthropic-compatible") return "Anthropic-совместимого API";
   if (provider === "openai") return "OpenAI";
+  if (provider === "agentrouter") return "AgentRouter";
   return "OpenAI-совместимого API";
 }
 

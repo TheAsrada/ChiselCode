@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import OpenAI from "openai";
+import {
+  AGENTROUTER_BASE_URL,
+  AgentRouterAdapter,
+  defaultBaseUrlForProvider,
+} from "../../src/providers/agentrouter.js";
 import { AnthropicCompatibleAdapter } from "../../src/providers/anthropic.js";
 import {
   normalizeAnthropicCompatibleBaseUrl,
@@ -70,6 +75,17 @@ describe("compatible base URL normalization", () => {
     expect(normalizeBaseUrlForProvider("openai-compatible", undefined)).toBe(
       undefined,
     );
+    // AgentRouter — OpenAI-совместимый шлюз: голому хосту достраивает /v1
+    // (без него запросы уходят в корень и возвращают HTML главной).
+    expect(normalizeBaseUrlForProvider("agentrouter", undefined)).toBe(
+      undefined,
+    );
+    expect(
+      normalizeBaseUrlForProvider("agentrouter", "https://agentrouter.org"),
+    ).toBe("https://agentrouter.org/v1");
+    expect(
+      normalizeBaseUrlForProvider("agentrouter", "https://agentrouter.org/v1"),
+    ).toBe("https://agentrouter.org/v1");
   });
 
   test("compatible adapters normalize the base URL they keep", () => {
@@ -88,6 +104,38 @@ describe("compatible base URL normalization", () => {
     expect(
       (anthropic as unknown as { client: { baseURL: string } }).client.baseURL,
     ).toBe("https://agentrouter.org");
+  });
+
+  test("AgentRouter adapter defaults to the gateway address", () => {
+    expect(AGENTROUTER_BASE_URL).toBe("https://agentrouter.org/v1");
+    expect(defaultBaseUrlForProvider("agentrouter")).toBe(
+      "https://agentrouter.org/v1",
+    );
+    expect(defaultBaseUrlForProvider("openai-compatible")).toBeUndefined();
+    expect(defaultBaseUrlForProvider("anthropic")).toBeUndefined();
+
+    const implicit = new AgentRouterAdapter({ apiKey: "test" });
+    expect(implicit.kind).toBe("agentrouter");
+    expect(
+      (implicit as unknown as { client: { baseURL: string } }).client.baseURL,
+    ).toBe("https://agentrouter.org/v1");
+
+    // Голый хост без /v1 тоже чинится — иначе шлюз отдаёт HTML главной.
+    const bare = new AgentRouterAdapter({
+      apiKey: "test",
+      baseUrl: "https://agentrouter.org/",
+    });
+    expect(
+      (bare as unknown as { client: { baseURL: string } }).client.baseURL,
+    ).toBe("https://agentrouter.org/v1");
+
+    const custom = new AgentRouterAdapter({
+      apiKey: "test",
+      baseUrl: "https://proxy.example.test/custom",
+    });
+    expect(
+      (custom as unknown as { client: { baseURL: string } }).client.baseURL,
+    ).toBe("https://proxy.example.test/custom");
   });
 
   test("compatible adapters still require a base URL", () => {

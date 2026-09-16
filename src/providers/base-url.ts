@@ -46,7 +46,7 @@ export function normalizeBaseUrlForProvider(
   baseUrl: string | undefined,
 ): string | undefined {
   if (!baseUrl) return baseUrl;
-  if (provider === "openai-compatible")
+  if (provider === "openai-compatible" || provider === "agentrouter")
     return normalizeOpenAiCompatibleBaseUrl(baseUrl);
   if (provider === "anthropic-compatible")
     return normalizeAnthropicCompatibleBaseUrl(baseUrl);

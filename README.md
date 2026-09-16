@@ -84,6 +84,7 @@ ChiselCode не предоставляет собственную модель: 
 
 - **Anthropic (Claude)** — создайте ключ в [Anthropic Console](https://console.anthropic.com/). В мастере выберите `1`.
 - **OpenAI** — создайте ключ на [OpenAI Platform](https://platform.openai.com/api-keys). В мастере выберите `2`.
+- **AgentRouter** — единый ключ к Claude, GPT, DeepSeek, GLM и другим моделям: регистрация на [agentrouter.org](https://agentrouter.org/register), ключ — [agentrouter.org/console/token](https://agentrouter.org/console/token). В мастере выберите `5`: адрес `https://agentrouter.org/v1` подставится сам, модель укажите из вашей консоли AgentRouter (например `claude-opus-5`) — идентификаторы со временем меняются, кнопка «Проверить подключение» в настройках подскажет, если названия нет в списке шлюза.
 - **Anthropic-compatible proxy** — выберите `4`, укажите корень API (например, `https://proxy.example.com`) и модель прокси. Этот режим использует Anthropic Messages API (`/v1/messages`) и Bearer-токен — подходит для прокси, настроенных как Claude Code.
 - **Ollama, OpenRouter, Groq, LM Studio или другой OpenAI-совместимый сервис** — выберите `3`, укажите полный адрес API с `/v1` (например `http://localhost:11434/v1`) и имя модели, которое поддерживает ваш сервер.
 
@@ -166,7 +167,7 @@ bun run lint
 chisel setup                         пройти настройку
 chisel doctor                        проверить настройку без показа ключей
 chisel "задача"                       выполнить задачу
---provider anthropic|anthropic-compatible|openai|openai-compatible
+--provider anthropic|anthropic-compatible|openai|openai-compatible|agentrouter
 --model <model-id>
 --base-url <url>
 --yes                                разрешить все изменения
@@ -181,6 +182,7 @@ chisel "задача"                       выполнить задачу
 ```bash
 ANTHROPIC_API_KEY=... chisel "Покажи структуру проекта"
 OPENAI_API_KEY=... chisel --provider openai "Проверь тесты"
+AGENTROUTER_API_KEY=... chisel --provider agentrouter "Проверь тесты"
 ```
 
 ### Безопасность

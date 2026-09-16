@@ -21,6 +21,7 @@ import {
   RELEASES_PAGE_URL,
 } from "./commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "./config/load.js";
+import { AGENTROUTER_BASE_URL } from "./providers/agentrouter.js";
 import { normalizeBaseUrlForProvider } from "./providers/base-url.js";
 import { CredentialStore } from "./security/credentials.js";
 import {
@@ -58,7 +59,7 @@ program
   .version(VERSION)
   .option(
     "--provider <provider>",
-    "anthropic, anthropic-compatible, openai или openai-compatible",
+    "anthropic, anthropic-compatible, openai, openai-compatible или agentrouter",
   )
   .option("--model <model>", "название модели")
   .option("--base-url <url>", "адрес OpenAI-compatible API")
@@ -115,7 +116,7 @@ program
   .description("Настроить ключ API и сервис через понятный мастер")
   .option(
     "--provider <provider>",
-    "anthropic, anthropic-compatible, openai или openai-compatible",
+    "anthropic, anthropic-compatible, openai, openai-compatible или agentrouter",
   )
   .action(async (raw: Record<string, unknown>) => {
     const provider =
@@ -147,7 +148,11 @@ program
     process.stdout.write(
       `${mark(ready)} API-ключ: ${ready ? "сохранён" : "не настроен"}\n`,
     );
-    if (provider === "anthropic-compatible" || provider === "openai-compatible")
+    if (
+      provider === "anthropic-compatible" ||
+      provider === "openai-compatible" ||
+      provider === "agentrouter"
+    )
       process.stdout.write(
         `${mark(Boolean(providerConfig?.baseUrl))} Адрес API: ${providerConfig?.baseUrl ?? "не настроен"}\n`,
       );
@@ -262,7 +267,8 @@ function isProvider(value: string): value is ProviderKind {
     value === "anthropic" ||
     value === "anthropic-compatible" ||
     value === "openai" ||
-    value === "openai-compatible"
+    value === "openai-compatible" ||
+    value === "agentrouter"
   );
 }
 
@@ -459,7 +465,8 @@ async function startTui(options: RunOptions): Promise<void> {
                 defaultModel: values.model,
                 baseUrl:
                   values.provider === "anthropic-compatible" ||
-                  values.provider === "openai-compatible"
+                  values.provider === "openai-compatible" ||
+                  values.provider === "agentrouter"
                     ? normalizeBaseUrlForProvider(
                         values.provider,
                         values.baseUrl,
@@ -816,12 +823,12 @@ async function startSetupFallback(
   try {
     process.stdout.write("ChiselCode — простая настройка (текстовый режим).\n");
     process.stdout.write(
-      "Выберите сервис: [1] Anthropic (Claude)  [2] OpenAI  [3] OpenAI-совместимый  [4] Anthropic-совместимый proxy\n",
+      "Выберите сервис: [1] Anthropic (Claude)  [2] OpenAI  [3] OpenAI-совместимый  [4] Anthropic-совместимый proxy  [5] AgentRouter\n",
     );
     let provider = initialProvider;
     if (!provider) {
       const answer = (
-        (await rl.question("Сервис [1-4, по умолчанию 1]: ")) || "1"
+        (await rl.question("Сервис [1-5, по умолчанию 1]: ")) || "1"
       ).trim();
       provider =
         answer === "2"
@@ -830,7 +837,9 @@ async function startSetupFallback(
             ? "openai-compatible"
             : answer === "4"
               ? "anthropic-compatible"
-              : "anthropic";
+              : answer === "5"
+                ? "agentrouter"
+                : "anthropic";
     }
     const selected = provider as ProviderKind;
     const apiKey = (
@@ -843,18 +852,23 @@ async function startSetupFallback(
     let baseUrl: string | undefined;
     if (
       selected === "anthropic-compatible" ||
-      selected === "openai-compatible"
+      selected === "openai-compatible" ||
+      selected === "agentrouter"
     ) {
       const raw = (
         await rl.question(
-          "Адрес API (OpenAI: с /v1, например http://localhost:11434/v1): ",
+          selected === "agentrouter"
+            ? `Адрес API [по умолчанию ${AGENTROUTER_BASE_URL}]: `
+            : "Адрес API (OpenAI: с /v1, например http://localhost:11434/v1): ",
         )
       ).trim();
       if (!raw) {
-        process.stdout.write("Адрес API не введён. Настройка отменена.\n");
-        return false;
-      }
-      baseUrl = raw;
+        if (selected === "agentrouter") baseUrl = AGENTROUTER_BASE_URL;
+        else {
+          process.stdout.write("Адрес API не введён. Настройка отменена.\n");
+          return false;
+        }
+      } else baseUrl = raw;
     }
     const fallbackModel = defaultModelFor(selected) || "";
     const modelInput = (
@@ -912,6 +926,7 @@ function providerLabel(provider: ProviderKind): string {
   if (provider === "anthropic") return "Anthropic (Claude)";
   if (provider === "anthropic-compatible") return "Anthropic-совместимый API";
   if (provider === "openai") return "OpenAI";
+  if (provider === "agentrouter") return "AgentRouter";
   return "OpenAI-совместимый API";
 }
 

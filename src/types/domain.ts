@@ -5,6 +5,7 @@ export const ProviderKindSchema = z.enum([
   "anthropic-compatible",
   "openai",
   "openai-compatible",
+  "agentrouter",
 ]);
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 

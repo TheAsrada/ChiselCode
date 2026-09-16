@@ -1,6 +1,11 @@
 import { Box, Text, useApp, useInput } from "ink";
 import type React from "react";
 import { useState } from "react";
+import {
+  AGENTROUTER_BASE_URL,
+  AGENTROUTER_DEFAULT_MODEL,
+  defaultBaseUrlForProvider,
+} from "../providers/agentrouter.js";
 import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import type { ProviderKind } from "../types/domain.js";
 import { VERSION } from "../version.js";
@@ -34,6 +39,7 @@ type Step = "provider" | "key" | "base-url" | "model" | "saving";
 export function defaultModelFor(provider: ProviderKind): string {
   if (provider === "anthropic") return "claude-opus-5";
   if (provider === "openai") return "gpt-5";
+  if (provider === "agentrouter") return AGENTROUTER_DEFAULT_MODEL;
   return "";
 }
 
@@ -44,6 +50,10 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
     "Подойдёт Ollama, OpenRouter, Groq, LM Studio и любой OpenAI-совместимый сервер.",
   "anthropic-compatible":
     "Прокси с Anthropic Messages API (как для Claude Code через ANTHROPIC_BASE_URL).",
+  agentrouter:
+    "Ключ выдаётся в AgentRouter Console → agentrouter.org/console/token " +
+    `(формат sk-…). Адрес подставится сам: ${AGENTROUTER_BASE_URL}. ` +
+    "Модель — любая из вашей консоли (список со временем меняется).",
 };
 
 export function SetupApp({
@@ -79,6 +89,10 @@ export function SetupApp({
       if (selected) {
         setProvider(selected);
         setModel(defaultModelFor(selected));
+        // У AgentRouter есть адрес по умолчанию: подставляем его сразу,
+        // чтобы шаг адреса не требовал ручного ввода. Уже введённое
+        // значение не затираем (переключение туда-обратно).
+        setBaseUrl((prev) => prev || defaultBaseUrlForProvider(selected) || "");
         setError("");
         setStep("key");
       }
@@ -111,7 +125,9 @@ export function SetupApp({
     if (step === "base-url") {
       if (!isValidApiUrl(baseUrl)) {
         setError(
-          "Введите полный адрес сервера, например http://localhost:11434/v1.",
+          provider === "agentrouter"
+            ? `Введите полный адрес сервера, обычно ${AGENTROUTER_BASE_URL}.`
+            : "Введите полный адрес сервера, например http://localhost:11434/v1.",
         );
         return;
       }
@@ -165,7 +181,9 @@ export function SetupApp({
       {step === "key" ? (
         <ApiKeyInput provider={provider} value={apiKey} />
       ) : null}
-      {step === "base-url" ? <BaseUrlInput value={baseUrl} /> : null}
+      {step === "base-url" ? (
+        <BaseUrlInput provider={provider} value={baseUrl} />
+      ) : null}
       {step === "model" ? (
         <ModelInput provider={provider} value={model} />
       ) : null}
@@ -230,7 +248,16 @@ function ProviderSelection(): React.JSX.Element {
         </Text>
         ] Anthropic-совместимый API proxy
       </Text>
-      <Text color="green">Нажмите 1, 2, 3 или 4.</Text>
+      <Text>
+        {" "}
+        [
+        <Text bold color="green">
+          5
+        </Text>
+        ] AgentRouter{" "}
+        <Text dimColor>(Claude/GPT/DeepSeek за одним ключом)</Text>
+      </Text>
+      <Text color="green">Нажмите 1, 2, 3, 4 или 5.</Text>
     </Box>
   );
 }
@@ -254,13 +281,20 @@ function ApiKeyInput({
   );
 }
 
-function BaseUrlInput({ value }: { value: string }): React.JSX.Element {
+function BaseUrlInput({
+  provider,
+  value,
+}: {
+  provider: ProviderKind;
+  value: string;
+}): React.JSX.Element {
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text bold>3. Введите адрес API и нажмите Enter:</Text>
       <Text dimColor>
-        Для OpenAI API добавьте /v1 (например http://localhost:11434/v1); для
-        Anthropic proxy укажите корень без /v1.
+        {provider === "agentrouter"
+          ? `Оставьте подставленный адрес ${AGENTROUTER_BASE_URL} или укажите свой.`
+          : "Для OpenAI API добавьте /v1 (например http://localhost:11434/v1); для Anthropic proxy укажите корень без /v1."}
       </Text>
       <Text color="green">❯ {value || "…"}</Text>
     </Box>
@@ -293,12 +327,15 @@ function providerForKey(value: string): ProviderKind | undefined {
   if (value === "2") return "openai";
   if (value === "3") return "openai-compatible";
   if (value === "4") return "anthropic-compatible";
+  if (value === "5") return "agentrouter";
   return undefined;
 }
 
 function isCompatibleProvider(provider: ProviderKind): boolean {
   return (
-    provider === "anthropic-compatible" || provider === "openai-compatible"
+    provider === "anthropic-compatible" ||
+    provider === "openai-compatible" ||
+    provider === "agentrouter"
   );
 }
 
