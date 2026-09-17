@@ -91,7 +91,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = node -p "require('./package.json').version"
-          gh release upload "$env:GITHUB_REF_NAME" "dist/release/ChiselCode-Setup-$ver.exe"
+          gh release upload "$env:GITHUB_REF_NAME" "dist/release/ChiselCode-Setup-$ver.exe" --clobber
 
   installer-macos:
     name: Build macOS installers
@@ -123,7 +123,7 @@ jobs:
           pkgbuild --root pkg/macos-x64 --identifier com.chiselcode.cli --version "$ver" --install-location /usr/local/bin "ChiselCode-Setup-$ver-macos-x64.pkg"
       - name: Upload installers
         shell: bash
-        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg
+        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg --clobber
 
   installer-linux:
     name: Build Linux installer
@@ -162,4 +162,4 @@ jobs:
           dpkg-deb --build "$root" "ChiselCode-Setup-${ver}-linux-amd64.deb"
       - name: Upload installer
         shell: bash
-        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb
+        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb --clobber
