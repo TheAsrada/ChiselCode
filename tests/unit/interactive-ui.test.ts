@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   commandHelpText,
   isSlashInput,
+  MAX_VISIBLE_SUGGESTIONS,
   matchingCommands,
   parseSlashCommand,
+  suggestSimilarCommand,
 } from "../../src/ui/commands.js";
 import {
   addEditorHistory,
@@ -54,6 +56,23 @@ describe("interactive commands", () => {
     expect(commandHelpText()).toContain("/cwd");
     expect(commandHelpText()).toContain("Shift+Enter");
     expect(commandHelpText()).toContain("PgUp/PgDn");
+  });
+
+  test("suggests the closest command for typos", () => {
+    expect(MAX_VISIBLE_SUGGESTIONS).toBe(6);
+    // Транспозиция (2 правки) и пропущенная буква (1 правка).
+    expect(suggestSimilarCommand("/sessons")).toBe("/sessions");
+    expect(suggestSimilarCommand("/setings")).toBe("/settings");
+    expect(suggestSimilarCommand("/hlep")).toBe("/help");
+    expect(suggestSimilarCommand("/help")).toBe("/help");
+    // Чушь без похожих вариантов — молчим, а не гадаем.
+    expect(suggestSimilarCommand("/zzz")).toBeUndefined();
+    expect(suggestSimilarCommand("/")).toBeUndefined();
+    expect(suggestSimilarCommand("  ")).toBeUndefined();
+    // Свои команды тоже участвуют.
+    expect(
+      suggestSimilarCommand("/revie", [{ name: "review", description: "" }]),
+    ).toBe("/review");
   });
 });
 

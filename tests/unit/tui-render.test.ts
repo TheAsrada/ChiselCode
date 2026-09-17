@@ -493,4 +493,76 @@ describe("tui fullscreen render", () => {
       if (prevEmit !== undefined) realStdout.emit = prevEmit;
     }
   });
+
+  test("unknown command hints the closest match", async () => {
+    // Enter больше не дополняет префикс молча: опечатка уходит в ошибку
+    // с подсказкой «возможно, вы имели в виду».
+    let submitted: string | undefined;
+    const app = await startApp(100, 30, {
+      onSubmit: async (prompt: string) => {
+        submitted = prompt;
+      },
+    });
+    try {
+      for (const ch of "/sessons") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(submitted).toBeUndefined();
+      expect(app.chunks()).toContain("Возможно, вы имели в виду /sessions?");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("tab cycles suggestions and fills the highlighted one", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-tab-"));
+    const dir = join(root, ".chisel", "commands");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "salsa.md"), "Танцуй $ARGUMENTS\n");
+    let submitted: { prompt: string; display?: string } | undefined;
+    const app = await startApp(100, 30, {
+      cwd: root,
+      onSubmit: async (prompt: string, display?: string) => {
+        submitted = { prompt, display };
+      },
+    });
+    try {
+      for (const ch of "/s") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      // Даём состоянию ввода закоммититься (троттлинг рендера Ink иначе
+      // подставит Tab в устаревший список подсказок).
+      await tick(300);
+      // /s: settings, status, sessions, salsa. Четыре Tab — до salsa.
+      for (let i = 0; i < 4; i += 1) {
+        app.stdin.write("\t");
+        await tick(150);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(submitted?.display).toBe("/salsa");
+      expect(submitted?.prompt).toContain("Танцуй");
+    } finally {
+      app.unmount();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("suggestion list is capped with an overflow counter", async () => {
+    // Голое "/" даёт все 12+ команд: видно максимум 6 строк и счётчик.
+    const app = await startApp(100, 30);
+    try {
+      app.stdin.write("/");
+      await tick(300);
+      const text = app.chunks();
+      expect(text).toContain("…и ещё ");
+      expect(text).toContain("/help");
+    } finally {
+      app.unmount();
+    }
+  });
 });

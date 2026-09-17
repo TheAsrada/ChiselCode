@@ -16,9 +16,11 @@ import type { ProviderKind } from "../types/domain.js";
 import {
   commandHelpText,
   isSlashInput,
+  MAX_VISIBLE_SUGGESTIONS,
   matchingCommands,
   parseSlashCommand,
   type SlashCommandName,
+  suggestSimilarCommand,
 } from "./commands.js";
 import {
   addEditorHistory,
@@ -567,12 +569,7 @@ export function fullWidthSeparator(columns: number): string {
  * колонках, чтобы высота футера была предсказуема при любом размере окна.
  */
 export const HOTKEYS_HINT =
-  "Enter — отправить · Shift+Enter — строка · ↑/↓ — история · PgUp/PgDn — журнал";
-
-/** Строка подсказки команды — та же, что рисует Editor. */
-export function suggestionLineText(name: string, description: string): string {
-  return `❯ ${name} — ${description}`;
-}
+  "Tab — команда · Enter — отправить · ↑/↓ — история · PgUp/PgDn — журнал";
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
@@ -698,7 +695,44 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const suggestions = isSlashInput(editor.value)
     ? matchingCommands(editor.value, loadCustomCommands(projectCwd))
     : [];
-  const selectedSuggestion = suggestions[0];
+  /**
+   * Состояние Tab-цикла: список, по которому ходим, и что подставили.
+   * Нужно, потому что после первого Tab ввод совпадает ровно с одной
+   * командой и свежий список схлопывается — крутить дальше было бы нечего.
+   * Пока ввод не меняли руками (совпадает с подставленным), ходим по
+   * запомненному списку; любое редактирование начинает новый цикл.
+   */
+  const completeRef = useRef<{
+    names: string[];
+    filled: string;
+    index: number;
+  } | null>(null);
+  const activeCycle =
+    completeRef.current && completeRef.current.filled === editor.value
+      ? completeRef.current
+      : null;
+  const selectedSuggestionIndex = activeCycle
+    ? activeCycle.index % Math.max(suggestions.length, 1)
+    : 0;
+  // Показываем не больше MAX_VISIBLE_SUGGESTIONS строк: окно сдвигается за
+  // выбранной, остаток — счётчиком. Те же строки идут в замер высоты футера.
+  const suggestionWindowStart =
+    Math.floor(selectedSuggestionIndex / MAX_VISIBLE_SUGGESTIONS) *
+    MAX_VISIBLE_SUGGESTIONS;
+  const visibleSuggestions = suggestions.slice(
+    suggestionWindowStart,
+    suggestionWindowStart + MAX_VISIBLE_SUGGESTIONS,
+  );
+  const hiddenSuggestionsCount =
+    suggestions.length - (suggestionWindowStart + visibleSuggestions.length);
+  const selectedVisibleIndex = selectedSuggestionIndex - suggestionWindowStart;
+  const suggestionRows = visibleSuggestions.map((command, index) =>
+    index === selectedVisibleIndex
+      ? `❯ ${command.name} — ${command.description}`
+      : `  ${command.name}`,
+  );
+  if (hiddenSuggestionsCount > 0)
+    suggestionRows.push(`…и ещё ${hiddenSuggestionsCount}`);
 
   useEffect(() => {
     props.approvalResolver.bind(setRequest);
@@ -784,7 +818,16 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         runCustomCommand(prompt, custom.command, custom.args);
         return;
       }
-      append(`Неизвестная команда: ${prompt}. Введите /help.`, "error");
+      const similar = suggestSimilarCommand(
+        prompt,
+        loadCustomCommands(projectCwd),
+      );
+      append(
+        similar
+          ? `Неизвестная команда: ${prompt}. Возможно, вы имели в виду ${similar}?`
+          : `Неизвестная команда: ${prompt}. Введите /help.`,
+        "error",
+      );
       setEditor((state) => addEditorHistory(state, prompt));
       return;
     }
@@ -1124,11 +1167,25 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       exit();
       return;
     }
-    if (key.tab && selectedSuggestion) {
+    if (key.tab && suggestions.length) {
+      // Первый Tab подставляет подсвеченную, повторные ходят по запомненному
+      // списку (см. completeRef): свежий список уже схлопнулся бы.
+      let cycle = activeCycle;
+      if (!cycle) {
+        cycle = {
+          names: suggestions.map((suggestion) => suggestion.name),
+          filled: "",
+          index: -1,
+        };
+      }
+      const index = (cycle.index + 1) % cycle.names.length;
+      const name = cycle.names[index];
+      if (!name) return;
+      completeRef.current = { names: cycle.names, filled: name, index };
       setEditor((state) => ({
         ...state,
-        value: selectedSuggestion.name,
-        cursor: selectedSuggestion.name.length,
+        value: name,
+        cursor: name.length,
       }));
       return;
     }
@@ -1137,17 +1194,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         setEditor((state) => insertEditorText(state, "\n"));
         return;
       }
-      if (
-        selectedSuggestion &&
-        editor.value.trim() !== selectedSuggestion.name
-      ) {
-        setEditor((state) => ({
-          ...state,
-          value: selectedSuggestion.name,
-          cursor: selectedSuggestion.name.length,
-        }));
-        return;
-      }
+      // Enter всегда отправляет набранное: дополняет только Tab.
       submit(editor.value);
       return;
     }
@@ -1261,7 +1308,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       cursor={editor.cursor}
       busy={busy}
       model={runtime.model}
-      suggestions={suggestions}
+      suggestionRows={suggestionRows}
+      selectedRow={selectedVisibleIndex}
       columns={columns}
     />
   );
@@ -1270,10 +1318,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     busy,
     editorValue: editor.value,
     columns: columns,
-    suggestionsCount: suggestions.length,
-    suggestionLines: suggestions.map((command) =>
-      suggestionLineText(command.name, command.description),
-    ),
+    suggestionsCount: suggestionRows.length,
+    suggestionLines: suggestionRows,
     model: runtime.model,
   });
   const transcriptLines = streaming ? [...transcript, streaming] : transcript;
@@ -1780,20 +1826,24 @@ function Editor({
   cursor,
   busy,
   model,
-  suggestions,
+  suggestionRows,
+  selectedRow,
   columns,
 }: {
   value: string;
   cursor: number;
   busy: boolean;
   model: string;
-  suggestions: ReturnType<typeof matchingCommands>;
+  /** Готовые строки подсказок (подсвеченная уже с префиксом, остальные — имена). */
+  suggestionRows: string[];
+  /** Индекс подсвеченной строки в suggestionRows. */
+  selectedRow: number;
   columns: number;
 }): React.JSX.Element {
   void columns;
   return (
     <Box flexDirection="column" marginTop={1} width="100%" flexShrink={0}>
-      {suggestions.length && !busy ? (
+      {suggestionRows.length && !busy ? (
         <Box
           flexDirection="column"
           borderStyle="round"
@@ -1803,17 +1853,14 @@ function Editor({
           width="100%"
           flexShrink={0}
         >
-          {suggestions.map((command, index) => (
-            <Text key={command.name} wrap="truncate-end">
-              {index === 0 ? (
+          {suggestionRows.map((row, index) => (
+            <Text key={row} wrap="truncate-end">
+              {index === selectedRow ? (
                 <Text bold inverse color="green">
-                  ❯ {command.name} — {command.description}
+                  {row}
                 </Text>
               ) : (
-                <Text dimColor>
-                  {" "}
-                  {command.name} — {command.description}
-                </Text>
+                <Text dimColor>{row}</Text>
               )}
             </Text>
           ))}
