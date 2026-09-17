@@ -89,9 +89,33 @@ jobs:
           makensis "/DVERSION=$ver" installer/chiselcode.nsi
       - name: Upload installer
         shell: pwsh
+        timeout-minutes: 20
         run: |
           $ver = node -p "require('./package.json').version"
-          gh release upload "$env:GITHUB_REF_NAME" "dist/release/ChiselCode-Setup-$ver.exe" --clobber
+          $asset = "dist/release/ChiselCode-Setup-$ver.exe"
+          # gh release upload иногда виснет на windows-раннере (v0.5.5, v0.5.6):
+          # гоняем в фоновой задаче с таймаутом и ретраями, --clobber добивает
+          # частично загруженный ассет повторной попыткой.
+          $ok = $false
+          for ($attempt = 1; $attempt -le 3 -and -not $ok; $attempt += 1) {
+            Write-Host "Upload attempt $attempt/3: $asset"
+            $job = Start-Job -ScriptBlock {
+              param($tag, $file, $token)
+              $env:GH_TOKEN = $token
+              gh release upload $tag $file --clobber
+              if ($LASTEXITCODE -ne 0) { throw "gh release upload exited $LASTEXITCODE" }
+            } -ArgumentList "$env:GITHUB_REF_NAME", $asset, "$env:GH_TOKEN"
+            if (Wait-Job $job -Timeout 300) {
+              Receive-Job $job
+              if ($job.State -eq "Completed") { $ok = $true }
+              else { Write-Host "Attempt $attempt failed ($($job.State)), retrying…" }
+            } else {
+              Write-Host "Attempt $attempt timed out after 300s, retrying…"
+              Stop-Job $job
+            }
+            Remove-Job $job -Force
+          }
+          if (-not $ok) { throw "Upload failed after 3 attempts: $asset" }
 
   installer-macos:
     name: Build macOS installers
@@ -123,7 +147,15 @@ jobs:
           pkgbuild --root pkg/macos-x64 --identifier com.chiselcode.cli --version "$ver" --install-location /usr/local/bin "ChiselCode-Setup-$ver-macos-x64.pkg"
       - name: Upload installers
         shell: bash
-        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg --clobber
+        timeout-minutes: 20
+        run: |
+          ok=0
+          for i in 1 2 3; do
+            echo "Upload attempt $i/3"
+            if timeout 300 gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg --clobber; then ok=1; break; fi
+            echo "Attempt $i failed or timed out, retrying…"; sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "Upload failed after 3 attempts"; exit 1; }
 
   installer-linux:
     name: Build Linux installer
@@ -162,4 +194,12 @@ jobs:
           dpkg-deb --build "$root" "ChiselCode-Setup-${ver}-linux-amd64.deb"
       - name: Upload installer
         shell: bash
-        run: gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb --clobber
+        timeout-minutes: 20
+        run: |
+          ok=0
+          for i in 1 2 3; do
+            echo "Upload attempt $i/3"
+            if timeout 300 gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb --clobber; then ok=1; break; fi
+            echo "Attempt $i failed or timed out, retrying…"; sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "Upload failed after 3 attempts"; exit 1; }
