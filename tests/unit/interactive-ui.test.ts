@@ -28,9 +28,11 @@ import {
   fullWidthSeparator,
   maxTranscriptOffset,
   normalizeViewport,
+  parseWheelEvents,
   TUI_HEADER_ROWS,
   visibleTranscriptTail,
   visibleTranscriptWindow,
+  WHEEL_SCROLL_LINES,
   wrappedLines,
 } from "../../src/ui/tui.js";
 
@@ -61,7 +63,7 @@ describe("interactive commands", () => {
     expect(commandHelpText()).toContain("/settings");
     expect(commandHelpText()).toContain("/cwd");
     expect(commandHelpText()).toContain("Shift+Enter");
-    expect(commandHelpText()).toContain("PgUp/PgDn");
+    expect(commandHelpText()).toContain("Колесо мыши");
   });
 
   test("suggests the closest command for typos", () => {
@@ -305,6 +307,42 @@ describe("interactive viewport layout", () => {
       lines: [second],
       hiddenAboveCount: 1,
       hiddenBelowCount: 1,
+    });
+  });
+});
+
+describe("mouse wheel events", () => {
+  test("parses SGR wheel sequences with modifiers", () => {
+    expect(WHEEL_SCROLL_LINES).toBe(3);
+    // 64 — колесо вверх, 65 — вниз; 68/69 — то же с Shift.
+    expect(parseWheelEvents("\x1b[<64;10;20M")).toEqual({
+      wheels: ["up"],
+      rest: "",
+    });
+    expect(parseWheelEvents("\x1b[<65;10;20M")).toEqual({
+      wheels: ["down"],
+      rest: "",
+    });
+    expect(parseWheelEvents("\x1b[<68;1;1M\x1b[<69;1;1M")).toEqual({
+      wheels: ["up", "down"],
+      rest: "",
+    });
+    // Отпускание (m) и клики без 64-го бита — не колесо.
+    expect(parseWheelEvents("\x1b[<64;10;20m")).toEqual({
+      wheels: [],
+      rest: "",
+    });
+    expect(parseWheelEvents("\x1b[<0;10;20M")).toEqual({
+      wheels: [],
+      rest: "",
+    });
+    // Обычный текст выбрасывается, рваный хвост ждёт следующий чанк.
+    expect(parseWheelEvents("привет")).toEqual({ wheels: [], rest: "" });
+    const split = parseWheelEvents("\x1b[<6");
+    expect(split).toEqual({ wheels: [], rest: "\x1b[<6" });
+    expect(parseWheelEvents(`${split.rest}4;10;20M`)).toEqual({
+      wheels: ["up"],
+      rest: "",
     });
   });
 });

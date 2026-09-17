@@ -187,7 +187,7 @@ describe("tui fullscreen render", () => {
       // Поле ввода — внизу кадра.
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
-      expect(bottom).toContain("PgUp/PgDn");
+      expect(bottom).toContain("колесо");
     } finally {
       app.unmount();
     }
@@ -206,7 +206,7 @@ describe("tui fullscreen render", () => {
       expect(visualWidth(frame[1] ?? "")).toBe(200);
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
-      expect(bottom).toContain("PgUp/PgDn");
+      expect(bottom).toContain("колесо");
     } finally {
       app.unmount();
     }
@@ -288,6 +288,7 @@ describe("tui fullscreen render", () => {
       }
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
+      expect(bottom).toContain("колесо");
       // Самая свежая строка видна, старые скрыты за индикатором.
       expect(frame.join("\n")).toContain("строка истории номер 49");
       expect(frame.join("\n")).toContain("ещё");
@@ -299,22 +300,30 @@ describe("tui fullscreen render", () => {
         ),
       );
 
-      // PageUp уходит вверх — появляется счётчик записей ниже.
-      app.stdin.write("\x1b[5~");
-      await tick(150);
+      // Shift+↑ уходит вверх построчно — появляется счётчик записей ниже.
+      // (Колесо мыши шлёт тот же сдвиг, но едет мимо мок-stdin тестов —
+      // оно покрыто юнит-тестами parseWheelEvents.)
+      for (let i = 0; i < 5; i += 1) {
+        app.stdin.write("\x1b[1;2A");
+        await tick(60);
+      }
       const up = app.frame(24).join("\n");
       expect(up).toContain("записей ниже");
-      // PageDown несколько раз возвращается вниз, End — сразу вниз.
-      app.stdin.write("\x1b[6~");
-      await tick(150);
+      // Shift+↓ несколько раз возвращается вниз, End — сразу вниз.
+      for (let i = 0; i < 5; i += 1) {
+        app.stdin.write("\x1b[1;2B");
+        await tick(60);
+      }
       app.stdin.write("\x1b[F");
       await tick(150);
       const down = app.frame(24);
       expect(down.join("\n")).toContain("строка истории номер 49");
       expect(down.join("\n")).not.toContain("записей ниже");
       // Esc тоже возвращает к вводу после прокрутки вверх.
-      app.stdin.write("\x1b[5~");
-      await tick(150);
+      for (let i = 0; i < 5; i += 1) {
+        app.stdin.write("\x1b[1;2A");
+        await tick(60);
+      }
       expect(app.frame(24).join("\n")).toContain("записей ниже");
       app.stdin.write("\x1b");
       await tick(150);
@@ -531,19 +540,27 @@ describe("tui fullscreen render", () => {
   });
 
   test("hidden skills are not slash commands", async () => {
-    // skill-creator из бандла: user-invocable false — /имя не выполняется,
-    // но скилл остаётся в каталоге и браузере.
-    const app = await startApp(100, 30);
+    // Скилл с user-invocable: false не выполняется как /имя,
+    // но остаётся в каталоге и браузере.
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-hidden-"));
+    const dir = join(root, ".chisel", "skills", "secret");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: secret\ndescription: Скрытый\nuser-invocable: false\n---\nСекрет\n",
+    );
+    const app = await startApp(100, 30, { cwd: root });
     try {
-      for (const ch of "/skill-creator") {
+      for (const ch of "/secret") {
         app.stdin.write(ch);
         await tick(20);
       }
       app.stdin.write("\r");
       await tick(400);
-      expect(app.chunks()).toContain("Неизвестная команда: /skill-creator");
+      expect(app.chunks()).toContain("Неизвестная команда: /secret");
     } finally {
       app.unmount();
+      await rm(root, { recursive: true, force: true });
     }
   });
 

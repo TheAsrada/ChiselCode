@@ -577,7 +577,57 @@ export function fullWidthSeparator(columns: number): string {
  * Tab/стрелки — выбор команды как в Claude Code, Enter — выбрать/отправить.
  */
 export const HOTKEYS_HINT =
-  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · PgUp/PgDn — журнал";
+  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · колесо — журнал";
+
+/** Сколько строк журнала прокручивает один щелчок колеса мыши. */
+export const WHEEL_SCROLL_LINES = 3;
+
+export type WheelDirection = "up" | "down";
+
+/** Включение SGR-режима мыши терминала (колесо едет как `\x1b[<…M`). */
+const MOUSE_ENABLE = "\x1b[?1000h\x1b[?1006h";
+/** Выключение: иначе после выхода в терминале ломается выделение текста. */
+const MOUSE_DISABLE = "\x1b[?1000l\x1b[?1006l";
+
+/**
+ * Выкусывает события колеса из сырого потока stdin (SGR-кодировка
+ * `\x1b[<Cb;Cx;CyM/m`, где 64-й бит Cb — колесо, младший — направление).
+ * Возвращает направления и остаток: терминал может резать sequence
+ * пополам между чанками, рваный хвост ждёт следующий.
+ * Чистая функция — покрыта тестами.
+ */
+const ESC = String.fromCharCode(27);
+const WHEEL_PATTERN = new RegExp(`${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])`, "g");
+
+export function parseWheelEvents(buffer: string): {
+  wheels: WheelDirection[];
+  rest: string;
+} {
+  const wheels: WheelDirection[] = [];
+  let lastEnd = 0;
+  for (const match of buffer.matchAll(WHEEL_PATTERN)) {
+    const code = Number(match[1] ?? 0);
+    if (match[4] === "M" && (code & 64) !== 0)
+      wheels.push(code & 1 ? "down" : "up");
+    lastEnd = (match.index ?? 0) + match[0].length;
+  }
+  const tail = buffer.slice(lastEnd);
+  const escIndex = tail.lastIndexOf(ESC);
+  const rest =
+    escIndex !== -1 && isMousePrefix(tail.slice(escIndex))
+      ? tail.slice(escIndex)
+      : "";
+  return { wheels, rest };
+}
+
+/** Начало mouse-последовательности: ESC, ESC[, ESC[<12;… — ждёт хвост. */
+function isMousePrefix(fragment: string): boolean {
+  if (!fragment.startsWith(ESC)) return false;
+  const rest = fragment.slice(1);
+  if (rest === "") return true;
+  if (!rest.startsWith("[<")) return false;
+  return /^[\d;]*$/.test(rest.slice(2));
+}
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
@@ -784,6 +834,51 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     props.approvalResolver.bind(setRequest);
     return () => props.approvalResolver.dispose();
   }, [props.approvalResolver]);
+  // Длина журнала для колеса мыши: эффект ниже читает её из рефа,
+  // чтобы не подписываться на каждое сообщение заново.
+  const transcriptLengthRef = useRef(0);
+  useEffect(() => {
+    // Колесо мыши: включаем SGR mouse-режим терминала и слушаем сырой stdin
+    // параллельно с Ink (его подписку не трогаем — клавиатура едет мимо).
+    // При размонтировании режим выключаем, иначе в терминале после выхода
+    // сломается выделение текста мышью.
+    const stdin = process.stdin as unknown as {
+      on?: (event: string, listener: (chunk: unknown) => void) => void;
+      off?: (event: string, listener: (chunk: unknown) => void) => void;
+      isTTY?: boolean;
+    };
+    const stdout = process.stdout as unknown as {
+      write?: (data: string) => void;
+      isTTY?: boolean;
+    };
+    if (stdin?.isTTY !== true || typeof stdout?.write !== "function") return;
+    let rest = "";
+    const onData = (chunk: unknown): void => {
+      const text = typeof chunk === "string" ? chunk : String(chunk ?? "");
+      const parsed = parseWheelEvents(rest + text);
+      rest = parsed.rest;
+      if (parsed.wheels.length === 0) return;
+      const max = Math.max(transcriptLengthRef.current - 1, 0);
+      for (const direction of parsed.wheels) {
+        const delta =
+          direction === "up" ? WHEEL_SCROLL_LINES : -WHEEL_SCROLL_LINES;
+        setTranscriptOffset((offset) =>
+          Math.max(0, Math.min(offset + delta, max)),
+        );
+      }
+      if (rest.length > 256) rest = "";
+    };
+    stdout.write(MOUSE_ENABLE);
+    stdin.on?.("data", onData);
+    return () => {
+      stdin.off?.("data", onData);
+      try {
+        stdout.write?.(MOUSE_DISABLE);
+      } catch {
+        // Выход и так закрывает экран — молча уходим.
+      }
+    };
+  }, []);
   const pushLine = useCallback(
     (text: string, tone: TranscriptTone = "assistant"): void => {
       const flushed = streamingRef.current;
@@ -1167,9 +1262,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (settings || skillsOpen || restartingSetup || busy) return;
-    // Скролл журнала как в Claude Code: ввод закреплён снизу,
-    // история листается постранично (PgUp/PgDn), построчно (Shift+↑/↓),
-    // Home/End — начало/конец, Esc — вернуться вниз к вводу.
+    // Скролл журнала: колесо мыши — основной способ, построчно —
+    // Shift+↑/↓, Home/End — начало/конец, Esc — вернуться вниз к вводу.
+    // Ввод закреплён снизу.
     if (key.escape && transcriptOffset > 0) {
       setTranscriptOffset(0);
       return;
@@ -1182,26 +1277,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     if (key.shift && key.downArrow) {
       setTranscriptOffset((offset) => Math.max(offset - 1, 0));
-      return;
-    }
-    if (key.pageUp) {
-      const firstVisible = visible.lines[0];
-      const firstVisibleIndex = firstVisible
-        ? transcriptLines.indexOf(firstVisible)
-        : -1;
-      if (firstVisibleIndex >= 0)
-        setTranscriptOffset(
-          Math.min(
-            transcriptLines.length - firstVisibleIndex,
-            maxTranscriptOffset(transcriptLines),
-          ),
-        );
-      return;
-    }
-    if (key.pageDown) {
-      setTranscriptOffset((offset) =>
-        Math.max(offset - Math.max(visible.lines.length, 1), 0),
-      );
       return;
     }
     if (key.home) {
@@ -1436,6 +1511,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     model: runtime.model,
   });
   const transcriptLines = streaming ? [...transcript, streaming] : transcript;
+  transcriptLengthRef.current = transcriptLines.length;
   const clampedTranscriptOffset = Math.min(
     transcriptOffset,
     maxTranscriptOffset(transcriptLines),

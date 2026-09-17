@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-18
+
+### Added
+
+- Прокрутка журнала колесом мыши (SGR-режим терминала включается на время сессии и выключается при выходе).
+
+### Removed
+
+- Листание журнала через PgUp/PgDn (заменено колесом; построчно — Shift+↑/↓, начало/конец — Home/End).
+
+### Changed
+
+- `skill-creator` снова вызывается как команда `/skill-creator`.
+
 ## [0.5.4] - 2026-09-18
 
 ### Added
