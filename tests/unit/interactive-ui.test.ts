@@ -18,6 +18,7 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "../../src/ui/editor.js";
+import { splitMouseEvents, type WheelDirection } from "../../src/ui/mouse.js";
 import {
   filterModelOptions,
   MAX_VISIBLE_MODELS,
@@ -26,9 +27,9 @@ import {
 import {
   estimateFooterHeight,
   fullWidthSeparator,
+  hotkeysHint,
   maxTranscriptOffset,
   normalizeViewport,
-  parseWheelEvents,
   TUI_HEADER_ROWS,
   visibleTranscriptTail,
   visibleTranscriptWindow,
@@ -211,17 +212,19 @@ describe("interactive viewport layout", () => {
     expect(withHeader).toEqual(withoutHeader);
   });
 
-  test("clips transcript tail with room for overflow indicator", () => {
+  test("clips transcript tail without an overflow indicator", () => {
     const lines = [
       { id: 0, text: "первая", tone: "info" as const },
       { id: 1, text: "вторая", tone: "info" as const },
       { id: 2, text: "третья", tone: "info" as const },
     ];
+    const second = lines[1];
     const third = lines[2];
-    if (!third) throw new Error("test data is incomplete");
+    if (!second || !third) throw new Error("test data is incomplete");
+    // Весь бюджет уходит контенту: влезают две последние записи, без счётчиков.
     expect(visibleTranscriptTail(lines, 7, 80, 5)).toEqual({
-      lines: [third],
-      hiddenCount: 2,
+      lines: [second, third],
+      hiddenCount: 1,
     });
   });
 
@@ -262,13 +265,13 @@ describe("interactive viewport layout", () => {
       throw new Error("test data is incomplete");
 
     expect(visibleTranscriptWindow(lines, 8, 20, 5)).toEqual({
-      lines: [third, fourth],
-      hiddenAboveCount: 2,
+      lines: [second, third, fourth],
+      hiddenAboveCount: 1,
       hiddenBelowCount: 0,
     });
     expect(visibleTranscriptWindow(lines, 8, 20, 5, 1)).toEqual({
-      lines: [third],
-      hiddenAboveCount: 2,
+      lines: [first, second, third],
+      hiddenAboveCount: 0,
       hiddenBelowCount: 1,
     });
     expect(visibleTranscriptWindow(lines, 8, 20, 5, 2)).toEqual({
@@ -315,35 +318,63 @@ describe("mouse wheel events", () => {
   test("parses SGR wheel sequences with modifiers", () => {
     expect(WHEEL_SCROLL_LINES).toBe(3);
     // 64 — колесо вверх, 65 — вниз; 68/69 — то же с Shift.
-    expect(parseWheelEvents("\x1b[<64;10;20M")).toEqual({
+    expect(splitMouseEvents("\x1b[<64;10;20M")).toEqual({
+      text: "",
       wheels: ["up"],
-      rest: "",
+      pending: "",
     });
-    expect(parseWheelEvents("\x1b[<65;10;20M")).toEqual({
+    expect(splitMouseEvents("\x1b[<65;10;20M")).toEqual({
+      text: "",
       wheels: ["down"],
-      rest: "",
+      pending: "",
     });
-    expect(parseWheelEvents("\x1b[<68;1;1M\x1b[<69;1;1M")).toEqual({
-      wheels: ["up", "down"],
-      rest: "",
+    expect(splitMouseEvents("\x1b[<68;1;1M\x1b[<69;1;1M")).toEqual({
+      text: "",
+      wheels: ["up", "down"] as WheelDirection[],
+      pending: "",
     });
-    // Отпускание (m) и клики без 64-го бита — не колесо.
-    expect(parseWheelEvents("\x1b[<64;10;20m")).toEqual({
+    // Отпускание (m) и клики без 64-го бита глотаются молча.
+    expect(splitMouseEvents("\x1b[<64;10;20m")).toEqual({
+      text: "",
       wheels: [],
-      rest: "",
+      pending: "",
     });
-    expect(parseWheelEvents("\x1b[<0;10;20M")).toEqual({
+    expect(splitMouseEvents("\x1b[<0;10;20M")).toEqual({
+      text: "",
       wheels: [],
-      rest: "",
+      pending: "",
     });
-    // Обычный текст выбрасывается, рваный хвост ждёт следующий чанк.
-    expect(parseWheelEvents("привет")).toEqual({ wheels: [], rest: "" });
-    const split = parseWheelEvents("\x1b[<6");
-    expect(split).toEqual({ wheels: [], rest: "\x1b[<6" });
-    expect(parseWheelEvents(`${split.rest}4;10;20M`)).toEqual({
+    // Обычный текст едет дальше нетронутым.
+    expect(splitMouseEvents("привет")).toEqual({
+      text: "привет",
+      wheels: [],
+      pending: "",
+    });
+    expect(splitMouseEvents("a\x1b[<65;10;20Mb")).toEqual({
+      text: "ab",
+      wheels: ["down"],
+      pending: "",
+    });
+    // Рваный хвост ждёт следующий чанк.
+    const split = splitMouseEvents("\x1b[<6");
+    expect(split).toEqual({ text: "", wheels: [], pending: "\x1b[<6" });
+    expect(splitMouseEvents(`${split.pending}4;10;20M`)).toEqual({
+      text: "",
       wheels: ["up"],
-      rest: "",
+      pending: "",
     });
+    // Одинокий Esc — не мышь: висит в pending до следующего чанка.
+    expect(splitMouseEvents("\x1b")).toEqual({
+      text: "",
+      wheels: [],
+      pending: "\x1b",
+    });
+  });
+
+  test("hotkeys hint shows Esc as way down when scrolled", () => {
+    expect(hotkeysHint(false)).toContain("Esc — закрыть");
+    expect(hotkeysHint(true)).toContain("Esc — вниз");
+    expect(hotkeysHint(true)).toContain("колесо");
   });
 });
 

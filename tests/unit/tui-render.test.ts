@@ -289,9 +289,11 @@ describe("tui fullscreen render", () => {
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
       expect(bottom).toContain("колесо");
-      // Самая свежая строка видна, старые скрыты за индикатором.
+      // Самая свежая строка видна, счётчиков «…ещё N» больше нет —
+      // весь вьюпорт отдан контенту.
       expect(frame.join("\n")).toContain("строка истории номер 49");
-      expect(frame.join("\n")).toContain("ещё");
+      expect(frame.join("\n")).not.toContain("записей выше");
+      expect(frame.join("\n")).not.toContain("записей ниже");
       // Видимые строки идут подряд без дыр: Yoga не схлопывает строки.
       expect(historyNumbers(frame)).toEqual(
         Array.from(
@@ -300,15 +302,18 @@ describe("tui fullscreen render", () => {
         ),
       );
 
-      // Shift+↑ уходит вверх построчно — появляется счётчик записей ниже.
-      // (Колесо мыши шлёт тот же сдвиг, но едет мимо мок-stdin тестов —
-      // оно покрыто юнит-тестами parseWheelEvents.)
+      // Shift+↑ уходит вверх построчно: видны старые записи, свежих нет,
+      // а подсказка предлагает Esc как путь назад вниз.
+      // (Колесо мыши шлёт тот же сдвиг через фильтр stdin в cli.ts —
+      // оно покрыто юнит-тестами mouse.test.ts.)
       for (let i = 0; i < 5; i += 1) {
         app.stdin.write("\x1b[1;2A");
         await tick(60);
       }
       const up = app.frame(24).join("\n");
-      expect(up).toContain("записей ниже");
+      expect(up).toContain("строка истории номер 44");
+      expect(up).not.toContain("строка истории номер 49");
+      expect(up).toContain("Esc — вниз");
       // Shift+↓ несколько раз возвращается вниз, End — сразу вниз.
       for (let i = 0; i < 5; i += 1) {
         app.stdin.write("\x1b[1;2B");
@@ -318,13 +323,13 @@ describe("tui fullscreen render", () => {
       await tick(150);
       const down = app.frame(24);
       expect(down.join("\n")).toContain("строка истории номер 49");
-      expect(down.join("\n")).not.toContain("записей ниже");
+      expect(down.join("\n")).not.toContain("Esc — вниз");
       // Esc тоже возвращает к вводу после прокрутки вверх.
       for (let i = 0; i < 5; i += 1) {
         app.stdin.write("\x1b[1;2A");
         await tick(60);
       }
-      expect(app.frame(24).join("\n")).toContain("записей ниже");
+      expect(app.frame(24).join("\n")).toContain("Esc — вниз");
       app.stdin.write("\x1b");
       await tick(150);
       expect(app.frame(24).join("\n")).toContain("строка истории номер 49");

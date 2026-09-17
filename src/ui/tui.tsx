@@ -36,6 +36,7 @@ import {
   navigateEditorHistory,
 } from "./editor.js";
 import { MarkdownText, parseBlocks } from "./markdown.js";
+import { subscribeWheel, WHEEL_SCROLL_LINES } from "./mouse.js";
 import {
   type ModelListResult,
   SettingsPanel,
@@ -579,55 +580,17 @@ export function fullWidthSeparator(columns: number): string {
 export const HOTKEYS_HINT =
   "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · колесо — журнал";
 
+/** Та же строка, когда журнал прокручен вверх: Esc ведёт вниз, а не закрывает. */
+export const HOTKEYS_HINT_SCROLLED =
+  "Tab/↑/↓ — команда · Enter — отправить · Esc — вниз · колесо — журнал";
+
+/** Подсказка горячих клавиш: при прокрученном журнале Esc — это «назад вниз». */
+export function hotkeysHint(scrolledUp: boolean): string {
+  return scrolledUp ? HOTKEYS_HINT_SCROLLED : HOTKEYS_HINT;
+}
+
 /** Сколько строк журнала прокручивает один щелчок колеса мыши. */
-export const WHEEL_SCROLL_LINES = 3;
-
-export type WheelDirection = "up" | "down";
-
-/** Включение SGR-режима мыши терминала (колесо едет как `\x1b[<…M`). */
-const MOUSE_ENABLE = "\x1b[?1000h\x1b[?1006h";
-/** Выключение: иначе после выхода в терминале ломается выделение текста. */
-const MOUSE_DISABLE = "\x1b[?1000l\x1b[?1006l";
-
-/**
- * Выкусывает события колеса из сырого потока stdin (SGR-кодировка
- * `\x1b[<Cb;Cx;CyM/m`, где 64-й бит Cb — колесо, младший — направление).
- * Возвращает направления и остаток: терминал может резать sequence
- * пополам между чанками, рваный хвост ждёт следующий.
- * Чистая функция — покрыта тестами.
- */
-const ESC = String.fromCharCode(27);
-const WHEEL_PATTERN = new RegExp(`${ESC}\\[<(\\d+);(\\d+);(\\d+)([Mm])`, "g");
-
-export function parseWheelEvents(buffer: string): {
-  wheels: WheelDirection[];
-  rest: string;
-} {
-  const wheels: WheelDirection[] = [];
-  let lastEnd = 0;
-  for (const match of buffer.matchAll(WHEEL_PATTERN)) {
-    const code = Number(match[1] ?? 0);
-    if (match[4] === "M" && (code & 64) !== 0)
-      wheels.push(code & 1 ? "down" : "up");
-    lastEnd = (match.index ?? 0) + match[0].length;
-  }
-  const tail = buffer.slice(lastEnd);
-  const escIndex = tail.lastIndexOf(ESC);
-  const rest =
-    escIndex !== -1 && isMousePrefix(tail.slice(escIndex))
-      ? tail.slice(escIndex)
-      : "";
-  return { wheels, rest };
-}
-
-/** Начало mouse-последовательности: ESC, ESC[, ESC[<12;… — ждёт хвост. */
-function isMousePrefix(fragment: string): boolean {
-  if (!fragment.startsWith(ESC)) return false;
-  const rest = fragment.slice(1);
-  if (rest === "") return true;
-  if (!rest.startsWith("[<")) return false;
-  return /^[\d;]*$/.test(rest.slice(2));
-}
+export { WHEEL_SCROLL_LINES } from "./mouse.js";
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
@@ -838,46 +801,16 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // чтобы не подписываться на каждое сообщение заново.
   const transcriptLengthRef = useRef(0);
   useEffect(() => {
-    // Колесо мыши: включаем SGR mouse-режим терминала и слушаем сырой stdin
-    // параллельно с Ink (его подписку не трогаем — клавиатура едет мимо).
-    // При размонтировании режим выключаем, иначе в терминале после выхода
-    // сломается выделение текста мышью.
-    const stdin = process.stdin as unknown as {
-      on?: (event: string, listener: (chunk: unknown) => void) => void;
-      off?: (event: string, listener: (chunk: unknown) => void) => void;
-      isTTY?: boolean;
-    };
-    const stdout = process.stdout as unknown as {
-      write?: (data: string) => void;
-      isTTY?: boolean;
-    };
-    if (stdin?.isTTY !== true || typeof stdout?.write !== "function") return;
-    let rest = "";
-    const onData = (chunk: unknown): void => {
-      const text = typeof chunk === "string" ? chunk : String(chunk ?? "");
-      const parsed = parseWheelEvents(rest + text);
-      rest = parsed.rest;
-      if (parsed.wheels.length === 0) return;
+    // Колесо мыши: события уже вычищены из stdin фильтром (mouse.ts) до Ink,
+    // сюда приходит только направление. Подписка чистится при размонтировании.
+    return subscribeWheel((direction) => {
       const max = Math.max(transcriptLengthRef.current - 1, 0);
-      for (const direction of parsed.wheels) {
-        const delta =
-          direction === "up" ? WHEEL_SCROLL_LINES : -WHEEL_SCROLL_LINES;
-        setTranscriptOffset((offset) =>
-          Math.max(0, Math.min(offset + delta, max)),
-        );
-      }
-      if (rest.length > 256) rest = "";
-    };
-    stdout.write(MOUSE_ENABLE);
-    stdin.on?.("data", onData);
-    return () => {
-      stdin.off?.("data", onData);
-      try {
-        stdout.write?.(MOUSE_DISABLE);
-      } catch {
-        // Выход и так закрывает экран — молча уходим.
-      }
-    };
+      const delta =
+        direction === "up" ? WHEEL_SCROLL_LINES : -WHEEL_SCROLL_LINES;
+      setTranscriptOffset((offset) =>
+        Math.max(0, Math.min(offset + delta, max)),
+      );
+    });
   }, []);
   const pushLine = useCallback(
     (text: string, tone: TranscriptTone = "assistant"): void => {
@@ -1488,6 +1421,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         </Box>
       </Box>
     );
+  const transcriptLines = streaming ? [...transcript, streaming] : transcript;
+  transcriptLengthRef.current = transcriptLines.length;
+  const clampedTranscriptOffset = Math.min(
+    transcriptOffset,
+    maxTranscriptOffset(transcriptLines),
+  );
+  // Журнал прокручен вверх: подсказка показывает «Esc — вниз».
+  const scrolledUp = clampedTranscriptOffset > 0;
   const footer = request ? (
     <Approval request={request} columns={columns} />
   ) : (
@@ -1499,6 +1440,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       suggestionRows={suggestionRows}
       selectedRow={selectedVisibleIndex}
       columns={columns}
+      scrolledUp={scrolledUp}
     />
   );
   const footerRows = estimateFooterHeight({
@@ -1509,13 +1451,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     suggestionsCount: suggestionRows.length,
     suggestionLines: suggestionRows,
     model: runtime.model,
+    scrolledUp,
   });
-  const transcriptLines = streaming ? [...transcript, streaming] : transcript;
-  transcriptLengthRef.current = transcriptLines.length;
-  const clampedTranscriptOffset = Math.min(
-    transcriptOffset,
-    maxTranscriptOffset(transcriptLines),
-  );
   const visible = visibleTranscriptWindow(
     transcriptLines,
     rows,
@@ -1540,13 +1477,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         overflow="hidden"
         width="100%"
       >
-        {visible.hiddenAboveCount > 0 ? (
-          <Box width="100%" flexShrink={0}>
-            <Text dimColor wrap="truncate">
-              … ↑ ещё {visible.hiddenAboveCount} записей выше
-            </Text>
-          </Box>
-        ) : null}
         {visible.lines.map((line) => (
           <TranscriptLineView key={line.id} line={line} columns={columns} />
         ))}
@@ -1562,13 +1492,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             </Text>
             <Text dimColor wrap="wrap">
               {"  "}/help — команды · /status — состояние · /sessions — сеансы
-            </Text>
-          </Box>
-        ) : null}
-        {visible.hiddenBelowCount > 0 ? (
-          <Box width="100%" flexShrink={0}>
-            <Text dimColor wrap="truncate">
-              … ↓ ещё {visible.hiddenBelowCount} записей ниже
             </Text>
           </Box>
         ) : null}
@@ -1767,6 +1690,8 @@ export interface FooterHeightInput {
   suggestionLines?: string[];
   /** Модель для строки спиннера «Думаю…». */
   model?: string;
+  /** Журнал прокручен вверх: в подсказке Esc — это «назад вниз». */
+  scrolledUp?: boolean;
 }
 
 /** Высота нижней панели с учётом подсказок и многострочного черновика. */
@@ -1778,6 +1703,7 @@ export function estimateFooterHeight({
   suggestionsCount,
   suggestionLines,
   model = "",
+  scrolledUp = false,
 }: FooterHeightInput): number {
   const safeColumns = normalizeViewport({ columns }).columns;
   if (request) return estimateApprovalHeight(request, safeColumns);
@@ -1796,7 +1722,10 @@ export function estimateFooterHeight({
       : 0;
   // Верхний отступ (1) + рамка редактора (2) + строка горячих клавиш.
   return (
-    editorRows + 3 + wrappedLines(HOTKEYS_HINT, safeColumns) + suggestionsRows
+    editorRows +
+    3 +
+    wrappedLines(hotkeysHint(scrolledUp), safeColumns) +
+    suggestionsRows
   );
 }
 
@@ -1850,22 +1779,10 @@ export function visibleTranscriptWindow(
   const contentRows = Math.max(safeRows - footerRows - topRows, 0);
   const safeOffset = Math.max(0, Math.min(offset, maxTranscriptOffset(lines)));
   const end = lines.length - safeOffset;
-  const belowRows = safeOffset > 0 ? 1 : 0;
-  let start = selectTranscriptStart(
-    lines,
-    end,
-    safeColumns,
-    Math.max(contentRows - belowRows, 0),
-  );
-  // Верхний индикатор, как и нижний, занимает строку внутри viewport.
-  if (start > 0) {
-    start = selectTranscriptStart(
-      lines,
-      end,
-      safeColumns,
-      Math.max(contentRows - belowRows - 1, 0),
-    );
-  }
+  // Счётчиков «…ещё N выше/ниже» больше нет: весь бюджет уходит контенту,
+  // поэтому при небольшом переполнении видно всё сразу. Назад вниз — Esc,
+  // новые сообщения сами сбрасывают прокрутку.
+  const start = selectTranscriptStart(lines, end, safeColumns, contentRows);
   return {
     lines: lines.slice(start, end),
     hiddenAboveCount: start,
@@ -2018,6 +1935,7 @@ function Editor({
   suggestionRows,
   selectedRow,
   columns,
+  scrolledUp = false,
 }: {
   value: string;
   cursor: number;
@@ -2028,6 +1946,8 @@ function Editor({
   /** Индекс подсвеченной строки в suggestionRows. */
   selectedRow: number;
   columns: number;
+  /** Журнал прокручен вверх: в подсказке Esc — это «назад вниз». */
+  scrolledUp?: boolean;
 }): React.JSX.Element {
   void columns;
   return (
@@ -2083,7 +2003,7 @@ function Editor({
         )}
       </Box>
       <Text dimColor wrap="wrap">
-        {HOTKEYS_HINT}
+        {hotkeysHint(scrolledUp)}
       </Text>
     </Box>
   );

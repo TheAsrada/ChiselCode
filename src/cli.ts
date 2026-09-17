@@ -40,6 +40,7 @@ import {
   stripActiveSkillsBlock,
 } from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
+import { createMouseFilter } from "./ui/mouse.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import {
@@ -401,6 +402,13 @@ async function startTui(options: RunOptions): Promise<void> {
   // Иначе Ink стартует с кэшированных 80x24 — шапка узкая, ввод посреди
   // экрана, а выравнивание приходит только после ввода текста.
   syncTerminalSizeToStdout();
+  // Фильтр мыши между настоящим stdin и Ink: выкусывает SGR-последовательности
+  // колеса/кликов до парсера Ink, иначе они печатаются в поле ввода как текст.
+  // Колесо уже разведено подписчикам через subscribeWheel в TuiApp.
+  const mouse = createMouseFilter({
+    stdin: process.stdin,
+    stdout: process.stdout,
+  });
   try {
     instance = render(
       React.createElement(TuiApp, {
@@ -658,9 +666,15 @@ async function startTui(options: RunOptions): Promise<void> {
           }
         },
       }),
-      { alternateScreen: true },
+      {
+        alternateScreen: true,
+        ...(mouse
+          ? { stdin: mouse.stdin as unknown as NodeJS.ReadStream }
+          : {}),
+      },
     );
   } catch {
+    mouse?.dispose();
     // Ink требует raw mode терминала. В урезанных консолях Windows
     // (двойной клик, старый conhost) render() бросает исключение —
     // переключаемся на простой построчный режим, чтобы окно не мигало и не закрывалось.
@@ -674,6 +688,8 @@ async function startTui(options: RunOptions): Promise<void> {
     await instance.waitUntilExit();
   } catch {
     await startTuiFallback(options);
+  } finally {
+    mouse?.dispose();
   }
 }
 
