@@ -149,10 +149,14 @@ jobs:
         shell: bash
         timeout-minutes: 20
         run: |
+          # NOTE: без GNU timeout (его нет на macOS): watchdog через sleep+kill.
           ok=0
           for i in 1 2 3; do
             echo "Upload attempt $i/3"
-            if timeout 300 gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg --clobber; then ok=1; break; fi
+            gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg --clobber & pid=$!
+            ( sleep 300; kill -9 "$pid" 2>/dev/null ) & watcher=$!
+            if wait "$pid"; then ok=1; kill "$watcher" 2>/dev/null || true; break; fi
+            kill "$watcher" 2>/dev/null || true
             echo "Attempt $i failed or timed out, retrying…"; sleep 10
           done
           [ "$ok" = 1 ] || { echo "Upload failed after 3 attempts"; exit 1; }
@@ -196,10 +200,14 @@ jobs:
         shell: bash
         timeout-minutes: 20
         run: |
+          # NOTE: без GNU timeout (его нет на macOS): watchdog через sleep+kill.
           ok=0
           for i in 1 2 3; do
             echo "Upload attempt $i/3"
-            if timeout 300 gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb --clobber; then ok=1; break; fi
+            gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb --clobber & pid=$!
+            ( sleep 300; kill -9 "$pid" 2>/dev/null ) & watcher=$!
+            if wait "$pid"; then ok=1; kill "$watcher" 2>/dev/null || true; break; fi
+            kill "$watcher" 2>/dev/null || true
             echo "Attempt $i failed or timed out, retrying…"; sleep 10
           done
           [ "$ok" = 1 ] || { echo "Upload failed after 3 attempts"; exit 1; }
