@@ -10,6 +10,8 @@ ChiselCode — безопасный помощник для работы с ко
   Uninstall.exe   — удаление.
 
 Свои скиллы также читаются из .chisel\skills\ проекта, общие —
-из .agents\skills\ и из папки skills\ рядом с конфигом
-(%APPDATA%\chiselcode\skills\). Команда /skills показывает все доступные.
+из .agents\skills\ и из папки skills\ рядом с конфигом. Новые скиллы
+сохраняются только в личную папку для всех проектов:
+%LOCALAPPDATA%\ChiselCode\skills\<имя>\. Команда /skills показывает
+все доступные и задействует выбранный.
 Подробности: https://github.com/TheAsrada/ChiselCode

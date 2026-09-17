@@ -5,17 +5,24 @@ import type { Skill, SkillSource } from "../skills/skills.js";
 
 export interface SkillsPanelProps {
   skills: Skill[];
+  /** Имена задействованных скиллов (их инструкции идут в каждый запрос). */
+  activeNames: string[];
+  /** Задействовать/отключить скилл для текущей сессии. */
+  onToggle(skill: Skill): void;
   onClose(): void;
 }
 
 /**
- * Браузер скиллов (`/skills`): список доступных скиллов с описаниями,
- * Enter — посмотреть инструкции, Esc — назад/закрыть.
- * Агент подхватывает скиллы сам по описанию (каталог в системном промпте),
- * вручную скилл вызывается как /имя — панель нужна для обзора.
+ * Браузер скиллов (`/skills`): мини-меню доступных скиллов.
+ * Enter на списке — детали, Enter в деталях — задействовать скилл
+ * (его инструкции приложатся к следующим запросам) или отключить.
+ * Агент и сам подхватывает скиллы по описанию; вручную скилл также
+ * вызывается как /имя (кроме скрытых из команд).
  */
 export function SkillsPanel({
   skills,
+  activeNames,
+  onToggle,
   onClose,
 }: SkillsPanelProps): React.JSX.Element {
   const [selected, setSelected] = useState(0);
@@ -29,7 +36,10 @@ export function SkillsPanel({
       else onClose();
       return;
     }
-    if (detail) return;
+    if (detail) {
+      if (key.return) onToggle(detail);
+      return;
+    }
     if (skills.length === 0) return;
     if (key.upArrow) {
       setSelected(() => (safeSelected - 1 + skills.length) % skills.length);
@@ -61,44 +71,58 @@ export function SkillsPanel({
         {detail ? <Text dimColor> · /{detail.name}</Text> : null}
       </Box>
       {detail ? (
-        <SkillDetail skill={detail} />
+        <SkillDetail
+          skill={detail}
+          active={activeNames.includes(detail.name)}
+        />
       ) : skills.length === 0 ? (
         <Box flexDirection="column">
           <Text>Скиллов пока нет.</Text>
           <Text dimColor>
-            Положите инструкции в `.chisel/skills/{"<имя>"}/SKILL.md` проекта
-            (или общие в `.agents/skills/`) — агент подхватит их сам по
-            описанию, а вызвать можно будет командой /имя.
+            Новые скиллы сохраняются только в личную папку (см. скилл
+            skill-creator) — агент подхватит их сам по описанию, а вызвать можно
+            будет командой /имя.
           </Text>
         </Box>
       ) : (
         <Box flexDirection="column">
           <Text dimColor>
-            Агент читает нужный скилл сам, когда задача совпадает с описанием.
+            Агент читает нужный скилл сам, когда задача совпадает с описанием. ●
+            — задействован для всех запросов.
           </Text>
-          {skills.map((skill, index) =>
-            index === safeSelected ? (
+          {skills.map((skill, index) => {
+            const row = activeNames.includes(skill.name)
+              ? `/${skill.name} — ${skill.description} ●`
+              : `/${skill.name} — ${skill.description}`;
+            return index === safeSelected ? (
               <Text key={skill.name} bold inverse color="green">
-                ❯ /{skill.name} — {skill.description}
+                ❯ {row}
               </Text>
             ) : (
               <Text key={skill.name} dimColor wrap="truncate-end">
-                {"  "}/{skill.name} — {skill.description}
+                {"  "}
+                {row}
               </Text>
-            ),
-          )}
+            );
+          })}
         </Box>
       )}
       <Text dimColor>
         {detail
-          ? "Esc — назад к списку"
+          ? "Enter — задействовать/отключить · Esc — назад к списку"
           : "↑/↓ — выбор · Enter — открыть · Esc — закрыть"}
       </Text>
     </Box>
   );
 }
 
-function SkillDetail({ skill }: { skill: Skill }): React.JSX.Element {
+function SkillDetail({
+  skill,
+  active,
+}: {
+  skill: Skill;
+  active: boolean;
+}): React.JSX.Element {
   return (
     <Box flexDirection="column">
       <Text bold>
@@ -106,11 +130,18 @@ function SkillDetail({ skill }: { skill: Skill }): React.JSX.Element {
       </Text>
       <Text dimColor>{skill.dir}</Text>
       <Text>{skill.description}</Text>
+      {active ? (
+        <Text color="green">
+          ● задействован — инструкции идут в каждый запрос
+        </Text>
+      ) : (
+        <Text dimColor>○ не задействован</Text>
+      )}
       <Box marginTop={1} flexDirection="column">
         <Text wrap="wrap">{skill.instructions}</Text>
       </Box>
       <Text dimColor>
-        Вызов вручную: /{skill.name} — агент выполнит инструкции.
+        Вызов вручную: /{skill.name} — агент выполнит инструкции разово.
       </Text>
     </Box>
   );
@@ -119,6 +150,7 @@ function SkillDetail({ skill }: { skill: Skill }): React.JSX.Element {
 function sourceLabel(source: SkillSource): string {
   if (source === "project") return "проект";
   if (source === "shared") return ".agents";
-  if (source === "global") return "личные";
+  if (source === "personal") return "личные";
+  if (source === "global") return "конфиг";
   return "из коробки";
 }

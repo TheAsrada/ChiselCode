@@ -20,14 +20,21 @@ import { SLASH_COMMANDS } from "../ui/commands.js";
  * 1. `<проект>/.chisel/skills/<имя>/SKILL.md` — свои, можно коммитить;
  * 2. `<проект>/.agents/skills/<имя>/SKILL.md` — кросс-клиентский стандарт,
  *    те же скиллы подхватывают другие агенты;
- * 3. `<конфиг>/skills/<имя>/SKILL.md` — личные, рядом с config.json;
- * 4. `skills/<имя>/SKILL.md` рядом с бинарником (из установщика)
+ * 3. личная папка (`%LOCALAPPDATA%\ChiselCode\skills` на Windows) — для всех
+ *    проектов; ВСЕ новые скиллы сохраняются только сюда;
+ * 4. `<конфиг>/skills/<имя>/SKILL.md` — legacy-личные, рядом с config.json;
+ * 5. `skills/<имя>/SKILL.md` рядом с бинарником (из установщика)
  *    или в репо (dev) — встроенные из коробки.
  *
  * Встроенные slash-команды (`/settings`…) перекрыть нельзя.
  */
 
-export type SkillSource = "project" | "shared" | "global" | "bundled";
+export type SkillSource =
+  | "project"
+  | "shared"
+  | "personal"
+  | "global"
+  | "bundled";
 
 export interface Skill {
   /** Без слэша: `review` для `/review`. Совпадает с именем папки. */
@@ -38,6 +45,12 @@ export interface Skill {
   instructions: string;
   /** Предодобренные инструменты скилла (experimental, из frontmatter). */
   allowedTools?: string[];
+  /**
+   * Можно ли вызывать как /имя. `user-invocable: false` прячет скилл из
+   * slash-команд (как skill-creator): он остаётся в каталоге для агента
+   * и в браузере /skills, где его можно задействовать.
+   */
+  userInvocable?: boolean;
   source: SkillSource;
   /** Папка скилла: там же scripts/, references/, assets/. */
   dir: string;
@@ -46,8 +59,32 @@ export interface Skill {
 export interface SkillLocations {
   projectDir?: string;
   sharedDir?: string;
+  personalDir?: string;
   globalDir?: string;
   bundledDir?: string;
+}
+
+/**
+ * Личная папка скиллов для всех проектов — ЕДИНСТВЕННОЕ место, куда
+ * сохраняются новые скиллы: `%LOCALAPPDATA%\ChiselCode\skills` на Windows,
+ * `$XDG_DATA_HOME/chiselcode/skills` (или `~/.local/share/...`) elsewhere.
+ */
+export function personalSkillsDir(): string {
+  if (process.platform === "win32") {
+    const local = process.env.LOCALAPPDATA?.trim();
+    if (local) return join(local, "ChiselCode", "skills");
+    return join(
+      process.env.USERPROFILE ?? process.cwd(),
+      "AppData",
+      "Local",
+      "ChiselCode",
+      "skills",
+    );
+  }
+  const dataHome =
+    process.env.XDG_DATA_HOME?.trim() ||
+    join(process.env.HOME ?? process.cwd(), ".local", "share");
+  return join(dataHome, "chiselcode", "skills");
 }
 
 /** Имя скилла по спеке: латиница/цифры/дефис, без висячих и двойных дефисов. */
@@ -70,6 +107,10 @@ export function resolveSkillDirs(
     {
       dir: overrides.sharedDir ?? join(cwd, ".agents", "skills"),
       source: "shared",
+    },
+    {
+      dir: overrides.personalDir ?? personalSkillsDir(),
+      source: "personal",
     },
     { dir: overrides.globalDir ?? defaultGlobalDir(), source: "global" },
     { dir: overrides.bundledDir ?? defaultBundledDir(), source: "bundled" },
@@ -137,8 +178,9 @@ export function loadSkills(
   const order: Record<SkillSource, number> = {
     project: 0,
     shared: 1,
-    global: 2,
-    bundled: 3,
+    personal: 2,
+    global: 3,
+    bundled: 4,
   };
   return [...found.values()].sort((a, b) => order[a.source] - order[b.source]);
 }
@@ -148,6 +190,12 @@ export interface ParsedSkill {
   description: string;
   instructions: string;
   allowedTools?: string[];
+  userInvocable?: boolean;
+}
+
+/** Скиллы, доступные как /команды (без `user-invocable: false`). */
+export function invocableSkills(skills: Skill[]): Skill[] {
+  return skills.filter((skill) => skill.userInvocable !== false);
 }
 
 /**
@@ -181,11 +229,16 @@ export function parseSkillFile(
   const allowedTools = allowedRaw
     ? allowedRaw.split(/\s+/).filter(Boolean)
     : undefined;
+  const invocableRaw = String(data["user-invocable"] ?? "")
+    .trim()
+    .toLowerCase();
+  const userInvocable = invocableRaw === "false" ? false : undefined;
   return {
     name,
     description,
     instructions,
     ...(allowedTools?.length ? { allowedTools } : {}),
+    ...(userInvocable === false ? { userInvocable } : {}),
   };
 }
 
@@ -301,10 +354,46 @@ export function expandSkill(skill: Skill, args: string): string {
   return `${skill.instructions}\n\n${trimmed}`;
 }
 
+/** Маркер начала блока задействованных скиллов в запросе к агенту. */
+export const ACTIVE_SKILLS_HEADER = "◈ Активные скиллы:";
+/** Маркер конца блока: всё между ним и шапкой — инструкции, не задача. */
+export const ACTIVE_SKILLS_FOOTER = "◈ Конец скиллов.";
+
+/**
+ * Прикладывает инструкции задействованных скиллов к запросу. Пустой список —
+ * запрос как есть. Маркированный блок нужен, чтобы журнал при /resume мог
+ * скрыть инструкции и показать только саму задачу.
+ */
+export function buildActiveSkillsPrompt(
+  active: Skill[],
+  prompt: string,
+): string {
+  if (active.length === 0) return prompt;
+  const names = active.map((skill) => `/${skill.name}`).join(", ");
+  const bodies = active
+    .map((skill) => expandSkill(skill, ""))
+    .join("\n\n---\n\n");
+  return `${ACTIVE_SKILLS_HEADER} ${names}\n${bodies}\n${ACTIVE_SKILLS_FOOTER}\n\n${prompt}`;
+}
+
+/** Вырезает блок задействованных скиллов, оставляя саму задачу (для вида). */
+export function stripActiveSkillsBlock(text: string): string {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) =>
+    line.startsWith(ACTIVE_SKILLS_HEADER),
+  );
+  const end = lines.findIndex((line) => line.startsWith(ACTIVE_SKILLS_FOOTER));
+  if (start === -1 || end === -1 || end < start) return text;
+  return lines
+    .slice(end + 1)
+    .join("\n")
+    .replace(/^\n+/, "");
+}
+
 /**
  * Каталог скиллов для системного промпта (уровень 1 прогрессивного
  * раскрытия): только имя + описание + путь. Полный SKILL.md агент читает
- * сам через read_file, когда задача совпадёт с описанием.
+ * сам через read_file, когда задача совпадает с описанием.
  */
 export function skillsCatalogPrompt(skills: Skill[]): string {
   if (skills.length === 0) return "";

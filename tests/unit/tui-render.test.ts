@@ -452,6 +452,101 @@ describe("tui fullscreen render", () => {
     }
   });
 
+  test("skills browser toggles activation into the next request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-active-"));
+    const dir = join(root, ".chisel", "skills", "hello");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: hello\ndescription: Поздороваться\n---\nСкажи привет\n",
+    );
+    const prompts: { prompt: string; display?: string }[] = [];
+    const app = await startApp(100, 30, {
+      cwd: root,
+      onSubmit: async (prompt: string, display?: string) => {
+        prompts.push({ prompt, display });
+      },
+    });
+    try {
+      for (const ch of "/skills") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      // Enter — детали, Enter — задействовать.
+      app.stdin.write("\r");
+      await tick(200);
+      app.stdin.write("\r");
+      await tick(200);
+      expect(app.chunks()).toContain("задействован");
+      app.stdin.write("\x1b");
+      await tick(200);
+      app.stdin.write("\x1b");
+      await tick(200);
+      // Панель закрыта — видна инфо-строка о задействовании.
+      expect(app.chunks()).toContain("◈ Скилл /hello задействован");
+      for (const ch of "сделай дело") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]?.prompt).toContain("◈ Активные скиллы: /hello");
+      expect(prompts[0]?.prompt).toContain("Скажи привет");
+      expect(prompts[0]?.prompt.endsWith("сделай дело")).toBe(true);
+      expect(prompts[0]?.display).toBeUndefined();
+      // В журнале — только короткий запрос, без инструкций.
+      expect(app.chunks()).toContain("❯ сделай дело");
+      // Отключаем: следующий запрос идёт чистым.
+      for (const ch of "/skills") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      app.stdin.write("\r");
+      await tick(200);
+      app.stdin.write("\r");
+      await tick(200);
+      app.stdin.write("\x1b");
+      await tick(200);
+      app.stdin.write("\x1b");
+      await tick(200);
+      // Панель закрыта — видна инфо-строка об отключении.
+      expect(app.chunks()).toContain("◈ Скилл /hello отключён");
+      for (const ch of "второй") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]?.prompt).toBe("второй");
+    } finally {
+      app.unmount();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("hidden skills are not slash commands", async () => {
+    // skill-creator из бандла: user-invocable false — /имя не выполняется,
+    // но скилл остаётся в каталоге и браузере.
+    const app = await startApp(100, 30);
+    try {
+      for (const ch of "/skill-creator") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(app.chunks()).toContain("Неизвестная команда: /skill-creator");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("frame recovers from lost resize event without input", async () => {
     // Регрессия «съезжания» при fullscreen/resize на Windows: событие
     // resize ОС потеряно (conhost/Bun его часто не шлёт) и ввода нет —

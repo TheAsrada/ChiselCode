@@ -3,12 +3,16 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildActiveSkillsPrompt,
   expandSkill,
+  invocableSkills,
   loadSkills,
   parseSkillFile,
+  personalSkillsDir,
   type Skill,
   skillsCatalogPrompt,
   splitFrontmatter,
+  stripActiveSkillsBlock,
 } from "../../src/skills/skills.js";
 import {
   commandHelpText,
@@ -102,9 +106,10 @@ describe("SKILL.md files", () => {
     try {
       const project = join(root, "proj", ".chisel", "skills");
       const shared = join(root, "proj", ".agents", "skills");
+      const personal = join(root, "personal");
       const global = join(root, "global");
       const bundled = join(root, "bundled");
-      for (const dir of [project, shared, global, bundled])
+      for (const dir of [project, shared, personal, global, bundled])
         await mkdir(dir, { recursive: true });
       await mkdir(join(project, "review"), { recursive: true });
       await writeFile(
@@ -120,17 +125,21 @@ describe("SKILL.md files", () => {
       );
       await mkdir(join(bundled, "explain"), { recursive: true });
       await writeFile(join(bundled, "explain", "SKILL.md"), "Объясни код\n");
+      await mkdir(join(personal, "memo"), { recursive: true });
+      await writeFile(join(personal, "memo", "SKILL.md"), "Памятка\n");
       // Мусор игнорируется: файлы вместо папок, чужие расширения.
       await writeFile(join(project, "notes.txt"), "не скилл\n");
       const loaded = loadSkills(join(root, "proj"), {
         projectDir: project,
         sharedDir: shared,
+        personalDir: personal,
         globalDir: global,
         bundledDir: bundled,
       });
       expect(loaded.map((s) => `${s.source}:${s.name}`).sort()).toEqual([
         "bundled:explain",
         "global:commit",
+        "personal:memo",
         "project:review",
         "shared:plan",
       ]);
@@ -163,6 +172,7 @@ describe("SKILL.md files", () => {
         projectDir: project,
         globalDir: global,
         sharedDir: join(root, "missing-shared"),
+        personalDir: join(root, "missing-personal"),
         bundledDir: join(root, "missing"),
       });
       expect(loaded.map((s) => `${s.source}:${s.name}`)).toEqual([
@@ -179,6 +189,7 @@ describe("SKILL.md files", () => {
       loadSkills("/nonexistent", {
         projectDir: "/nonexistent/a",
         sharedDir: "/nonexistent/s",
+        personalDir: "/nonexistent/p",
         globalDir: "/nonexistent/b",
         bundledDir: "/nonexistent/c",
       }),
@@ -194,6 +205,87 @@ describe("SKILL.md files", () => {
     expect(expandSkill(skill("A $ARGUMENTS B $ARGUMENTS"), "x")).toBe(
       "A x B x",
     );
+  });
+
+  test("personal dir is the single home for new skills", () => {
+    const dir = personalSkillsDir();
+    expect(dir.length).toBeGreaterThan(0);
+    if (process.platform === "win32") expect(dir).toContain("skills");
+    else expect(dir).toContain("chiselcode");
+  });
+
+  test("user-invocable false hides the skill from slash commands", () => {
+    const parsed = parseSkillFile(
+      "skill-creator",
+      "---\nname: skill-creator\ndescription: Писатель скиллов\nuser-invocable: false\n---\nПиши скиллы\n",
+    );
+    expect(parsed?.userInvocable).toBe(false);
+    const hidden: Skill = {
+      name: "skill-creator",
+      description: "Писатель",
+      instructions: "Пиши",
+      userInvocable: false,
+      source: "bundled",
+      dir: "/tmp/x",
+    };
+    const shown: Skill = {
+      name: "review",
+      description: "Ревью",
+      instructions: "Ревью",
+      source: "bundled",
+      dir: "/tmp/y",
+    };
+    // В каталоге для агента остаются оба, в командах — только вызываемый.
+    expect(skillsCatalogPrompt([hidden, shown])).toContain("/skill-creator");
+    expect(invocableSkills([hidden, shown]).map((s) => s.name)).toEqual([
+      "review",
+    ]);
+  });
+
+  test("active skills wrap the prompt in a marked block", () => {
+    const active: Skill[] = [
+      {
+        name: "review",
+        description: "Ревью",
+        instructions: "Сделай ревью",
+        source: "personal",
+        dir: "/tmp/r",
+      },
+    ];
+    expect(buildActiveSkillsPrompt([], "задача")).toBe("задача");
+    const full = buildActiveSkillsPrompt(active, "задача");
+    expect(full).toContain("◈ Активные скиллы: /review");
+    expect(full).toContain("Сделай ревью");
+    expect(full).toContain("◈ Конец скиллов.");
+    expect(full.endsWith("задача")).toBe(true);
+    // Полоса для вида: инструкции вырезаются, задача остаётся.
+    expect(stripActiveSkillsBlock(full)).toBe("задача");
+    expect(stripActiveSkillsBlock("обычный текст")).toBe("обычный текст");
+  });
+
+  test("personal shadows global and bundled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-skills-"));
+    try {
+      const personal = join(root, "personal");
+      const global = join(root, "global");
+      await mkdir(join(personal, "memo"), { recursive: true });
+      await mkdir(join(global, "memo"), { recursive: true });
+      await writeFile(join(personal, "memo", "SKILL.md"), "Личная памятка\n");
+      await writeFile(join(global, "memo", "SKILL.md"), "Конфиг-памятка\n");
+      const loaded = loadSkills(root, {
+        projectDir: join(root, "missing-p"),
+        sharedDir: join(root, "missing-s"),
+        personalDir: personal,
+        globalDir: global,
+        bundledDir: join(root, "missing-b"),
+      });
+      expect(loaded.map((s) => `${s.source}:${s.name}`)).toEqual([
+        "personal:memo",
+      ]);
+      expect(loaded[0]?.instructions).toContain("Личная");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("catalog prompt stays empty without skills", () => {

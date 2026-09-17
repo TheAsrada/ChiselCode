@@ -33,7 +33,12 @@ import {
   resolveSessionRef,
   shortSessionId,
 } from "./sessions/store.js";
-import { expandSkill, loadSkills } from "./skills/skills.js";
+import {
+  expandSkill,
+  invocableSkills,
+  loadSkills,
+  stripActiveSkillsBlock,
+} from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
@@ -335,7 +340,8 @@ const REPLAY_MESSAGE_LIMIT = 30;
 /**
  * Показывает историю сессии в журнале TUI при /resume: тексты пользователя
  * и ассистента по порядку, вызовы инструментов — одной строкой. Чистые
- * tool_result без текста пропускаются, чтобы не шуметь.
+ * tool_result без текста пропускаются, чтобы не шуметь. Блок задействованных
+ * скиллов из сообщений пользователя вырезается — видна только сама задача.
  */
 function replaySessionIntoTranscript(
   view: TuiTranscript,
@@ -350,7 +356,11 @@ function replaySessionIntoTranscript(
   for (const message of tail) {
     const texts = message.content
       .filter((block) => block.type === "text")
-      .map((block) => block.text.trim())
+      .map((block) =>
+        message.role === "user"
+          ? stripActiveSkillsBlock(block.text).trim()
+          : block.text.trim(),
+      )
       .filter(Boolean);
     const tools = message.content.filter((block) => block.type === "tool_use");
     if (message.role === "user") {
@@ -817,9 +827,9 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         const space = line.search(/\s/);
         const head = space === -1 ? line : line.slice(0, space);
         if (head.startsWith("/") && head.length > 1) {
-          const skill = loadSkills(activeOptions.cwd ?? process.cwd()).find(
-            (candidate) => `/${candidate.name}` === head,
-          );
+          const skill = invocableSkills(
+            loadSkills(activeOptions.cwd ?? process.cwd()),
+          ).find((candidate) => `/${candidate.name}` === head);
           if (skill) {
             const args = space === -1 ? "" : line.slice(space).trim();
             process.stdout.write(

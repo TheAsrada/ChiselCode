@@ -7,7 +7,13 @@ import type {
   ApprovalRequest,
   ApprovalResolver,
 } from "../security/approval.js";
-import { expandSkill, loadSkills, type Skill } from "../skills/skills.js";
+import {
+  buildActiveSkillsPrompt,
+  expandSkill,
+  invocableSkills,
+  loadSkills,
+  type Skill,
+} from "../skills/skills.js";
 import type { ProviderKind } from "../types/domain.js";
 import {
   commandHelpText,
@@ -701,9 +707,18 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
   const nextTranscriptId = useRef(0);
   const skills = loadSkills(projectCwd);
+  // Как /команды вызываются только invocable-скиллы; скрытые
+  // (`user-invocable: false`) живут только в каталоге и /skills.
+  const slashSkills = invocableSkills(skills);
   const suggestions = isSlashInput(editor.value)
-    ? matchingCommands(editor.value, skills)
+    ? matchingCommands(editor.value, slashSkills)
     : [];
+  // Скиллы, задействованные через /skills: их инструкции прикладываются
+  // к каждому следующему запросу, пока не отключишь.
+  const [activeSkillNames, setActiveSkillNames] = useState<string[]>([]);
+  const activeSkills = skills.filter((skill) =>
+    activeSkillNames.includes(skill.name),
+  );
   /**
    * Выбор команды как в Claude Code: стрелки ↑/↓ двигают подсветку,
    * Tab/Enter принимают подсвеченную. Отдельное состояние вместо
@@ -726,7 +741,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const needsTrailingSpace = (name: string): boolean => {
     if (name === "/cwd" || name === "/resume") return true;
     // Скиллы всегда принимают аргументы (дописываются к инструкциям).
-    return skills.some((skill) => `/${skill.name}` === name);
+    return slashSkills.some((skill) => `/${skill.name}` === name);
   };
   const acceptSelectedSuggestion = (): boolean => {
     const selected = suggestions[selectedSuggestionIndex];
@@ -849,7 +864,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         runSkill(prompt, skill.skill, skill.args);
         return;
       }
-      const similar = suggestSimilarCommand(prompt, loadSkills(projectCwd));
+      const similar = suggestSimilarCommand(prompt, slashSkills);
       append(
         similar
           ? `Неизвестная команда: ${prompt}. Возможно, вы имели в виду ${similar}?`
@@ -864,15 +879,17 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   }
   /**
    * Отправка текста агенту. display — что показать в журнале вместо самого
-   * текста: для своих команд виден короткий `/имя args`, а выполняется
-   * развёрнутый шаблон.
+   * текста: для скиллов виден короткий `/имя args`, а выполняется
+   * развёрнутый шаблон. Задействованные через /skills скиллы прикладываются
+   * к каждому запросу маркированным блоком (в журнале — только display).
    */
   function submitPrompt(prompt: string, display?: string): void {
     setEditor((state) => addEditorHistory(state, display ?? prompt));
     resetCommandSelection();
+    const full = buildActiveSkillsPrompt(activeSkills, prompt);
     setBusy(true);
     void props
-      .onSubmit(prompt, display)
+      .onSubmit(full, display)
       .catch((cause) =>
         append(
           `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -888,7 +905,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     const head = space === -1 ? prompt : prompt.slice(0, space);
     if (!head.startsWith("/") || head.length < 2) return undefined;
     const args = space === -1 ? "" : prompt.slice(space).trim();
-    const skill = loadSkills(projectCwd).find(
+    const skill = invocableSkills(loadSkills(projectCwd)).find(
       (candidate) => `/${candidate.name}` === head,
     );
     return skill ? { skill, args } : undefined;
@@ -1374,7 +1391,25 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           overflow="hidden"
           width="100%"
         >
-          <SkillsPanel skills={skills} onClose={() => setSkillsOpen(false)} />
+          <SkillsPanel
+            skills={skills}
+            activeNames={activeSkillNames}
+            onToggle={(skill) => {
+              const active = activeSkillNames.includes(skill.name);
+              setActiveSkillNames((names) =>
+                active
+                  ? names.filter((name) => name !== skill.name)
+                  : [...names, skill.name],
+              );
+              append(
+                active
+                  ? `◈ Скилл /${skill.name} отключён.`
+                  : `◈ Скилл /${skill.name} задействован: его инструкции добавятся к следующим запросам.`,
+                "info",
+              );
+            }}
+            onClose={() => setSkillsOpen(false)}
+          />
         </Box>
       </Box>
     );

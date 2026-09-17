@@ -4,7 +4,7 @@ export const SLASH_COMMANDS = [
   { name: "/cwd", description: "сменить папку проекта: <путь>" },
   { name: "/settings", description: "открыть настройки" },
   { name: "/model", description: "сменить модель" },
-  { name: "/skills", description: "доступные скиллы: выбрать и посмотреть" },
+  { name: "/skills", description: "скиллы: выбрать и задействовать" },
   { name: "/status", description: "показать состояние сессии" },
   { name: "/new", description: "начать новый сеанс" },
   { name: "/sessions", description: "список сеансов проекта" },
