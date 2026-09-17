@@ -36,6 +36,57 @@ export interface SettingsPanelProps {
    * итог: успех — показать зелёным, текст с «✗» в начале — красным как ошибку.
    */
   onCheckConnection(values: TuiSettingsValues): Promise<string>;
+  /**
+   * Список моделей провайдера для интерактивного выбора на экране «Модель».
+   * Необязателен: без него экран модели — просто ручной ввод, как раньше.
+   */
+  onListModels?(values: TuiSettingsValues): Promise<ModelListResult>;
+}
+
+/** Вариант модели в списке выбора: id + необязательная подсказка. */
+export interface ModelOption {
+  id: string;
+  hint?: string;
+}
+
+export type ModelListResult =
+  | { ok: true; models: ModelOption[] }
+  | { ok: false; error: string };
+
+/** Сколько строк списка моделей видно разом: остальное — счётчиком. */
+export const MAX_VISIBLE_MODELS = 8;
+/** Страховка от гигантских каталогов (сотни моделей у шлюзов). */
+const MAX_LISTED_MODELS = 200;
+
+/**
+ * Текущая модель — первой и помечается ✓, остальные по алфавиту.
+ * Чистая функция для тестов и стабильного порядка при каждом открытии.
+ */
+export function sortModelOptions(
+  models: ModelOption[],
+  current?: string,
+): ModelOption[] {
+  const normalized = (current ?? "").trim();
+  return [...models].sort((a, b) => {
+    const aCurrent = a.id === normalized ? 0 : 1;
+    const bCurrent = b.id === normalized ? 0 : 1;
+    if (aCurrent !== bCurrent) return aCurrent - bCurrent;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/** Поиск по списку: подстрока без учёта регистра по id и подсказке. */
+export function filterModelOptions(
+  models: ModelOption[],
+  query: string,
+): ModelOption[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return models;
+  return models.filter(
+    (model) =>
+      model.id.toLowerCase().includes(needle) ||
+      (model.hint ?? "").toLowerCase().includes(needle),
+  );
 }
 
 type Screen =
@@ -83,9 +134,25 @@ export function SettingsPanel({
   onSaved,
   onKeyStatus,
   onCheckConnection,
+  onListModels,
 }: SettingsPanelProps): React.JSX.Element {
   const [values, setValues] = useState(initialValues);
   const [screen, setScreen] = useState<Screen>(initialScreen);
+  // Состояние выбора модели из API: фильтр, подсветка, ручной режим.
+  const [modelFilter, setModelFilter] = useState("");
+  const [modelIndex, setModelIndex] = useState(0);
+  const [modelManual, setModelManual] = useState(false);
+  const [modelOptions, setModelOptions] = useState<ModelOption[] | undefined>(
+    undefined,
+  );
+  const [modelLoading, setModelLoading] = useState(false);
+  // Ключ данных, для которых список уже загружен: защищает от повторных
+  // запросов при ре-рендерах внутри визита. При каждом входе сбрасывается.
+  const modelFetchKeyRef = useRef("");
+  const onListModelsRef = useRef(onListModels);
+  onListModelsRef.current = onListModels;
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
   const [selected, setSelected] = useState(0);
   const [providerIndex, setProviderIndex] = useState(() =>
     Math.max(
@@ -116,6 +183,65 @@ export function SettingsPanel({
       cancelled = true;
     };
   }, [values.provider]);
+  /**
+   * Загрузка списка моделей при входе на экран «Модель» — под текущий сервис,
+   * адрес и введённый ключ. Ключ визита отсекает повторы при ре-рендерах;
+   * ручные правки модели ключ не меняют и сеть не дёргают. Опоздавший ответ
+   * отменяется флагом, чтобы не затереть свежий список.
+   */
+  useEffect(() => {
+    if (screen !== "model") return;
+    const fetchModels = onListModelsRef.current;
+    if (!fetchModels) return;
+    const visitKey = `${values.provider}|${values.baseUrl ?? ""}|${values.apiKey ?? ""}`;
+    if (modelFetchKeyRef.current === visitKey) return;
+    modelFetchKeyRef.current = visitKey;
+    let cancelled = false;
+    const snapshot = valuesRef.current;
+    const currentModel = snapshot.model;
+    setModelLoading(true);
+    setError("");
+    void fetchModels({
+      provider: snapshot.provider,
+      model: currentModel.trim(),
+      apiKey: snapshot.apiKey?.trim() || undefined,
+      baseUrl: snapshot.baseUrl?.trim() || undefined,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        setModelLoading(false);
+        if (result.ok) {
+          setModelOptions(
+            sortModelOptions(
+              result.models.slice(0, MAX_LISTED_MODELS),
+              currentModel,
+            ),
+          );
+          setModelManual(false);
+          setModelFilter("");
+          setModelIndex(0);
+        } else {
+          // Умный фолбэк: список недоступен — сразу ручной ввод с причиной.
+          setModelOptions(undefined);
+          setModelManual(true);
+          setError(result.error);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setModelLoading(false);
+        setModelOptions(undefined);
+        setModelManual(true);
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Не удалось загрузить список моделей.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [screen, values.provider, values.baseUrl, values.apiKey]);
   const items = menuItems(values.provider);
   // Пункты зависят от провайдера (base-url только для совместимых):
   // после смены сервиса прежний индекс может оказаться за границей,
@@ -130,8 +256,38 @@ export function SettingsPanel({
     setError("");
   };
 
+  // Есть ли живой список моделей (а не ручной ввод): нужен и проп,
+  // и загруженные варианты, и не ручной режим.
+  const hasModelOptions =
+    typeof onListModels === "function" &&
+    !modelManual &&
+    modelOptions !== undefined;
+  const filteredModels = hasModelOptions
+    ? filterModelOptions(modelOptions, modelFilter)
+    : [];
+  // Строки выбора: модели + закреплённая «ввести вручную» в конце.
+  const modelRowCount = filteredModels.length + 1;
+  const safeModelIndex = modelRowCount > 0 ? modelIndex % modelRowCount : 0;
+  // Окно списка как в подсказках команд: максимум MAX_VISIBLE_MODELS строк,
+  // остаток — счётчиком. Ручная строка закреплена снизу и видна всегда.
+  const modelWindowStart =
+    Math.floor(safeModelIndex / MAX_VISIBLE_MODELS) * MAX_VISIBLE_MODELS;
+  const visibleModels = filteredModels.slice(
+    modelWindowStart,
+    modelWindowStart + MAX_VISIBLE_MODELS,
+  );
+  const hiddenModelsCount =
+    filteredModels.length - (modelWindowStart + visibleModels.length);
+  const currentModelId = values.model.trim();
+
   useInput((character, key) => {
     if (screen === "saving" || screen === "checking") return;
+    // Из ручного ввода — назад к списку, а не сразу в меню.
+    if (key.escape && screen === "model" && modelManual && modelOptions) {
+      setModelManual(false);
+      setError("");
+      return;
+    }
     if (key.escape) {
       if (screen === "menu") onClose();
       else goScreen("menu");
@@ -150,8 +306,14 @@ export function SettingsPanel({
       const item = items[safeSelected];
       if (item === "provider") goScreen("provider");
       else if (item === "key") goScreen("key");
-      else if (item === "model") goScreen("model");
-      else if (item === "base-url") goScreen("base-url");
+      else if (item === "model") {
+        // Чистый вход в выбор: фильтр и подсветка сбрасываются,
+        // ключ визита — тоже, чтобы список подтянулся заново.
+        setModelFilter("");
+        setModelIndex(0);
+        modelFetchKeyRef.current = "";
+        goScreen("model");
+      } else if (item === "base-url") goScreen("base-url");
       else if (item === "setup") onSetupRequested();
       else if (item === "check") void checkConnection();
       else if (item === "close") onClose();
@@ -189,8 +351,81 @@ export function SettingsPanel({
       }
       return;
     }
-    const update =
-      screen === "model" ? "model" : screen === "key" ? "apiKey" : "baseUrl";
+    if (screen === "model" && !modelManual && onListModels) {
+      // Режим списка: стрелки — навигация, печать — поиск по списку.
+      if (modelLoading || !modelOptions) return;
+      if (key.upArrow || key.downArrow) {
+        setModelIndex(
+          (previous) =>
+            (previous + (key.upArrow ? -1 : 1) + modelRowCount) % modelRowCount,
+        );
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setModelFilter((filter) => filter.slice(0, -1));
+        setModelIndex(0);
+        setError("");
+        setNotice("");
+        return;
+      }
+      if (key.return) {
+        // Поиск ничего не дал — набранное сразу становится своей моделью.
+        if (filteredModels.length === 0 && modelFilter.trim()) {
+          const custom = modelFilter.trim();
+          setValues((current) => ({ ...current, model: custom }));
+          setNotice("");
+          goScreen("menu");
+          return;
+        }
+        // Последняя строка — переход к ручному вводу, иначе выбор модели.
+        if (safeModelIndex >= filteredModels.length) {
+          setModelManual(true);
+          setError("");
+          return;
+        }
+        const picked = filteredModels[safeModelIndex];
+        if (!picked) return;
+        setValues((current) => ({ ...current, model: picked.id }));
+        setNotice("");
+        goScreen("menu");
+        return;
+      }
+      if (!key.ctrl && !key.meta && character) {
+        setModelFilter((filter) => `${filter}${character}`);
+        setModelIndex(0);
+        setError("");
+        setNotice("");
+      }
+      return;
+    }
+    if (screen === "model") {
+      // Ручной ввод модели: фолбэк без списка или строка «Ввести вручную».
+      // Возврат к списку по Esc обрабатывается выше.
+      if (key.backspace || key.delete) {
+        setValues((current) => ({
+          ...current,
+          model: current.model.slice(0, -1),
+        }));
+        setError("");
+        setNotice("");
+        return;
+      }
+      if (key.return) {
+        goScreen("menu");
+        return;
+      }
+      if (!key.ctrl && !key.meta && character) {
+        setValues((current) => ({
+          ...current,
+          model: `${current.model}${character}`,
+        }));
+        setError("");
+        setNotice("");
+      }
+      return;
+    }
+    if (screen !== "key" && screen !== "base-url") return;
+    const update = screen === "key" ? "apiKey" : "baseUrl";
     if (key.backspace || key.delete) {
       setValues((current) => ({
         ...current,
@@ -205,11 +440,12 @@ export function SettingsPanel({
       goScreen("menu");
       return;
     }
-    if (!key.ctrl && !key.meta && character) {
+    if (!key.ctrl && !key.meta && character)
       setValues((current) => ({
         ...current,
         [update]: `${current[update] ?? ""}${character}`,
       }));
+    if (character) {
       setError("");
       setNotice("");
     }
@@ -324,11 +560,81 @@ export function SettingsPanel({
           </Text>
         </Box>
       ) : null}
-      {screen === "model" ? (
-        <Text color="green">
-          Модель ❯ {values.model || "…"}
-          <Text color="green">█</Text>
-        </Text>
+      {screen === "model" && (modelManual || !onListModels) ? (
+        <Box flexDirection="column">
+          <Text bold>Модель для {providerLabel(values.provider)}:</Text>
+          {modelOptions ? (
+            <Text dimColor>Своя модель — введите вручную.</Text>
+          ) : (
+            <Text dimColor>
+              {onListModels
+                ? "Список недоступен — введите вручную."
+                : "Можно оставить предложенную модель или отредактировать её."}
+            </Text>
+          )}
+          <Text color="green">
+            ❯ {values.model || "…"}
+            <Text color="green">█</Text>
+          </Text>
+        </Box>
+      ) : null}
+      {screen === "model" && !modelManual && onListModels && modelLoading ? (
+        <Box flexDirection="column">
+          <Text bold>Модель для {providerLabel(values.provider)}:</Text>
+          <Text color="yellow">Загружаю список моделей из API…</Text>
+        </Box>
+      ) : null}
+      {screen === "model" && hasModelOptions ? (
+        <Box flexDirection="column">
+          <Text bold>Модель для {providerLabel(values.provider)}:</Text>
+          {modelFilter ? (
+            <Text>
+              Поиск ❯ <Text color="green">{modelFilter}</Text>
+              <Text color="green">█</Text>
+            </Text>
+          ) : (
+            <Text dimColor>Поиск ❯ … (печатайте, чтобы отфильтровать)</Text>
+          )}
+          {filteredModels.length === 0 ? (
+            <Text dimColor>
+              Совпадений нет — Enter введёт «{modelFilter.trim()}» как свою
+              модель.
+            </Text>
+          ) : null}
+          {visibleModels.map((model, index) => {
+            const absolute = modelWindowStart + index;
+            const isCurrent = model.id === currentModelId;
+            const label = isCurrent ? `${model.id} ✓` : model.id;
+            return absolute === safeModelIndex ? (
+              <Text key={model.id} bold inverse color="green">
+                ❯ {label}
+              </Text>
+            ) : (
+              <Text key={model.id} dimColor>
+                {"  "}
+                {label}
+              </Text>
+            );
+          })}
+          {hiddenModelsCount > 0 ? (
+            <Text dimColor>…и ещё {hiddenModelsCount}</Text>
+          ) : null}
+          {safeModelIndex >= filteredModels.length ? (
+            <Text bold inverse color="green">
+              ❯{" "}
+              {filteredModels.length === 0 && modelFilter.trim()
+                ? `Использовать «${modelFilter.trim()}»`
+                : "✎ Ввести вручную…"}
+            </Text>
+          ) : (
+            <Text dimColor>
+              {"  "}
+              {filteredModels.length === 0 && modelFilter.trim()
+                ? `✎ Использовать «${modelFilter.trim()}»`
+                : "✎ Ввести вручную…"}
+            </Text>
+          )}
+        </Box>
       ) : null}
       {screen === "base-url" ? (
         <Text color="green">
@@ -349,9 +655,15 @@ export function SettingsPanel({
             ? "↑/↓ — выбор · Enter — выбрать · Esc — назад"
             : screen === "key"
               ? "Печать · Enter — готово · Esc — назад · пусто — оставить"
-              : screen === "model" || screen === "base-url"
-                ? "Печать · Enter — готово · Esc — назад"
-                : "Подождите…"}
+              : screen === "model" && !modelManual && onListModels
+                ? modelOptions
+                  ? "↑/↓ — выбор · Enter — выбрать · Esc — назад · печать — поиск"
+                  : "Подождите…"
+                : screen === "model" && modelManual && modelOptions
+                  ? "Печать · Enter — готово · Esc — к списку"
+                  : screen === "model" || screen === "base-url"
+                    ? "Печать · Enter — готово · Esc — назад"
+                    : "Подождите…"}
       </Text>
       {error ? <Text color="red">✗ {error}</Text> : null}
       {notice ? <Text color="green">✓ {notice}</Text> : null}

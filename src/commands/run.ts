@@ -28,6 +28,7 @@ import {
 import { ToolRegistry } from "../tools/registry.js";
 import type {
   AgentResult,
+  ModelInfo,
   ProviderAdapter,
   ProviderKind,
   ToolExecutionResult,
@@ -148,6 +149,56 @@ export async function checkProviderConnection(
   )
     message += ` — модели «${wanted}» нет в списке шлюза, сверьте название в консоли провайдера.`;
   return { ok: true, message };
+}
+
+export type ModelListOutcome =
+  | { ok: true; models: ModelInfo[] }
+  | { ok: false; error: string };
+
+/**
+ * Список моделей провайдера для интерактивного выбора в /model.
+ * Та же резолюция ключа и адреса, что и в checkProviderConnection:
+ * введённый (но ещё не сохранённый) ключ приоритетнее сохранённого.
+ * Сеть трогает только при наличии ключа и адреса.
+ */
+export async function listProviderModels(
+  input: ConnectionCheckInput,
+  options?: { configPath?: string },
+): Promise<ModelListOutcome> {
+  const global = await loadGlobalConfig(options?.configPath);
+  const providerConfig = global.providers[input.provider];
+  const apiKey =
+    input.apiKey?.trim() ||
+    (await resolveApiKey(
+      input.provider,
+      providerConfig?.apiKeyRef,
+      new CredentialStore(),
+    ));
+  if (!apiKey)
+    return {
+      ok: false,
+      error: `Нет API-ключа для ${providerLabel(input.provider)}: вставьте ключ на экране «API-ключ» и попробуйте снова.`,
+    };
+  const baseUrl = input.baseUrl ?? providerConfig?.baseUrl;
+  let adapter: ProviderAdapter;
+  try {
+    adapter = createProvider(input.provider, apiKey, baseUrl);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  try {
+    const models = await withTimeout(
+      adapter.listModels(),
+      CONNECTION_CHECK_TIMEOUT_MS,
+      `Превышено время ожидания (${CONNECTION_CHECK_TIMEOUT_MS / 1000}с): проверьте адрес API и доступность сервера.`,
+    );
+    return { ok: true, models };
+  } catch (error) {
+    return { ok: false, error: formatConnectionError(error, baseUrl) };
+  }
 }
 
 async function withTimeout<T>(

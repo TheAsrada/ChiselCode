@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import React from "react";
-import { checkProviderConnection } from "../../src/commands/run.js";
+import {
+  checkProviderConnection,
+  listProviderModels,
+} from "../../src/commands/run.js";
 import { saveGlobalConfig } from "../../src/config/load.js";
 import type { SetupValues } from "../../src/ui/setup.js";
 import { createTuiApprovalResolver, TuiApp } from "../../src/ui/tui.js";
@@ -269,6 +272,25 @@ describe("settings connection check", () => {
     } finally {
       if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
       else delete process.env.OPENAI_API_KEY;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("model listing reports a missing API key without touching the network", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chiselcode-conn-"));
+    const configPath = join(directory, "config.json");
+    const saved = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      await saveGlobalConfig({ providers: {} }, configPath);
+      const result = await listProviderModels(
+        { provider: "openai-compatible" },
+        { configPath },
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain("Нет API-ключа");
+    } finally {
+      if (saved !== undefined) process.env.OPENAI_API_KEY = saved;
       await rm(directory, { recursive: true, force: true });
     }
   });

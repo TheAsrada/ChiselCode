@@ -34,7 +34,11 @@ import {
   navigateEditorHistory,
 } from "./editor.js";
 import { MarkdownText, parseBlocks } from "./markdown.js";
-import { SettingsPanel, type TuiSettingsValues } from "./settings.js";
+import {
+  type ModelListResult,
+  SettingsPanel,
+  type TuiSettingsValues,
+} from "./settings.js";
 import { SetupApp, type SetupValues } from "./setup.js";
 import { type ToolTone, toolDisplay, toolTone } from "./theme.js";
 import { Thinking } from "./thinking.js";
@@ -630,6 +634,11 @@ export interface TuiAppProps {
   onCheckConnection(values: TuiSettingsValues): Promise<string>;
   /** Есть ли сохранённый ключ для сервиса (статус в /settings). */
   onKeyStatus?(provider: ProviderKind): Promise<boolean>;
+  /**
+   * Список моделей провайдера для интерактивного выбора в /model.
+   * Необязателен: без него экран модели — ручной ввод, как раньше.
+   */
+  onListModels?(values: TuiSettingsValues): Promise<ModelListResult>;
   /**
    * Сохранение заново пройденного мастера настройки.
    * Выполняется внутри того же Ink-приложения: TUI не размонтируется,
@@ -1333,6 +1342,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             onSave={props.onSaveSettings}
             onClose={() => setSettings(undefined)}
             onCheckConnection={props.onCheckConnection}
+            onListModels={props.onListModels}
             onKeyStatus={props.onKeyStatus}
             onSetupRequested={requestSetupRestart}
             onSaved={(values) =>

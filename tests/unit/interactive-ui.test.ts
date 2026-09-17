@@ -19,6 +19,11 @@ import {
   navigateEditorHistory,
 } from "../../src/ui/editor.js";
 import {
+  filterModelOptions,
+  MAX_VISIBLE_MODELS,
+  sortModelOptions,
+} from "../../src/ui/settings.js";
+import {
   estimateFooterHeight,
   fullWidthSeparator,
   maxTranscriptOffset,
@@ -300,5 +305,40 @@ describe("interactive viewport layout", () => {
       hiddenAboveCount: 1,
       hiddenBelowCount: 1,
     });
+  });
+});
+
+describe("model picker helpers", () => {
+  test("current model goes first, the rest are alphabetical", () => {
+    expect(MAX_VISIBLE_MODELS).toBe(8);
+    const models = [{ id: "b-model" }, { id: "a-model" }, { id: "c-model" }];
+    expect(sortModelOptions(models, "c-model").map((m) => m.id)).toEqual([
+      "c-model",
+      "a-model",
+      "b-model",
+    ]);
+    // Текущей нет в списке — чисто по алфавиту, входной массив не мутирует.
+    expect(sortModelOptions(models, "missing").map((m) => m.id)).toEqual([
+      "a-model",
+      "b-model",
+      "c-model",
+    ]);
+    expect(models.map((m) => m.id)).toEqual(["b-model", "a-model", "c-model"]);
+  });
+
+  test("filter matches id and hint case-insensitively", () => {
+    const models = [
+      { id: "claude-opus-5" },
+      { id: "gpt-5", hint: "Flagship chat" },
+      { id: "deepseek-chat" },
+    ];
+    expect(filterModelOptions(models, "").length).toBe(3);
+    expect(filterModelOptions(models, "CLAUDE").map((m) => m.id)).toEqual([
+      "claude-opus-5",
+    ]);
+    expect(filterModelOptions(models, "flagship").map((m) => m.id)).toEqual([
+      "gpt-5",
+    ]);
+    expect(filterModelOptions(models, "zzz")).toEqual([]);
   });
 });

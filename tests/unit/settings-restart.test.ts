@@ -305,4 +305,118 @@ describe("settings restart setup", () => {
       instance.unmount();
     }
   });
+
+  test("model screen picks a model from the API list with arrows", async () => {
+    const stdout = createMockStdout(100, 30);
+    const stdin = createMockStdin();
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    const resolver = createTuiApprovalResolver();
+    const instance = render(
+      React.createElement(TuiApp, {
+        approvalResolver: resolver,
+        bindTranscript: () => {},
+        onSubmit: async () => {},
+        onStatus: async () => "status",
+        onSwitchProject: async (path: string) => path,
+        onSaveSettings: async () => "saved" as const,
+        onCheckConnection: async () => "ok",
+        onListModels: async () => ({
+          ok: true as const,
+          models: [{ id: "b-model" }, { id: "a-model" }],
+        }),
+        onCompleteSetup: async () => {},
+        provider: "anthropic",
+        providerLabel: "Anthropic (Claude)",
+        model: "test-model",
+      }),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        exitOnCtrlC: false,
+        patchConsole: false,
+        debug: true,
+      },
+    );
+    try {
+      await tick();
+      for (const ch of "/model") {
+        stdin.write(ch);
+        await tick(20);
+      }
+      stdin.write("\r");
+      await tick(500);
+      // Список из API виден (текущей нет — по алфавиту: a, b).
+      expect(stripAnsi(output)).toContain("a-model");
+      expect(stripAnsi(output)).toContain("b-model");
+      // ↓ до b-model + Enter — выбор, возврат в меню с новой моделью.
+      stdin.write("\x1b[B");
+      await tick(150);
+      stdin.write("\r");
+      await tick(300);
+      expect(stripAnsi(output)).toContain("✎ Модель: b-model");
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  test("model screen falls back to manual input when listing fails", async () => {
+    const stdout = createMockStdout(100, 30);
+    const stdin = createMockStdin();
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    const resolver = createTuiApprovalResolver();
+    const instance = render(
+      React.createElement(TuiApp, {
+        approvalResolver: resolver,
+        bindTranscript: () => {},
+        onSubmit: async () => {},
+        onStatus: async () => "status",
+        onSwitchProject: async (path: string) => path,
+        onSaveSettings: async () => "saved" as const,
+        onCheckConnection: async () => "ok",
+        onListModels: async () => ({
+          ok: false as const,
+          error: "boom-offline",
+        }),
+        onCompleteSetup: async () => {},
+        provider: "anthropic",
+        providerLabel: "Anthropic (Claude)",
+        model: "test-model",
+      }),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        exitOnCtrlC: false,
+        patchConsole: false,
+        debug: true,
+      },
+    );
+    try {
+      await tick();
+      for (const ch of "/model") {
+        stdin.write(ch);
+        await tick(20);
+      }
+      stdin.write("\r");
+      await tick(500);
+      // Причина видна, ручной ввод работает как раньше.
+      expect(stripAnsi(output)).toContain("boom-offline");
+      output = "";
+      for (const ch of "-2") {
+        stdin.write(ch);
+        await tick(20);
+      }
+      await tick(150);
+      stdin.write("\r");
+      await tick(300);
+      expect(stripAnsi(output)).toContain("✎ Модель: test-model-2");
+    } finally {
+      instance.unmount();
+    }
+  });
 });

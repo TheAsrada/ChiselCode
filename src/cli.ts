@@ -8,6 +8,7 @@ import React from "react";
 import {
   checkProviderConnection,
   hasApiKey,
+  listProviderModels,
   nonInteractiveResolver,
   type RunOptions,
   runPrompt,
@@ -521,6 +522,28 @@ async function startTui(options: RunOptions): Promise<void> {
             model: values.model,
           });
           return result.ok ? `✓ ${result.message}` : `✗ ${result.message}`;
+        },
+        onListModels: async (values: TuiSettingsValues) => {
+          const result = await listProviderModels({
+            provider: values.provider,
+            apiKey: values.apiKey?.trim() || undefined,
+            baseUrl: normalizeBaseUrlForProvider(
+              values.provider,
+              values.baseUrl,
+            ),
+            model: values.model,
+          });
+          if (!result.ok) return { ok: false as const, error: result.error };
+          return {
+            ok: true as const,
+            models: result.models.map((model) => ({
+              id: model.id,
+              hint:
+                model.displayName && model.displayName !== model.id
+                  ? model.displayName
+                  : undefined,
+            })),
+          };
         },
         onNewSession: async () => {
           activeOptions = { ...activeOptions, resume: undefined };
