@@ -614,8 +614,12 @@ export interface TuiAppProps {
   onPlanUpdate?(): Promise<SelfUpdatePlan>;
   /** Скачивание установщика во временную папку. */
   onDownloadUpdate?(plan: SelfUpdatePlan): Promise<DownloadedAsset>;
-  /** Запуск установщика (Windows): после вызова приложение закрывается. */
-  onLaunchInstaller?(path: string): Promise<void>;
+  /**
+   * Запуск установщика (Windows): после вызова приложение закрывается.
+   * silent=true — тихий режим NSIS (/S) без окон: установщик всё сделает
+   * сам и перезапустит приложение.
+   */
+  onLaunchInstaller?(path: string, silent: boolean): Promise<void>;
   onSaveSettings(
     values: TuiSettingsValues,
   ): Promise<"saved" | "setup_required">;
@@ -953,7 +957,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       }
       const decision = await props.approvalResolver.requestApproval({
         tool: "self_update",
-        preview: `Установить ChiselCode v${version}? Сейчас v${plan.current}.\nФайл: ${plan.asset}\nПосле запуска установки приложение закроется — затем запустите chisel заново.`,
+        preview: `Установить ChiselCode v${version}? Сейчас v${plan.current}.\nФайл: ${plan.asset}\nНичего кликать не придётся: установщик всё сделает тихо сам и перезапустит приложение.`,
       });
       if (decision !== "approved") {
         append("Обновление отменено.", "info");
@@ -980,8 +984,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         );
         return;
       }
-      append("Запускаю установщик и закрываю ChiselCode…", "info");
-      await props.onLaunchInstaller?.(downloaded.path);
+      append("Устанавливаю тихо и перезапускаюсь…", "info");
+      await props.onLaunchInstaller?.(downloaded.path, true);
       exit();
     } catch (cause) {
       append(

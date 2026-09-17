@@ -10,6 +10,7 @@ import {
   installerAssetName,
   isInstalledBinary,
   manualInstallCommand,
+  NSIS_SILENT_ARGS,
   planSelfUpdate,
   releaseDownloadUrl,
   type SelfUpdatePlan,
@@ -81,6 +82,12 @@ describe("self update helpers", () => {
     );
     expect(plan.updateAvailable).toBe(false);
     expect(plan.error).toBe("Нет соединения");
+  });
+
+  test("locks the silent NSIS contract for one-click updates", () => {
+    // /update запускает установщик тихо (/S): контракт флага в одном месте,
+    // чтобы GUI-установщик и тихий не разъехались.
+    expect([...NSIS_SILENT_ARGS]).toEqual(["/S"]);
   });
 
   test("suggests a manual install command off Windows", () => {
@@ -256,7 +263,7 @@ describe("tui self update flow", () => {
       output += chunk.toString();
     });
     const downloaded: string[] = [];
-    const launched: string[] = [];
+    const launched: { path: string; silent: boolean }[] = [];
     const instance = render(
       React.createElement(TuiApp, {
         approvalResolver: createTuiApprovalResolver(),
@@ -275,8 +282,8 @@ describe("tui self update flow", () => {
             bytes: 1048576,
           };
         },
-        onLaunchInstaller: async (path) => {
-          launched.push(path);
+        onLaunchInstaller: async (path, silent) => {
+          launched.push({ path, silent });
         },
         provider: "anthropic",
         providerLabel: "Anthropic (Claude)",
@@ -303,7 +310,9 @@ describe("tui self update flow", () => {
       stdin.write("y");
       await tick(600);
       expect(downloaded).toEqual(["ChiselCode-Setup-9.9.9.exe"]);
-      expect(launched).toEqual(["C:\\Temp\\ChiselCode-Setup-9.9.9.exe"]);
+      expect(launched).toEqual([
+        { path: "C:\\Temp\\ChiselCode-Setup-9.9.9.exe", silent: true },
+      ]);
       let exited = false;
       await Promise.race([
         instance.waitUntilExit().then(() => {

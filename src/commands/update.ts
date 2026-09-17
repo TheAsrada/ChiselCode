@@ -1,6 +1,7 @@
 /**
  * Проверка обновлений ChiselCode через GitHub Releases + самообновление:
- * `/update` в TUI скачивает установщик нового релиза и запускает его.
+ * `/update` в TUI скачивает установщик нового релиза и запускает его тихо
+ * (/S, без окон — установщик сам перезапускает приложение).
  * Чистая логика + тонкий сетевой слой с таймаутом, чтобы `chisel update`
  * никогда не висел в плохом сетевом окружении.
  */
@@ -239,9 +240,19 @@ export async function downloadReleaseAsset(
  * Запускает Windows-установщик отдельно от текущего процесса и сразу
  * возвращается: вызывающий код после этого закрывает приложение, чтобы
  * установщик мог заменить файлы.
+ *
+ * Тихий режим NSIS (/S): ни одного окна — установщик ставит всё молча.
+ * Используется командой /update: пользователь уже подтвердил обновление,
+ * кликать по пяти страницам мастера незачем. После тихой установки
+ * установщик сам перезапускает приложение (см. chiselcode.nsi).
  */
-export function launchWindowsInstaller(assetPath: string): void {
-  const child = spawn(assetPath, [], {
+export const NSIS_SILENT_ARGS: readonly string[] = ["/S"];
+
+export function launchWindowsInstaller(
+  assetPath: string,
+  args: readonly string[] = [],
+): void {
+  const child = spawn(assetPath, [...args], {
     detached: true,
     stdio: "ignore",
     shell: false,

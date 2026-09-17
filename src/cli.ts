@@ -17,6 +17,7 @@ import {
   downloadReleaseAsset,
   installerAssetHint,
   launchWindowsInstaller,
+  NSIS_SILENT_ARGS,
   planSelfUpdate,
   RELEASES_PAGE_URL,
 } from "./commands/update.js";
@@ -435,8 +436,8 @@ async function startTui(options: RunOptions): Promise<void> {
           planSelfUpdate(await checkForUpdates(VERSION), VERSION),
         onDownloadUpdate: async (plan) =>
           downloadReleaseAsset(plan.url, plan.asset),
-        onLaunchInstaller: async (path) => {
-          launchWindowsInstaller(path);
+        onLaunchInstaller: async (path, silent) => {
+          launchWindowsInstaller(path, silent ? [...NSIS_SILENT_ARGS] : []);
         },
         onSwitchProject: async (arg: string) => {
           const base = activeOptions.cwd ?? process.cwd();
@@ -666,7 +667,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       if (line === "/exit") return;
       if (line === "/help") {
         process.stdout.write(
-          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить обновление\n/new — новый сеанс\n/sessions — список сеансов\n/resume <номер> — вернуться к сеансу\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
+          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить и тихо установить обновление\n/new — новый сеанс\n/sessions — список сеансов\n/resume <номер> — вернуться к сеансу\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
         );
         continue;
       }
