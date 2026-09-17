@@ -119,19 +119,22 @@ export function SettingsPanel({
   const items = menuItems(values.provider);
   // Пункты зависят от провайдера (base-url только для совместимых):
   // после смены сервиса прежний индекс может оказаться за границей,
-  // поэтому для подсветки и Enter всегда используем зажатое значение.
+  // поэтому для подсветки и Enter всегда используем зажатое значение,
+  // а движение считаем от него же — иначе стрелки прыгают не туда.
   const safeSelected = Math.min(selected, items.length - 1);
   const move = (direction: -1 | 1) =>
-    setSelected((value) => (value + direction + items.length) % items.length);
+    setSelected(() => (safeSelected + direction + items.length) % items.length);
+  /** Переход между экранами всегда гасит старую ошибку, иначе она висит поверх нового экрана. */
+  const goScreen = (next: Screen): void => {
+    setScreen(next);
+    setError("");
+  };
 
   useInput((character, key) => {
     if (screen === "saving" || screen === "checking") return;
     if (key.escape) {
       if (screen === "menu") onClose();
-      else {
-        setScreen("menu");
-        setError("");
-      }
+      else goScreen("menu");
       return;
     }
     if (screen === "menu") {
@@ -145,10 +148,10 @@ export function SettingsPanel({
       }
       if (!key.return) return;
       const item = items[safeSelected];
-      if (item === "provider") setScreen("provider");
-      else if (item === "key") setScreen("key");
-      else if (item === "model") setScreen("model");
-      else if (item === "base-url") setScreen("base-url");
+      if (item === "provider") goScreen("provider");
+      else if (item === "key") goScreen("key");
+      else if (item === "model") goScreen("model");
+      else if (item === "base-url") goScreen("base-url");
       else if (item === "setup") onSetupRequested();
       else if (item === "check") void checkConnection();
       else if (item === "close") onClose();
@@ -176,7 +179,13 @@ export function SettingsPanel({
             ? current.baseUrl || defaultBaseUrlForProvider(provider)
             : undefined,
         }));
-        setScreen("menu");
+        // Новый список пунктов короче/длиннее — зажимаем подсветку сразу,
+        // иначе следующий ↑/↓ прыгнет со stale-индекса.
+        setSelected((previous) =>
+          Math.min(previous, menuItems(provider).length - 1),
+        );
+        setNotice("");
+        goScreen("menu");
       }
       return;
     }
@@ -187,17 +196,23 @@ export function SettingsPanel({
         ...current,
         [update]: (current[update] ?? "").slice(0, -1),
       }));
+      // Проверка и старая ошибка относятся к прошлым значениям.
+      setError("");
+      setNotice("");
       return;
     }
     if (key.return) {
-      setScreen("menu");
+      goScreen("menu");
       return;
     }
-    if (!key.ctrl && !key.meta && character)
+    if (!key.ctrl && !key.meta && character) {
       setValues((current) => ({
         ...current,
         [update]: `${current[update] ?? ""}${character}`,
       }));
+      setError("");
+      setNotice("");
+    }
   });
 
   async function save(): Promise<void> {
@@ -280,7 +295,6 @@ export function SettingsPanel({
         <Text bold color="cyan">
           ◈ Настройки
         </Text>
-        <Text dimColor> · Enter — открыть · Esc — назад</Text>
       </Box>
       {screen === "menu" ? (
         <Menu
@@ -306,14 +320,21 @@ export function SettingsPanel({
               : savedKey
                 ? "(сохранён, введите новый для замены)"
                 : "…"}
+            <Text color="green">█</Text>
           </Text>
         </Box>
       ) : null}
       {screen === "model" ? (
-        <Text color="green">Модель ❯ {values.model}</Text>
+        <Text color="green">
+          Модель ❯ {values.model || "…"}
+          <Text color="green">█</Text>
+        </Text>
       ) : null}
       {screen === "base-url" ? (
-        <Text color="green">Адрес API ❯ {values.baseUrl ?? ""}</Text>
+        <Text color="green">
+          Адрес API ❯ {values.baseUrl ?? "…"}
+          <Text color="green">█</Text>
+        </Text>
       ) : null}
       {screen === "saving" ? (
         <Text color="yellow">Сохраняю настройки…</Text>
@@ -324,11 +345,13 @@ export function SettingsPanel({
       <Text dimColor>
         {screen === "menu"
           ? "↑/↓ — выбор · Enter — открыть · Esc — закрыть"
-          : screen === "saving"
-            ? "Сохраняю…"
-            : screen === "checking"
-              ? "Проверяю…"
-              : "↑/↓ — выбор · Enter — готово · Esc — назад"}
+          : screen === "provider"
+            ? "↑/↓ — выбор · Enter — выбрать · Esc — назад"
+            : screen === "key"
+              ? "Печать · Enter — готово · Esc — назад · пусто — оставить"
+              : screen === "model" || screen === "base-url"
+                ? "Печать · Enter — готово · Esc — назад"
+                : "Подождите…"}
       </Text>
       {error ? <Text color="red">✗ {error}</Text> : null}
       {notice ? <Text color="green">✓ {notice}</Text> : null}
@@ -404,14 +427,19 @@ function Menu({
 }
 
 function ProviderMenu({ selected }: { selected: number }): React.JSX.Element {
+  // Подсказка видна и у выбранного: иначе она «убегает» из-под курсора
+  // и высота списка прыгает при ходьбе стрелками.
   return (
     <Box flexDirection="column">
       <Text>Выберите сервис:</Text>
       {PROVIDERS.map((provider, index) =>
         index === selected ? (
-          <Text key={provider.value} bold inverse color="green">
-            ❯ {provider.label}
-          </Text>
+          <Box key={provider.value} flexDirection="column">
+            <Text bold inverse color="green">
+              ❯ {provider.label}
+            </Text>
+            <Text dimColor> {provider.hint}</Text>
+          </Box>
         ) : (
           <Box key={provider.value} flexDirection="column">
             <Text dimColor> {provider.label}</Text>

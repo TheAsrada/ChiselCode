@@ -567,9 +567,10 @@ export function fullWidthSeparator(columns: number): string {
 /**
  * Подсказка горячих клавиш под полем ввода. Держим в одну строку на 80
  * колонках, чтобы высота футера была предсказуема при любом размере окна.
+ * Tab/стрелки — выбор команды как в Claude Code, Enter — выбрать/отправить.
  */
 export const HOTKEYS_HINT =
-  "Tab — команда · Enter — отправить · ↑/↓ — история · PgUp/PgDn — журнал";
+  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · PgUp/PgDn — журнал";
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
@@ -692,28 +693,50 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [transcriptOffset, setTranscriptOffset] = useState(0);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
   const nextTranscriptId = useRef(0);
+  const customCommands = loadCustomCommands(projectCwd);
   const suggestions = isSlashInput(editor.value)
-    ? matchingCommands(editor.value, loadCustomCommands(projectCwd))
+    ? matchingCommands(editor.value, customCommands)
     : [];
   /**
-   * Состояние Tab-цикла: список, по которому ходим, и что подставили.
-   * Нужно, потому что после первого Tab ввод совпадает ровно с одной
-   * командой и свежий список схлопывается — крутить дальше было бы нечего.
-   * Пока ввод не меняли руками (совпадает с подставленным), ходим по
-   * запомненному списку; любое редактирование начинает новый цикл.
+   * Выбор команды как в Claude Code: стрелки ↑/↓ двигают подсветку,
+   * Tab/Enter принимают подсвеченную. Отдельное состояние вместо
+   * Tab-цикла через completeRef: подсветка не зависит от подстановки,
+   * история недоступна пока список открыт (как в Claude Code).
    */
-  const completeRef = useRef<{
-    names: string[];
-    filled: string;
-    index: number;
-  } | null>(null);
-  const activeCycle =
-    completeRef.current && completeRef.current.filled === editor.value
-      ? completeRef.current
-      : null;
-  const selectedSuggestionIndex = activeCycle
-    ? activeCycle.index % Math.max(suggestions.length, 1)
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  // Список активен: есть совпадения, ввод однострочный без аргументов
+  // (пробел уже гасит список через matchingCommands) и пользователь
+  // не закрыл его через Esc. Многострочник (Shift+Enter) гасит выбор.
+  const hasCommandSelection =
+    suggestions.length > 0 &&
+    !suggestionsDismissed &&
+    !editor.value.includes("\n");
+  const selectedSuggestionIndex = hasCommandSelection
+    ? suggestionIndex % suggestions.length
     : 0;
+  /** Команды с аргументами получают trailing-пробел при подстановке. */
+  const needsTrailingSpace = (name: string): boolean => {
+    if (name === "/cwd" || name === "/resume") return true;
+    return customCommands.some((command) => `/${command.name}` === name);
+  };
+  const acceptSelectedSuggestion = (): boolean => {
+    const selected = suggestions[selectedSuggestionIndex];
+    if (!hasCommandSelection || !selected) return false;
+    const filled = needsTrailingSpace(selected.name)
+      ? `${selected.name} `
+      : selected.name;
+    setEditor((state) => ({
+      ...state,
+      value: filled,
+      cursor: filled.length,
+    }));
+    return true;
+  };
+  const resetCommandSelection = (): void => {
+    setSuggestionIndex(0);
+    setSuggestionsDismissed(false);
+  };
   // Показываем не больше MAX_VISIBLE_SUGGESTIONS строк: окно сдвигается за
   // выбранной, остаток — счётчиком. Те же строки идут в замер высоты футера.
   const suggestionWindowStart =
@@ -829,6 +852,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         "error",
       );
       setEditor((state) => addEditorHistory(state, prompt));
+      resetCommandSelection();
       return;
     }
     submitPrompt(prompt);
@@ -840,6 +864,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
    */
   function submitPrompt(prompt: string, display?: string): void {
     setEditor((state) => addEditorHistory(state, display ?? prompt));
+    resetCommandSelection();
     setBusy(true);
     void props
       .onSubmit(prompt, display)
@@ -869,10 +894,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     args: string,
   ): void {
     setEditor(createEditorState());
+    resetCommandSelection();
     submitPrompt(expandCustomCommand(command, args), display);
   }
   async function runCommand(name: SlashCommandName, args = ""): Promise<void> {
     setEditor(createEditorState());
+    resetCommandSelection();
     if (name === "/help") {
       append(commandHelpText(loadCustomCommands(projectCwd)), "info");
       return;
@@ -1167,26 +1194,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       exit();
       return;
     }
-    if (key.tab && suggestions.length) {
-      // Первый Tab подставляет подсвеченную, повторные ходят по запомненному
-      // списку (см. completeRef): свежий список уже схлопнулся бы.
-      let cycle = activeCycle;
-      if (!cycle) {
-        cycle = {
-          names: suggestions.map((suggestion) => suggestion.name),
-          filled: "",
-          index: -1,
-        };
-      }
-      const index = (cycle.index + 1) % cycle.names.length;
-      const name = cycle.names[index];
-      if (!name) return;
-      completeRef.current = { names: cycle.names, filled: name, index };
-      setEditor((state) => ({
-        ...state,
-        value: name,
-        cursor: name.length,
-      }));
+    // Esc закрывает список команд как в Claude Code (скролл уже обработан выше).
+    if (key.escape && hasCommandSelection) {
+      setSuggestionsDismissed(true);
+      return;
+    }
+    if (key.tab && hasCommandSelection) {
+      // Tab принимает подсвеченную команду, навигация — стрелками.
+      acceptSelectedSuggestion();
       return;
     }
     if (key.return) {
@@ -1194,16 +1209,41 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         setEditor((state) => insertEditorText(state, "\n"));
         return;
       }
-      // Enter всегда отправляет набранное: дополняет только Tab.
+      // Enter на префиксе — принять подсвеченную (как в Claude Code),
+      // на точном совпадении — отправить. С аргументами список уже пуст.
+      if (hasCommandSelection) {
+        const trimmed = editor.value.trim();
+        const selected = suggestions[selectedSuggestionIndex];
+        if (selected && trimmed !== selected.name) {
+          acceptSelectedSuggestion();
+          return;
+        }
+      }
       submit(editor.value);
+      return;
+    }
+    // Стрелки при открытом списке — навигация по командам как в Claude Code,
+    // иначе — история запросов. Shift+стрелки уже ушли в скролл выше.
+    if (key.upArrow && hasCommandSelection) {
+      setSuggestionIndex(
+        (previous) => (previous - 1 + suggestions.length) % suggestions.length,
+      );
+      return;
+    }
+    if (key.downArrow && hasCommandSelection) {
+      setSuggestionIndex((previous) => (previous + 1) % suggestions.length);
       return;
     }
     if (key.upArrow && isFirstEditorLine(editor)) {
       setEditor((state) => navigateEditorHistory(state, -1));
+      setSuggestionIndex(0);
+      setSuggestionsDismissed(false);
       return;
     }
     if (key.downArrow && isLastEditorLine(editor)) {
       setEditor((state) => navigateEditorHistory(state, 1));
+      setSuggestionIndex(0);
+      setSuggestionsDismissed(false);
       return;
     }
     if (key.leftArrow) {
@@ -1216,14 +1256,21 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     if (key.backspace) {
       setEditor(backspaceEditorText);
+      setSuggestionIndex(0);
+      setSuggestionsDismissed(false);
       return;
     }
     if (key.delete) {
       setEditor(deleteEditorText);
+      setSuggestionIndex(0);
+      setSuggestionsDismissed(false);
       return;
     }
-    if (!key.ctrl && !key.meta && character)
+    if (!key.ctrl && !key.meta && character) {
       setEditor((state) => insertEditorText(state, character));
+      setSuggestionIndex(0);
+      setSuggestionsDismissed(false);
+    }
   });
 
   if (restartingSetup)

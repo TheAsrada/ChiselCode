@@ -556,7 +556,12 @@ async function startTui(options: RunOptions): Promise<void> {
           if (active || !transcript) return;
           active = true;
           transcript.append(`❯ ${display ?? prompt}`, "user");
-          let responseOpen = false;
+          // Весь текстовый стрим идёт в одну незавершённую строку через
+          // appendToLast: первый чанк тоже, иначе он фиксировался отдельной
+          // записью (одиночные "I"/"The" на скрине) и рвал ответ на куски.
+          // Вызов инструмента сам коммитит накопленный стриминг через append,
+          // следующий текст естественно начинает новую строку.
+          let hasAnyText = false;
           const started = Date.now();
           try {
             const { result } = await runPrompt(
@@ -565,12 +570,11 @@ async function startTui(options: RunOptions): Promise<void> {
               resolver,
               {
                 onText: (text) => {
-                  if (responseOpen) transcript?.appendToLast(text);
-                  else transcript?.append(text);
-                  responseOpen = true;
+                  if (!text) return;
+                  transcript?.appendToLast(text);
+                  hasAnyText = true;
                 },
                 onToolStart: (name, input) => {
-                  responseOpen = false;
                   transcript?.append(
                     `[chisel] ${formatToolSummary(name, input)}`,
                     "tool",
@@ -584,7 +588,7 @@ async function startTui(options: RunOptions): Promise<void> {
             );
             // Сессия живёт между сообщениями: следующее продолжит эту же.
             activeOptions = { ...activeOptions, resume: result.session.id };
-            if (!responseOpen)
+            if (!hasAnyText)
               transcript.append(
                 result.text ||
                   result.error ||

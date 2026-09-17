@@ -153,6 +153,71 @@ describe("settings restart setup", () => {
     }
   });
 
+  test("settings hints stay stable per screen", async () => {
+    const stdout = createMockStdout(100, 30);
+    const stdin = createMockStdin();
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    const resolver = createTuiApprovalResolver();
+    const instance = render(
+      React.createElement(TuiApp, {
+        approvalResolver: resolver,
+        bindTranscript: () => {},
+        onSubmit: async () => {},
+        onStatus: async () => "status",
+        onSwitchProject: async (path: string) => path,
+        onSaveSettings: async () => "saved" as const,
+        onCheckConnection: async () => "ok",
+        onCompleteSetup: async () => {},
+        provider: "anthropic",
+        providerLabel: "Anthropic (Claude)",
+        model: "test-model",
+      }),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        exitOnCtrlC: false,
+        patchConsole: false,
+        debug: true,
+      },
+    );
+    try {
+      await tick();
+      for (const ch of "/settings") {
+        stdin.write(ch);
+        await tick(20);
+      }
+      stdin.write("\r");
+      await tick(300);
+      // Меню: одна подсказка внизу, без дубля в шапке.
+      let frame = stripAnsi(output);
+      expect(frame).toContain("↑/↓ — выбор · Enter — открыть · Esc — закрыть");
+      // Экран провайдера: подсказка видна и у выбранного, футер свой.
+      output = "";
+      stdin.write("\r");
+      await tick(300);
+      frame = stripAnsi(output);
+      expect(frame).toContain("Enter — выбрать");
+      expect(frame).toContain("нужен ключ");
+      // Экран ключа: без лживого "↑/↓ — выбор", с курсором.
+      output = "";
+      stdin.write("\x1b");
+      await tick(200);
+      stdin.write("\x1b[B");
+      await tick(150);
+      stdin.write("\r");
+      await tick(300);
+      frame = stripAnsi(output);
+      expect(frame).toContain("пусто — оставить");
+      expect(frame).toContain("█");
+      expect(frame).not.toContain("↑/↓ — выбор · Enter — готово");
+    } finally {
+      instance.unmount();
+    }
+  });
+
   test("completing the in-app wizard updates runtime without exiting", async () => {
     const stdout = createMockStdout(100, 30);
     const stdin = createMockStdin();

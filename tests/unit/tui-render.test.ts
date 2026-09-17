@@ -517,7 +517,7 @@ describe("tui fullscreen render", () => {
     }
   });
 
-  test("tab cycles suggestions and fills the highlighted one", async () => {
+  test("arrows select suggestion like Claude Code, tab/enter accepts", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-tab-"));
     const dir = join(root, ".chisel", "commands");
     await mkdir(dir, { recursive: true });
@@ -537,11 +537,13 @@ describe("tui fullscreen render", () => {
       // Даём состоянию ввода закоммититься (троттлинг рендера Ink иначе
       // подставит Tab в устаревший список подсказок).
       await tick(300);
-      // /s: settings, status, sessions, salsa. Четыре Tab — до salsa.
-      for (let i = 0; i < 4; i += 1) {
-        app.stdin.write("\t");
+      // /s: settings, status, sessions, salsa. Три ↓ — до salsa, Tab — принять.
+      for (let i = 0; i < 3; i += 1) {
+        app.stdin.write("\x1b[B");
         await tick(150);
       }
+      app.stdin.write("\t");
+      await tick(200);
       app.stdin.write("\r");
       await tick(400);
       expect(submitted?.display).toBe("/salsa");
@@ -549,6 +551,24 @@ describe("tui fullscreen render", () => {
     } finally {
       app.unmount();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("enter on prefix accepts highlighted command instead of error", async () => {
+    const app = await startApp(100, 30);
+    try {
+      for (const ch of "/set") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      await tick(300);
+      // Первый Enter — принять /settings (без отправки и без ошибки).
+      app.stdin.write("\r");
+      await tick(300);
+      expect(app.chunks()).not.toContain("Неизвестная команда");
+      expect(app.chunks()).toContain("/settings");
+    } finally {
+      app.unmount();
     }
   });
 
@@ -561,6 +581,33 @@ describe("tui fullscreen render", () => {
       const text = app.chunks();
       expect(text).toContain("…и ещё ");
       expect(text).toContain("/help");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("streaming chunks stay in one assistant line", async () => {
+    // Регрессия скрина: первый чанк через append рвал ответ —
+    // одиночные "I"/"The" отдельными строками. Теперь весь onText
+    // идёт через appendToLast в одну незавершённую строку.
+    const app = await startApp(100, 30);
+    try {
+      app.transcript?.appendToLast("I");
+      await tick(100);
+      app.transcript?.appendToLast(" need to understand");
+      await tick(100);
+      app.transcript?.appendToLast(" what you mean.");
+      await tick(200);
+      const text = app.chunks();
+      expect(text).toContain("I need to understand what you mean.");
+      // Инструмент коммитит стриминг, следующий текст — новая строка.
+      app.transcript?.append("[chisel] read_file README.txt", "tool");
+      await tick(100);
+      app.transcript?.appendToLast("The file says hello.");
+      await tick(200);
+      const after = app.chunks();
+      expect(after).toContain("I need to understand what you mean.");
+      expect(after).toContain("The file says hello.");
     } finally {
       app.unmount();
     }
