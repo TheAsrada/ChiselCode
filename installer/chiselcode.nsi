@@ -110,6 +110,15 @@ Section "ChiselCode" SecMain
   delete_done:
   File "/oname=${EXENAME}" "..\dist\release\chisel-windows-x64.exe"
   File "/oname=${ICONFILE}" "assets\${ICONFILE}"
+  File "/oname=LICENSE.txt" "..\LICENSE"
+  File "/oname=README.txt" "README.txt"
+  ; Bundled custom commands (/review, /commit…): explicit file list, so the
+  ; uninstaller below removes exactly what we shipped and never touches
+  ; commands added by the user afterwards.
+  SetOutPath "$INSTDIR\commands"
+  File "..\commands\review.md"
+  File "..\commands\commit.md"
+  SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\${UNINSTALLER}"
 
   WriteRegStr HKCU "Software\${APPID}" "InstallDir" "$INSTDIR"
@@ -159,6 +168,11 @@ Section "Uninstall"
 
   Delete "$INSTDIR\${EXENAME}"
   Delete "$INSTDIR\${ICONFILE}"
+  Delete "$INSTDIR\LICENSE.txt"
+  Delete "$INSTDIR\README.txt"
+  Delete "$INSTDIR\commands\review.md"
+  Delete "$INSTDIR\commands\commit.md"
+  RMDir "$INSTDIR\commands"
   Delete "$INSTDIR\${UNINSTALLER}"
   RMDir "$INSTDIR"
 

@@ -402,6 +402,7 @@ async function startTui(options: RunOptions): Promise<void> {
           (defaultModelFor(provider) || "не выбрана"),
         baseUrl: options.baseUrl ?? providerConfig?.baseUrl,
         version: VERSION,
+        cwd: activeOptions.cwd ?? process.cwd(),
         bindTranscript: (nextTranscript: TuiTranscript) => {
           transcript = nextTranscript;
         },
@@ -551,10 +552,10 @@ async function startTui(options: RunOptions): Promise<void> {
             `${found.messages.length} сообщ., контекст восстановлен).`
           );
         },
-        onSubmit: async (prompt: string) => {
+        onSubmit: async (prompt: string, display?: string) => {
           if (active || !transcript) return;
           active = true;
-          transcript.append(`❯ ${prompt}`, "user");
+          transcript.append(`❯ ${display ?? prompt}`, "user");
           let responseOpen = false;
           const started = Date.now();
           try {

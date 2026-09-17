@@ -32,13 +32,33 @@ export function parseSlashCommand(
     : undefined;
 }
 
+export interface CommandSuggestion {
+  name: string;
+  description: string;
+}
+
 export function isSlashInput(input: string): boolean {
   return input.trimStart().startsWith("/");
 }
 
-export function matchingCommands(input: string) {
+export function matchingCommands(
+  input: string,
+  custom: CommandSuggestion[] = [],
+): CommandSuggestion[] {
   const query = input.trim().toLowerCase();
-  return SLASH_COMMANDS.filter((command) => command.name.startsWith(query));
+  const builtIn = SLASH_COMMANDS.filter((command) =>
+    command.name.startsWith(query),
+  );
+  if (!query.startsWith("/")) return [...builtIn];
+  const seen = new Set<string>(builtIn.map((command) => command.name));
+  const extra = custom
+    .filter((command) => `/${command.name}`.startsWith(query))
+    .filter((command) => !seen.has(`/${command.name}`))
+    .map((command) => ({
+      name: `/${command.name}`,
+      description: command.description,
+    }));
+  return [...builtIn, ...extra];
 }
 
 const HELP_GROUPS: { title: string; commands: string[] }[] = [
@@ -50,17 +70,32 @@ const HELP_GROUPS: { title: string; commands: string[] }[] = [
   },
 ];
 
-export function commandHelpText(): string {
+export function commandHelpText(custom: CommandSuggestion[] = []): string {
   const byName = new Map<string, string>(
     SLASH_COMMANDS.map((c) => [c.name, c.description]),
   );
-  const width = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
+  const extra = custom.filter((command) => !byName.has(`/${command.name}`));
+  const width = Math.max(
+    ...SLASH_COMMANDS.map((c) => c.name.length),
+    ...extra.map((c) => c.name.length + 1),
+  );
   const lines = ["◈ ChiselCode — быстрые команды"];
   for (const group of HELP_GROUPS) {
     lines.push("", `── ${group.title} ──`);
     for (const name of group.commands) {
       lines.push(`  ${name.padEnd(width, " ")} — ${byName.get(name) ?? ""}`);
     }
+  }
+  if (extra.length > 0) {
+    lines.push("", "── Свои команды ──");
+    for (const command of extra) {
+      lines.push(
+        `  ${`/${command.name}`.padEnd(width, " ")} — ${command.description}`,
+      );
+    }
+    lines.push(
+      "Файлы `.chisel/commands/*.md` в проекте (или рядом с конфигом).",
+    );
   }
   lines.push(
     "",

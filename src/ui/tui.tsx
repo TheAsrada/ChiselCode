@@ -1,6 +1,11 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CustomCommand,
+  expandCustomCommand,
+  loadCustomCommands,
+} from "../commands/custom.js";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
 import type {
   ApprovalDecision,
@@ -599,7 +604,7 @@ export function createTuiApprovalResolver(): TuiApprovalResolver {
 export interface TuiAppProps {
   approvalResolver: TuiApprovalResolver;
   bindTranscript(transcript: TuiTranscript): void;
-  onSubmit(prompt: string): Promise<void>;
+  onSubmit(prompt: string, display?: string): Promise<void>;
   onStatus(): Promise<string>;
   onSwitchProject(path: string): Promise<string>;
   onCheckUpdate?(): Promise<string>;
@@ -638,11 +643,18 @@ export interface TuiAppProps {
   model: string;
   baseUrl?: string;
   version?: string;
+  /**
+   * Корень проекта для своих slash-команд (`.chisel/commands`).
+   * Без него — текущий рабочий каталог процесса.
+   */
+  cwd?: string;
 }
 
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   const viewport = useLiveViewport();
+  /** Корень проекта: свои команды берём из его `.chisel/commands`. */
+  const projectCwd = props.cwd ?? process.cwd();
   /**
    * Живой размер — синхронный опрос консоли прямо во время рендера
    * (дешёвый, без спаунов). Это раньше, чем состояние
@@ -684,7 +696,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
   const nextTranscriptId = useRef(0);
   const suggestions = isSlashInput(editor.value)
-    ? matchingCommands(editor.value)
+    ? matchingCommands(editor.value, loadCustomCommands(projectCwd))
     : [];
   const selectedSuggestion = suggestions[0];
 
@@ -767,14 +779,27 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (isSlashInput(prompt)) {
+      const custom = findCustomCommand(prompt);
+      if (custom) {
+        runCustomCommand(prompt, custom.command, custom.args);
+        return;
+      }
       append(`Неизвестная команда: ${prompt}. Введите /help.`, "error");
       setEditor((state) => addEditorHistory(state, prompt));
       return;
     }
-    setEditor((state) => addEditorHistory(state, prompt));
+    submitPrompt(prompt);
+  }
+  /**
+   * Отправка текста агенту. display — что показать в журнале вместо самого
+   * текста: для своих команд виден короткий `/имя args`, а выполняется
+   * развёрнутый шаблон.
+   */
+  function submitPrompt(prompt: string, display?: string): void {
+    setEditor((state) => addEditorHistory(state, display ?? prompt));
     setBusy(true);
     void props
-      .onSubmit(prompt)
+      .onSubmit(prompt, display)
       .catch((cause) =>
         append(
           `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -783,10 +808,30 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       )
       .finally(() => setBusy(false));
   }
+  function findCustomCommand(
+    prompt: string,
+  ): { command: CustomCommand; args: string } | undefined {
+    const space = prompt.search(/\s/);
+    const head = space === -1 ? prompt : prompt.slice(0, space);
+    if (!head.startsWith("/") || head.length < 2) return undefined;
+    const args = space === -1 ? "" : prompt.slice(space).trim();
+    const command = loadCustomCommands(projectCwd).find(
+      (candidate) => `/${candidate.name}` === head,
+    );
+    return command ? { command, args } : undefined;
+  }
+  function runCustomCommand(
+    display: string,
+    command: CustomCommand,
+    args: string,
+  ): void {
+    setEditor(createEditorState());
+    submitPrompt(expandCustomCommand(command, args), display);
+  }
   async function runCommand(name: SlashCommandName, args = ""): Promise<void> {
     setEditor(createEditorState());
     if (name === "/help") {
-      append(commandHelpText(), "info");
+      append(commandHelpText(loadCustomCommands(projectCwd)), "info");
       return;
     }
     if (name === "/clear") {

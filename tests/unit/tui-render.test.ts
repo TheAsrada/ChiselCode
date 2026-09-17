@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import React from "react";
@@ -100,7 +103,14 @@ interface Harness {
   unmount(): void;
 }
 
-async function startApp(columns: number, rows: number): Promise<Harness> {
+async function startApp(
+  columns: number,
+  rows: number,
+  hooks?: {
+    cwd?: string;
+    onSubmit?: (prompt: string, display?: string) => Promise<void>;
+  },
+): Promise<Harness> {
   const stdout = createMockStdout(columns, rows);
   const stdin = createMockStdin();
   let output = "";
@@ -115,7 +125,7 @@ async function startApp(columns: number, rows: number): Promise<Harness> {
       bindTranscript: (next: TuiTranscript) => {
         transcript = next;
       },
-      onSubmit: async () => {},
+      onSubmit: hooks?.onSubmit ?? (async () => {}),
       onStatus: async () => "status",
       onSwitchProject: async (path: string) => path,
       onSaveSettings: async () => "saved" as const,
@@ -124,6 +134,7 @@ async function startApp(columns: number, rows: number): Promise<Harness> {
       provider: "anthropic",
       providerLabel: "Anthropic (Claude)",
       model: "test-model",
+      cwd: hooks?.cwd,
     }),
     {
       stdout: stdout as unknown as NodeJS.WriteStream,
@@ -367,6 +378,37 @@ describe("tui fullscreen render", () => {
       );
     } finally {
       app.unmount();
+    }
+  });
+
+  test("custom slash command expands and runs with short echo", async () => {
+    // Своя команда из .chisel/commands: выполняется развёрнутый шаблон,
+    // а в журнале виден короткий `/имя args`.
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-cmd-"));
+    const dir = join(root, ".chisel", "commands");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "hello.md"), "Скажи $ARGUMENTS громко\n");
+    let submitted: { prompt: string; display?: string } | undefined;
+    const app = await startApp(100, 30, {
+      cwd: root,
+      onSubmit: async (prompt: string, display?: string) => {
+        submitted = { prompt, display };
+      },
+    });
+    try {
+      for (const ch of "/hello world") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(submitted?.prompt).toBe("Скажи world громко");
+      expect(submitted?.display).toBe("/hello world");
+      expect(app.chunks()).toContain("❯ /hello world");
+      expect(app.chunks()).not.toContain("Скажи world громко");
+    } finally {
+      app.unmount();
+      await rm(root, { recursive: true, force: true });
     }
   });
 
