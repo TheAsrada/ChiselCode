@@ -33,6 +33,7 @@ import {
   resolveSessionRef,
   shortSessionId,
 } from "./sessions/store.js";
+import { expandSkill, loadSkills } from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
@@ -682,7 +683,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
   const rl = createInterface({ input: nodeStdin, output: nodeStdout });
   try {
     process.stdout.write(
-      `◈ ChiselCode v${VERSION} — простой режим: введите задачу и нажмите Enter.\nКоманды: /help, /status, /doctor, /update, /cwd <путь>, /exit.\n`,
+      `◈ ChiselCode v${VERSION} — простой режим: введите задачу и нажмите Enter.\nКоманды: /help, /status, /doctor, /update, /skills, /cwd <путь>, /exit.\n`,
     );
     for (;;) {
       let line: string;
@@ -695,8 +696,20 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       if (line === "/exit") return;
       if (line === "/help") {
         process.stdout.write(
-          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить и тихо установить обновление\n/new — новый сеанс\n/sessions — список сеансов\n/resume <номер> — вернуться к сеансу\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
+          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить и тихо установить обновление\n/skills — доступные скиллы\n/new — новый сеанс\n/sessions — список сеансов\n/resume <номер> — вернуться к сеансу\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
         );
+        continue;
+      }
+      if (line === "/skills") {
+        const found = loadSkills(activeOptions.cwd ?? process.cwd());
+        if (found.length === 0) {
+          process.stdout.write(
+            "Скиллов нет. Положите инструкции в .chisel/skills/<имя>/SKILL.md проекта.\n",
+          );
+        } else {
+          for (const skill of found)
+            process.stdout.write(`/${skill.name} — ${skill.description}\n`);
+        }
         continue;
       }
       if (line === "/cwd" || line.startsWith("/cwd ")) {
@@ -798,6 +811,23 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
           "В простом режиме настройки меняются через: chisel setup\n",
         );
         continue;
+      }
+      {
+        // Вызов скилла как /имя args: выполняются инструкции из SKILL.md.
+        const space = line.search(/\s/);
+        const head = space === -1 ? line : line.slice(0, space);
+        if (head.startsWith("/") && head.length > 1) {
+          const skill = loadSkills(activeOptions.cwd ?? process.cwd()).find(
+            (candidate) => `/${candidate.name}` === head,
+          );
+          if (skill) {
+            const args = space === -1 ? "" : line.slice(space).trim();
+            process.stdout.write(
+              `◈ Скилл /${skill.name}: выполняю инструкции.\n`,
+            );
+            line = expandSkill(skill, args);
+          }
+        }
       }
       const resolver = {
         requestApproval: async (request: {

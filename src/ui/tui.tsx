@@ -1,17 +1,13 @@
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  type CustomCommand,
-  expandCustomCommand,
-  loadCustomCommands,
-} from "../commands/custom.js";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
 import type {
   ApprovalDecision,
   ApprovalRequest,
   ApprovalResolver,
 } from "../security/approval.js";
+import { expandSkill, loadSkills, type Skill } from "../skills/skills.js";
 import type { ProviderKind } from "../types/domain.js";
 import {
   commandHelpText,
@@ -40,6 +36,7 @@ import {
   type TuiSettingsValues,
 } from "./settings.js";
 import { SetupApp, type SetupValues } from "./setup.js";
+import { SkillsPanel } from "./skills.js";
 import { type ToolTone, toolDisplay, toolTone } from "./theme.js";
 import { Thinking } from "./thinking.js";
 
@@ -651,7 +648,7 @@ export interface TuiAppProps {
   baseUrl?: string;
   version?: string;
   /**
-   * Корень проекта для своих slash-команд (`.chisel/commands`).
+   * Корень проекта для скиллов (`.chisel/skills`, `.agents/skills`).
    * Без него — текущий рабочий каталог процесса.
    */
   cwd?: string;
@@ -660,7 +657,7 @@ export interface TuiAppProps {
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   const viewport = useLiveViewport();
-  /** Корень проекта: свои команды берём из его `.chisel/commands`. */
+  /** Корень проекта: скиллы берём из его `.chisel/skills`. */
   const projectCwd = props.cwd ?? process.cwd();
   /**
    * Живой размер — синхронный опрос консоли прямо во время рендера
@@ -684,6 +681,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<"menu" | "model">();
+  const [skillsOpen, setSkillsOpen] = useState(false);
   // Мастер настройки поверх чата: тот же Ink-экран, без exit()/render().
   const [restartingSetup, setRestartingSetup] = useState(false);
   const [runtime, setRuntime] = useState(() => ({
@@ -702,9 +700,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [transcriptOffset, setTranscriptOffset] = useState(0);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
   const nextTranscriptId = useRef(0);
-  const customCommands = loadCustomCommands(projectCwd);
+  const skills = loadSkills(projectCwd);
   const suggestions = isSlashInput(editor.value)
-    ? matchingCommands(editor.value, customCommands)
+    ? matchingCommands(editor.value, skills)
     : [];
   /**
    * Выбор команды как в Claude Code: стрелки ↑/↓ двигают подсветку,
@@ -727,7 +725,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   /** Команды с аргументами получают trailing-пробел при подстановке. */
   const needsTrailingSpace = (name: string): boolean => {
     if (name === "/cwd" || name === "/resume") return true;
-    return customCommands.some((command) => `/${command.name}` === name);
+    // Скиллы всегда принимают аргументы (дописываются к инструкциям).
+    return skills.some((skill) => `/${skill.name}` === name);
   };
   const acceptSelectedSuggestion = (): boolean => {
     const selected = suggestions[selectedSuggestionIndex];
@@ -845,15 +844,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (isSlashInput(prompt)) {
-      const custom = findCustomCommand(prompt);
-      if (custom) {
-        runCustomCommand(prompt, custom.command, custom.args);
+      const skill = findSkill(prompt);
+      if (skill) {
+        runSkill(prompt, skill.skill, skill.args);
         return;
       }
-      const similar = suggestSimilarCommand(
-        prompt,
-        loadCustomCommands(projectCwd),
-      );
+      const similar = suggestSimilarCommand(prompt, loadSkills(projectCwd));
       append(
         similar
           ? `Неизвестная команда: ${prompt}. Возможно, вы имели в виду ${similar}?`
@@ -885,32 +881,28 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       )
       .finally(() => setBusy(false));
   }
-  function findCustomCommand(
+  function findSkill(
     prompt: string,
-  ): { command: CustomCommand; args: string } | undefined {
+  ): { skill: Skill; args: string } | undefined {
     const space = prompt.search(/\s/);
     const head = space === -1 ? prompt : prompt.slice(0, space);
     if (!head.startsWith("/") || head.length < 2) return undefined;
     const args = space === -1 ? "" : prompt.slice(space).trim();
-    const command = loadCustomCommands(projectCwd).find(
+    const skill = loadSkills(projectCwd).find(
       (candidate) => `/${candidate.name}` === head,
     );
-    return command ? { command, args } : undefined;
+    return skill ? { skill, args } : undefined;
   }
-  function runCustomCommand(
-    display: string,
-    command: CustomCommand,
-    args: string,
-  ): void {
+  function runSkill(display: string, skill: Skill, args: string): void {
     setEditor(createEditorState());
     resetCommandSelection();
-    submitPrompt(expandCustomCommand(command, args), display);
+    submitPrompt(expandSkill(skill, args), display);
   }
   async function runCommand(name: SlashCommandName, args = ""): Promise<void> {
     setEditor(createEditorState());
     resetCommandSelection();
     if (name === "/help") {
-      append(commandHelpText(loadCustomCommands(projectCwd)), "info");
+      append(commandHelpText(loadSkills(projectCwd)), "info");
       return;
     }
     if (name === "/clear") {
@@ -996,6 +988,10 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     if (name === "/model") {
       setSettings("model");
+      return;
+    }
+    if (name === "/skills") {
+      setSkillsOpen(true);
       return;
     }
     if (name === "/update") {
@@ -1153,7 +1149,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         props.approvalResolver.resolve("denied");
       return;
     }
-    if (settings || restartingSetup || busy) return;
+    if (settings || skillsOpen || restartingSetup || busy) return;
     // Скролл журнала как в Claude Code: ввод закреплён снизу,
     // история листается постранично (PgUp/PgDn), построчно (Shift+↑/↓),
     // Home/End — начало/конец, Esc — вернуться вниз к вводу.
@@ -1354,6 +1350,31 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
               })
             }
           />
+        </Box>
+      </Box>
+    );
+  if (skillsOpen)
+    return (
+      <Box
+        flexDirection="column"
+        height={rows}
+        width={columns}
+        overflow="hidden"
+      >
+        <Header
+          providerLabel={runtime.providerLabel}
+          model={runtime.model}
+          columns={columns}
+          version={props.version}
+        />
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          flexShrink={1}
+          overflow="hidden"
+          width="100%"
+        >
+          <SkillsPanel skills={skills} onClose={() => setSkillsOpen(false)} />
         </Box>
       </Box>
     );

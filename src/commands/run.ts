@@ -25,6 +25,7 @@ import {
   saveSession,
   sessionTitleForPrompt,
 } from "../sessions/store.js";
+import { loadSkills } from "../skills/skills.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type {
   AgentResult,
@@ -315,6 +316,7 @@ export async function runPrompt(
   const system = buildSystemPrompt(
     await loadProjectInstructions(projectRoot),
     dynamic,
+    loadSkills(projectRoot),
   );
   const loop = new AgentLoop(provider, registry, system, {
     onText,

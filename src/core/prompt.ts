@@ -1,3 +1,5 @@
+import type { Skill } from "../skills/skills.js";
+import { skillsCatalogPrompt } from "../skills/skills.js";
 import type {
   ChatContent,
   ChatMessage,
@@ -24,6 +26,7 @@ export interface DynamicContext {
 export function buildSystemPrompt(
   projectInstructions: string,
   context: DynamicContext,
+  skills: Skill[] = [],
 ): string {
   const dynamic = [
     `Operating system: ${context.os}`,
@@ -37,6 +40,8 @@ export function buildSystemPrompt(
     .join("\n");
 
   return [BASE_SYSTEM_PROMPT, projectInstructions.trim(), dynamic]
+    .filter(Boolean)
+    .concat([skillsCatalogPrompt(skills)])
     .filter(Boolean)
     .join("\n\n");
 }

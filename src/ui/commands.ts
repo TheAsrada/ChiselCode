@@ -4,6 +4,7 @@ export const SLASH_COMMANDS = [
   { name: "/cwd", description: "сменить папку проекта: <путь>" },
   { name: "/settings", description: "открыть настройки" },
   { name: "/model", description: "сменить модель" },
+  { name: "/skills", description: "доступные скиллы: выбрать и посмотреть" },
   { name: "/status", description: "показать состояние сессии" },
   { name: "/new", description: "начать новый сеанс" },
   { name: "/sessions", description: "список сеансов проекта" },
@@ -46,7 +47,7 @@ export function isSlashInput(input: string): boolean {
 
 export function matchingCommands(
   input: string,
-  custom: CommandSuggestion[] = [],
+  skills: CommandSuggestion[] = [],
 ): CommandSuggestion[] {
   const query = input.trim().toLowerCase();
   const builtIn = SLASH_COMMANDS.filter((command) =>
@@ -54,7 +55,7 @@ export function matchingCommands(
   );
   if (!query.startsWith("/")) return [...builtIn];
   const seen = new Set<string>(builtIn.map((command) => command.name));
-  const extra = custom
+  const extra = skills
     .filter((command) => `/${command.name}`.startsWith(query))
     .filter((command) => !seen.has(`/${command.name}`))
     .map((command) => ({
@@ -70,13 +71,13 @@ export function matchingCommands(
  */
 export function suggestSimilarCommand(
   input: string,
-  custom: CommandSuggestion[] = [],
+  skills: CommandSuggestion[] = [],
 ): string | undefined {
   const query = input.trim().toLowerCase().replace(/^\//, "");
   if (!query) return undefined;
   const candidates = [
     ...SLASH_COMMANDS.map((command) => command.name.slice(1)),
-    ...custom.map((command) => command.name.replace(/^\//, "")),
+    ...skills.map((command) => command.name.replace(/^\//, "")),
   ];
   let best: string | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
@@ -115,15 +116,15 @@ const HELP_GROUPS: { title: string; commands: string[] }[] = [
   { title: "Проект", commands: ["/cwd", "/status", "/doctor"] },
   {
     title: "Приложение",
-    commands: ["/settings", "/model", "/update", "/help", "/exit"],
+    commands: ["/settings", "/model", "/skills", "/update", "/help", "/exit"],
   },
 ];
 
-export function commandHelpText(custom: CommandSuggestion[] = []): string {
+export function commandHelpText(skills: CommandSuggestion[] = []): string {
   const byName = new Map<string, string>(
     SLASH_COMMANDS.map((c) => [c.name, c.description]),
   );
-  const extra = custom.filter((command) => !byName.has(`/${command.name}`));
+  const extra = skills.filter((command) => !byName.has(`/${command.name}`));
   const width = Math.max(
     ...SLASH_COMMANDS.map((c) => c.name.length),
     ...extra.map((c) => c.name.length + 1),
@@ -136,15 +137,14 @@ export function commandHelpText(custom: CommandSuggestion[] = []): string {
     }
   }
   if (extra.length > 0) {
-    lines.push("", "── Свои команды ──");
+    lines.push("", "── Скиллы ──");
     for (const command of extra) {
       lines.push(
         `  ${`/${command.name}`.padEnd(width, " ")} — ${command.description}`,
       );
     }
-    lines.push(
-      "Файлы `.chisel/commands/*.md` в проекте (или рядом с конфигом).",
-    );
+    lines.push("Скиллы лежат в `.chisel/skills/<имя>/SKILL.md`,");
+    lines.push("общие — в `.agents/skills/` или рядом с конфигом.");
   }
   lines.push(
     "",

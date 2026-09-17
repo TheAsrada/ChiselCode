@@ -50,6 +50,7 @@ describe("interactive commands", () => {
   test("filters suggestions and provides safe local help", () => {
     expect(matchingCommands("/s").map((command) => command.name)).toEqual([
       "/settings",
+      "/skills",
       "/status",
       "/sessions",
     ]);

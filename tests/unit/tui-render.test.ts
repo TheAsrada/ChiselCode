@@ -381,13 +381,16 @@ describe("tui fullscreen render", () => {
     }
   });
 
-  test("custom slash command expands and runs with short echo", async () => {
-    // Своя команда из .chisel/commands: выполняется развёрнутый шаблон,
+  test("skill slash command expands and runs with short echo", async () => {
+    // Скилл из .chisel/skills: выполняются инструкции из SKILL.md,
     // а в журнале виден короткий `/имя args`.
     const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-cmd-"));
-    const dir = join(root, ".chisel", "commands");
+    const dir = join(root, ".chisel", "skills", "hello");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "hello.md"), "Скажи $ARGUMENTS громко\n");
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: hello\ndescription: Поздороваться\n---\nСкажи $ARGUMENTS громко\n",
+    );
     let submitted: { prompt: string; display?: string } | undefined;
     const app = await startApp(100, 30, {
       cwd: root,
@@ -406,6 +409,43 @@ describe("tui fullscreen render", () => {
       expect(submitted?.display).toBe("/hello world");
       expect(app.chunks()).toContain("❯ /hello world");
       expect(app.chunks()).not.toContain("Скажи world громко");
+    } finally {
+      app.unmount();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("skills browser lists skills and opens details", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-skills-"));
+    const dir = join(root, ".chisel", "skills", "hello");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: hello\ndescription: Поздороваться\n---\nСкажи привет\n",
+    );
+    const app = await startApp(100, 30, { cwd: root });
+    try {
+      for (const ch of "/skills") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(app.chunks()).toContain("◈ Скиллы");
+      expect(app.chunks()).toContain("/hello");
+      expect(app.chunks()).toContain("Поздороваться");
+      // Enter — детали скилла с инструкциями.
+      app.stdin.write("\r");
+      await tick(300);
+      expect(app.chunks()).toContain("Скажи привет");
+      // Esc — назад к списку, второй Esc — закрыть браузер.
+      app.stdin.write("\x1b");
+      await tick(200);
+      app.stdin.write("\x1b");
+      await tick(200);
+      expect(app.frame(30).slice(-6).join("\n")).toContain(
+        "Спросите что-нибудь",
+      );
     } finally {
       app.unmount();
       await rm(root, { recursive: true, force: true });
@@ -519,9 +559,12 @@ describe("tui fullscreen render", () => {
 
   test("arrows select suggestion like Claude Code, tab/enter accepts", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-tab-"));
-    const dir = join(root, ".chisel", "commands");
+    const dir = join(root, ".chisel", "skills", "salsa");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "salsa.md"), "Танцуй $ARGUMENTS\n");
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: salsa\ndescription: Танцевать\n---\nТанцуй $ARGUMENTS\n",
+    );
     let submitted: { prompt: string; display?: string } | undefined;
     const app = await startApp(100, 30, {
       cwd: root,
@@ -537,8 +580,8 @@ describe("tui fullscreen render", () => {
       // Даём состоянию ввода закоммититься (троттлинг рендера Ink иначе
       // подставит Tab в устаревший список подсказок).
       await tick(300);
-      // /s: settings, status, sessions, salsa. Три ↓ — до salsa, Tab — принять.
-      for (let i = 0; i < 3; i += 1) {
+      // /s: settings, skills, status, sessions, salsa. Четыре ↓ — до salsa.
+      for (let i = 0; i < 4; i += 1) {
         app.stdin.write("\x1b[B");
         await tick(150);
       }
@@ -573,7 +616,7 @@ describe("tui fullscreen render", () => {
   });
 
   test("suggestion list is capped with an overflow counter", async () => {
-    // Голое "/" даёт все 12+ команд: видно максимум 6 строк и счётчик.
+    // Голое "/" даёт все 13+ команд: видно максимум 6 строк и счётчик.
     const app = await startApp(100, 30);
     try {
       app.stdin.write("/");
