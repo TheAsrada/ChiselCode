@@ -147,19 +147,27 @@ jobs:
           pkgbuild --root pkg/macos-x64 --identifier com.chiselcode.cli --version "$ver" --install-location /usr/local/bin "ChiselCode-Setup-$ver-macos-x64.pkg"
       - name: Upload installers
         shell: bash
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: |
           # NOTE: без GNU timeout (его нет на macOS): watchdog через sleep+kill.
-          ok=0
-          for i in 1 2 3; do
-            echo "Upload attempt $i/3"
-            gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*.pkg --clobber & pid=$!
-            ( sleep 300; kill -9 "$pid" 2>/dev/null ) & watcher=$!
-            if wait "$pid"; then ok=1; kill "$watcher" 2>/dev/null || true; break; fi
-            kill "$watcher" 2>/dev/null || true
-            echo "Attempt $i failed or timed out, retrying…"; sleep 10
-          done
-          [ "$ok" = 1 ] || { echo "Upload failed after 3 attempts"; exit 1; }
+          # Грузим по одному файлу: зависший ассет не блокирует остальные,
+          # у каждого — свои попытки.
+          ls -la ChiselCode-Setup-*.pkg
+          upload_one() {
+            file="$1"
+            for i in 1 2 3 4; do
+              echo "Upload $file (attempt $i/4)"
+              gh release upload "$GITHUB_REF_NAME" "$file" --clobber & pid=$!
+              ( sleep 300; kill -9 "$pid" 2>/dev/null ) & watcher=$!
+              if wait "$pid"; then kill "$watcher" 2>/dev/null || true; return 0; fi
+              kill "$watcher" 2>/dev/null || true
+              echo "Attempt $i failed or timed out, retrying…"; sleep 10
+            done
+            return 1
+          }
+          ok=1
+          for f in ChiselCode-Setup-*.pkg; do upload_one "$f" || ok=0; done
+          [ "$ok" = 1 ] || { echo "Upload failed"; exit 1; }
 
   installer-linux:
     name: Build Linux installer
