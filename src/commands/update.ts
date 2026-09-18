@@ -6,7 +6,9 @@
  * никогда не висел в плохом сетевом окружении.
  */
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { once } from "node:events";
+import { createWriteStream } from "node:fs";
+import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -29,27 +31,45 @@ export interface UpdateCheckOptions {
   timeoutMs?: number;
 }
 
-/** Сравнение semver без зависимостей: 1 → a новее, -1 → b новее, 0 → равны. */
+/**
+ * Сравнение версий: 1 → a новее, -1 → b новее, 0 → равны.
+ * Числовые части — по числу, суффикс через дефис — пререлиз:
+ * релиз новее своего пререлиза (0.5.8 > 0.5.8-beta), суффикс сборки
+ * через плюс на старшинство не влияет (1.2.3+build = 1.2.3).
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = normalize(a);
-  const pb = normalize(b);
-  const length = Math.max(pa.length, pb.length);
+  const [coreA, preA] = splitCore(a);
+  const [coreB, preB] = splitCore(b);
+  const length = Math.max(coreA.length, coreB.length);
   for (let i = 0; i < length; i += 1) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    const diff = (coreA[i] ?? 0) - (coreB[i] ?? 0);
     if (diff !== 0) return diff > 0 ? 1 : -1;
   }
-  return 0;
+  if (preA === preB) return 0;
+  if (!preA) return 1;
+  if (!preB) return -1;
+  return preA < preB ? -1 : 1;
 }
 
-function normalize(version: string): number[] {
-  return version
-    .trim()
-    .replace(/^v/i, "")
-    .split(/[.+-]/)
-    .map((part) => {
+/** Чистит версию: пробелы, ведущий v, суффикс сборки +build. */
+export function normalizeVersion(version: string): string {
+  const cleaned = version.trim().replace(/^v/i, "");
+  const plus = cleaned.indexOf("+");
+  return plus === -1 ? cleaned : cleaned.slice(0, plus);
+}
+
+function splitCore(version: string): [number[], string] {
+  const cleaned = normalizeVersion(version);
+  const dash = cleaned.indexOf("-");
+  const core = dash === -1 ? cleaned : cleaned.slice(0, dash);
+  const pre = dash === -1 ? "" : cleaned.slice(dash + 1);
+  return [
+    core.split(".").map((part) => {
       const number = Number.parseInt(part, 10);
       return Number.isFinite(number) ? number : 0;
-    });
+    }),
+    pre,
+  ];
 }
 
 export async function checkForUpdates(
@@ -70,6 +90,12 @@ export async function checkForUpdates(
     });
     if (response.status === 404)
       return { current, error: "Релизы пока не опубликованы." };
+    if (response.status === 403)
+      return {
+        current,
+        error:
+          "GitHub API вернул 403: исчерпан лимит запросов (60/ч без токена, общий на сеть). Попробуйте позже.",
+      };
     if (!response.ok)
       return { current, error: `GitHub API вернул ${response.status}.` };
     const data = (await response.json()) as {
@@ -120,7 +146,35 @@ export function installerAssetName(
 
 /** Прямая ссылка на файл установщика в GitHub-релизе. */
 export function releaseDownloadUrl(version: string, asset: string): string {
-  return `${RELEASES_PAGE_URL}/download/v${version}/${asset}`;
+  const clean = normalizeVersion(version);
+  return `${RELEASES_PAGE_URL}/download/v${clean}/${asset}`;
+}
+
+/**
+ * Есть ли файл уже в релизе (HEAD-запрос). Релиз создаётся пустым,
+ * установщики доливаются минутами позже — качать 404 бессмысленно.
+ * false — только при честном 404; любая другая неудача проверки
+ * возвращает true, и разбираться будет уже скачивание.
+ */
+export async function checkAssetAvailable(
+  url: string,
+  options: UpdateCheckOptions = {},
+): Promise<boolean> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      method: "HEAD",
+      signal: controller.signal,
+    });
+    return response.status !== 404;
+  } catch {
+    return true;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -165,13 +219,13 @@ export function planSelfUpdate(
   current: string,
   platform: NodeJS.Platform = process.platform,
 ): SelfUpdatePlan {
-  const latest = check.latest ?? current;
+  const latest = normalizeVersion(check.latest ?? current);
   const asset = installerAssetName(latest, platform);
   const installedBinary = isInstalledBinary();
   const autoInstall = installedBinary && platform === "win32";
   return {
     current,
-    latest: check.latest,
+    latest: check.latest === undefined ? undefined : latest,
     latestUrl: check.latestUrl,
     updateAvailable: check.updateAvailable ?? false,
     error: check.error,
@@ -207,7 +261,10 @@ export interface DownloadedAsset {
   bytes: number;
 }
 
-/** Скачивает файл релиза во временную папку. Бросает понятную ошибку. */
+/**
+ * Скачивает файл релиза во временную папку. Льёт потоком сразу на диск,
+ * а не копит весь установщик в памяти. Бросает понятную ошибку.
+ */
 export async function downloadReleaseAsset(
   url: string,
   asset: string,
@@ -217,19 +274,47 @@ export async function downloadReleaseAsset(
   const timeoutMs = options.timeoutMs ?? 300_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const path = join(options.destDir ?? tmpdir(), asset);
   try {
     const response = await fetchImpl(url, { signal: controller.signal });
     if (!response.ok)
       throw new Error(
         `Сервер вернул ${response.status} при скачивании ${asset}.`,
       );
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const path = join(options.destDir ?? tmpdir(), asset);
-    await writeFile(path, bytes);
-    return { path, bytes: bytes.byteLength };
+    const body = response.body as unknown as AsyncIterable<
+      Uint8Array | string
+    > | null;
+    if (!body || typeof body[Symbol.asyncIterator] !== "function") {
+      // Мокнутый/нестандартный ответ без потокового тела — по-старому.
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      await writeFile(path, bytes);
+      return { path, bytes: bytes.byteLength };
+    }
+    let bytes = 0;
+    const file = createWriteStream(path);
+    try {
+      for await (const chunk of body) {
+        bytes +=
+          typeof chunk === "string"
+            ? Buffer.byteLength(chunk)
+            : chunk.byteLength;
+        // once() отваливается и по 'error': битый диск не повесит скачивание.
+        if (!file.write(chunk)) await once(file, "drain");
+      }
+    } catch (error) {
+      file.destroy();
+      throw error;
+    }
+    await new Promise<void>((resolve, reject) => {
+      file.on("error", reject);
+      file.end(() => resolve());
+    });
+    return { path, bytes };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError")
       throw new Error("Превышено время ожидания скачивания установщика.");
+    // Не тащим за собой оборванный файл: следующая попытка качнёт заново.
+    await unlink(path).catch(() => {});
     throw error instanceof Error ? error : new Error(String(error));
   } finally {
     clearTimeout(timer);
@@ -251,11 +336,30 @@ export const NSIS_SILENT_ARGS: readonly string[] = ["/S"];
 export function launchWindowsInstaller(
   assetPath: string,
   args: readonly string[] = [],
-): void {
-  const child = spawn(assetPath, [...args], {
-    detached: true,
-    stdio: "ignore",
-    shell: false,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(assetPath, [...args], {
+        detached: true,
+        stdio: "ignore",
+        shell: false,
+      });
+    } catch (error) {
+      reject(toLaunchError(assetPath, error));
+      return;
+    }
+    child.once("error", (error) => reject(toLaunchError(assetPath, error)));
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
   });
-  child.unref();
+}
+
+function toLaunchError(assetPath: string, error: unknown): Error {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `Не удалось запустить установщик ${assetPath}: ${detail}. Проверьте, что файл на месте и не заблокирован антивирусом.`,
+  );
 }

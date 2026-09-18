@@ -18,22 +18,16 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "../../src/ui/editor.js";
-import { splitMouseEvents, type WheelDirection } from "../../src/ui/mouse.js";
 import {
   filterModelOptions,
   MAX_VISIBLE_MODELS,
   sortModelOptions,
 } from "../../src/ui/settings.js";
 import {
-  estimateFooterHeight,
+  brandHeaderLine,
   fullWidthSeparator,
-  hotkeysHint,
-  maxTranscriptOffset,
+  HOTKEYS_HINT,
   normalizeViewport,
-  TUI_HEADER_ROWS,
-  visibleTranscriptTail,
-  visibleTranscriptWindow,
-  WHEEL_SCROLL_LINES,
   wrappedLines,
 } from "../../src/ui/tui.js";
 
@@ -64,7 +58,7 @@ describe("interactive commands", () => {
     expect(commandHelpText()).toContain("/settings");
     expect(commandHelpText()).toContain("/cwd");
     expect(commandHelpText()).toContain("Shift+Enter");
-    expect(commandHelpText()).toContain("Колесо мыши");
+    expect(commandHelpText()).toContain("scrollback");
   });
 
   test("suggests the closest command for typos", () => {
@@ -131,40 +125,7 @@ describe("interactive editor", () => {
 });
 
 describe("interactive viewport layout", () => {
-  test("reserves space for multiline editor and command suggestions", () => {
-    expect(
-      estimateFooterHeight({
-        busy: false,
-        editorValue: "первая строка\nвторая строка",
-        columns: 80,
-        suggestionsCount: 2,
-      }),
-    ).toBe(11);
-    expect(
-      estimateFooterHeight({
-        busy: true,
-        editorValue: "",
-        columns: 80,
-        suggestionsCount: 3,
-      }),
-    ).toBe(5);
-  });
-
-  test("reserves the measured approval panel height", () => {
-    expect(
-      estimateFooterHeight({
-        request: {
-          tool: "write_file",
-          preview: "src/example.ts",
-        },
-        busy: false,
-        columns: 80,
-        suggestionsCount: 0,
-      }),
-    ).toBe(8);
-  });
-
-  test("adapts layout to fullscreen width without moving the input", () => {
+  test("adapts layout to fullscreen width", () => {
     // Разделитель всегда во всю ширину окна.
     expect(fullWidthSeparator(80).length).toBe(80);
     expect(fullWidthSeparator(200).length).toBe(200);
@@ -175,206 +136,30 @@ describe("interactive viewport layout", () => {
     });
     expect(normalizeViewport({ columns: 10, rows: 5 }).columns).toBe(20);
     expect(normalizeViewport({ columns: 10, rows: 5 }).rows).toBe(10);
-    // Широкое окно: длинная строка ввода занимает меньше строк,
-    // высота футера уменьшается, а шапка фиксирована.
-    const narrow = estimateFooterHeight({
-      busy: false,
-      editorValue: "x".repeat(100),
-      columns: 40,
-      suggestionsCount: 0,
-    });
-    const wide = estimateFooterHeight({
-      busy: false,
-      editorValue: "x".repeat(100),
-      columns: 200,
-      suggestionsCount: 0,
-    });
-    expect(wide).toBeLessThan(narrow);
-    expect(TUI_HEADER_ROWS).toBe(2);
     // wrappedLines считает по доступной ширине, а не по окну минус магия.
     expect(wrappedLines("x".repeat(100), 100)).toBe(1);
     expect(wrappedLines("x".repeat(101), 100)).toBe(2);
-    // Зарезервированная шапка уменьшает окно истории, но хвост тот же.
-    const lines = [
-      { id: 0, text: "первая", tone: "info" as const },
-      { id: 1, text: "вторая", tone: "info" as const },
-      { id: 2, text: "третья", tone: "info" as const },
-    ];
-    const withoutHeader = visibleTranscriptWindow(lines, 8, 80, 5, 0, 0);
-    const withHeader = visibleTranscriptWindow(
-      lines,
-      8 + TUI_HEADER_ROWS,
-      80,
-      5,
+  });
+
+  test("brand header line carries provider, version and model", () => {
+    const line = brandHeaderLine(
       0,
-      TUI_HEADER_ROWS,
+      "Anthropic (Claude)",
+      "test-model",
+      "0.5.7",
     );
-    expect(withHeader).toEqual(withoutHeader);
+    expect(line.id).toBe(0);
+    expect(line.tone).toBe("brand");
+    expect(line.text).toBe("Anthropic (Claude) · v0.5.7 · test-model");
+    expect(brandHeaderLine(1, "OpenAI", "gpt", undefined).text).toBe(
+      "OpenAI · gpt",
+    );
   });
 
-  test("clips transcript tail without an overflow indicator", () => {
-    const lines = [
-      { id: 0, text: "первая", tone: "info" as const },
-      { id: 1, text: "вторая", tone: "info" as const },
-      { id: 2, text: "третья", tone: "info" as const },
-    ];
-    const second = lines[1];
-    const third = lines[2];
-    if (!second || !third) throw new Error("test data is incomplete");
-    // Весь бюджет уходит контенту: влезают две последние записи, без счётчиков.
-    expect(visibleTranscriptTail(lines, 7, 80, 5)).toEqual({
-      lines: [second, third],
-      hiddenCount: 1,
-    });
-  });
-
-  test("recalculates clipping when a narrow viewport wraps markdown", () => {
-    const lines = [
-      { id: 0, text: "коротко", tone: "info" as const },
-      {
-        id: 1,
-        text: "очень длинная строка для проверки переноса в узком терминале",
-        tone: "info" as const,
-      },
-    ];
-    const first = lines[0];
-    const second = lines[1];
-    if (!first || !second) throw new Error("test data is incomplete");
-    expect(visibleTranscriptTail(lines, 9, 80, 5)).toEqual({
-      lines: [first, second],
-      hiddenCount: 0,
-    });
-    expect(visibleTranscriptTail(lines, 8, 15, 5)).toEqual({
-      lines: [second],
-      hiddenCount: 1,
-    });
-  });
-
-  test("browses an in-memory transcript in both directions", () => {
-    const lines = [
-      { id: 0, text: "первая", tone: "info" as const },
-      { id: 1, text: "вторая", tone: "info" as const },
-      { id: 2, text: "третья", tone: "info" as const },
-      { id: 3, text: "четвёртая", tone: "info" as const },
-    ];
-    const first = lines[0];
-    const second = lines[1];
-    const third = lines[2];
-    const fourth = lines[3];
-    if (!first || !second || !third || !fourth)
-      throw new Error("test data is incomplete");
-
-    expect(visibleTranscriptWindow(lines, 8, 20, 5)).toEqual({
-      lines: [second, third, fourth],
-      hiddenAboveCount: 1,
-      hiddenBelowCount: 0,
-    });
-    expect(visibleTranscriptWindow(lines, 8, 20, 5, 1)).toEqual({
-      lines: [first, second, third],
-      hiddenAboveCount: 0,
-      hiddenBelowCount: 1,
-    });
-    expect(visibleTranscriptWindow(lines, 8, 20, 5, 2)).toEqual({
-      lines: [first, second],
-      hiddenAboveCount: 0,
-      hiddenBelowCount: 2,
-    });
-    expect(visibleTranscriptWindow(lines, 8, 20, 5, 3)).toEqual({
-      lines: [first],
-      hiddenAboveCount: 0,
-      hiddenBelowCount: 3,
-    });
-  });
-
-  test("clamps transcript navigation and recomputes its window after resize", () => {
-    const lines = [
-      { id: 0, text: "коротко", tone: "info" as const },
-      {
-        id: 1,
-        text: "длинная запись для проверки пересчёта окна после изменения ширины терминала",
-        tone: "info" as const,
-      },
-      { id: 2, text: "новее", tone: "info" as const },
-    ];
-    const first = lines[0];
-    const second = lines[1];
-    if (!first || !second) throw new Error("test data is incomplete");
-
-    expect(maxTranscriptOffset(lines)).toBe(2);
-    expect(visibleTranscriptWindow(lines, 8, 80, 5, 99)).toEqual({
-      lines: [first],
-      hiddenAboveCount: 0,
-      hiddenBelowCount: 2,
-    });
-    expect(visibleTranscriptWindow(lines, 8, 15, 5, 1)).toEqual({
-      lines: [second],
-      hiddenAboveCount: 1,
-      hiddenBelowCount: 1,
-    });
-  });
-});
-
-describe("mouse wheel events", () => {
-  test("parses SGR wheel sequences with modifiers", () => {
-    expect(WHEEL_SCROLL_LINES).toBe(3);
-    // 64 — колесо вверх, 65 — вниз; 68/69 — то же с Shift.
-    expect(splitMouseEvents("\x1b[<64;10;20M")).toEqual({
-      text: "",
-      wheels: ["up"],
-      pending: "",
-    });
-    expect(splitMouseEvents("\x1b[<65;10;20M")).toEqual({
-      text: "",
-      wheels: ["down"],
-      pending: "",
-    });
-    expect(splitMouseEvents("\x1b[<68;1;1M\x1b[<69;1;1M")).toEqual({
-      text: "",
-      wheels: ["up", "down"] as WheelDirection[],
-      pending: "",
-    });
-    // Отпускание (m) и клики без 64-го бита глотаются молча.
-    expect(splitMouseEvents("\x1b[<64;10;20m")).toEqual({
-      text: "",
-      wheels: [],
-      pending: "",
-    });
-    expect(splitMouseEvents("\x1b[<0;10;20M")).toEqual({
-      text: "",
-      wheels: [],
-      pending: "",
-    });
-    // Обычный текст едет дальше нетронутым.
-    expect(splitMouseEvents("привет")).toEqual({
-      text: "привет",
-      wheels: [],
-      pending: "",
-    });
-    expect(splitMouseEvents("a\x1b[<65;10;20Mb")).toEqual({
-      text: "ab",
-      wheels: ["down"],
-      pending: "",
-    });
-    // Рваный хвост ждёт следующий чанк.
-    const split = splitMouseEvents("\x1b[<6");
-    expect(split).toEqual({ text: "", wheels: [], pending: "\x1b[<6" });
-    expect(splitMouseEvents(`${split.pending}4;10;20M`)).toEqual({
-      text: "",
-      wheels: ["up"],
-      pending: "",
-    });
-    // Одинокий Esc — не мышь: висит в pending до следующего чанка.
-    expect(splitMouseEvents("\x1b")).toEqual({
-      text: "",
-      wheels: [],
-      pending: "\x1b",
-    });
-  });
-
-  test("hotkeys hint shows Esc as way down when scrolled", () => {
-    expect(hotkeysHint(false)).toContain("Esc — закрыть");
-    expect(hotkeysHint(true)).toContain("Esc — вниз");
-    expect(hotkeysHint(true)).toContain("колесо");
+  test("hotkeys hint does not promise app-side scrolling", () => {
+    // Журнал листается средствами терминала — хинт про колесо убран.
+    expect(HOTKEYS_HINT).toContain("Enter — отправить");
+    expect(HOTKEYS_HINT).not.toContain("колесо");
   });
 });
 

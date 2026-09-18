@@ -149,7 +149,7 @@ export function commandHelpText(skills: CommandSuggestion[] = []): string {
   lines.push(
     "",
     "Обычный текст отправляется помощнику. Shift+Enter — новая строка.",
-    "Колесо мыши листает журнал, Home/End — его начало и конец, Esc — назад к вводу.",
+    "Журнал уходит в scrollback терминала: листайте колесом мыши.",
     "При запросе изменения нажмите y (разрешить) или n / Esc (отклонить).",
   );
   return lines.join("\n");

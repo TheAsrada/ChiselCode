@@ -1,4 +1,12 @@
-import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import {
+  Box,
+  Static,
+  Text,
+  useApp,
+  useInput,
+  useStdout,
+  useWindowSize,
+} from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
@@ -35,8 +43,7 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
-import { MarkdownText, parseBlocks } from "./markdown.js";
-import { subscribeWheel, WHEEL_SCROLL_LINES } from "./mouse.js";
+import { MarkdownText } from "./markdown.js";
 import {
   type ModelListResult,
   SettingsPanel,
@@ -92,7 +99,6 @@ export interface TuiTranscript {
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
-export const TUI_HEADER_ROWS = 2;
 export const TUI_FALLBACK_COLUMNS = 80;
 export const TUI_FALLBACK_ROWS = 24;
 
@@ -573,24 +579,12 @@ export function fullWidthSeparator(columns: number): string {
 }
 
 /**
- * Подсказка горячих клавиш под полем ввода. Держим в одну строку на 80
- * колонках, чтобы высота футера была предсказуема при любом размере окна.
- * Tab/стрелки — выбор команды как в Claude Code, Enter — выбрать/отправить.
+ * Подсказка горячих клавиш под полем ввода. Журнал листается средствами
+ * самого терминала (колесо мыши, трекпад, скроллбэк) — отдельной подсказки
+ * не нужно. Tab/стрелки — выбор команды как в Claude Code.
  */
 export const HOTKEYS_HINT =
-  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · колесо — журнал";
-
-/** Та же строка, когда журнал прокручен вверх: Esc ведёт вниз, а не закрывает. */
-export const HOTKEYS_HINT_SCROLLED =
-  "Tab/↑/↓ — команда · Enter — отправить · Esc — вниз · колесо — журнал";
-
-/** Подсказка горячих клавиш: при прокрученном журнале Esc — это «назад вниз». */
-export function hotkeysHint(scrolledUp: boolean): string {
-  return scrolledUp ? HOTKEYS_HINT_SCROLLED : HOTKEYS_HINT;
-}
-
-/** Сколько строк журнала прокручивает один щелчок колеса мыши. */
-export { WHEEL_SCROLL_LINES } from "./mouse.js";
+  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть";
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
@@ -643,6 +637,12 @@ export interface TuiAppProps {
    * сам и перезапустит приложение.
    */
   onLaunchInstaller?(path: string, silent: boolean): Promise<void>;
+  /**
+   * Есть ли файл установщика уже в релизе. Релиз создаётся пустым,
+   * установщики доливаются минутами позже — без проверки качали бы 404.
+   * Необязателен: без него проверка пропускается.
+   */
+  onCheckAssetUpdate?(plan: { url: string; asset: string }): Promise<boolean>;
   onSaveSettings(
     values: TuiSettingsValues,
   ): Promise<"saved" | "setup_required">;
@@ -709,16 +709,16 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     model: props.model,
     baseUrl: props.baseUrl,
   }));
-  const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(
-    intro(props.providerLabel, props.model, props.version),
-  );
+  const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(() => [
+    brandHeaderLine(0, props.providerLabel, props.model, props.version),
+  ]);
   // Незавершённый стриминговый ответ живёт отдельно от истории:
   // alternate screen никогда не получает статический вывод в скроллбэк,
   // а незавершённая строка остаётся частью перерисовываемого кадра.
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
-  const [transcriptOffset, setTranscriptOffset] = useState(0);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
-  const nextTranscriptId = useRef(0);
+  // Нулевой id занят стартовой шапкой бренда: счётчик стартует с единицы.
+  const nextTranscriptId = useRef(1);
   const skills = loadSkills(projectCwd);
   // Как /команды вызываются только invocable-скиллы; скрытые
   // (`user-invocable: false`) живут только в каталоге и /skills.
@@ -797,21 +797,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     props.approvalResolver.bind(setRequest);
     return () => props.approvalResolver.dispose();
   }, [props.approvalResolver]);
-  // Длина журнала для колеса мыши: эффект ниже читает её из рефа,
-  // чтобы не подписываться на каждое сообщение заново.
-  const transcriptLengthRef = useRef(0);
-  useEffect(() => {
-    // Колесо мыши: события уже вычищены из stdin фильтром (mouse.ts) до Ink,
-    // сюда приходит только направление. Подписка чистится при размонтировании.
-    return subscribeWheel((direction) => {
-      const max = Math.max(transcriptLengthRef.current - 1, 0);
-      const delta =
-        direction === "up" ? WHEEL_SCROLL_LINES : -WHEEL_SCROLL_LINES;
-      setTranscriptOffset((offset) =>
-        Math.max(0, Math.min(offset + delta, max)),
-      );
-    });
-  }, []);
   const pushLine = useCallback(
     (text: string, tone: TranscriptTone = "assistant"): void => {
       const flushed = streamingRef.current;
@@ -823,7 +808,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         ...(flushed ? [flushed] : []),
         { id, text, tone },
       ]);
-      setTranscriptOffset(0);
     },
     [],
   );
@@ -843,15 +827,34 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       streamingRef.current = line;
       setStreaming(line);
     }
-    setTranscriptOffset(0);
   }, []);
 
+  /**
+   * Сброс экрана: чистим и терминал по-настоящему (Static-вывод уже ушёл
+   * в scrollback — одним сбросом стейта его не стереть), и стейт.
+   * Static при этом перемонтируется новым ключом: схлопнувшийся массив
+   * Ink иначе больше ничего не напечатает (считает всё уже выведенным).
+   */
+  const [staticSession, setStaticSession] = useState(0);
+  const { stdout } = useStdout();
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
     setStreaming(null);
-    setTranscript([]);
-    setTranscriptOffset(0);
-  }, []);
+    try {
+      stdout.write("\x1b[2J\x1b[3J\x1b[H");
+    } catch {
+      // Вывод уже закрыт — молча уходим.
+    }
+    setTranscript([
+      brandHeaderLine(
+        nextTranscriptId.current++,
+        runtime.providerLabel,
+        runtime.model,
+        props.version,
+      ),
+    ]);
+    setStaticSession((session) => session + 1);
+  }, [props.version, runtime.model, runtime.providerLabel, stdout]);
 
   const wasBusy = useRef(false);
   useEffect(() => {
@@ -861,7 +864,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         streamingRef.current = null;
         setStreaming(null);
         setTranscript((lines) => [...lines, flushed]);
-        setTranscriptOffset(0);
       }
     }
     wasBusy.current = busy;
@@ -877,6 +879,17 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   function append(text: string, tone: TranscriptTone = "assistant"): void {
     pushLine(text, tone);
+  }
+  /**
+   * Печатает шапку бренда в журнал: контекст (сервис/модель) виден
+   * в scrollback, раз вечно прибитого хедера больше нет.
+   */
+  function printBrandHeader(label: string, model: string): void {
+    const id = nextTranscriptId.current++;
+    setTranscript((lines) => [
+      ...lines,
+      brandHeaderLine(id, label, model, props.version),
+    ]);
   }
   function submit(value: string): void {
     const prompt = value.trim();
@@ -1074,6 +1087,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
    * `/update`: проверка релиза → подтверждение y/n → скачивание →
    * установка и выход. Без новых пропов падает назад на текстовую проверку.
    */
+  const selfUpdateRunning = useRef(false);
   async function runSelfUpdate(): Promise<void> {
     if (!props.onPlanUpdate) {
       setBusy(true);
@@ -1093,6 +1107,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       }
       return;
     }
+    // Повторный /update во время активного — вежливый отказ вместо второго
+    // флоу: резолвер подтверждений один на всех, двойной запрос вешает первый.
+    if (selfUpdateRunning.current) {
+      append("Обновление уже выполняется, дождитесь завершения.", "warn");
+      return;
+    }
+    selfUpdateRunning.current = true;
     setBusy(true);
     try {
       const plan = await props.onPlanUpdate();
@@ -1132,6 +1153,27 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         append("Скачивание недоступно в этом сеансе.", "warn");
         return;
       }
+      // Релиз выходит пустым: установщик для платформы может ещё собираться.
+      // Проверяем наличие файла, иначе ловили бы голый 404.
+      if (props.onCheckAssetUpdate) {
+        let assetReady = true;
+        try {
+          assetReady = await props.onCheckAssetUpdate(plan);
+        } catch {
+          assetReady = true;
+        }
+        if (!assetReady) {
+          append(
+            [
+              `⚠ Файл ${plan.asset} пока не опубликован в релизе v${version} — установщики собираются несколько минут после выхода версии.`,
+              "Попробуйте чуть позже или скачайте вручную:",
+              `${plan.latestUrl ?? "https://github.com/TheAsrada/ChiselCode/releases"}`,
+            ].join("\n"),
+            "warn",
+          );
+          return;
+        }
+      }
       append(`Скачиваю ${plan.asset}…`, "info");
       const downloaded = await props.onDownloadUpdate(plan);
       append(
@@ -1151,6 +1193,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       }
       append("Устанавливаю тихо и перезапускаюсь…", "info");
       await props.onLaunchInstaller?.(downloaded.path, true);
+      // Даём кадру отрисоваться: иначе exit() в том же тике стирает
+      // alternate screen, и кажется, что приложение «просто исчезло».
+      await new Promise((resolve) => setTimeout(resolve, 800));
       exit();
     } catch (cause) {
       append(
@@ -1158,6 +1203,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         "error",
       );
     } finally {
+      selfUpdateRunning.current = false;
       setBusy(false);
     }
   }
@@ -1169,13 +1215,17 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   async function completeRestartedSetup(values: SetupValues): Promise<void> {
     await props.onCompleteSetup(values);
+    const label = providerName(values.provider);
     setRuntime({
       provider: values.provider,
-      providerLabel: providerName(values.provider),
+      providerLabel: label,
       model: values.model,
       baseUrl: values.baseUrl,
     });
     setRestartingSetup(false);
+    // Контекст сменился — печатаем шапку заново: прибитого хедера больше нет.
+    if (label !== runtime.providerLabel || values.model !== runtime.model)
+      printBrandHeader(label, values.model);
     pushLine(
       `✓ Настройка обновлена: ${providerName(values.provider)}, модель ${values.model}.`,
       "success",
@@ -1188,43 +1238,21 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   useInput((character, key) => {
     if (request) {
-      if (character.toLowerCase() === "y")
+      // Принимаем и русскую раскладку: «н» — та же физическая клавиша, что y.
+      const answer = character.toLowerCase();
+      if (answer === "y" || answer === "н")
         props.approvalResolver.resolve("approved");
-      if (character.toLowerCase() === "n" || key.escape)
+      if (answer === "n" || answer === "т" || key.escape)
         props.approvalResolver.resolve("denied");
       return;
     }
-    if (settings || skillsOpen || restartingSetup || busy) return;
-    // Скролл журнала: колесо мыши — основной способ, построчно —
-    // Shift+↑/↓, Home/End — начало/конец, Esc — вернуться вниз к вводу.
-    // Ввод закреплён снизу.
-    if (key.escape && transcriptOffset > 0) {
-      setTranscriptOffset(0);
-      return;
-    }
-    if (key.shift && key.upArrow) {
-      setTranscriptOffset((offset) =>
-        Math.min(offset + 1, maxTranscriptOffset(transcriptLines)),
-      );
-      return;
-    }
-    if (key.shift && key.downArrow) {
-      setTranscriptOffset((offset) => Math.max(offset - 1, 0));
-      return;
-    }
-    if (key.home) {
-      setTranscriptOffset(maxTranscriptOffset(transcriptLines));
-      return;
-    }
-    if (key.end) {
-      setTranscriptOffset(0);
-      return;
-    }
+    if (settings || skillsOpen || restartingSetup) return;
     if (key.ctrl && character === "c") {
       exit();
       return;
     }
-    // Esc закрывает список команд как в Claude Code (скролл уже обработан выше).
+    if (busy) return;
+    // Esc закрывает список команд как в Claude Code.
     if (key.escape && hasCommandSelection) {
       setSuggestionsDismissed(true);
       return;
@@ -1366,14 +1394,20 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             onListModels={props.onListModels}
             onKeyStatus={props.onKeyStatus}
             onSetupRequested={requestSetupRestart}
-            onSaved={(values) =>
+            onSaved={(values) => {
+              const label = providerName(values.provider);
+              // Шапку заново — только если контекст реально сменился.
+              const changed =
+                label !== runtime.providerLabel ||
+                values.model !== runtime.model;
               setRuntime({
                 provider: values.provider,
-                providerLabel: providerName(values.provider),
+                providerLabel: label,
                 model: values.model,
                 baseUrl: values.baseUrl,
-              })
-            }
+              });
+              if (changed) printBrandHeader(label, values.model);
+            }}
           />
         </Box>
       </Box>
@@ -1421,14 +1455,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         </Box>
       </Box>
     );
-  const transcriptLines = streaming ? [...transcript, streaming] : transcript;
-  transcriptLengthRef.current = transcriptLines.length;
-  const clampedTranscriptOffset = Math.min(
-    transcriptOffset,
-    maxTranscriptOffset(transcriptLines),
-  );
-  // Журнал прокручен вверх: подсказка показывает «Esc — вниз».
-  const scrolledUp = clampedTranscriptOffset > 0;
+  // Пустой журнал — это одна шапка бренда: подсказку показываем,
+  // пока пользователь ничего не написал и ответ не стримится.
+  const hasMessages = transcript.some((line) => line.tone !== "brand");
   const footer = request ? (
     <Approval request={request} columns={columns} />
   ) : (
@@ -1440,63 +1469,33 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       suggestionRows={suggestionRows}
       selectedRow={selectedVisibleIndex}
       columns={columns}
-      scrolledUp={scrolledUp}
     />
-  );
-  const footerRows = estimateFooterHeight({
-    request,
-    busy,
-    editorValue: editor.value,
-    columns: columns,
-    suggestionsCount: suggestionRows.length,
-    suggestionLines: suggestionRows,
-    model: runtime.model,
-    scrolledUp,
-  });
-  const visible = visibleTranscriptWindow(
-    transcriptLines,
-    rows,
-    columns,
-    footerRows,
-    clampedTranscriptOffset,
-    TUI_HEADER_ROWS,
   );
 
   return (
-    <Box flexDirection="column" height={rows} width={columns} overflow="hidden">
-      <Header
-        providerLabel={runtime.providerLabel}
-        model={runtime.model}
-        columns={columns}
-        version={props.version}
-      />
-      <Box
-        flexDirection="column"
-        flexGrow={1}
-        flexShrink={1}
-        overflow="hidden"
-        width="100%"
-      >
-        {visible.lines.map((line) => (
+    <Box flexDirection="column" width={columns}>
+      <Static key={staticSession} items={transcript}>
+        {(line) => (
           <TranscriptLineView key={line.id} line={line} columns={columns} />
-        ))}
-        {visible.lines.length === 0 &&
-        visible.hiddenAboveCount === 0 &&
-        visible.hiddenBelowCount === 0 ? (
-          <Box flexDirection="column" width="100%" flexShrink={0}>
-            <Text dimColor wrap="wrap">
-              <Text bold color="green">
-                ❯{" "}
-              </Text>
-              Введите задачу и нажмите Enter
+        )}
+      </Static>
+      {streaming ? (
+        <TranscriptLineView line={streaming} columns={columns} />
+      ) : null}
+      {!hasMessages && !streaming ? (
+        <Box flexDirection="column" width="100%">
+          <Text dimColor wrap="wrap">
+            <Text bold color="green">
+              ❯{" "}
             </Text>
-            <Text dimColor wrap="wrap">
-              {"  "}/help — команды · /status — состояние · /sessions — сеансы
-            </Text>
-          </Box>
-        ) : null}
-      </Box>
-      <Box flexDirection="column" flexShrink={0} width="100%">
+            Введите задачу и нажмите Enter
+          </Text>
+          <Text dimColor wrap="wrap">
+            {"  "}/help — команды · /status — состояние · /sessions — сеансы
+          </Text>
+        </Box>
+      ) : null}
+      <Box flexDirection="column" width="100%">
         {footer}
       </Box>
     </Box>
@@ -1504,10 +1503,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 }
 
 /**
- * Закреплённая шапка: ровно две строки (заголовок + разделитель) при любой
- * ширине окна. Первая строка — единый инлайн-Text с truncate-end, поэтому
- * длинный сервис/модель обрезаются в одну строку и никогда не раздувают
- * шапку до трёх строк и не сдвигают смету истории (TUI_HEADER_ROWS).
+ * Шапка для полноэкранных модалок (настройки, скиллы, мастер): там нет
+ * журнала, поэтому контекст показываем прибитым, как раньше. В основном
+ * виде шапки нет — контекст печатается в историю записью brand.
+ * Первая строка — единый инлайн-Text с truncate-end, поэтому длинный
+ * сервис/модель обрезаются в одну строку и никогда не раздувают шапку.
  */
 function Header({
   providerLabel,
@@ -1661,154 +1661,6 @@ function approvalPreview(request: ApprovalRequest): string {
     : request.preview;
 }
 
-function estimateApprovalHeight(
-  request: ApprovalRequest,
-  columns: number,
-): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const width = Math.max(safeColumns - 4, 10);
-  const meta = toolDisplay(request.tool);
-  const header = `? [${meta.icon}] ${meta.label} — нужно подтверждение`;
-  const controls = "[y] разрешить · [n] отклонить (Esc — тоже отклонить)";
-  // marginTop (1) + рамка (2) + вертикальные отступы preview (2) +
-  // заголовок, preview и controls с переносом по внутренней ширине.
-  return (
-    5 +
-    wrappedLines(header, width) +
-    wrappedLines(approvalPreview(request), width) +
-    wrappedLines(controls, width)
-  );
-}
-
-export interface FooterHeightInput {
-  request?: ApprovalRequest;
-  busy: boolean;
-  editorValue?: string;
-  columns?: number;
-  suggestionsCount: number;
-  /** Точные строки подсказок (для переноса на узких окнах). */
-  suggestionLines?: string[];
-  /** Модель для строки спиннера «Думаю…». */
-  model?: string;
-  /** Журнал прокручен вверх: в подсказке Esc — это «назад вниз». */
-  scrolledUp?: boolean;
-}
-
-/** Высота нижней панели с учётом подсказок и многострочного черновика. */
-export function estimateFooterHeight({
-  request,
-  busy,
-  editorValue = "",
-  columns = 80,
-  suggestionsCount,
-  suggestionLines,
-  model = "",
-  scrolledUp = false,
-}: FooterHeightInput): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  if (request) return estimateApprovalHeight(request, safeColumns);
-  const innerWidth = Math.max(safeColumns - 4, 10);
-  // Ввод живёт внутри рамки (2) + paddingX (2) + префикс «❯ » (2).
-  // Спиннер: рамка + paddingX, текст «⠋ Думаю 99с · модель» с запасом под секундомер.
-  const editorRows = busy
-    ? wrappedLines(`⠋ Думаю 99с · ${model}`, innerWidth)
-    : wrappedLines(editorValue || " ", Math.max(safeColumns - 6, 10));
-  const lines =
-    suggestionLines ??
-    Array.from({ length: Math.max(suggestionsCount, 0) }, () => " ");
-  const suggestionsRows =
-    !busy && lines.length > 0
-      ? 3 + lines.reduce((sum, l) => sum + wrappedLines(l, innerWidth), 0)
-      : 0;
-  // Верхний отступ (1) + рамка редактора (2) + строка горячих клавиш.
-  return (
-    editorRows +
-    3 +
-    wrappedLines(hotkeysHint(scrolledUp), safeColumns) +
-    suggestionsRows
-  );
-}
-
-export interface VisibleTranscriptTail {
-  lines: TuiTranscriptLine[];
-  hiddenCount: number;
-}
-
-export interface VisibleTranscriptWindow {
-  lines: TuiTranscriptLine[];
-  hiddenAboveCount: number;
-  hiddenBelowCount: number;
-}
-
-export function maxTranscriptOffset(lines: TuiTranscriptLine[]): number {
-  return Math.max(lines.length - 1, 0);
-}
-
-function selectTranscriptStart(
-  lines: TuiTranscriptLine[],
-  end: number,
-  columns: number,
-  budget: number,
-): number {
-  let used = 0;
-  let start = end;
-  for (let i = end - 1; i >= 0; i -= 1) {
-    const line = lines[i];
-    if (!line) break;
-    const height = estimateLineHeight(line, columns);
-    // Даже одна высокая запись остаётся доступной в очень маленьком окне.
-    if (used + height > budget && start < end) break;
-    used += height;
-    start = i;
-    if (used >= budget) break;
-  }
-  return start;
-}
-
-/** Выбирает доступное окно истории над закреплённой нижней панелью. */
-export function visibleTranscriptWindow(
-  lines: TuiTranscriptLine[],
-  rows: number,
-  columns: number,
-  footerRows: number,
-  offset = 0,
-  topRows = 0,
-): VisibleTranscriptWindow {
-  const safeRows = Math.max(Math.floor(rows) || TUI_FALLBACK_ROWS, 1);
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const contentRows = Math.max(safeRows - footerRows - topRows, 0);
-  const safeOffset = Math.max(0, Math.min(offset, maxTranscriptOffset(lines)));
-  const end = lines.length - safeOffset;
-  // Счётчиков «…ещё N выше/ниже» больше нет: весь бюджет уходит контенту,
-  // поэтому при небольшом переполнении видно всё сразу. Назад вниз — Esc,
-  // новые сообщения сами сбрасывают прокрутку.
-  const start = selectTranscriptStart(lines, end, safeColumns, contentRows);
-  return {
-    lines: lines.slice(start, end),
-    hiddenAboveCount: start,
-    hiddenBelowCount: lines.length - end,
-  };
-}
-
-/** Совместимый помощник: показывает самый новый хвост истории. */
-export function visibleTranscriptTail(
-  lines: TuiTranscriptLine[],
-  rows: number,
-  columns: number,
-  footerRows: number,
-  topRows = 0,
-): VisibleTranscriptTail {
-  const visible = visibleTranscriptWindow(
-    lines,
-    rows,
-    columns,
-    footerRows,
-    0,
-    topRows,
-  );
-  return { lines: visible.lines, hiddenCount: visible.hiddenAboveCount };
-}
-
 /**
  * Число строк текста с учётом переноса.
  * Второй аргумент — уже доступная ширина (usable width), а не ширина окна.
@@ -1825,68 +1677,6 @@ export function wrappedLines(text: string, usableWidth: number): number {
     );
 }
 
-/** Оценка высоты строки истории в строках терминала. */
-function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const tone = line.tone ?? "assistant";
-  if (tone === "brand") return 3; // две строки + отступ
-  if (tone === "user")
-    return 1 + wrappedLines(line.text, Math.max(safeColumns - 2, 10)); // отступ + «❯ »
-  if (tone === "tool") {
-    const summary =
-      line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text;
-    return wrappedLines(summary, Math.max(safeColumns - 2, 10)); // префикс «⟡ »
-  }
-  // Префиксы «✗ »/«⚠ » занимают клетки первой строки — считаем вместе с текстом,
-  // иначе смета занижена и Yoga схлопывает соседние строки истории.
-  if (tone === "error") return wrappedLines(`✗ ${line.text}`, safeColumns);
-  if (tone === "warn") return wrappedLines(`⚠ ${line.text}`, safeColumns);
-  if (tone === "success") return wrappedLines(line.text, safeColumns);
-  if (tone === "info") return wrappedLines(line.text, safeColumns);
-  // assistant: markdown-раскладка + верхний отступ
-  return 1 + estimateMarkdownHeight(line.text, safeColumns);
-}
-
-/** Оценка высоты markdown-ответа (заголовки, списки, код в рамках и т.д.). */
-function estimateMarkdownHeight(text: string, columns: number): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const quoteWidth = Math.max(safeColumns - 2, 10);
-  const codeWidth = Math.max(safeColumns - 4, 10);
-  return parseBlocks(text).reduce((total, block) => {
-    if (block.kind === "hr") return total + 1;
-    if (block.kind === "heading")
-      return total + wrappedLines(block.text, safeColumns);
-    if (block.kind === "paragraph")
-      return total + wrappedLines(block.text, safeColumns);
-    if (block.kind === "quote")
-      return (
-        total +
-        block.text
-          .split("\n")
-          .reduce(
-            (sum, l) => sum + Math.max(1, Math.ceil(l.length / quoteWidth)),
-            0,
-          )
-      );
-    if (block.kind === "list")
-      return (
-        total +
-        block.items.reduce(
-          (sum, item) =>
-            sum + Math.max(1, Math.ceil((item.length + 2) / safeColumns)),
-          0,
-        )
-      );
-    // код: рамки (2) + marginY (2) + возможный язык (1) + строки с переносом
-    const codeRows = block.code
-      .split("\n")
-      .reduce(
-        (sum, l) => sum + Math.max(1, Math.ceil(l.length / codeWidth)),
-        0,
-      );
-    return total + codeRows + 4 + (block.language ? 1 : 0);
-  }, 0);
-}
 function Approval({
   request,
   columns,
@@ -1935,7 +1725,6 @@ function Editor({
   suggestionRows,
   selectedRow,
   columns,
-  scrolledUp = false,
 }: {
   value: string;
   cursor: number;
@@ -1946,8 +1735,6 @@ function Editor({
   /** Индекс подсвеченной строки в suggestionRows. */
   selectedRow: number;
   columns: number;
-  /** Журнал прокручен вверх: в подсказке Esc — это «назад вниз». */
-  scrolledUp?: boolean;
 }): React.JSX.Element {
   void columns;
   return (
@@ -2003,7 +1790,7 @@ function Editor({
         )}
       </Box>
       <Text dimColor wrap="wrap">
-        {hotkeysHint(scrolledUp)}
+        {HOTKEYS_HINT}
       </Text>
     </Box>
   );
@@ -2027,12 +1814,19 @@ function renderWithCursor(value: string, cursor: number): React.ReactNode {
     </>
   );
 }
-function intro(
-  _providerLabel: string,
-  _model: string,
-  _version?: string,
-): TuiTranscriptLine[] {
-  // Стартовый транскрипт пустой: сервис/модель уже в закреплённой шапке,
-  // подсказки — в /help и в строке горячих клавиш. Ничего не пишем при запуске.
-  return [];
+/**
+ * Шапка бренда одной записью журнала: в scrollback-модели нет вечно
+ * прибитого хедера (как и у Claude Code), поэтому печатаем его в историю
+ * при старте сессии, после /clear и при смене сервиса/модели.
+ * Формат текста — `сервис · версия · модель` — разбирает TranscriptLineView.
+ */
+export function brandHeaderLine(
+  id: number,
+  providerLabel: string,
+  model: string,
+  version?: string,
+): TuiTranscriptLine {
+  const parts = [providerLabel, model];
+  if (version) parts.splice(1, 0, `v${version}`);
+  return { id, text: parts.join(" · "), tone: "brand" };
 }

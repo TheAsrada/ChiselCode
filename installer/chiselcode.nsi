@@ -81,8 +81,12 @@ LangString DESC_SecDesktop ${LANG_RUSSIAN} "Ярлык для запуска Chi
 
 ; Remembers whether we are updating an existing install (for silent relaunch).
 Var WasUpdate
+; Set when the main binary could not be replaced (still locked after retries):
+; silent relaunch must not start the stale copy then.
+Var InstallFailed
 
 Function .onInit
+  StrCpy $InstallFailed "0"
   IfFileExists "$INSTDIR\${EXENAME}" 0 done
     StrCpy $WasUpdate "1"
   done:
@@ -108,7 +112,11 @@ Section "ChiselCode" SecMain
       Goto delete_retry
     ${EndIf}
   delete_done:
+  ClearErrors
   File "/oname=${EXENAME}" "..\dist\release\chisel-windows-x64.exe"
+  ${If} ${Errors}
+    StrCpy $InstallFailed "1"
+  ${EndIf}
   File "/oname=${ICONFILE}" "assets\${ICONFILE}"
   File "/oname=LICENSE.txt" "..\LICENSE"
   File "/oname=README.txt" "README.txt"
@@ -147,9 +155,12 @@ Section /o "Ярлык на рабочем столе" SecDesktop
 SectionEnd
 
 ; Silent update (/update command): relaunch the app when we replaced one.
+; Skipped when the binary could not be replaced: launching the stale copy
+; would fake a successful update on the old version.
 Section "-RelaunchAfterSilentUpdate"
   IfSilent 0 relaunch_done
   ${If} $WasUpdate == "1"
+  ${AndIf} $InstallFailed == "0"
     Exec "$INSTDIR\${EXENAME}"
   ${EndIf}
   relaunch_done:

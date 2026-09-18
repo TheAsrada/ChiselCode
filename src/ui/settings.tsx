@@ -739,8 +739,10 @@ function Menu({
 }
 
 function ProviderMenu({ selected }: { selected: number }): React.JSX.Element {
-  // Подсказка видна и у выбранного: иначе она «убегает» из-под курсора
-  // и высота списка прыгает при ходьбе стрелками.
+  // Подсказка — только у подсвеченного сервиса (как описания у подсказок
+  // команд): иначе имена и подсказки сливаются в кашу. Высота при этом
+  // стабильна — двустрочной всегда ровно одна строка, прыгать нечему.
+  // У подсказки свой цвет и маркер └─, чтобы не терялась на фоне текста.
   return (
     <Box flexDirection="column">
       <Text>Выберите сервис:</Text>
@@ -750,12 +752,11 @@ function ProviderMenu({ selected }: { selected: number }): React.JSX.Element {
             <Text bold inverse color="green">
               ❯ {provider.label}
             </Text>
-            <Text dimColor> {provider.hint}</Text>
+            <Text color="cyan"> └─ {provider.hint}</Text>
           </Box>
         ) : (
           <Box key={provider.value} flexDirection="column">
             <Text dimColor> {provider.label}</Text>
-            <Text dimColor> {provider.hint}</Text>
           </Box>
         ),
       )}

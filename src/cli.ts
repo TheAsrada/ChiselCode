@@ -1,7 +1,10 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
 import { stdin as nodeStdin, stdout as nodeStdout } from "node:process";
-import { createInterface } from "node:readline/promises";
+import {
+  createInterface,
+  type Interface as ReadlineInterface,
+} from "node:readline/promises";
 import { Command } from "commander";
 import { render } from "ink";
 import React from "react";
@@ -14,6 +17,7 @@ import {
   runPrompt,
 } from "./commands/run.js";
 import {
+  checkAssetAvailable,
   checkForUpdates,
   downloadReleaseAsset,
   installerAssetHint,
@@ -40,7 +44,6 @@ import {
   stripActiveSkillsBlock,
 } from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
-import { createMouseFilter } from "./ui/mouse.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import {
@@ -306,17 +309,91 @@ async function doctorText(): Promise<string> {
   });
 }
 
-async function updateText(): Promise<string> {
-  const result = await checkForUpdates(VERSION);
-  if (result.error)
-    return `⚠ Не удалось проверить обновление: ${result.error}\nРелизы вручную: ${RELEASES_PAGE_URL}`;
-  if (result.updateAvailable)
-    return [
-      `◈ ChiselCode: доступна новая версия v${result.latest} (у вас v${result.current})`,
-      `Скачайте ${installerAssetHint(result.latest ?? result.current)} со страницы:`,
-      `${result.latestUrl}`,
-    ].join("\n");
-  return `✓ У вас последняя версия ChiselCode v${result.current}`;
+/**
+ * `/update` в простом текстовом режиме: полный флоу, как в TUI —
+ * проверка → подтверждение → скачивание → тихая установка и выход.
+ * Возвращает true, если установщик запущен и пора закрываться.
+ */
+async function runUpdateFallback(rl: ReadlineInterface): Promise<boolean> {
+  const write = (text: string): void => {
+    process.stdout.write(`${text}\n`);
+  };
+  const check = await checkForUpdates(VERSION);
+  if (check.error) {
+    write(
+      `⚠ Не удалось проверить обновление: ${check.error}\nРелизы вручную: ${RELEASES_PAGE_URL}`,
+    );
+    return false;
+  }
+  if (!check.updateAvailable) {
+    write(`✓ У вас последняя версия ChiselCode v${check.current}`);
+    return false;
+  }
+  const plan = planSelfUpdate(check, VERSION);
+  const version = plan.latest ?? plan.current;
+  if (!plan.installedBinary) {
+    write(
+      [
+        `◈ ChiselCode: доступна новая версия v${version} (у вас v${plan.current})`,
+        "Запущено из исходников, поэтому ставлю вручную: скачайте установщик со страницы релиза",
+        `${plan.latestUrl ?? RELEASES_PAGE_URL}`,
+        "или обновите код: git pull",
+      ].join("\n"),
+    );
+    return false;
+  }
+  process.stdout.write(
+    `Установить ChiselCode v${version}? Сейчас v${plan.current}. Файл: ${plan.asset}\nНичего кликать не придётся: установщик всё сделает тихо сам и перезапустит приложение.\nРазрешить? [y/N]: `,
+  );
+  let answer = "";
+  try {
+    answer = (await rl.question("")).trim().toLowerCase();
+  } catch {
+    return false;
+  }
+  if (answer !== "y" && answer !== "н") {
+    write("Обновление отменено.");
+    return false;
+  }
+  let assetReady = true;
+  try {
+    assetReady = await checkAssetAvailable(plan.url);
+  } catch {
+    assetReady = true;
+  }
+  if (!assetReady) {
+    write(
+      `⚠ Файл ${plan.asset} пока не опубликован в релизе v${version} — установщики собираются несколько минут после выхода версии.\nПопробуйте чуть позже или скачайте вручную: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
+    );
+    return false;
+  }
+  write(`Скачиваю ${plan.asset}…`);
+  let downloaded: { path: string; bytes: number };
+  try {
+    downloaded = await downloadReleaseAsset(plan.url, plan.asset);
+  } catch (error) {
+    write(
+      `Ошибка обновления: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
+  write(`Скачано ${(downloaded.bytes / 1024 / 1024).toFixed(1)} МБ.`);
+  if (!plan.autoInstall) {
+    write(
+      `Автоматическая установка на этой платформе требует прав. Завершите вручную:\n${plan.manualCommand ?? plan.url}`,
+    );
+    return false;
+  }
+  write("Устанавливаю тихо и перезапускаюсь…");
+  try {
+    await launchWindowsInstaller(downloaded.path, [...NSIS_SILENT_ARGS]);
+  } catch (error) {
+    write(
+      `Ошибка обновления: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
+  return true;
 }
 
 /** Сводка сессии для /status: не падает, если файл пропал. */
@@ -402,13 +479,6 @@ async function startTui(options: RunOptions): Promise<void> {
   // Иначе Ink стартует с кэшированных 80x24 — шапка узкая, ввод посреди
   // экрана, а выравнивание приходит только после ввода текста.
   syncTerminalSizeToStdout();
-  // Фильтр мыши между настоящим stdin и Ink: выкусывает SGR-последовательности
-  // колеса/кликов до парсера Ink, иначе они печатаются в поле ввода как текст.
-  // Колесо уже разведено подписчикам через subscribeWheel в TuiApp.
-  const mouse = createMouseFilter({
-    stdin: process.stdin,
-    stdout: process.stdout,
-  });
   try {
     instance = render(
       React.createElement(TuiApp, {
@@ -457,6 +527,7 @@ async function startTui(options: RunOptions): Promise<void> {
           planSelfUpdate(await checkForUpdates(VERSION), VERSION),
         onDownloadUpdate: async (plan) =>
           downloadReleaseAsset(plan.url, plan.asset),
+        onCheckAssetUpdate: async (plan) => checkAssetAvailable(plan.url),
         onLaunchInstaller: async (path, silent) => {
           launchWindowsInstaller(path, silent ? [...NSIS_SILENT_ARGS] : []);
         },
@@ -668,13 +739,9 @@ async function startTui(options: RunOptions): Promise<void> {
       }),
       {
         alternateScreen: true,
-        ...(mouse
-          ? { stdin: mouse.stdin as unknown as NodeJS.ReadStream }
-          : {}),
       },
     );
   } catch {
-    mouse?.dispose();
     // Ink требует raw mode терминала. В урезанных консолях Windows
     // (двойной клик, старый conhost) render() бросает исключение —
     // переключаемся на простой построчный режим, чтобы окно не мигало и не закрывалось.
@@ -688,8 +755,6 @@ async function startTui(options: RunOptions): Promise<void> {
     await instance.waitUntilExit();
   } catch {
     await startTuiFallback(options);
-  } finally {
-    mouse?.dispose();
   }
 }
 
@@ -829,7 +894,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         continue;
       }
       if (line === "/update") {
-        process.stdout.write(`${await updateText()}\n`);
+        if (await runUpdateFallback(rl)) return;
         continue;
       }
       if (line === "/settings" || line === "/model") {
@@ -869,7 +934,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
           } catch {
             return "unavailable";
           }
-          return answer === "y" || answer === "д" ? "approved" : "denied";
+          return answer === "y" || answer === "н" ? "approved" : "denied";
         },
       };
       try {
