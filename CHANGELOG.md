@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-09-19
+
+### Added
+
+- Живая шапка: искра-стамеска высекает искры (◈↔⟡ с переливом цвета), а по разделителю бежит световой импульс. Всё на одном тике штатного `useAnimation` Ink (180 мс) — лишних перерисовок нет. Высота шапки прежняя (2 строки), ширина строк — ровно ширина окна, так что смета истории и счётчик строк Ink на Windows не страдают. Чистые helpers (`headerMarkFrame`, `pulseSeparatorParts`, `animatedSeparator`) покрыты тестами.
+
 ## [0.5.9] - 2026-09-19
 
 ### Fixed

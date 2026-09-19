@@ -78,8 +78,13 @@ function visualWidth(line: string): number {
   return Array.from(line).length;
 }
 
-/** Первая строка каждого полного кадра — шапка приложения. */
-const FRAME_MARKER = "◈ ChiselCode";
+/**
+ * Первая строка каждого полного кадра — шапка приложения. Искра шапки
+ * анимирована (◈↔⟡), поэтому маркер — любой из двух глифов с пробелом:
+ * делить кадры только по ◈ склеивало бы ⟡-кадры с соседними и рвало
+ * проверку ширины stale-строками.
+ */
+const FRAME_MARKER_PATTERN = /(?=[◈⟡] ChiselCode)/;
 
 /** Номера «строка истории номер N», видимые в кадре, по порядку. */
 function historyNumbers(frame: string[]): number[] {
@@ -159,12 +164,13 @@ async function startApp(
      * Последний полный кадр. В debug-режиме кадры идут друг за другом
      * сплошным текстом (последняя строка кадра склеена с шапкой
      * следующего), поэтому кадр вырезаем по маркеру первой строки —
-     * он же первая строка каждого полного кадра.
+     * он же первая строка каждого полного кадра. Делим с lookahead,
+     * чтобы маркер остался в начале чанка.
      */
     frame: (frameRows: number) => {
       const text = stripAnsi(output);
-      const parts = text.split(FRAME_MARKER);
-      const lastFrameText = FRAME_MARKER + (parts.at(-1) ?? "");
+      const parts = text.split(FRAME_MARKER_PATTERN);
+      const lastFrameText = parts.at(-1) ?? "";
       return lastFrameText.split("\n").slice(0, frameRows);
     },
     unmount: () => instance.unmount(),
@@ -182,8 +188,9 @@ describe("tui fullscreen render", () => {
       }
       // Шапка сверху.
       expect(frame[0]).toContain("ChiselCode");
-      // Разделитель шапки — во всю ширину окна.
+      // Разделитель шапки — во всю ширину окна, по нему бежит импульс.
       expect(visualWidth(frame[1] ?? "")).toBe(100);
+      expect(frame[1]).toContain("●");
       // Поле ввода — внизу кадра.
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");

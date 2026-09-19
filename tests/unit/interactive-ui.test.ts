@@ -25,11 +25,15 @@ import {
   sortModelOptions,
 } from "../../src/ui/settings.js";
 import {
+  animatedSeparator,
   estimateFooterHeight,
   fullWidthSeparator,
+  HEADER_MARK_FRAMES,
+  headerMarkFrame,
   hotkeysHint,
   maxTranscriptOffset,
   normalizeViewport,
+  pulseSeparatorParts,
   TUI_HEADER_ROWS,
   visibleTranscriptTail,
   visibleTranscriptWindow,
@@ -210,6 +214,34 @@ describe("interactive viewport layout", () => {
       TUI_HEADER_ROWS,
     );
     expect(withHeader).toEqual(withoutHeader);
+  });
+
+  test("animated header keeps exact width and cycles the chisel spark", () => {
+    // Искра зациклена по кадрам и всегда в одну клетку: шапка не раздувается.
+    expect(HEADER_MARK_FRAMES.length).toBeGreaterThan(1);
+    for (let frame = 0; frame < HEADER_MARK_FRAMES.length * 2; frame += 1) {
+      const mark = headerMarkFrame(frame);
+      expect([...mark.ch].length).toBe(1);
+      const expected = HEADER_MARK_FRAMES[frame % HEADER_MARK_FRAMES.length];
+      if (!expected) throw new Error("header mark frame is missing");
+      expect(mark).toEqual(expected);
+    }
+    // Разделитель с импульсом — ровно ширина окна при любом кадре:
+    // иначе терминал перенесёт строку сам и счётчик Ink рассинхронизируется.
+    for (const columns of [20, 60, 80, 100, 200]) {
+      for (let frame = 0; frame < columns + 5; frame += 1) {
+        const line = animatedSeparator(columns, frame);
+        expect([...line].length).toBe(columns);
+        expect([...line].filter((ch) => ch === "●")).toHaveLength(1);
+        const { before, after } = pulseSeparatorParts(columns, frame);
+        expect([...before].length + 1 + [...after].length).toBe(columns);
+        expect(`${before}●${after}`).toBe(line);
+      }
+    }
+    // Импульс движется, а не стоит: соседние кадры различаются.
+    expect(animatedSeparator(80, 0)).not.toBe(animatedSeparator(80, 1));
+    // Шапка по-прежнему две строки — смета истории не меняется.
+    expect(TUI_HEADER_ROWS).toBe(2);
   });
 
   test("clips transcript tail without an overflow indicator", () => {
