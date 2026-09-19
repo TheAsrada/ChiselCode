@@ -78,36 +78,28 @@ function visualWidth(line: string): number {
   return Array.from(line).length;
 }
 
+/** Первая строка каждого полного кадра — шапка приложения. */
+const FRAME_MARKER = "◈ ChiselCode";
+
+/** Номера «строка истории номер N», видимые в кадре, по порядку. */
+function historyNumbers(frame: string[]): number[] {
+  const result: number[] = [];
+  for (const line of frame) {
+    const match = /строка истории номер (\d+)/.exec(line);
+    if (match?.[1] !== undefined) result.push(Number(match[1]));
+  }
+  return result;
+}
+
 const tick = (ms = 60): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Режет строки по границам склеенных кадров: в debug-режиме конец одного
- * кадра и начало следующего идут без перевода строки, и следующий кадр
- * всегда начинается с перепечатки Static — то есть с маркера шапки.
- */
-function unglued(lines: string[]): string[] {
-  return lines.flatMap((line) => line.split("◈ ChiselCode"));
-}
 
 interface Harness {
   stdin: MockStdin;
   stdout: MockStdout;
   transcript?: TuiTranscript;
   chunks(): string;
-  /** Сырой вывод без чистки ANSI: для управляющих кодов (очистка экрана). */
-  raw(): string;
-  /** Весь вывод построчно. */
-  lines(): string[];
-  /**
-   * Строки последнего записанного кадра. В debug-режиме Ink пишет кадр
-   * одним stdout.write: это единственный способ увидеть целостный кадр —
-   * склейка всего вывода рвётся на переходных рендерах (stale-пропсы
-   * + свежий Yoga-рут), которых в живом терминале не видно.
-   * Расклеиваем по маркеру: следующий кадр всегда начинается
-   * с перепечатки Static, то есть с шапки бренда.
-   */
-  lastWrite(): string[];
+  frame(rows: number): string[];
   unmount(): void;
 }
 
@@ -122,10 +114,8 @@ async function startApp(
   const stdout = createMockStdout(columns, rows);
   const stdin = createMockStdin();
   let output = "";
-  const writes: string[] = [];
   stdout.on("data", (chunk) => {
     output += chunk.toString();
-    writes.push(chunk.toString());
   });
   let transcript: TuiTranscript | undefined;
   const resolver = createTuiApprovalResolver();
@@ -165,87 +155,89 @@ async function startApp(
       return transcript;
     },
     chunks: () => stripAnsi(output),
-    raw: () => output,
-    lines: () => stripAnsi(output).split("\n"),
-    lastWrite: () => unglued(stripAnsi(writes.at(-1) ?? "").split("\n")),
+    /**
+     * Последний полный кадр. В debug-режиме кадры идут друг за другом
+     * сплошным текстом (последняя строка кадра склеена с шапкой
+     * следующего), поэтому кадр вырезаем по маркеру первой строки —
+     * он же первая строка каждого полного кадра.
+     */
+    frame: (frameRows: number) => {
+      const text = stripAnsi(output);
+      const parts = text.split(FRAME_MARKER);
+      const lastFrameText = FRAME_MARKER + (parts.at(-1) ?? "");
+      return lastFrameText.split("\n").slice(0, frameRows);
+    },
     unmount: () => instance.unmount(),
   };
 }
 
 describe("tui fullscreen render", () => {
-  test("idle output prints brand header once with input below", async () => {
+  test("idle frame fits the window and pins input to the bottom", async () => {
     const app = await startApp(100, 30);
     try {
-      await tick(150);
-      const text = app.chunks();
-      // Шапка бренда печатается при старте; прибитого хедера больше нет,
-      // контекст живёт в scrollback. В debug-режиме Ink дублирует Static
-      // при каждом ре-рендере — считаем не копии, а наличие и порядок.
-      expect(text).toContain("◈ ChiselCode");
-      expect(text).toContain("Anthropic (Claude)");
-      expect(text).toContain("test-model");
-      // Разделитель шапки — во всю ширину окна.
-      expect(text).toContain("─".repeat(100));
-      for (const line of unglued(app.lines())) {
+      const frame = app.frame(30);
+      expect(frame.length).toBe(30);
+      for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(100);
       }
-      // Поле ввода — в конце вывода.
-      const bottom = app.lines().slice(-6).join("\n");
+      // Шапка сверху.
+      expect(frame[0]).toContain("ChiselCode");
+      // Разделитель шапки — во всю ширину окна.
+      expect(visualWidth(frame[1] ?? "")).toBe(100);
+      // Поле ввода — внизу кадра.
+      const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
-      expect(bottom).toContain("Enter — отправить");
+      expect(bottom).toContain("колесо");
     } finally {
       app.unmount();
     }
   });
 
-  test("fullscreen output keeps brand header with input below", async () => {
+  test("fullscreen frame keeps header on top and input pinned", async () => {
     const app = await startApp(200, 60);
     try {
-      await tick(150);
-      const text = app.chunks();
-      expect(text).toContain("◈ ChiselCode");
-      for (const line of unglued(app.lines())) {
+      const frame = app.frame(60);
+      expect(frame.length).toBe(60);
+      for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(200);
       }
-      const bottom = app.lines().slice(-6).join("\n");
+      // Шапка закреплена сверху даже в полном экране.
+      expect(frame[0]).toContain("ChiselCode");
+      expect(visualWidth(frame[1] ?? "")).toBe(200);
+      const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
+      expect(bottom).toContain("колесо");
     } finally {
       app.unmount();
     }
   });
 
-  test("output adapts after window resize without overflow", async () => {
+  test("frame adapts after window resize without overflow", async () => {
     const app = await startApp(100, 30);
     try {
-      const before = new Set(app.lines());
       app.stdout.columns = 60;
       app.stdout.rows = 20;
       app.stdout.emit("resize");
-      await tick(150);
-      // Один символ ввода — гарантированно свежий кадр с новым размером.
-      // Старый Static не переформатируется (норма scrollback) — его строки,
-      // совпадающие с доресайзными, исключаем.
-      app.stdin.write("z");
-      await tick(200);
-      const frame = app.lastWrite();
-      expect(frame.join("\n")).toContain("Enter — отправить");
-      const fresh = frame.filter((line) => !before.has(line));
-      expect(fresh.length).toBeGreaterThan(0);
-      for (const line of fresh) {
+      await tick();
+      const frame = app.frame(20);
+      expect(frame.length).toBe(20);
+      for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
+      expect(frame[0]).toContain("ChiselCode");
+      expect(visualWidth(frame[1] ?? "")).toBe(60);
+      const bottom = frame.slice(-6).join("\n");
+      expect(bottom).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
     }
   });
 
-  test("output survives rapid shrink-grow without overflow", async () => {
-    // Регрессия искажения при ресайзе: свежие кадры динамической зоны
-    // никогда не шире живого окна — иначе терминал переносит длинные
-    // строки сам. Уже напечатанная история не переформатируется
-    // (нормально для scrollback) — её строки исключаем по совпадению.
-    // Кадр берём последним записанным: склейка всего вывода рвётся
-    // на переходных рендерах, которых в живом терминале не видно.
+  test("frame survives rapid shrink-grow without overflow", async () => {
+    // Регрессия искажения при ресайзе: переходный кадр никогда не шире
+    // живого окна — иначе терминал переносит длинные строки сам и весь
+    // интерфейс «плывёт». Сужаем и тут же разворачиваем обратно: оба кадра
+    // обязаны влезать в актуальное окно, шапка сверху, ввод снизу.
     const app = await startApp(100, 30);
     try {
       for (let i = 0; i < 20; i += 1) {
@@ -255,86 +247,121 @@ describe("tui fullscreen render", () => {
         );
       }
       await tick(150);
-      const beforeNarrow = new Set(app.lines());
       app.stdout.columns = 60;
       app.stdout.rows = 20;
       app.stdout.emit("resize");
-      await tick(150);
-      app.stdin.write("z");
-      await tick(200);
-      const narrowFrame = app.lastWrite();
-      expect(narrowFrame.join("\n")).toContain("Enter — отправить");
-      const narrowFresh = narrowFrame.filter((line) => !beforeNarrow.has(line));
-      expect(narrowFresh.length).toBeGreaterThan(0);
-      for (const line of narrowFresh) {
+      await tick();
+      const narrow = app.frame(20);
+      expect(narrow.length).toBe(20);
+      for (const line of narrow) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
-      const beforeWide = new Set(app.lines());
+      expect(narrow[0]).toContain("ChiselCode");
+      expect(narrow.slice(-6).join("\n")).toContain("Спросите что-нибудь");
       app.stdout.columns = 120;
       app.stdout.rows = 40;
       app.stdout.emit("resize");
-      await tick(150);
-      app.stdin.write("y");
-      await tick(200);
-      const wideFrame = app.lastWrite();
-      expect(wideFrame.join("\n")).toContain("Enter — отправить");
-      const wideFresh = wideFrame.filter((line) => !beforeWide.has(line));
-      expect(wideFresh.length).toBeGreaterThan(0);
-      for (const line of wideFresh) {
+      await tick();
+      const wide = app.frame(40);
+      expect(wide.length).toBe(40);
+      for (const line of wide) {
         expect(visualWidth(line)).toBeLessThanOrEqual(120);
       }
+      expect(wide[0]).toContain("ChiselCode");
+      expect(wide.slice(-6).join("\n")).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
     }
   });
 
-  test("long history prints every line once with input below", async () => {
-    // Scrollback-модель: каждая запись уходит в Static и остаётся в выводе
-    // навсегда; пейджинга клавишами больше нет — это делает сам терминал.
-    // В debug-режиме кадры дублируют Static, поэтому проверяем наличие
-    // всех записей по порядку, а не число копий.
+  test("long history keeps input pinned and paging works", async () => {
     const app = await startApp(80, 24);
     try {
       for (let i = 0; i < 50; i += 1) {
         app.transcript?.append(`строка истории номер ${i}`, "info");
       }
       await tick(150);
-      for (const line of unglued(app.lines())) {
+      const frame = app.frame(24);
+      expect(frame.length).toBe(24);
+      for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(80);
       }
-      const text = app.chunks();
-      let pos = -1;
-      for (let i = 0; i < 50; i += 1) {
-        const next = text.indexOf(`строка истории номер ${i}`, pos + 1);
-        expect(next).toBeGreaterThan(pos);
-        pos = next;
-      }
-      const bottom = app.lines().slice(-6).join("\n");
+      const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
-      expect(bottom).toContain("Enter — отправить");
+      expect(bottom).toContain("колесо");
+      // Самая свежая строка видна, счётчиков «…ещё N» больше нет —
+      // весь вьюпорт отдан контенту.
+      expect(frame.join("\n")).toContain("строка истории номер 49");
+      expect(frame.join("\n")).not.toContain("записей выше");
+      expect(frame.join("\n")).not.toContain("записей ниже");
+      // Видимые строки идут подряд без дыр: Yoga не схлопывает строки.
+      expect(historyNumbers(frame)).toEqual(
+        Array.from(
+          { length: historyNumbers(frame).length },
+          (_, index) => (historyNumbers(frame)[0] ?? 0) + index,
+        ),
+      );
+
+      // Shift+↑ уходит вверх построчно: видны старые записи, свежих нет,
+      // а подсказка предлагает Esc как путь назад вниз.
+      // (Колесо мыши шлёт тот же сдвиг через фильтр stdin в cli.ts —
+      // оно покрыто юнит-тестами mouse.test.ts.)
+      for (let i = 0; i < 5; i += 1) {
+        app.stdin.write("\x1b[1;2A");
+        await tick(60);
+      }
+      const up = app.frame(24).join("\n");
+      expect(up).toContain("строка истории номер 44");
+      expect(up).not.toContain("строка истории номер 49");
+      expect(up).toContain("Esc — вниз");
+      // Shift+↓ несколько раз возвращается вниз, End — сразу вниз.
+      for (let i = 0; i < 5; i += 1) {
+        app.stdin.write("\x1b[1;2B");
+        await tick(60);
+      }
+      app.stdin.write("\x1b[F");
+      await tick(150);
+      const down = app.frame(24);
+      expect(down.join("\n")).toContain("строка истории номер 49");
+      expect(down.join("\n")).not.toContain("Esc — вниз");
+      // Esc тоже возвращает к вводу после прокрутки вверх.
+      for (let i = 0; i < 5; i += 1) {
+        app.stdin.write("\x1b[1;2A");
+        await tick(60);
+      }
+      expect(app.frame(24).join("\n")).toContain("Esc — вниз");
+      app.stdin.write("\x1b");
+      await tick(150);
+      expect(app.frame(24).join("\n")).toContain("строка истории номер 49");
     } finally {
       app.unmount();
     }
   });
 
   test("narrow window with long history drops no lines", async () => {
+    // Регрессия: смета футера не учитывала перенос строки горячих клавиш,
+    // Yoga схлопывал случайную строку истории в ноль (дыра в журнале).
     const app = await startApp(60, 20);
     try {
       for (let i = 0; i < 50; i += 1) {
         app.transcript?.append(`строка истории номер ${i}`, "info");
       }
       await tick(150);
-      for (const line of unglued(app.lines())) {
+      const frame = app.frame(20);
+      expect(frame.length).toBe(20);
+      for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
-      const text = app.chunks();
-      let pos = -1;
-      for (let i = 0; i < 50; i += 1) {
-        const next = text.indexOf(`строка истории номер ${i}`, pos + 1);
-        expect(next).toBeGreaterThan(pos);
-        pos = next;
-      }
-      const bottom = app.lines().slice(-8).join("\n");
+      const numbers = historyNumbers(frame);
+      expect(numbers.length).toBeGreaterThan(5);
+      expect(numbers).toEqual(
+        Array.from(
+          { length: numbers.length },
+          (_, index) => (numbers[0] ?? 0) + index,
+        ),
+      );
+      expect(numbers.at(-1)).toBe(49);
+      const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
@@ -349,54 +376,20 @@ describe("tui fullscreen render", () => {
         "error",
       );
       await tick(150);
-      const text = app.chunks();
-      expect(text).toContain("model_not_found");
-      for (const line of unglued(app.lines())) {
+      const frame = app.frame(20);
+      expect(frame.length).toBe(20);
+      for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
-      const bottom = app.lines().slice(-6).join("\n");
+      const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
-    } finally {
-      app.unmount();
-    }
-  });
-
-  test("clear wipes the terminal and restarts history from brand", async () => {
-    // Static-вывод уже ушёл в scrollback: одного сброса стейта мало —
-    // /clear пишет настоящую очистку терминала и перемонтирует Static
-    // новым ключом (схлопнувшийся массив Ink иначе молчит навсегда).
-    const app = await startApp(80, 24);
-    try {
-      for (let i = 0; i < 5; i += 1) {
-        app.transcript?.append(`строка истории номер ${i}`, "info");
-      }
-      await tick(150);
-      expect(app.chunks()).toContain("строка истории номер 4");
-      for (const ch of "/clear") {
-        app.stdin.write(ch);
-        await tick(20);
-      }
-      app.stdin.write("\r");
-      await tick(400);
-      // Очистка реально ушла в stdout (сырой вывод, ANSI не чистим).
-      expect(app.raw()).toContain("2J");
-      // В debug-режиме кадры дублируют Static, поэтому про «не
-      // перепечаталось» судим по порядку: последнее появление новой
-      // записи — строго после последнего появления старой.
-      const grown = app.chunks();
-      expect(grown).toContain("◈ ChiselCode");
-      expect(grown).toContain("Экран очищен.");
-      expect(grown.lastIndexOf("Экран очищен.")).toBeGreaterThan(
-        grown.lastIndexOf("строка истории номер 4"),
+      // Видимые строки истории идут подряд без дыр.
+      expect(historyNumbers(frame)).toEqual(
+        Array.from(
+          { length: historyNumbers(frame).length },
+          (_, index) => (historyNumbers(frame)[0] ?? 0) + index,
+        ),
       );
-      // Новые записи печатаются как обычно.
-      app.transcript?.append("строка истории номер 100", "info");
-      await tick(150);
-      const tail = app.chunks();
-      expect(tail.lastIndexOf("строка истории номер 100")).toBeGreaterThan(
-        tail.lastIndexOf("Экран очищен."),
-      );
-      expect(app.chunks()).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
     }
@@ -464,7 +457,9 @@ describe("tui fullscreen render", () => {
       await tick(200);
       app.stdin.write("\x1b");
       await tick(200);
-      expect(app.lines().slice(-6).join("\n")).toContain("Спросите что-нибудь");
+      expect(app.frame(30).slice(-6).join("\n")).toContain(
+        "Спросите что-нибудь",
+      );
     } finally {
       app.unmount();
       await rm(root, { recursive: true, force: true });
@@ -613,8 +608,9 @@ describe("tui fullscreen render", () => {
     }) as typeof realStdout.emit;
     const app = await startApp(100, 30);
     try {
-      // Стартовый вывод: шапка бренда один раз + ввод.
-      expect(app.chunks()).toContain("◈ ChiselCode");
+      const initial = app.frame(30);
+      expect(initial.length).toBe(30);
+      expect(visualWidth(initial[1] ?? "")).toBe(100);
       // Счётчик эмитов сбрасываем после монтирования: дальше считаем только
       // уведомления, вызванные самим ресайзом.
       resizeEmits = 0;
@@ -623,13 +619,8 @@ describe("tui fullscreen render", () => {
       liveColumns = 60;
       liveRows = 20;
       syncTerminalSizeToStdout(false);
-      // Свежие кадры влезают в новое окно, ввод на месте. Старый Static
-      // не переформатируется (норма scrollback) — смотрим только новое:
-      // строки, которых не было до ресайза.
-      // Свежие кадры влезают в новое окно, ввод на месте. Старый Static
-      // не переформатируется (норма scrollback) — смотрим только новое:
-      // строки, которых не было до ресайза.
-      const before = new Set(app.lines());
+      const stale = app.frame(30);
+      expect(visualWidth(stale[1] ?? "")).toBe(100);
       // Ждём тик опроса (VIEWPORT_POLL_MS) + перерисовку — без emit и ввода.
       await tick(900);
       // Опрос обязан уведомить Ink штатным путём resized() — иначе корень
@@ -638,10 +629,13 @@ describe("tui fullscreen render", () => {
       // Но без шторма: одно изменение — пара уведомлений максимум
       // (опрос + догоняющий эффект), а не цикл.
       expect(resizeEmits).toBeLessThanOrEqual(3);
-      const healed = app.lastWrite().filter((line) => !before.has(line));
-      for (const line of unglued(healed)) {
+      const healed = app.frame(20);
+      expect(healed.length).toBe(20);
+      for (const line of healed) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
+      expect(healed[0]).toContain("ChiselCode");
+      expect(visualWidth(healed[1] ?? "")).toBe(60);
       const bottom = healed.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
     } finally {
