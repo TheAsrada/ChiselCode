@@ -189,7 +189,7 @@ export function SetupApp({
         <ModelInput provider={provider} value={model} />
       ) : null}
       {step === "saving" ? (
-        <Text color="yellow">⠋ Сохраняю настройки…</Text>
+        <Text color="yellow">◐ Сохраняю настройки…</Text>
       ) : null}
       {error ? <Text color="red">✗ {error}</Text> : null}
     </Box>

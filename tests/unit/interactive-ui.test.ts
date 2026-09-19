@@ -319,7 +319,7 @@ describe("interactive viewport layout", () => {
     ).toEqual(["", "x".repeat(79), "x".repeat(21)]);
     expect(
       expandLineRows({ id: 0, text: "[chisel] read a", tone: "tool" }, 80),
-    ).toEqual(["⟡ read a"]);
+    ).toEqual(["◆ read a"]);
     expect(
       expandLineRows({ id: 0, text: "✗ boom", tone: "error" }, 80),
     ).toEqual(["✗ boom"]);

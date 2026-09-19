@@ -35,7 +35,7 @@ export class OneShotRenderer {
     if (this.options.json) return;
     const meta = toolDisplay(name);
     this.stderr.write(
-      `\n${paint("⟡", "cyan", this.color)} ${paint(`[${meta.icon}] ${meta.label}`, "bold", this.color)} ${paint(formatToolSummary(name, input), "gray", this.color)}\n`,
+      `\n${paint("◆", "cyan", this.color)} ${paint(`[${meta.icon}] ${meta.label}`, "bold", this.color)} ${paint(formatToolSummary(name, input), "gray", this.color)}\n`,
     );
   }
 

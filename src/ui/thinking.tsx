@@ -2,7 +2,12 @@ import { Text } from "ink";
 import { useEffect, useState } from "react";
 import { formatDuration } from "./theme.js";
 
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/**
+ * Кадры спиннера — кружки из Geometric Shapes (есть в любом шрифте консоли).
+ * Брайль U+2800 специально не используем: в шрифтах conhost его нет
+ * и вместо анимации видны квадратики-тофу.
+ */
+const FRAMES = ["◐", "◑", "◒", "◓"];
 
 /** Анимированный индикатор «помощник думает» с секундомером. Одна строка. */
 export function Thinking({ model }: { model: string }): React.JSX.Element {

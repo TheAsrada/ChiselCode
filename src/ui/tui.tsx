@@ -603,14 +603,14 @@ export interface HeaderMarkFrame {
 
 /**
  * Искра-стамеска: логотип «высекает» искры. Только глифы, которые уже
- * используются в интерфейсе (◈ ⟡) — они точно есть в шрифтах conhost
+ * используются в интерфейсе (◈ ◆) — они точно есть в шрифтах conhost
  * и считаются шириной в одну клетку и Ink, и терминалом.
  */
 export const HEADER_MARK_FRAMES: HeaderMarkFrame[] = [
   { ch: "◈", color: "cyan" },
-  { ch: "⟡", color: "yellow" },
+  { ch: "◆", color: "yellow" },
   { ch: "◈", color: "cyan" },
-  { ch: "⟡", color: "magenta" },
+  { ch: "◆", color: "magenta" },
 ];
 
 /** Кадр искры по счётчику useAnimation: зациклен, чист для тестов. */
@@ -1870,7 +1870,7 @@ function TranscriptLineView({
     );
   }
   if (tone === "tool") {
-    // Gutter вызова: «⟡ глагол детали» — глагол жирным в цвете операции,
+    // Gutter вызова: «◆ глагол детали» — глагол жирным в цвете операции,
     // детали dim. Тот же текст, что в смете, — перенос совпадает.
     const summary = line.text.replace(/^\[chisel\]\s?/, "");
     const preview =
@@ -1882,7 +1882,7 @@ function TranscriptLineView({
     return (
       <Box width="100%" flexShrink={0}>
         <Text dimColor wrap="wrap">
-          <Text color={tone_}>⟡ </Text>
+          <Text color={tone_}>◆ </Text>
           <Text bold color={tone_}>
             {verb}
           </Text>
@@ -2088,7 +2088,7 @@ export function editorContentRows(
  * Реальный formatDuration растёт от «0.4с» до «Nм NNс» — меряем максимумом,
  * чтобы длинная работа не занизила футер и не отрезала свежие строки.
  */
-export const SPINNER_MEASURE_TEXT = "⠋ Думаю 88м 88с · ";
+export const SPINNER_MEASURE_TEXT = "◐ Думаю 88м 88с · ";
 
 export interface VisibleTranscriptTail {
   lines: TuiTranscriptLine[];
@@ -2231,7 +2231,7 @@ export function visibleTranscriptTail(
 
 /**
  * Ширина символа в клетках терминала: CJK/эмодзи — 2, остальное — 1.
- * Глифы интерфейса (◈ ⟡ ❯ ● ─ █ ▌ • ✗ ⚠) — всегда 1: так их считают
+ * Глифы интерфейса (◈ ◆ ❯ ● ─ █ ▌ • ✗ ⚠) — всегда 1: так их считают
  * и Ink (string-width), и conhost. Неизвестное — 1, а не 0.
  */
 export function charCellWidth(char: string): 1 | 2 {
@@ -2269,7 +2269,7 @@ export function textCellWidth(text: string): number {
  * Жадный перенос слов как в Yoga/Ink: слова копятся в строку, пока влезают
  * вместе с пробелами, а слово длиннее строки рвётся по клеткам.
  * Первая визуальная строка может быть уже остальных (firstBudget) — туда
- * уходит инлайновый префикс («❯ », «⟡ »), который занимает клетки только
+ * уходит инлайновый префикс («❯ », «◆ »), который занимает клетки только
  * в первой строке, а не в каждой.
  */
 export function wrapRowsWithFirstBudget(
@@ -2331,7 +2331,7 @@ export function wrapTextRows(text: string, width: number): string[] {
 }
 
 /**
- * Перенос текста с инлайновым префиксом («❯ », «⟡ », «▌ », «• »):
+ * Перенос текста с инлайновым префиксом («❯ », «◆ », «▌ », «• »):
  * префикс занимает клетки только первой визуальной строки и входит
  * в неё буквально — продолжения идут на всю ширину. Строки получаются
  * ровно такими, как в рендере: срезы окна можно перерисовывать как есть.
@@ -2427,7 +2427,7 @@ export function expandMarkdownRows(text: string, columns: number): string[] {
  * правды для сметы: estimateLineHeight — это длина развёртки, поэтому смета
  * не может разъехаться с рендером.
  * Зеркала рендера:
- * - префиксы «❯ »/«⟡ »/«✗ »/«⚠ » — инлайн, занимают клетки только первой
+ * - префиксы «❯ »/«◆ »/«✗ »/«⚠ » — инлайн, занимают клетки только первой
  *   визуальной строки (wrapPrefixedRows), а не сужают каждую строку;
  * - cli.ts шлёт тексты уже с префиксами («❯ …», «✗ …», «⚠ …»,
  *   «[chisel] …») — view их срезает и ставит свои, развёртка делает то же;
@@ -2452,7 +2452,7 @@ export function expandLineRows(
     const summary = line.text.replace(/^\[chisel\]\s?/, "");
     const preview =
       summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
-    return wrapPrefixedRows(preview, "⟡ ", safeColumns);
+    return wrapPrefixedRows(preview, "◆ ", safeColumns);
   }
   if (tone === "error") {
     const clean = line.text.replace(/^✗\s?/, "");

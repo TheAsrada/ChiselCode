@@ -8,7 +8,7 @@
 
 export const BRAND_MARK = "◈";
 export const USER_ARROW = "❯";
-export const TOOL_SPARK = "⟡";
+export const TOOL_SPARK = "◆";
 export const OK_MARK = "✓";
 export const FAIL_MARK = "✗";
 export const WARN_MARK = "⚠";
@@ -21,7 +21,7 @@ export const ELLIPSIS = "…";
  * - сообщение юзера — залитый блок с префиксом ❯ (blend белого 0.12
  *   на чёрном alternate screen);
  * - ответ ассистента — левая акцентная черта, markdown внутри на клетку уже;
- * - вызов инструмента — gutter «⟡ глагол детали», глагол жирным в цвете.
+ * - вызов инструмента — gutter «◆ глагол детали», глагол жирным в цвете.
  * Цвета — именами Ink, чтобы читались и в 16-цветных терминалах.
  */
 export const USER_BUBBLE_BG = "#1f1f1f";
