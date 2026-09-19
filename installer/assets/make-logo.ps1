@@ -106,6 +106,44 @@ public static class LogoTool {
     }
     return dst;
   }
+
+  // Unsharp mask (box 3x3) поверх даунскейза: возвращает чёткость мелким
+  // иконкам. Только RGB, альфу не трогаем.
+  public static void Sharpen(Bitmap bmp, double amount) {
+    int w = bmp.Width, h = bmp.Height;
+    BitmapData data = bmp.LockBits(new Rectangle(0, 0, w, h),
+      ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+    int stride = data.Stride;
+    byte[] px = new byte[stride * h];
+    System.Runtime.InteropServices.Marshal.Copy(data.Scan0, px, 0, px.Length);
+    byte[] orig = (byte[])px.Clone();
+    Func<int, int, int> idx = (x, y) => y * stride + x * 4;
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        int sr = 0, sg = 0, sb = 0;
+        for (int ky = -1; ky <= 1; ky++) {
+          int ny = y + ky < 0 ? 0 : (y + ky >= h ? h - 1 : y + ky);
+          for (int kx = -1; kx <= 1; kx++) {
+            int nx = x + kx < 0 ? 0 : (x + kx >= w ? w - 1 : x + kx);
+            int ni = idx(nx, ny);
+            sb += orig[ni]; sg += orig[ni + 1]; sr += orig[ni + 2];
+          }
+        }
+        int i = idx(x, y);
+        px[i] = Clamp(orig[i] + amount * (orig[i] - sb / 9.0));
+        px[i + 1] = Clamp(orig[i + 1] + amount * (orig[i + 1] - sg / 9.0));
+        px[i + 2] = Clamp(orig[i + 2] + amount * (orig[i + 2] - sr / 9.0));
+      }
+    }
+    System.Runtime.InteropServices.Marshal.Copy(px, 0, data.Scan0, px.Length);
+    bmp.UnlockBits(data);
+  }
+
+  private static byte Clamp(double v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (byte)v;
+  }
 }
 "@ -ReferencedAssemblies @("System.Drawing")
 
@@ -127,10 +165,10 @@ try {
   "logo.png ok ($($logo.Width)x$($logo.Height))"
 
   # --- icon.ico: классический BMP-пейлоад (как в generate-assets.ps1) ---
-  $sizes = @(16, 32, 48, 256)
-  $blobs = @()
-  foreach ($s in $sizes) {
-    $bmp = [LogoTool]::Resize($logo, $s)
+  # Все размеры — из фотки логотипа (даунскейз); никакой рисованной
+  # графики. Маленьким (16/32/48) — лёгкий unsharp после ресайза,
+  # чтобы долото и скобки не мылились: это та же фотка, только чётче.
+  function New-IconBlob($bmp, $s) {
     $ms = New-Object System.IO.MemoryStream
     $bw = New-Object System.IO.BinaryWriter($ms)
     $bw.Write([uint32]40)
@@ -164,8 +202,17 @@ try {
       $bw.Write($bits, 0, $bits.Length)
     }
     $bw.Flush()
-    $blobs += , ($ms.ToArray())
-    $bw.Dispose(); $ms.Dispose(); $bmp.Dispose()
+    $blob = $ms.ToArray()
+    $bw.Dispose(); $ms.Dispose()
+    return , $blob
+  }
+  $sizes = @(16, 32, 48, 256)
+  $blobs = @()
+  foreach ($s in $sizes) {
+    $bmp = [LogoTool]::Resize($logo, $s)
+    if ($s -le 48) { [LogoTool]::Sharpen($bmp, 0.5) }
+    $blobs += , (New-IconBlob $bmp $s)
+    $bmp.Dispose()
   }
   $fs = [System.IO.File]::Create((Join-Path $dir "icon.ico"))
   $bw = New-Object System.IO.BinaryWriter($fs)

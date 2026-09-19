@@ -150,10 +150,14 @@ Section "ChiselCode" SecMain
 
   Push "$INSTDIR"
   Call AddToUserPath
+  ; Ярлыки пересозданы с новым icon.ico, но Explorer кэширует значки
+  ; и без пинка показывал бы старый ромб: сбрасываем кэш иконок.
+  Call RefreshShellIcons
 SectionEnd
 
 Section /o "Ярлык на рабочем столе" SecDesktop
   CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${EXENAME}" "" "$INSTDIR\${ICONFILE}" 0
+  Call RefreshShellIcons
 SectionEnd
 
 ; Silent update (/update command): relaunch the app when we replaced one.
@@ -202,7 +206,18 @@ Section "Uninstall"
 
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}"
   DeleteRegKey HKCU "Software\${APPID}"
+  Call un.RefreshShellIcons
 SectionEnd
+
+; Forces Explorer to drop cached icons (SHCNE_ASSOCCHANGED): otherwise
+; shortcuts keep showing the previous icon.ico after an update.
+Function RefreshShellIcons
+  System::Call 'shell32.dll::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+FunctionEnd
+
+Function un.RefreshShellIcons
+  System::Call 'shell32.dll::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+FunctionEnd
 
 ; Adds $0 to the user PATH (HKCU\Environment) once, then broadcasts the change.
 Function AddToUserPath
