@@ -44,6 +44,7 @@ import {
   maxTranscriptScrollRows,
   normalizeViewport,
   pulseSeparatorParts,
+  shortenHome,
   sliceTranscriptLine,
   TUI_HEADER_ROWS,
   textCellWidth,
@@ -259,6 +260,27 @@ describe("interactive viewport layout", () => {
     expect(TUI_HEADER_ROWS).toBe(2);
   });
 
+  test("shortens home directory for the header", () => {
+    const prevHome = process.env.HOME;
+    const prevProfile = process.env.USERPROFILE;
+    try {
+      process.env.HOME = "/home/dev";
+      delete process.env.USERPROFILE;
+      expect(shortenHome("/home/dev/projects/x")).toBe("~/projects/x");
+      expect(shortenHome("/home/dev")).toBe("~");
+      expect(shortenHome("/tmp/x")).toBe("/tmp/x");
+      process.env.HOME = "";
+      process.env.USERPROFILE = "C:\\Users\\dev";
+      expect(shortenHome("C:\\Users\\dev\\projects")).toBe("~\\projects");
+      expect(shortenHome("D:\\other")).toBe("D:\\other");
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = prevProfile;
+    }
+  });
+
   test("wraps by words and cells like the terminal", () => {
     // Перенос по словам, а не ceil(len/width): пробелы рвут раньше.
     // (Минимальная ширина движка — 10 клеток, меньше не бывает.)
@@ -287,6 +309,14 @@ describe("interactive viewport layout", () => {
     expect(
       expandLineRows({ id: 0, text: "❯ привет", tone: "user" }, 80),
     ).toEqual(["", "❯ привет"]);
+    // Пузырь уже окна на 2 клетки (paddingX): префикс только в первой строке.
+    expect(
+      expandLineRows({ id: 0, text: `❯ ${"x".repeat(100)}`, tone: "user" }, 80),
+    ).toEqual(["", `❯ ${"x".repeat(76)}`, "x".repeat(24)]);
+    // Ответ уже окна на клетку (левая черта): 100 иксов — 79 + 21.
+    expect(
+      expandLineRows({ id: 0, text: "x".repeat(100), tone: "assistant" }, 80),
+    ).toEqual(["", "x".repeat(79), "x".repeat(21)]);
     expect(
       expandLineRows({ id: 0, text: "[chisel] read a", tone: "tool" }, 80),
     ).toEqual(["⟡ read a"]);
@@ -314,15 +344,16 @@ describe("interactive viewport layout", () => {
       ),
     ).toEqual(["", "жирно и t (http://x)"]);
     // Код: отступ + рамка + язык + строки + рамка + отступ.
+    // Ответ уже окна на клетку (левая черта): рамка 77, а не 78.
     expect(
       expandLineRows({ id: 0, text: "```ts\nab\n```", tone: "assistant" }, 80),
     ).toEqual([
       "",
       "",
-      `╭${"─".repeat(78)}╮`,
+      `╭${"─".repeat(77)}╮`,
       "ts",
       "ab",
-      `╰${"─".repeat(78)}╯`,
+      `╰${"─".repeat(77)}╯`,
       "",
     ]);
   });

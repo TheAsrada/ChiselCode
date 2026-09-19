@@ -16,6 +16,17 @@ export const INFO_MARK = "ℹ";
 export const DOT = "·";
 export const ELLIPSIS = "…";
 
+/**
+ * Дизайн-система журнала (подсмотрено у Codex/OpenCode):
+ * - сообщение юзера — залитый блок с префиксом ❯ (blend белого 0.12
+ *   на чёрном alternate screen);
+ * - ответ ассистента — левая акцентная черта, markdown внутри на клетку уже;
+ * - вызов инструмента — gutter «⟡ глагол детали», глагол жирным в цвете.
+ * Цвета — именами Ink, чтобы читались и в 16-цветных терминалах.
+ */
+export const USER_BUBBLE_BG = "#1f1f1f";
+export const ASSISTANT_GUTTER = "gray";
+
 export interface ToolDisplay {
   icon: string;
   label: string;

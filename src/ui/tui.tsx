@@ -50,7 +50,13 @@ import {
 } from "./settings.js";
 import { SetupApp, type SetupValues } from "./setup.js";
 import { SkillsPanel } from "./skills.js";
-import { type ToolTone, toolDisplay, toolTone } from "./theme.js";
+import {
+  ASSISTANT_GUTTER,
+  type ToolTone,
+  toolDisplay,
+  toolTone,
+  USER_BUBBLE_BG,
+} from "./theme.js";
 import { Thinking } from "./thinking.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
@@ -664,6 +670,36 @@ export const HOTKEYS_HINT_SCROLLED =
 /** Подсказка горячих клавиш: при прокрученном журнале Esc — это «назад вниз». */
 export function hotkeysHint(scrolledUp: boolean): string {
   return scrolledUp ? HOTKEYS_HINT_SCROLLED : HOTKEYS_HINT;
+}
+
+/**
+ * Подсказка с жирными клавишами как в Codex (ключи — bold, описания — dim).
+ * Тот же текст, что hotkeysHint(), вложенные Text идут инлайном как везде
+ * в журнале — перенос совпадает со сметой hotkeyHintRows.
+ */
+export function HotkeysHint({
+  scrolledUp = false,
+}: {
+  scrolledUp?: boolean;
+}): React.JSX.Element {
+  const parts = hotkeysHint(scrolledUp).split(" · ");
+  return (
+    <Text dimColor wrap="wrap">
+      {parts.map((part, index) => {
+        const dash = part.indexOf(" — ");
+        const key = dash === -1 ? part : part.slice(0, dash);
+        const desc = dash === -1 ? "" : part.slice(dash);
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: список фиксированный
+          <Text key={index} dimColor>
+            {index > 0 ? " · " : ""}
+            <Text bold>{key}</Text>
+            {desc}
+          </Text>
+        );
+      })}
+    </Text>
+  );
 }
 
 /** Шаг Shift+↑/↓ и доля колеса для скролла — из mouse.ts, в одних руках. */
@@ -1504,6 +1540,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           model={runtime.model}
           columns={columns}
           version={props.version}
+          cwd={projectCwd}
         />
         <Box
           flexDirection="column"
@@ -1533,6 +1570,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           model={runtime.model}
           columns={columns}
           version={props.version}
+          cwd={projectCwd}
         />
         <Box
           flexDirection="column"
@@ -1579,6 +1617,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           model={runtime.model}
           columns={columns}
           version={props.version}
+          cwd={projectCwd}
         />
         <Box
           flexDirection="column"
@@ -1672,6 +1711,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         model={runtime.model}
         columns={columns}
         version={props.version}
+        cwd={projectCwd}
       />
       <Box
         flexDirection="column"
@@ -1696,6 +1736,10 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             <Text dimColor wrap="wrap">
               {"  "}/help — команды · /status — состояние · /sessions — сеансы
             </Text>
+            <Text dimColor wrap="wrap">
+              {"  "}Shift+Enter — новая строка · Tab — подстановка команды ·
+              колесо — журнал
+            </Text>
           </Box>
         ) : null}
       </Box>
@@ -1707,9 +1751,25 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 }
 
 /**
+ * Путь покороче для шапки: домашняя папка — как ~/…, как в Codex.
+ * Чистая функция для тестов.
+ */
+export function shortenHome(path: string): string {
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (home && (path === home || path.startsWith(`${home}/`))) {
+    return `~${path.slice(home.length)}`;
+  }
+  const winHome = home.replace(/\//g, "\\");
+  if (winHome && (path === winHome || path.startsWith(`${winHome}\\`))) {
+    return `~${path.slice(winHome.length)}`;
+  }
+  return path;
+}
+
+/**
  * Закреплённая шапка: ровно две строки (заголовок + разделитель) при любой
  * ширине окна. Первая строка — единый инлайн-Text с truncate-end, поэтому
- * длинный сервис/модель обрезаются в одну строку и никогда не раздувают
+ * длинный сервис/модель/путь обрезаются в одну строку и никогда не раздувают
  * шапку до трёх строк и не сдвигают смету истории (TUI_HEADER_ROWS).
  * Живая: искра-стамеска высекает искры, а по разделителю бежит импульс —
  * всё на одном тике useAnimation, ширина строк всегда ровно columns.
@@ -1719,11 +1779,13 @@ function Header({
   model,
   columns,
   version,
+  cwd,
 }: {
   providerLabel: string;
   model: string;
   columns: number;
   version?: string;
+  cwd?: string;
 }): React.JSX.Element {
   const safeColumns = normalizeViewport({ columns }).columns;
   const { frame } = useAnimation({ interval: HEADER_ANIMATION_INTERVAL_MS });
@@ -1741,6 +1803,7 @@ function Header({
           <Text color="magenta">{providerLabel}</Text>
           <Text dimColor> · </Text>
           <Text color="yellow">{model}</Text>
+          {cwd ? <Text dimColor> · {shortenHome(cwd)}</Text> : null}
         </Text>
       </Box>
       <Box width="100%" height={1} overflow="hidden">
@@ -1785,14 +1848,19 @@ function TranscriptLineView({
     );
   }
   if (tone === "user") {
-    // Одна Text-нода во всю ширину: при ресайзе Ink сам переоборачивает
-    // строку и ввод/история не «съезжают» по горизонтали.
-    // flexShrink={0}: Yoga никогда не схлопывает строки истории в ноль
-    // при неточной смете — переполнение режется снизу, а не в середине.
+    // Залитый блок как в Codex: префикс ❯ жирным зелёным, текст обычным.
+    // paddingX сужает контент на 2 клетки — смета зеркалит
+    // (expandLineRows считает user по safeColumns - 2).
     const clean = line.text.replace(/^[❯›]\s?/, "");
     return (
-      <Box marginTop={1} width="100%" flexShrink={0}>
-        <Text bold wrap="wrap">
+      <Box
+        marginTop={1}
+        paddingX={1}
+        width="100%"
+        flexShrink={0}
+        backgroundColor={USER_BUBBLE_BG}
+      >
+        <Text wrap="wrap">
           <Text bold color="green">
             ❯{" "}
           </Text>
@@ -1802,15 +1870,23 @@ function TranscriptLineView({
     );
   }
   if (tone === "tool") {
+    // Gutter вызова: «⟡ глагол детали» — глагол жирным в цвете операции,
+    // детали dim. Тот же текст, что в смете, — перенос совпадает.
     const summary = line.text.replace(/^\[chisel\]\s?/, "");
     const preview =
       summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
     const tone_ = toolToneFromSummary(summary);
+    const space = preview.search(/\s/);
+    const verb = space === -1 ? preview : preview.slice(0, space);
+    const rest = space === -1 ? "" : preview.slice(space);
     return (
       <Box width="100%" flexShrink={0}>
         <Text dimColor wrap="wrap">
           <Text color={tone_}>⟡ </Text>
-          {preview}
+          <Text bold color={tone_}>
+            {verb}
+          </Text>
+          {rest}
         </Text>
       </Box>
     );
@@ -1851,9 +1927,24 @@ function TranscriptLineView({
         <Text wrap="wrap">{line.text}</Text>
       </Box>
     );
+  // Ответ ассистента: левая акцентная черта как в OpenCode, markdown
+  // внутри на клетку уже — смета зеркалит (expandLineRows считает
+  // assistant по safeColumns - 1). flexShrink={0}: переполнение режется
+  // снизу, Yoga не схлопывает строки истории в ноль.
   return (
     <Box marginTop={1} width="100%" flexShrink={0}>
-      <MarkdownText text={line.text} columns={columns} />
+      <Box
+        width="100%"
+        flexShrink={0}
+        borderStyle="single"
+        borderTop={false}
+        borderBottom={false}
+        borderRight={false}
+        borderLeft
+        borderColor={ASSISTANT_GUTTER}
+      >
+        <MarkdownText text={line.text} columns={columns} />
+      </Box>
     </Box>
   );
 }
@@ -2283,7 +2374,10 @@ export function wrappedLines(text: string, usableWidth: number): number {
  * `[t](url)`→`t (url)` — ровно то, что занимает клетки в рендере.
  */
 export function expandMarkdownRows(text: string, columns: number): string[] {
-  const safeColumns = normalizeViewport({ columns }).columns;
+  // Ширина приходит уже sane от вызывающего (view отдаёт контенту
+  // columns минус gutter/border) — только floor, без min-20 клампа,
+  // иначе узкие окна считались бы шире рендера.
+  const safeColumns = Math.max(Math.floor(columns) || 10, 10);
   const codeWidth = Math.max(safeColumns - 4, 10);
   const rows: string[] = [];
   for (const block of parseBlocks(text)) {
@@ -2348,7 +2442,11 @@ export function expandLineRows(
   if (tone === "brand") return [line.text, fullWidthSeparator(safeColumns), ""];
   if (tone === "user") {
     const clean = line.text.replace(/^[❯›]\s?/, "");
-    return ["", ...wrapPrefixedRows(clean, "❯ ", safeColumns)];
+    // Залитый блок с paddingX=1: контент на 2 клетки уже окна.
+    return [
+      "",
+      ...wrapPrefixedRows(clean, "❯ ", Math.max(safeColumns - 2, 10)),
+    ];
   }
   if (tone === "tool") {
     const summary = line.text.replace(/^\[chisel\]\s?/, "");
@@ -2366,8 +2464,8 @@ export function expandLineRows(
   }
   if (tone === "success" || tone === "info")
     return wrapUnitRows(line.text, safeColumns);
-  // assistant: markdown-раскладка + верхний отступ
-  return ["", ...expandMarkdownRows(line.text, safeColumns)];
+  // assistant: левая черта забирает клетку + верхний отступ.
+  return ["", ...expandMarkdownRows(line.text, Math.max(safeColumns - 1, 10))];
 }
 
 /** Высота записи журнала: длина её развёртки — всегда равна рендеру. */
@@ -2492,9 +2590,7 @@ function Editor({
           </Text>
         )}
       </Box>
-      <Text dimColor wrap="wrap">
-        {hotkeysHint(scrolledUp)}
-      </Text>
+      <HotkeysHint scrolledUp={scrolledUp} />
     </Box>
   );
 }
