@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-09-19
+
+### Added
+
+- Официальный логотип ChiselCode — стамеска между скобками кода (`installer/assets/logo.png` с прозрачным фоном, исходник — `logo-source.png`). Значок ярлыков, установщика и «Установки и удаления программ» (`icon.ico` 16/32/48/256) собран из него скриптом `installer/assets/make-logo.ps1`. Логотип также в шапке README.
+
 ## [0.5.11] - 2026-09-19
 
 ### Fixed
