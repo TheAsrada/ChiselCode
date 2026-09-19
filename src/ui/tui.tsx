@@ -35,8 +35,14 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
-import { MarkdownText, parseBlocks } from "./markdown.js";
-import { subscribeWheel, WHEEL_SCROLL_LINES } from "./mouse.js";
+import { MarkdownText, parseBlocks, plainInlineText } from "./markdown.js";
+import {
+  SHIFT_SCROLL_ROWS,
+  subscribeWheel,
+  WHEEL_BATCH_MS,
+  type WheelDirection,
+  wheelScrollRows,
+} from "./mouse.js";
 import {
   type ModelListResult,
   SettingsPanel,
@@ -660,8 +666,8 @@ export function hotkeysHint(scrolledUp: boolean): string {
   return scrolledUp ? HOTKEYS_HINT_SCROLLED : HOTKEYS_HINT;
 }
 
-/** Сколько строк журнала прокручивает один щелчок колеса мыши. */
-export { WHEEL_SCROLL_LINES } from "./mouse.js";
+/** Шаг Shift+↑/↓ и доля колеса для скролла — из mouse.ts, в одних руках. */
+export { SHIFT_SCROLL_ROWS, WHEEL_BATCH_MS, wheelScrollRows } from "./mouse.js";
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
@@ -874,20 +880,66 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     props.approvalResolver.bind(setRequest);
     return () => props.approvalResolver.dispose();
   }, [props.approvalResolver]);
-  // Длина журнала для колеса мыши: эффект ниже читает её из рефа,
-  // чтобы не подписываться на каждое сообщение заново.
-  const transcriptLengthRef = useRef(0);
+  // Живые габариты скролла для подписки колеса: эффект ниже подписан один
+  // раз, а актуальные columns/contentRows/max читает из рефа при событии.
+  const scrollDimsRef = useRef({ columns: 80, contentRows: 0, maxScroll: 0 });
+  // Батчинг колеса: один физический флик шлёт десяток SGR-событий, и каждое
+  // без батчинга — отдельная полноэкранная перерисовка (на Windows с полной
+  // очисткой: мерцание и «тупняк»). Копим дельту и сбрасываем одним setState.
+  const wheelAccumRef = useRef(0);
+  const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const wheelLastDirRef = useRef<WheelDirection | null>(null);
   useEffect(() => {
     // Колесо мыши: события уже вычищены из stdin фильтром (mouse.ts) до Ink,
-    // сюда приходит только направление. Подписка чистится при размонтировании.
-    return subscribeWheel((direction) => {
-      const max = Math.max(transcriptLengthRef.current - 1, 0);
-      const delta =
-        direction === "up" ? WHEEL_SCROLL_LINES : -WHEEL_SCROLL_LINES;
+    // сюда приходит только направление. Таймер и подписка чистятся здесь же.
+    const flush = (): void => {
+      wheelTimerRef.current = undefined;
+      const delta = wheelAccumRef.current;
+      wheelAccumRef.current = 0;
+      wheelLastDirRef.current = null;
+      if (delta === 0) return;
+      const max = scrollDimsRef.current.maxScroll;
       setTranscriptOffset((offset) =>
         Math.max(0, Math.min(offset + delta, max)),
       );
+    };
+    const arm = (): void => {
+      if (wheelTimerRef.current) clearTimeout(wheelTimerRef.current);
+      wheelTimerRef.current = setTimeout(flush, WHEEL_BATCH_MS);
+    };
+    const unsubscribe = subscribeWheel((direction) => {
+      const { contentRows, maxScroll } = scrollDimsRef.current;
+      const step = wheelScrollRows(contentRows);
+      const signed = direction === "up" ? step : -step;
+      // Смена направления — сначала отдать накопленное: иначе разворот
+      // флика чувствуется с задержкой.
+      if (wheelLastDirRef.current && wheelLastDirRef.current !== direction) {
+        if (wheelTimerRef.current) clearTimeout(wheelTimerRef.current);
+        wheelTimerRef.current = undefined;
+        const pending = wheelAccumRef.current;
+        wheelAccumRef.current = 0;
+        wheelLastDirRef.current = null;
+        if (pending !== 0)
+          setTranscriptOffset((offset) =>
+            Math.max(0, Math.min(offset + pending, maxScroll)),
+          );
+      }
+      wheelLastDirRef.current = direction;
+      // Один сброс — не дальше экрана: огромный флик не швыряет в начало.
+      const cap = Math.max(contentRows, 1);
+      wheelAccumRef.current = Math.max(
+        -cap,
+        Math.min(cap, wheelAccumRef.current + signed),
+      );
+      arm();
     });
+    return () => {
+      if (wheelTimerRef.current) clearTimeout(wheelTimerRef.current);
+      wheelTimerRef.current = undefined;
+      unsubscribe();
+    };
   }, []);
   const pushLine = useCallback(
     (text: string, tone: TranscriptTone = "assistant"): void => {
@@ -895,12 +947,25 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       streamingRef.current = null;
       setStreaming(null);
       const id = nextTranscriptId.current++;
-      setTranscript((lines) => [
-        ...lines,
+      const added: TuiTranscriptLine[] = [
         ...(flushed ? [flushed] : []),
         { id, text, tone },
-      ]);
-      setTranscriptOffset(0);
+      ];
+      // Sticky-bottom: читающего историю вверх не дёргаем вниз — окно стоит
+      // на месте (offset растёт на высоту новых строк), прибитый ко дну
+      // остаётся прибитым. Раньше любой append делал setTranscriptOffset(0),
+      // а appendToLast дёргал на каждый токен стриминга.
+      const dims = scrollDimsRef.current;
+      const addedRows = added.reduce(
+        (sum, line) => sum + expandLineRows(line, dims.columns).length,
+        0,
+      );
+      setTranscriptOffset((offset) =>
+        offset === 0
+          ? 0
+          : Math.min(offset + addedRows, dims.maxScroll + addedRows),
+      );
+      setTranscript((lines) => [...lines, ...added]);
     },
     [],
   );
@@ -920,7 +985,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       streamingRef.current = line;
       setStreaming(line);
     }
-    setTranscriptOffset(0);
+    // Без сброса прокрутки: чанки идут на каждый токен, сброс швырял бы
+    // читающего вниз десятки раз за ответ. Коммит — в pushLine/wasBusy.
   }, []);
 
   const clearAll = useCallback((): void => {
@@ -938,7 +1004,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         streamingRef.current = null;
         setStreaming(null);
         setTranscript((lines) => [...lines, flushed]);
-        setTranscriptOffset(0);
+        // Тот же sticky-bottom, что в pushLine: ушедшего вверх не дёргаем.
+        const dims = scrollDimsRef.current;
+        const addedRows = expandLineRows(flushed, dims.columns).length;
+        setTranscriptOffset((offset) =>
+          offset === 0
+            ? 0
+            : Math.min(offset + addedRows, dims.maxScroll + addedRows),
+        );
       }
     }
     wasBusy.current = busy;
@@ -1307,25 +1380,27 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (settings || skillsOpen || restartingSetup) return;
-    // Скролл журнала: колесо мыши — основной способ, построчно —
-    // Shift+↑/↓, Home/End — начало/конец, Esc — вернуться вниз к вводу.
-    // Ввод закреплён снизу. Скролл и выход работают даже пока агент думает.
+    // Скролл журнала в СТРОКАХ терминала (как браузер): колесо — четверть
+    // видимой высоты, Shift+↑/↓ — ровно строка, Home/End — края,
+    // Esc — вернуться вниз к вводу. Ввод закреплён снизу.
+    // Скролл и выход работают даже пока агент думает.
     if (key.escape && transcriptOffset > 0) {
       setTranscriptOffset(0);
       return;
     }
     if (key.shift && key.upArrow) {
+      const max = scrollDimsRef.current.maxScroll;
       setTranscriptOffset((offset) =>
-        Math.min(offset + 1, maxTranscriptOffset(transcriptLines)),
+        Math.min(offset + SHIFT_SCROLL_ROWS, max),
       );
       return;
     }
     if (key.shift && key.downArrow) {
-      setTranscriptOffset((offset) => Math.max(offset - 1, 0));
+      setTranscriptOffset((offset) => Math.max(offset - SHIFT_SCROLL_ROWS, 0));
       return;
     }
     if (key.home) {
-      setTranscriptOffset(maxTranscriptOffset(transcriptLines));
+      setTranscriptOffset(scrollDimsRef.current.maxScroll);
       return;
     }
     if (key.end) {
@@ -1535,11 +1610,35 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       </Box>
     );
   const transcriptLines = streaming ? [...transcript, streaming] : transcript;
-  transcriptLengthRef.current = transcriptLines.length;
-  const clampedTranscriptOffset = Math.min(
-    transcriptOffset,
-    maxTranscriptOffset(transcriptLines),
+  // Смета футера не зависит от скролла (хинт резервируется по худшему
+  // варианту), поэтому контент/максимум считаются прямо здесь — до useInput
+  // в коде ниже они не нужны: обработчики читают свежий scrollDimsRef.
+  const footerProbeRows = estimateFooterHeight({
+    request,
+    busy,
+    editorValue: editor.value,
+    editorCursor: editor.cursor,
+    columns: columns,
+    suggestionsCount: suggestionRows.length,
+    suggestionLines: suggestionRows,
+    model: runtime.model,
+    scrolledUp: false,
+  });
+  const probeContentRows = Math.max(
+    rows - footerProbeRows - TUI_HEADER_ROWS,
+    0,
   );
+  const probeMaxScroll = maxTranscriptScrollRows(
+    transcriptLines,
+    columns,
+    probeContentRows,
+  );
+  scrollDimsRef.current = {
+    columns,
+    contentRows: probeContentRows,
+    maxScroll: probeMaxScroll,
+  };
+  const clampedTranscriptOffset = Math.min(transcriptOffset, probeMaxScroll);
   // Журнал прокручен вверх: подсказка показывает «Esc — вниз».
   const scrolledUp = clampedTranscriptOffset > 0;
   const footer = request ? (
@@ -1556,16 +1655,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       scrolledUp={scrolledUp}
     />
   );
-  const footerRows = estimateFooterHeight({
-    request,
-    busy,
-    editorValue: editor.value,
-    columns: columns,
-    suggestionsCount: suggestionRows.length,
-    suggestionLines: suggestionRows,
-    model: runtime.model,
-    scrolledUp,
-  });
+  const footerRows = footerProbeRows;
   const visible = visibleTranscriptWindow(
     transcriptLines,
     rows,
@@ -1733,22 +1823,28 @@ function TranscriptLineView({
         </Text>
       </Box>
     );
-  if (tone === "error")
+  if (tone === "error") {
+    // cli.ts шлёт текст уже с «✗ » — срезаем, чтобы не двоилось «✗ ✗ ».
+    const clean = line.text.replace(/^✗\s?/, "");
     return (
       <Box width="100%" flexShrink={0}>
         <Text color="red" wrap="wrap">
-          ✗ {line.text}
+          ✗ {clean}
         </Text>
       </Box>
     );
-  if (tone === "warn")
+  }
+  if (tone === "warn") {
+    // Аналогично: «⚠ …» из cli.ts не должен двоиться.
+    const clean = line.text.replace(/^⚠\s?/, "");
     return (
       <Box width="100%" flexShrink={0}>
         <Text color="yellow" wrap="wrap">
-          ⚠ {line.text}
+          ⚠ {clean}
         </Text>
       </Box>
     );
+  }
   if (tone === "info")
     return (
       <Box width="100%" flexShrink={0}>
@@ -1792,11 +1888,12 @@ function estimateApprovalHeight(
   const controls = "[y] разрешить · [n] отклонить (Esc — тоже отклонить)";
   // marginTop (1) + рамка (2) + вертикальные отступы preview (2) +
   // заголовок, preview и controls с переносом по внутренней ширине.
+  // Перенос — по словам, как в рендере (wrapUnitRows), а не ceil(len/width).
   return (
     5 +
-    wrappedLines(header, width) +
-    wrappedLines(approvalPreview(request), width) +
-    wrappedLines(controls, width)
+    wrapUnitRows(header, width).length +
+    wrapUnitRows(approvalPreview(request), width).length +
+    wrapUnitRows(controls, width).length
   );
 }
 
@@ -1804,13 +1901,19 @@ export interface FooterHeightInput {
   request?: ApprovalRequest;
   busy: boolean;
   editorValue?: string;
+  /** Позиция курсора: «█» в конце дописывает клетку (см. editorContentRows). */
+  editorCursor?: number;
   columns?: number;
   suggestionsCount: number;
   /** Точные строки подсказок (для переноса на узких окнах). */
   suggestionLines?: string[];
   /** Модель для строки спиннера «Думаю…». */
   model?: string;
-  /** Журнал прокручен вверх: в подсказке Esc — это «назад вниз». */
+  /**
+   * Журнал прокручен вверх: в подсказке Esc — это «назад вниз».
+   * На высоту не влияет: хинт всегда резервируется по худшему варианту,
+   * чтобы скролл не менял футер. Поле оставлено для совместимости.
+   */
   scrolledUp?: boolean;
 }
 
@@ -1819,6 +1922,7 @@ export function estimateFooterHeight({
   request,
   busy,
   editorValue = "",
+  editorCursor,
   columns = 80,
   suggestionsCount,
   suggestionLines,
@@ -1827,27 +1931,73 @@ export function estimateFooterHeight({
 }: FooterHeightInput): number {
   const safeColumns = normalizeViewport({ columns }).columns;
   if (request) return estimateApprovalHeight(request, safeColumns);
+  // scrolledUp на высоту не влияет (хинт резервируется по худшему варианту).
+  void scrolledUp;
   const innerWidth = Math.max(safeColumns - 4, 10);
-  // Ввод живёт внутри рамки (2) + paddingX (2) + префикс «❯ » (2).
-  // Спиннер: рамка + paddingX, текст «⠋ Думаю 99с · модель» с запасом под секундомер.
+  // Ввод живёт внутри рамки (2) + paddingX (2). Спиннер меряем верхней
+  // оценкой секундомера («88м 88с»): занижение страшнее завышения —
+  // занижение режет свежие строки, завышение лишь прячет одну строку.
+  // Курсор «█» в конце дописывает клетку: на границе ширины это целая строка.
   const editorRows = busy
-    ? wrappedLines(`⠋ Думаю 99с · ${model}`, innerWidth)
-    : wrappedLines(editorValue || " ", Math.max(safeColumns - 6, 10));
+    ? wrapUnitRows(`${SPINNER_MEASURE_TEXT}${model}`, innerWidth).length
+    : editorContentRows(
+        editorValue,
+        editorCursor ?? editorValue.length,
+        innerWidth,
+      );
   const lines =
     suggestionLines ??
     Array.from({ length: Math.max(suggestionsCount, 0) }, () => " ");
-  const suggestionsRows =
-    !busy && lines.length > 0
-      ? 3 + lines.reduce((sum, l) => sum + wrappedLines(l, innerWidth), 0)
-      : 0;
+  // Подсказки — всегда truncate-end, т.е. ровно строка на пункт:
+  // считать переносом через wrappedLines было завышением на узких окнах.
+  const suggestionsRows = !busy && lines.length > 0 ? 3 + lines.length : 0;
   // Верхний отступ (1) + рамка редактора (2) + строка горячих клавиш.
-  return (
-    editorRows +
-    3 +
-    wrappedLines(hotkeysHint(scrolledUp), safeColumns) +
-    suggestionsRows
+  // Хинт резервируем по худшему из двух вариантов («закрыть»/«вниз»),
+  // чтобы скролл не менял высоту футера и окно не мигало на границе.
+  return editorRows + 3 + hotkeyHintRows(safeColumns) + suggestionsRows;
+}
+
+/** Строки подсказки горячих клавиш: максимум из обоих состояний скролла. */
+export function hotkeyHintRows(columns: number): number {
+  const safeColumns = normalizeViewport({ columns }).columns;
+  return Math.max(
+    wrapUnitRows(HOTKEYS_HINT, safeColumns).length,
+    wrapUnitRows(HOTKEYS_HINT_SCROLLED, safeColumns).length,
   );
 }
+
+/**
+ * Высота текста ввода: первая логическая строка живёт с префиксом «❯ »
+ * (2 клетки только первой визуальной строки), остальные — на всю ширину.
+ * Пустой ввод — плейсхолдер в одну строку (truncate-end).
+ */
+export function editorContentRows(
+  value: string,
+  cursor: number,
+  innerWidth: number,
+): number {
+  const width = Math.max(Math.floor(innerWidth) || 10, 10);
+  if (!value) return 1;
+  const safeCursor = Math.max(0, Math.min(Math.floor(cursor), value.length));
+  // Курсор в конце — видимый «█»: дописываем клетку до переноса.
+  const effective = safeCursor >= value.length ? `${value}█` : value;
+  const logical = effective.split("\n");
+  let rows = 0;
+  logical.forEach((line, index) => {
+    rows +=
+      index === 0
+        ? wrapPrefixedRows(line, "❯ ", width).length
+        : wrapTextRows(line, width).length;
+  });
+  return Math.max(rows, 1);
+}
+
+/**
+ * Текст спиннера «Думаю…» для сметы: верхняя оценка длины секундомера.
+ * Реальный formatDuration растёт от «0.4с» до «Nм NNс» — меряем максимумом,
+ * чтобы длинная работа не занизила футер и не отрезала свежие строки.
+ */
+export const SPINNER_MEASURE_TEXT = "⠋ Думаю 88м 88с · ";
 
 export interface VisibleTranscriptTail {
   lines: TuiTranscriptLine[];
@@ -1856,36 +2006,70 @@ export interface VisibleTranscriptTail {
 
 export interface VisibleTranscriptWindow {
   lines: TuiTranscriptLine[];
+  /** Строк скрыто сверху (единица — строки терминала, а не записи). */
   hiddenAboveCount: number;
+  /** Строк скрыто снизу — всегда равно offset после клампа. */
   hiddenBelowCount: number;
 }
 
-export function maxTranscriptOffset(lines: TuiTranscriptLine[]): number {
-  return Math.max(lines.length - 1, 0);
-}
-
-function selectTranscriptStart(
+/** Суммарная высота журнала в строках терминала. */
+export function totalTranscriptRows(
   lines: TuiTranscriptLine[],
-  end: number,
   columns: number,
-  budget: number,
 ): number {
-  let used = 0;
-  let start = end;
-  for (let i = end - 1; i >= 0; i -= 1) {
-    const line = lines[i];
-    if (!line) break;
-    const height = estimateLineHeight(line, columns);
-    // Даже одна высокая запись остаётся доступной в очень маленьком окне.
-    if (used + height > budget && start < end) break;
-    used += height;
-    start = i;
-    if (used >= budget) break;
-  }
-  return start;
+  const safeColumns = normalizeViewport({ columns }).columns;
+  return lines.reduce(
+    (sum, line) => sum + expandLineRows(line, safeColumns).length,
+    0,
+  );
 }
 
-/** Выбирает доступное окно истории над закреплённой нижней панелью. */
+/**
+ * Сколько строк можно спрятать снизу: всё, что не влезает в контент.
+ * Ноль — журнал влезает целиком, скроллить нечего.
+ */
+export function maxTranscriptScrollRows(
+  lines: TuiTranscriptLine[],
+  columns: number,
+  contentRows: number,
+): number {
+  return Math.max(
+    totalTranscriptRows(lines, columns) - Math.max(contentRows, 0),
+    0,
+  );
+}
+
+/**
+ * Копия записи с обрезанным верхом/низом для границ окна. Показываем
+ * срез [skipTop, skipTop + keepRows) визуальных строк. id сохраняется
+ * (React не ремаунтит строку), а тон сбрасывается в info: срез рендерится
+ * plain-переносом, и тогда его высота ТОЧНО равна длине среза — смета
+ * снова не может разъехаться с рендером. Целая запись возвращается как есть.
+ */
+export function sliceTranscriptLine(
+  line: TuiTranscriptLine,
+  skipTopRows: number,
+  keepRows: number,
+  columns: number,
+): TuiTranscriptLine | null {
+  const rows = expandLineRows(line, columns);
+  if (keepRows >= rows.length && skipTopRows <= 0) return line;
+  if (keepRows <= 0) return null;
+  const slice = rows.slice(
+    Math.max(skipTopRows, 0),
+    Math.max(skipTopRows, 0) + Math.max(keepRows, 0),
+  );
+  if (slice.length === 0) return null;
+  return { ...line, text: slice.join("\n"), tone: "info" };
+}
+
+/**
+ * Выбирает окно истории над закреплённой нижней панелью — в СТРОКАХ
+ * терминала, как браузер, а не в записях. offset — сколько строк спрятано
+ * снизу (0 — прибит ко дну). Граничные записи режутся сверху/снизу срезом
+ * (sliceTranscriptLine), поэтому читается даже середина ответа выше экрана —
+ * раньше высокие записи проскакивали целиком и их середина была невидима.
+ */
 export function visibleTranscriptWindow(
   lines: TuiTranscriptLine[],
   rows: number,
@@ -1897,16 +2081,41 @@ export function visibleTranscriptWindow(
   const safeRows = Math.max(Math.floor(rows) || TUI_FALLBACK_ROWS, 1);
   const safeColumns = normalizeViewport({ columns }).columns;
   const contentRows = Math.max(safeRows - footerRows - topRows, 0);
-  const safeOffset = Math.max(0, Math.min(offset, maxTranscriptOffset(lines)));
-  const end = lines.length - safeOffset;
-  // Счётчиков «…ещё N выше/ниже» больше нет: весь бюджет уходит контенту,
-  // поэтому при небольшом переполнении видно всё сразу. Назад вниз — Esc,
-  // новые сообщения сами сбрасывают прокрутку.
-  const start = selectTranscriptStart(lines, end, safeColumns, contentRows);
+  const heights = lines.map((line) => expandLineRows(line, safeColumns).length);
+  const total = heights.reduce((sum, height) => sum + height, 0);
+  const maxScroll = Math.max(total - contentRows, 0);
+  const safeScroll = Math.max(0, Math.min(Math.floor(offset) || 0, maxScroll));
+  // Окно — строки [total - safeScroll - contentRows, total - safeScroll).
+  const windowEnd = total - safeScroll;
+  const windowStart = Math.max(windowEnd - contentRows, 0);
+  const visible: TuiTranscriptLine[] = [];
+  let cursor = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const height = heights[index] ?? 0;
+    if (!line || height <= 0) continue;
+    const lineStart = cursor;
+    const lineEnd = cursor + height;
+    cursor = lineEnd;
+    if (lineEnd <= windowStart || lineStart >= windowEnd) continue;
+    const skipTop = Math.max(windowStart - lineStart, 0);
+    const skipBottom = Math.max(lineEnd - windowEnd, 0);
+    if (skipTop === 0 && skipBottom === 0) {
+      visible.push(line);
+      continue;
+    }
+    const cut = sliceTranscriptLine(
+      line,
+      skipTop,
+      height - skipTop - skipBottom,
+      safeColumns,
+    );
+    if (cut) visible.push(cut);
+  }
   return {
-    lines: lines.slice(start, end),
-    hiddenAboveCount: start,
-    hiddenBelowCount: lines.length - end,
+    lines: visible,
+    hiddenAboveCount: windowStart,
+    hiddenBelowCount: safeScroll,
   };
 }
 
@@ -1930,82 +2139,243 @@ export function visibleTranscriptTail(
 }
 
 /**
- * Число строк текста с учётом переноса.
- * Второй аргумент — уже доступная ширина (usable width), а не ширина окна.
- * Вызывающий вычитает рамки/отступы/префиксы сам — так оценка совпадает
- * с реальным рендером Ink при любом размере окна.
+ * Ширина символа в клетках терминала: CJK/эмодзи — 2, остальное — 1.
+ * Глифы интерфейса (◈ ⟡ ❯ ● ─ █ ▌ • ✗ ⚠) — всегда 1: так их считают
+ * и Ink (string-width), и conhost. Неизвестное — 1, а не 0.
+ */
+export function charCellWidth(char: string): 1 | 2 {
+  const code = char.codePointAt(0) ?? 0;
+  if (
+    (code >= 0x1100 && code <= 0x115f) ||
+    (code >= 0x231a && code <= 0x231b) ||
+    (code >= 0x2329 && code <= 0x232a) ||
+    (code >= 0x2e80 && code <= 0x303e) ||
+    (code >= 0x3041 && code <= 0x33ff) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0x4e00 && code <= 0xa4cf) ||
+    (code >= 0xa960 && code <= 0xa97c) ||
+    (code >= 0xac00 && code <= 0xd7ff) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xfe10 && code <= 0xfe19) ||
+    (code >= 0xfe30 && code <= 0xfe4f) ||
+    (code >= 0xff00 && code <= 0xff60) ||
+    (code >= 0xffe0 && code <= 0xffe6) ||
+    (code >= 0x1f300 && code <= 0x1faff) ||
+    (code >= 0x20000 && code <= 0x3fffd)
+  )
+    return 2;
+  return 1;
+}
+
+/** Видимая ширина строки в клетках (суррогатные пары — один символ). */
+export function textCellWidth(text: string): number {
+  let width = 0;
+  for (const char of text) width += charCellWidth(char);
+  return width;
+}
+
+/**
+ * Жадный перенос слов как в Yoga/Ink: слова копятся в строку, пока влезают
+ * вместе с пробелами, а слово длиннее строки рвётся по клеткам.
+ * Первая визуальная строка может быть уже остальных (firstBudget) — туда
+ * уходит инлайновый префикс («❯ », «⟡ »), который занимает клетки только
+ * в первой строке, а не в каждой.
+ */
+export function wrapRowsWithFirstBudget(
+  text: string,
+  firstBudget: number,
+  width: number,
+): string[] {
+  const safeWidth = Math.max(Math.floor(width) || 10, 10);
+  const safeFirst = Math.max(
+    Math.min(Math.floor(firstBudget) || safeWidth, safeWidth),
+    1,
+  );
+  const rows: string[] = [];
+  let current = "";
+  let currentWidth = 0;
+  let budget = safeFirst;
+  const push = (): void => {
+    rows.push(current);
+    current = "";
+    currentWidth = 0;
+    budget = safeWidth;
+  };
+  const feedChars = (word: string): void => {
+    for (const char of word) {
+      const charWidth = charCellWidth(char);
+      if (currentWidth + charWidth > budget && current !== "") push();
+      current += char;
+      currentWidth += charWidth;
+    }
+  };
+  for (const word of text.split(" ")) {
+    const wordWidth = textCellWidth(word);
+    if (current === "") {
+      if (wordWidth <= budget) {
+        current = word;
+        currentWidth = wordWidth;
+      } else feedChars(word);
+      continue;
+    }
+    if (currentWidth + 1 + wordWidth <= budget) {
+      current += ` ${word}`;
+      currentWidth += 1 + wordWidth;
+      continue;
+    }
+    push();
+    if (wordWidth <= budget) {
+      current = word;
+      currentWidth = wordWidth;
+    } else feedChars(word);
+  }
+  push();
+  return rows;
+}
+
+/** Перенос одной логической строки (пустая — одна визуальная строка). */
+export function wrapTextRows(text: string, width: number): string[] {
+  const safeWidth = Math.max(Math.floor(width) || 10, 10);
+  return wrapRowsWithFirstBudget(text, safeWidth, safeWidth);
+}
+
+/**
+ * Перенос текста с инлайновым префиксом («❯ », «⟡ », «▌ », «• »):
+ * префикс занимает клетки только первой визуальной строки и входит
+ * в неё буквально — продолжения идут на всю ширину. Строки получаются
+ * ровно такими, как в рендере: срезы окна можно перерисовывать как есть.
+ */
+export function wrapPrefixedRows(
+  text: string,
+  prefix: string,
+  width: number,
+): string[] {
+  const safeWidth = Math.max(Math.floor(width) || 10, 10);
+  const rows = wrapRowsWithFirstBudget(
+    text,
+    safeWidth - textCellWidth(prefix),
+    safeWidth,
+  );
+  const first = rows[0] ?? "";
+  return [`${prefix}${first}`, ...rows.slice(1)];
+}
+
+/** Визуальные строки многострочного текста: каждая логическая — ≥1 строка. */
+export function wrapUnitRows(text: string, width: number): string[] {
+  const safeWidth = Math.max(Math.floor(width) || 10, 10);
+  return text.split("\n").flatMap((line) => wrapTextRows(line, safeWidth));
+}
+
+/**
+ * Число строк текста с учётом переноса — word-wrap по словам и клеткам,
+ * как реально переносит Ink. Старая формула ceil(len/width) занижала на
+ * текстах с пробелами (перенос по словам раньше) и на CJK/эмодзи (2 клетки).
+ * Второй аргумент — уже доступная ширина (usable width).
  */
 export function wrappedLines(text: string, usableWidth: number): number {
   const width = Math.max(Math.floor(usableWidth) || 10, 10);
-  return text
-    .split("\n")
-    .reduce(
-      (total, line) => total + Math.max(1, Math.ceil(line.length / width)),
-      0,
-    );
+  return wrapUnitRows(text, width).length;
 }
 
-/** Оценка высоты строки истории в строках терминала. */
-function estimateLineHeight(line: TuiTranscriptLine, columns: number): number {
+/**
+ * Развёртка markdown-ответа в визуальные строки — зеркало MarkdownText.
+ * Считаем по видимому тексту (plainInlineText): разметка `**`, ссылки
+ * `[t](url)`→`t (url)` — ровно то, что занимает клетки в рендере.
+ */
+export function expandMarkdownRows(text: string, columns: number): string[] {
+  const safeColumns = normalizeViewport({ columns }).columns;
+  const codeWidth = Math.max(safeColumns - 4, 10);
+  const rows: string[] = [];
+  for (const block of parseBlocks(text)) {
+    if (block.kind === "hr") {
+      rows.push("─".repeat(safeColumns));
+      continue;
+    }
+    if (block.kind === "heading" || block.kind === "paragraph") {
+      rows.push(...wrapUnitRows(plainInlineText(block.text), safeColumns));
+      continue;
+    }
+    if (block.kind === "quote") {
+      // Префикс «▌ » уже в строке: продолжение без префикса считается
+      // с полной шириной внутри wrapUnitRows построчно — но первая строка
+      // несёт префикс, поэтому режем через wrapPrefixedRows построчно.
+      for (const line of block.text.split("\n"))
+        rows.push(
+          ...wrapPrefixedRows(plainInlineText(line), "▌ ", safeColumns),
+        );
+      continue;
+    }
+    if (block.kind === "list") {
+      block.items.forEach((item, itemIndex) => {
+        const prefix = block.ordered ? `${itemIndex + 1}. ` : "• ";
+        rows.push(
+          ...wrapPrefixedRows(plainInlineText(item), prefix, safeColumns),
+        );
+      });
+      continue;
+    }
+    // код: верхний отступ + рамка + язык + строки + рамка + нижний отступ
+    // (borderStyle round 2 + marginY 2, внутренняя ширина columns - 4).
+    rows.push("");
+    rows.push(`╭${"─".repeat(Math.max(safeColumns - 2, 1))}╮`);
+    if (block.language) rows.push(...wrapUnitRows(block.language, codeWidth));
+    for (const line of block.code.split("\n"))
+      rows.push(...wrapTextRows(line, codeWidth));
+    rows.push(`╰${"─".repeat(Math.max(safeColumns - 2, 1))}╯`);
+    rows.push("");
+  }
+  return rows;
+}
+
+/**
+ * Разворачивает запись журнала в визуальные строки — ровно то, что рисует
+ * TranscriptLineView, включая пустые строки отступов. Единственный источник
+ * правды для сметы: estimateLineHeight — это длина развёртки, поэтому смета
+ * не может разъехаться с рендером.
+ * Зеркала рендера:
+ * - префиксы «❯ »/«⟡ »/«✗ »/«⚠ » — инлайн, занимают клетки только первой
+ *   визуальной строки (wrapPrefixedRows), а не сужают каждую строку;
+ * - cli.ts шлёт тексты уже с префиксами («❯ …», «✗ …», «⚠ …»,
+ *   «[chisel] …») — view их срезает и ставит свои, развёртка делает то же;
+ * - markdown — по видимому тексту без разметки (plainInlineText).
+ */
+export function expandLineRows(
+  line: TuiTranscriptLine,
+  columns: number,
+): string[] {
   const safeColumns = normalizeViewport({ columns }).columns;
   const tone = line.tone ?? "assistant";
-  if (tone === "brand") return 3; // две строки + отступ
-  if (tone === "user")
-    return 1 + wrappedLines(line.text, Math.max(safeColumns - 2, 10)); // отступ + «❯ »
-  if (tone === "tool") {
-    const summary =
-      line.text.length > 200 ? `${line.text.slice(0, 200)}…` : line.text;
-    return wrappedLines(summary, Math.max(safeColumns - 2, 10)); // префикс «⟡ »
+  if (tone === "brand") return [line.text, fullWidthSeparator(safeColumns), ""];
+  if (tone === "user") {
+    const clean = line.text.replace(/^[❯›]\s?/, "");
+    return ["", ...wrapPrefixedRows(clean, "❯ ", safeColumns)];
   }
-  // Префиксы «✗ »/«⚠ » занимают клетки первой строки — считаем вместе с текстом,
-  // иначе смета занижена и Yoga схлопывает соседние строки истории.
-  if (tone === "error") return wrappedLines(`✗ ${line.text}`, safeColumns);
-  if (tone === "warn") return wrappedLines(`⚠ ${line.text}`, safeColumns);
-  if (tone === "success") return wrappedLines(line.text, safeColumns);
-  if (tone === "info") return wrappedLines(line.text, safeColumns);
+  if (tone === "tool") {
+    const summary = line.text.replace(/^\[chisel\]\s?/, "");
+    const preview =
+      summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
+    return wrapPrefixedRows(preview, "⟡ ", safeColumns);
+  }
+  if (tone === "error") {
+    const clean = line.text.replace(/^✗\s?/, "");
+    return wrapPrefixedRows(clean, "✗ ", safeColumns);
+  }
+  if (tone === "warn") {
+    const clean = line.text.replace(/^⚠\s?/, "");
+    return wrapPrefixedRows(clean, "⚠ ", safeColumns);
+  }
+  if (tone === "success" || tone === "info")
+    return wrapUnitRows(line.text, safeColumns);
   // assistant: markdown-раскладка + верхний отступ
-  return 1 + estimateMarkdownHeight(line.text, safeColumns);
+  return ["", ...expandMarkdownRows(line.text, safeColumns)];
 }
 
-/** Оценка высоты markdown-ответа (заголовки, списки, код в рамках и т.д.). */
-function estimateMarkdownHeight(text: string, columns: number): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const quoteWidth = Math.max(safeColumns - 2, 10);
-  const codeWidth = Math.max(safeColumns - 4, 10);
-  return parseBlocks(text).reduce((total, block) => {
-    if (block.kind === "hr") return total + 1;
-    if (block.kind === "heading")
-      return total + wrappedLines(block.text, safeColumns);
-    if (block.kind === "paragraph")
-      return total + wrappedLines(block.text, safeColumns);
-    if (block.kind === "quote")
-      return (
-        total +
-        block.text
-          .split("\n")
-          .reduce(
-            (sum, l) => sum + Math.max(1, Math.ceil(l.length / quoteWidth)),
-            0,
-          )
-      );
-    if (block.kind === "list")
-      return (
-        total +
-        block.items.reduce(
-          (sum, item) =>
-            sum + Math.max(1, Math.ceil((item.length + 2) / safeColumns)),
-          0,
-        )
-      );
-    // код: рамки (2) + marginY (2) + возможный язык (1) + строки с переносом
-    const codeRows = block.code
-      .split("\n")
-      .reduce(
-        (sum, l) => sum + Math.max(1, Math.ceil(l.length / codeWidth)),
-        0,
-      );
-    return total + codeRows + 4 + (block.language ? 1 : 0);
-  }, 0);
+/** Высота записи журнала: длина её развёртки — всегда равна рендеру. */
+export function estimateLineHeight(
+  line: TuiTranscriptLine,
+  columns: number,
+): number {
+  return expandLineRows(line, columns).length;
 }
 function Approval({
   request,

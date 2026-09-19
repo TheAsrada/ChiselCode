@@ -345,6 +345,77 @@ describe("tui fullscreen render", () => {
     }
   });
 
+  test("tall answer reads in parts with Home and End", async () => {
+    // Ответ выше экрана: середина читается скроллом построчно,
+    // а не проскакивает целиком за один тик колеса.
+    const app = await startApp(80, 24);
+    try {
+      app.transcript?.append("начало журнала", "info");
+      const code = Array.from({ length: 30 }, (_, i) => `код-строка-${i}`).join(
+        "\n",
+      );
+      app.transcript?.append(`\`\`\`\n${code}\n\`\`\``, "assistant");
+      app.transcript?.append("конец журнала", "info");
+      await tick(200);
+      // Внизу по умолчанию: хвост кода и конец, верха кода нет.
+      const bottom = app.frame(24).join("\n");
+      expect(bottom).toContain("код-строка-29");
+      expect(bottom).toContain("конец журнала");
+      expect(bottom).not.toContain("код-строка-0");
+      expect(bottom).not.toContain("начало журнала");
+      // Home — в самое начало: видно начало журнала и верх кода.
+      app.stdin.write("\x1b[H");
+      await tick(200);
+      const top = app.frame(24).join("\n");
+      expect(top).toContain("начало журнала");
+      expect(top).toContain("код-строка-0");
+      expect(top).not.toContain("код-строка-29");
+      // Середина достижима: десять Shift+↑ от дна — минус десять строк.
+      app.stdin.write("\x1b[F");
+      await tick(200);
+      for (let i = 0; i < 10; i += 1) {
+        app.stdin.write("\x1b[1;2A");
+        await tick(40);
+      }
+      const mid = app.frame(24).join("\n");
+      expect(mid).toContain("код-строка-19");
+      expect(mid).not.toContain("код-строка-29");
+      expect(mid).not.toContain("конец журнала");
+      expect(mid).toContain("Esc — вниз");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("new messages keep the reader where they scrolled", async () => {
+    // Sticky-bottom: ушедшего вверх не дёргает вниз, прибитый следит за новым.
+    const app = await startApp(80, 24);
+    try {
+      for (let i = 0; i < 30; i += 1) {
+        app.transcript?.append(`строка истории номер ${i}`, "info");
+      }
+      await tick(150);
+      app.stdin.write("\x1b[H");
+      await tick(200);
+      const top = app.frame(24).join("\n");
+      expect(top).toContain("строка истории номер 0");
+      expect(top).not.toContain("строка истории номер 29");
+      // Новое сообщение не сбрасывает прокрутку: мы всё ещё наверху,
+      // свежее видно только после End.
+      app.transcript?.append("самое свежее сообщение", "info");
+      await tick(200);
+      const stayed = app.frame(24).join("\n");
+      expect(stayed).toContain("строка истории номер 0");
+      expect(stayed).not.toContain("самое свежее сообщение");
+      expect(stayed).toContain("Esc — вниз");
+      app.stdin.write("\x1b[F");
+      await tick(200);
+      expect(app.frame(24).join("\n")).toContain("самое свежее сообщение");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("narrow window with long history drops no lines", async () => {
     // Регрессия: смета футера не учитывала перенос строки горячих клавиш,
     // Yoga схлопывал случайную строку истории в ноль (дыра в журнале).

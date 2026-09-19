@@ -10,8 +10,24 @@ import { EventEmitter } from "node:events";
 
 export type WheelDirection = "up" | "down";
 
-/** Сколько строк журнала прокручивает один щелчок колеса мыши. */
-export const WHEEL_SCROLL_LINES = 3;
+/**
+ * Колесо листает журнал в СТРОКАХ терминала (как браузер), а не в записях:
+ * один тик — четверть видимой высоты. Высота записей гуляет от 1 до
+ * десятков строк, поэтому фиксированный шаг в записях то ползёт, то прыгает
+ * через целые ответы. Минимум — 1 строка, чтобы и в крошечном окне ехало.
+ */
+export const WHEEL_SCROLL_FRACTION = 0.25;
+
+/** Сколько строк сдвигает один тик колеса при данной высоте контента. */
+export function wheelScrollRows(contentRows: number): number {
+  return Math.max(1, Math.round(contentRows * WHEEL_SCROLL_FRACTION));
+}
+
+/** Шаг Shift+↑/↓ — ровно строка: точное построчное чтение кода и логов. */
+export const SHIFT_SCROLL_ROWS = 1;
+
+/** Пауза батчинга wheel-событий: флик колеса = один сброс, а не 20 кадров. */
+export const WHEEL_BATCH_MS = 40;
 
 /** Включение SGR-режима мыши терминала (колесо едет как `\x1b[<…M`). */
 const MOUSE_ENABLE = "\x1b[?1000h\x1b[?1006h";

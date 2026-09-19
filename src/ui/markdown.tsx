@@ -63,6 +63,20 @@ export function parseInline(input: string): InlineSegment[] {
   return segments;
 }
 
+/**
+ * Видимый текст inline-разметки — ровно то, что занимает клетки в рендере:
+ * маркеры `**`, `*`, `~~`, `` ` `` срезаны, ссылка `[t](url)` видна как
+ * `t (url)` (см. renderInline ниже). Единый источник длины для сметы высоты:
+ * считаем по отрендеренному, а не по сырому тексту с разметкой.
+ */
+export function plainInlineText(input: string): string {
+  return parseInline(input)
+    .map((segment) =>
+      segment.link ? `${segment.text} (${segment.link})` : segment.text,
+    )
+    .join("");
+}
+
 export type Block =
   | { kind: "heading"; level: number; text: string }
   | { kind: "paragraph"; text: string }
@@ -203,8 +217,10 @@ function renderInline(
   });
 }
 
-/** Строки кода с подсветкой diff (+/−/@@) — на высоту не влияет. */
-function renderCodeLines(code: string, keyPrefix: string): React.ReactNode {
+/** Строки кода с подсветкой diff (+/−/@@) — на высоту не влияет. */ function renderCodeLines(
+  code: string,
+  keyPrefix: string,
+): React.ReactNode {
   const lines = code.split("\n");
   if (
     !lines.some(
