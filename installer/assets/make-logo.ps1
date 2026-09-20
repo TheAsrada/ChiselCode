@@ -107,6 +107,43 @@ public static class LogoTool {
     return dst;
   }
 
+  // Обрезка прозрачных полей: в исходной фотке вокруг скруглённого квадрата
+  // ~12% пустых полей с каждой стороны — без trim марка в ярлыках выглядит
+  // мелкой рядом с иконками во весь кадр. Оставляем небольшой запас.
+  public static Bitmap TrimTransparent(Bitmap src, double marginFraction) {
+    int w = src.Width, h = src.Height;
+    BitmapData data = src.LockBits(new Rectangle(0, 0, w, h),
+      ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+    int stride = data.Stride;
+    byte[] px = new byte[stride * h];
+    System.Runtime.InteropServices.Marshal.Copy(data.Scan0, px, 0, px.Length);
+    src.UnlockBits(data);
+    Func<int, int, int> idx = (x, y) => y * stride + x * 4;
+    int minX = w, minY = h, maxX = -1, maxY = -1;
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        if (px[idx(x, y) + 3] > 16) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < minX) return new Bitmap(src);
+    int margin = (int)((maxX - minX + 1) * marginFraction);
+    int x0 = System.Math.Max(minX - margin, 0);
+    int y0 = System.Math.Max(minY - margin, 0);
+    int x1 = System.Math.Min(maxX + margin, w - 1);
+    int y1 = System.Math.Min(maxY + margin, h - 1);
+    Bitmap dst = new Bitmap(x1 - x0 + 1, y1 - y0 + 1, PixelFormat.Format32bppArgb);
+    using (Graphics g = Graphics.FromImage(dst)) {
+      g.DrawImage(src, new Rectangle(0, 0, dst.Width, dst.Height),
+        new Rectangle(x0, y0, dst.Width, dst.Height), GraphicsUnit.Pixel);
+    }
+    return dst;
+  }
+
   // Unsharp mask (box 3x3) поверх даунскейза: возвращает чёткость мелким
   // иконкам. Только RGB, альфу не трогаем.
   public static void Sharpen(Bitmap bmp, double amount) {
@@ -159,6 +196,16 @@ try {
   )
   $logo = [LogoTool]::Transparentize($square)
   $square.Dispose()
+  $trimmed = [LogoTool]::TrimTransparent($logo, 0.025)
+  $logo.Dispose()
+  # ICO требует квадрат: добиваем прозрачными полями, арт не тянем.
+  $side = [Math]::Max($trimmed.Width, $trimmed.Height)
+  $canvas = New-Object System.Drawing.Bitmap($side, $side, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+  $gg = [System.Drawing.Graphics]::FromImage($canvas)
+  $gg.DrawImage($trimmed, [int](($side - $trimmed.Width) / 2), [int](($side - $trimmed.Height) / 2), $trimmed.Width, $trimmed.Height)
+  $gg.Dispose()
+  $trimmed.Dispose()
+  $logo = $canvas
 
   $logoPath = Join-Path $dir "logo.png"
   $logo.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
