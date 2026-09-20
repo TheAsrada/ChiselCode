@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import React from "react";
+import { LOGO_TERM_ROWS, renderLogoRows } from "../../src/ui/logo.js";
 import {
+  ART_HEADER_ROWS,
   createTuiApprovalResolver,
   syncTerminalSizeToStdout,
   TuiApp,
@@ -80,10 +82,19 @@ function visualWidth(line: string): number {
 
 /**
  * Первая строка каждого полного кадра — шапка приложения. Шапка статичная
- * (монохром, без анимации как у OpenCode/Codex), маркер — всегда «◈ ChiselCode».
- * Глиф из Geometric Shapes: есть в любом шрифте консоли, квадратиков-тофу нет.
+ * (монохром, без анимации как у OpenCode/Codex) и responsive: на широких
+ * окнах начинается с первой строки пиксельного логотипа, на узких —
+ * со слим-строки «</> ChiselCode». Кадр вырезаем по любому из двух маркеров.
  */
-const FRAME_MARKER_PATTERN = /(?=◈ ChiselCode)/;
+const ART_MARKER_LINE = renderLogoRows()[0] ?? "";
+const FRAME_MARKER_PATTERN = new RegExp(
+  `(?=${ART_MARKER_LINE}|</> ChiselCode)`,
+);
+
+/** Индекс строки разделителя шапки: арт — после логотипа и мета, слим — вторая. */
+function headerSeparatorIndex(art: boolean): number {
+  return art ? ART_HEADER_ROWS - 1 : 1;
+}
 
 /** Номера «строка истории номер N», видимые в кадре, по порядку. */
 function historyNumbers(frame: string[]): number[] {
@@ -185,13 +196,14 @@ describe("tui fullscreen render", () => {
       for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(100);
       }
-      // Шапка сверху: статичный монохром как у OpenCode/Codex.
-      expect(frame[0]).toContain("◈ ChiselCode");
-      expect(frame[0]).toContain("test-model");
-      // Разделитель шапки — статичный, во всю ширину окна, без импульса.
-      expect(visualWidth(frame[1] ?? "")).toBe(100);
-      expect(frame[1]).not.toContain("●");
-      expect(frame[1]?.trim()).toMatch(/^─+$/);
+      // Арт-шапка сверху (100x30 — широко и высоко): пиксельный логотип,
+      // под ним дим-строка с моделью, затем разделитель во всю ширину.
+      expect(frame.slice(0, LOGO_TERM_ROWS).join("\n")).toContain("█");
+      expect(frame[LOGO_TERM_ROWS]).toContain("test-model");
+      const separator = headerSeparatorIndex(true);
+      expect(visualWidth(frame[separator] ?? "")).toBe(100);
+      expect(frame[separator]).not.toContain("●");
+      expect(frame[separator]?.trim()).toMatch(/^─+$/);
       // Поле ввода — внизу кадра.
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
@@ -209,10 +221,12 @@ describe("tui fullscreen render", () => {
       for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(200);
       }
-      // Шапка закреплена сверху даже в полном экране.
-      expect(frame[0]).toContain("◈ ChiselCode");
-      expect(visualWidth(frame[1] ?? "")).toBe(200);
-      expect(frame[1]).not.toContain("●");
+      // Арт-шапка закреплена сверху даже в полном экране.
+      expect(frame.slice(0, LOGO_TERM_ROWS).join("\n")).toContain("█");
+      expect(frame[LOGO_TERM_ROWS]).toContain("test-model");
+      const wideSeparator = headerSeparatorIndex(true);
+      expect(visualWidth(frame[wideSeparator] ?? "")).toBe(200);
+      expect(frame[wideSeparator]).not.toContain("●");
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
       expect(bottom).toContain("колесо");
@@ -276,7 +290,7 @@ describe("tui fullscreen render", () => {
       for (const line of wide) {
         expect(visualWidth(line)).toBeLessThanOrEqual(120);
       }
-      expect(wide[0]).toContain("ChiselCode");
+      expect(wide.slice(0, LOGO_TERM_ROWS).join("\n")).toContain("█");
       expect(wide.slice(-6).join("\n")).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
@@ -690,7 +704,7 @@ describe("tui fullscreen render", () => {
     try {
       const initial = app.frame(30);
       expect(initial.length).toBe(30);
-      expect(visualWidth(initial[1] ?? "")).toBe(100);
+      expect(visualWidth(initial[headerSeparatorIndex(true)] ?? "")).toBe(100);
       // Счётчик эмитов сбрасываем после монтирования: дальше считаем только
       // уведомления, вызванные самим ресайзом.
       resizeEmits = 0;
@@ -700,7 +714,7 @@ describe("tui fullscreen render", () => {
       liveRows = 20;
       syncTerminalSizeToStdout(false);
       const stale = app.frame(30);
-      expect(visualWidth(stale[1] ?? "")).toBe(100);
+      expect(visualWidth(stale[headerSeparatorIndex(true)] ?? "")).toBe(100);
       // Ждём тик опроса (VIEWPORT_POLL_MS) + перерисовку — без emit и ввода.
       await tick(900);
       // Опрос обязан уведомить Ink штатным путём resized() — иначе корень

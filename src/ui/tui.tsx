@@ -35,6 +35,7 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
+import { LOGO_TERM_ROWS, LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import { MarkdownText, parseBlocks, plainInlineText } from "./markdown.js";
 import {
   SHIFT_SCROLL_ROWS,
@@ -104,7 +105,30 @@ export interface TuiTranscript {
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
+/** Высота слим-шапки: строка заголовка + разделитель. */
 export const TUI_HEADER_ROWS = 2;
+/**
+ * Высота арт-шапки: пиксельный логотип + дим-строка мета + разделитель.
+ * Логотип монохромный (half-блоки), без анимации — кадр не перерисовывается.
+ */
+export const ART_HEADER_ROWS = LOGO_TERM_ROWS + 2;
+/**
+ * Минимальная высота окна для арт-шапки: ниже — слим-вариант, чтобы
+ * контенту и футеру оставалось место (арт 6 + футер ~5 + контент).
+ */
+export const ART_MIN_ROWS = 16;
+
+/**
+ * Показывать ли пиксельный логотип в шапке (как multi-size логотипы
+ * у Gemini CLI: big на широких, слим-строка на узких/низких).
+ * Чистая функция для тестов и сметы layout.
+ */
+export function shouldUseArtHeader(columns: number, rows: number): boolean {
+  const width = Math.floor(columns);
+  const height = Math.floor(rows);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+  return width >= LOGO_WIDTH && height >= ART_MIN_ROWS;
+}
 export const TUI_FALLBACK_COLUMNS = 80;
 export const TUI_FALLBACK_ROWS = 24;
 
@@ -601,17 +625,26 @@ export interface HeaderTitleInput {
 
 /**
  * Плоский текст шапки одной строкой (без ANSI, для тестов и снепшотов).
- * Формат: `◈ ChiselCode · <model> · <~/cwd> · v<version>`.
+ * Формат: `</> ChiselCode · <model> · <~/cwd> · v<version>`.
  * Пустые части пропускаются, ничего не раздувается.
  */
-export function formatHeaderTitle(input: HeaderTitleInput): string {
-  const parts: string[] = ["◈ ChiselCode"];
+/**
+ * Дим-строка мета под логотипом арт-шапки: `model · ~/cwd · vX`.
+ * Пустые части пропускаются, ничего не раздувается.
+ */
+export function formatHeaderMeta(input: HeaderTitleInput): string {
+  const parts: string[] = [];
   const model = input.model.trim();
   if (model) parts.push(model);
   const cwd = input.cwd?.trim();
   if (cwd) parts.push(shortenHome(cwd));
   if (input.version?.trim()) parts.push(`v${input.version.trim()}`);
   return parts.join(" · ");
+}
+
+export function formatHeaderTitle(input: HeaderTitleInput): string {
+  const meta = formatHeaderMeta(input);
+  return meta ? `</> ChiselCode · ${meta}` : "</> ChiselCode";
 }
 
 /** Статичный разделитель шапки во всю ширину окна (монохром, без импульса). */
@@ -779,6 +812,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
    */
   const liveTerminal = syncTerminalSizeToStdout(false);
   const { columns, rows } = clampViewportToTerminal(viewport, liveTerminal);
+  /**
+   * Высота шапки responsive (как multi-size логотипы у Gemini CLI):
+   * пиксельный арт на широких и высоких окнах, слим-строка иначе.
+   * Смета истории/футера ниже считается от той же высоты, что рисует
+   * Header, поэтому рассинхрона нет на любом размере окна.
+   */
+  const useArtHeader = shouldUseArtHeader(columns, rows);
+  const headerRows = useArtHeader ? ART_HEADER_ROWS : TUI_HEADER_ROWS;
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -1504,6 +1545,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           columns={columns}
           version={props.version}
           cwd={projectCwd}
+          art={useArtHeader}
         />
         <Box
           flexDirection="column"
@@ -1533,6 +1575,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           columns={columns}
           version={props.version}
           cwd={projectCwd}
+          art={useArtHeader}
         />
         <Box
           flexDirection="column"
@@ -1579,6 +1622,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           columns={columns}
           version={props.version}
           cwd={projectCwd}
+          art={useArtHeader}
         />
         <Box
           flexDirection="column"
@@ -1624,10 +1668,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     model: runtime.model,
     scrolledUp: false,
   });
-  const probeContentRows = Math.max(
-    rows - footerProbeRows - TUI_HEADER_ROWS,
-    0,
-  );
+  const probeContentRows = Math.max(rows - footerProbeRows - headerRows, 0);
   const probeMaxScroll = maxTranscriptScrollRows(
     transcriptLines,
     columns,
@@ -1662,7 +1703,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     columns,
     footerRows,
     clampedTranscriptOffset,
-    TUI_HEADER_ROWS,
+    headerRows,
   );
 
   return (
@@ -1672,6 +1713,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         columns={columns}
         version={props.version}
         cwd={projectCwd}
+        art={useArtHeader}
       />
       <Box
         flexDirection="column"
@@ -1727,39 +1769,71 @@ export function shortenHome(path: string): string {
 }
 
 /**
- * Закреплённая шапка: ровно две строки (заголовок + разделитель) при любой
- * ширине окна. Первая строка — единый инлайн-Text с truncate-end, поэтому
- * длинная модель/путь обрезаются в одну строку и никогда не раздувают
- * шапку до трёх строк и не сдвигают смету истории (TUI_HEADER_ROWS).
- * Стиль как у топовых CLI (OpenCode/Codex): статичный монохром —
- * бренд жирным в дефолтном цвете терминала, модель обычным начертанием,
- * всё вторичное dim, разделитель тонкий dim во всю ширину.
- * Без анимации и разноцветности: шапка не крутит перерисовку кадра.
+ * Закреплённая шапка: при любой ширине окна занимает ровно headerRows строк
+ * (арт — ART_HEADER_ROWS, слим — TUI_HEADER_ROWS). Все строки — инлайн-Text
+ * с truncate-end, поэтому длинная модель/путь обрезаются и никогда не раздувают
+ * шапку и не сдвигают смету истории.
+ * Стиль как у топовых CLI: статичный монохром без анимации и разноцветности.
+ * - art: пиксельный логотип `</> ChiselCode` (half-блоки, 4 строки) +
+ *   дим-строка `модель · ~/путь · vверсия` + тонкий dim-разделитель;
+ * - слим: одна строка `</> ChiselCode · модель · ~/путь · vверсия`
+ *   (бренд жирным, модель обычным, вторичное dim) + разделитель.
  */
 function Header({
   model,
   columns,
   version,
   cwd,
+  art,
 }: {
   model: string;
   columns: number;
   version?: string;
   cwd?: string;
+  art: boolean;
 }): React.JSX.Element {
   const safeColumns = normalizeViewport({ columns }).columns;
   const shortCwd = cwd ? shortenHome(cwd) : undefined;
+  const modelText = model.trim();
+  const tailParts: string[] = [];
+  if (shortCwd?.trim()) tailParts.push(shortCwd.trim());
+  if (version?.trim()) tailParts.push(`v${version.trim()}`);
+  const tailText = tailParts.join(" · ");
+  const metaText = [modelText, tailText].filter(Boolean).join(" · ");
   return (
-    <Box flexDirection="column" flexShrink={0} width="100%" height={2}>
-      <Box width="100%" height={1} overflow="hidden">
-        <Text wrap="truncate-end">
-          <Text bold>◈ ChiselCode</Text>
-          <Text dimColor> · </Text>
-          <Text>{model}</Text>
-          {shortCwd ? <Text dimColor> · {shortCwd}</Text> : null}
-          {version ? <Text dimColor> · v{version}</Text> : null}
-        </Text>
-      </Box>
+    <Box
+      flexDirection="column"
+      flexShrink={0}
+      width="100%"
+      height={art ? ART_HEADER_ROWS : TUI_HEADER_ROWS}
+    >
+      {art ? (
+        <Box flexDirection="column" width="100%" flexShrink={0}>
+          {renderLogoRows().map((line) => (
+            <Box key={line} width="100%" height={1} overflow="hidden">
+              <Text wrap="truncate-end">{line}</Text>
+            </Box>
+          ))}
+          <Box width="100%" height={1} overflow="hidden">
+            <Text dimColor wrap="truncate-end">
+              {metaText}
+            </Text>
+          </Box>
+        </Box>
+      ) : (
+        <Box width="100%" height={1} overflow="hidden">
+          <Text wrap="truncate-end">
+            <Text bold>{"</> ChiselCode"}</Text>
+            {modelText ? (
+              <>
+                <Text dimColor> · </Text>
+                <Text>{modelText}</Text>
+              </>
+            ) : null}
+            {tailText ? <Text dimColor> · {tailText}</Text> : null}
+          </Text>
+        </Box>
+      )}
       <Box width="100%" height={1} overflow="hidden">
         <Text dimColor wrap="truncate">
           {fullWidthSeparator(safeColumns)}

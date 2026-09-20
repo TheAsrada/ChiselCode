@@ -19,6 +19,14 @@ import {
   navigateEditorHistory,
 } from "../../src/ui/editor.js";
 import {
+  LOGO_PIXEL_ROWS,
+  LOGO_TERM_ROWS,
+  LOGO_WIDTH,
+  logoPixelGrid,
+  packPixelPair,
+  renderLogoRows,
+} from "../../src/ui/logo.js";
+import {
   SHIFT_SCROLL_ROWS,
   splitMouseEvents,
   type WheelDirection,
@@ -30,10 +38,13 @@ import {
   sortModelOptions,
 } from "../../src/ui/settings.js";
 import {
+  ART_HEADER_ROWS,
+  ART_MIN_ROWS,
   charCellWidth,
   editorContentRows,
   estimateFooterHeight,
   expandLineRows,
+  formatHeaderMeta,
   formatHeaderTitle,
   fullWidthSeparator,
   HOTKEYS_HINT,
@@ -43,6 +54,7 @@ import {
   maxTranscriptScrollRows,
   normalizeViewport,
   shortenHome,
+  shouldUseArtHeader,
   sliceTranscriptLine,
   TUI_HEADER_ROWS,
   textCellWidth,
@@ -245,15 +257,17 @@ describe("interactive viewport layout", () => {
           cwd: "/tmp/x",
           version: "0.5.17",
         }),
-      ).toBe("◈ ChiselCode · test-model · /tmp/x · v0.5.17");
+      ).toBe("</> ChiselCode · test-model · /tmp/x · v0.5.17");
     } finally {
       if (prevHome === undefined) delete process.env.HOME;
       else process.env.HOME = prevHome;
       if (prevProfile === undefined) delete process.env.USERPROFILE;
       else process.env.USERPROFILE = prevProfile;
     }
-    expect(formatHeaderTitle({ model: "m" })).toBe("◈ ChiselCode · m");
-    expect(formatHeaderTitle({ model: "  ", cwd: "  " })).toBe("◈ ChiselCode");
+    expect(formatHeaderTitle({ model: "m" })).toBe("</> ChiselCode · m");
+    expect(formatHeaderTitle({ model: "  ", cwd: "  " })).toBe(
+      "</> ChiselCode",
+    );
     for (const columns of [20, 60, 80, 100, 200]) {
       const line = headerSeparator(columns);
       expect([...line].length).toBe(columns);
@@ -263,6 +277,59 @@ describe("interactive viewport layout", () => {
     }
     // Шапка по-прежнему две строки — смета истории не меняется.
     expect(TUI_HEADER_ROWS).toBe(2);
+  });
+
+  test("pixel logo packs into exact half-block terminal rows", () => {
+    // Сетка 7 пиксельных рядов из `#`/`.`: все ряды одной ширины — иначе буквы поплывут.
+    const grid = logoPixelGrid();
+    expect(grid).toHaveLength(LOGO_PIXEL_ROWS);
+    expect(LOGO_PIXEL_ROWS).toBe(7);
+    for (const row of grid) {
+      expect(row).toHaveLength(75);
+      expect(row).toMatch(/^[#.]+$/);
+    }
+    // Таблица упаковки пары пикселей: оба — █, верх — ▀, низ — ▄, пусто — пробел.
+    expect(packPixelPair("#", "#")).toBe("█");
+    expect(packPixelPair("#", ".")).toBe("▀");
+    expect(packPixelPair(".", "#")).toBe("▄");
+    expect(packPixelPair(".", ".")).toBe(" ");
+    expect(packPixelPair("#.#", "##.")).toBe("█▄▀");
+    // Терминальные строки: 4 ряда half-блоков, только █▀▄ и пробелы,
+    // ширина ≤ 75, максимум ровно 75, детерминированы.
+    const lines = renderLogoRows();
+    expect(lines).toHaveLength(LOGO_TERM_ROWS);
+    expect(LOGO_TERM_ROWS).toBe(4);
+    expect(LOGO_WIDTH).toBe(75);
+    for (const line of lines) {
+      expect(line).toMatch(/^[█▀▄ ]*$/);
+      expect([...line].length).toBeLessThanOrEqual(LOGO_WIDTH);
+    }
+    expect(Math.max(...lines.map((line) => [...line].length))).toBe(LOGO_WIDTH);
+    expect(renderLogoRows()).toEqual(lines);
+    // Логотип непустой: есть залитые клетки и просветы между глифами.
+    const inked = lines.join("").replace(/ /g, "");
+    expect(inked.length).toBeGreaterThan(50);
+    expect(lines.join("\n")).toContain(" ");
+  });
+
+  test("art header is picked only on wide and tall windows", () => {
+    // Как multi-size логотипы у Gemini CLI: арт на широких+высоких,
+    // слим-строка на узких/низких/битых размерах.
+    expect(shouldUseArtHeader(LOGO_WIDTH, ART_MIN_ROWS)).toBe(true);
+    expect(shouldUseArtHeader(200, 60)).toBe(true);
+    expect(shouldUseArtHeader(LOGO_WIDTH - 1, 60)).toBe(false);
+    expect(shouldUseArtHeader(200, ART_MIN_ROWS - 1)).toBe(false);
+    expect(shouldUseArtHeader(20, 10)).toBe(false);
+    expect(shouldUseArtHeader(0, 0)).toBe(false);
+    expect(shouldUseArtHeader(Number.NaN, 30)).toBe(false);
+    // Арт-шапка: логотип + дим-строка мета + разделитель.
+    expect(ART_HEADER_ROWS).toBe(LOGO_TERM_ROWS + 2);
+    expect(ART_HEADER_ROWS).toBe(6);
+    // Мета-строка под логотипом: модель · путь · версия, пустое пропускается.
+    expect(
+      formatHeaderMeta({ model: "m", cwd: "/tmp/x", version: "1.2.3" }),
+    ).toBe("m · /tmp/x · v1.2.3");
+    expect(formatHeaderMeta({ model: "  " })).toBe("");
   });
 
   test("shortens home directory for the header", () => {
