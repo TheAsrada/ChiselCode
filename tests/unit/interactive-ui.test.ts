@@ -29,6 +29,9 @@ import {
   sortModelOptions,
 } from "../../src/ui/settings.js";
 import {
+  ALT_SCREEN_MAX_RENDER_LINES,
+  applyHideDelta,
+  clampHideNewest,
   computeFillRows,
   formatHeaderMeta,
   formatHeaderTitle,
@@ -37,8 +40,10 @@ import {
   headerSeparator,
   liveWindowRows,
   normalizeViewport,
+  scrollPageStep,
   shortenHome,
   shouldUseArtWelcome,
+  sliceTranscript,
 } from "../../src/ui/tui.js";
 
 describe("interactive commands", () => {
@@ -68,7 +73,7 @@ describe("interactive commands", () => {
     expect(commandHelpText()).toContain("/settings");
     expect(commandHelpText()).toContain("/cwd");
     expect(commandHelpText()).toContain("Shift+Enter");
-    expect(commandHelpText()).toContain("терминалом");
+    expect(commandHelpText()).toContain("PgUp/PgDn");
   });
 
   test("suggests the closest command for typos", () => {
@@ -134,7 +139,7 @@ describe("interactive editor", () => {
   });
 });
 
-describe("scrollback header", () => {
+describe("alt-screen header", () => {
   test("slim title and separator are plain single-line strings", () => {
     // Слим-вариант стартового блока (узкие окна): плоский текст и разделитель
     // ровно во всю ширину — без анимации и разноцветности.
@@ -191,8 +196,8 @@ describe("scrollback header", () => {
   });
 
   test("art welcome is picked by width only", () => {
-    // Стартовый блок печатается один раз в scrollback и никуда
-    // не пересчитывается — важна только ширина (арт уже окна обрежется).
+    // Стартовый блок живёт в скроллируемой ленте под закреплённой шапкой —
+    // важна только ширина (арт уже окна обрежется).
     expect(shouldUseArtWelcome(LOGO_WIDTH)).toBe(true);
     expect(shouldUseArtWelcome(200)).toBe(true);
     expect(shouldUseArtWelcome(LOGO_WIDTH - 1)).toBe(false);
@@ -245,6 +250,33 @@ describe("scrollback header", () => {
     expect(computeFillRows(10, 0, 0)).toBe(10);
     expect(computeFillRows(Number.NaN, 5, 5)).toBe(14);
     expect(computeFillRows(30, Number.NaN, 7)).toBe(23);
+  });
+
+  test("alt-screen scroll pins the viewport like Claude fullscreen", () => {
+    // hideNewest=0 — следим за низом; вверх — пауза, новые копятся в пилюлю.
+    expect(clampHideNewest(0, 50)).toBe(0);
+    expect(clampHideNewest(-3, 50)).toBe(0);
+    expect(clampHideNewest(5, 50)).toBe(5);
+    expect(clampHideNewest(99, 50)).toBe(50);
+    expect(clampHideNewest(Number.NaN, 50)).toBe(0);
+    // Шаг — пол-экрана, минимум 5.
+    expect(scrollPageStep(30)).toBe(10);
+    expect(scrollPageStep(24)).toBe(7);
+    expect(scrollPageStep(10)).toBe(5);
+    // Сдвиг с клампом.
+    expect(applyHideDelta(0, 10, 50)).toBe(10);
+    expect(applyHideDelta(45, 10, 50)).toBe(50);
+    expect(applyHideDelta(5, -10, 50)).toBe(0);
+    // Срез: хвост до cap, скрытые — в счётчик пилюли.
+    const lines = Array.from({ length: 10 }, (_, i) => i);
+    expect(sliceTranscript(lines, 0)).toEqual({ visible: lines, hiddenNew: 0 });
+    expect(sliceTranscript(lines, 3)).toEqual({
+      visible: [0, 1, 2, 3, 4, 5, 6],
+      hiddenNew: 3,
+    });
+    expect(sliceTranscript(lines, 99).hiddenNew).toBe(10);
+    expect(sliceTranscript(lines, 0, 4).visible).toEqual([6, 7, 8, 9]);
+    expect(ALT_SCREEN_MAX_RENDER_LINES).toBe(300);
   });
 
   test("liveWindowRows reads only the getWindowSize syscall", () => {

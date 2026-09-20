@@ -22,7 +22,7 @@ export function Thinking({ model }: { model: string }): React.JSX.Element {
     return () => clearInterval(timer);
   }, []);
   return (
-    <Text color="yellow">
+    <Text color="yellow" wrap="truncate-end">
       {FRAMES[frame] ?? "…"} Думаю {formatDuration(elapsed)} ·{" "}
       <Text dimColor>{model}</Text>
     </Text>

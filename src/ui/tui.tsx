@@ -1,13 +1,4 @@
-import type { DOMElement } from "ink";
-import {
-  Box,
-  Static,
-  Text,
-  useApp,
-  useBoxMetrics,
-  useInput,
-  useWindowSize,
-} from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
@@ -77,7 +68,8 @@ export type TranscriptTone =
   | "warn"
   | "error"
   | "success"
-  | "dim";
+  | "dim"
+  | "logo";
 
 export interface TuiTranscriptLine {
   id: number;
@@ -91,18 +83,22 @@ export interface TuiTranscript {
 }
 
 /**
- * Раскладка как в classic-режиме Claude Code: обычный scrollback-буфер
- * терминала вместо alternate screen.
- * - Стартовый блок (логотип + модель/путь/версия + подсказки) печатается
- *   один раз и уплывает вверх вместе с диалогом — закреплённой шапки нет;
- * - завершённые сообщения уходят в <Static> (нативный скролл терминала,
- *   выделение и копирование мышью работают сами);
- * - незавершённый стриминг, подтверждение и поле ввода живут в динамической
- *   зоне снизу. Никакой сметы высоты и кастомного скролла: переносом строк
- *   занимается сам Ink/Yoga.
- * Живой размер проталкивается в process.stdout (syncTerminalSizeToStdout),
- * потому что Yoga-корень Ink читает только stdout.columns/rows и на
- * Windows застревает на 80x24 без этого синхрона.
+ * Раскладка как в fullscreen-режиме Claude Code (`/tui fullscreen`):
+ * alternate screen (DEC 1049) с фиксированным вьюпортом высотой в окно.
+ * - Сверху закреплённая шапка: `</> ChiselCode · модель · путь · версия`
+ *   + строка скролл-подсказки — видна всегда, никуда не уплывает;
+ * - в середине лента диалога с ВНУТРЕННИМ скроллом: видимое окно —
+ *   срез по логическим строкам с привязкой к низу (`justifyContent flex-end`
+ *   + `overflow hidden`), скролл — PgUp/PgDn (пол-экрана), Ctrl+U/D (±10),
+ *   Home/End; новые сообщения при скролле вверх не дёргают вьюпорт,
+ *   вместо этого пилюля `↑ N новых · End — вниз`;
+ * - снизу зафиксированный ввод: редактор, под ним dim-статус
+ *   `модель · путь` одной строкой truncate-end.
+ * Никакого <Static>: в alt-screen он толкает живую зону и провоцирует
+ * полный clear каждый кадр. Ширина/высота — только из Ink `useWindowSize`
+ * (Yoga и стирание динамики считают по ней же); живой размер заранее
+ * проталкивается в process.stdout через syncTerminalSizeToStdout в cli.ts.
+ * Откат к scrollback: `CHISEL_ALT_SCREEN=0` или `CHISEL_NO_ALT_SCREEN=1`.
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
@@ -117,9 +113,11 @@ export interface QueuedPrompt {
 
 /**
  * Сколько пустых строк добавить между историей и вводом, чтобы ввод
- * оказался на нижней кромке окна при коротком диалоге (как зафиксированный
- * ввод в Claude Code). История длиннее окна — ноль, дальше работает
- * нативный скролл. Чистая функция для тестов.
+ * оказался на нижней кромке окна при коротком диалоге.
+ * НЕ ИСПОЛЬЗУЕТСЯ в рендере classic-режима Claude Code: Static в Ink —
+ * absolute и его высота через Yoga всегда ~0, поэтому filler печатал
+ * 20+ пустых строк и уносил шапку в scrollback из вида.
+ * Оставлена как чистая функция для совместимости тестов.
  */
 export function computeFillRows(
   viewportRows: number,
@@ -154,6 +152,61 @@ export function liveWindowRows(): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Fullscreen alt-screen: внутренний скролл ленты как у Claude Code.
+ * `hideNewest` — сколько новейших логических строк скрыто от вида
+ * (0 — следим за низом). Новые сообщения при скролле вверх вьюпорт
+ * не дёргают: конец среза зафиксирован, счётчик превращается в пилюлю.
+ * Чистые функции для тестов.
+ */
+
+/** Верхний предел строк в дереве: лента длиннее — рендерим хвост. */
+export const ALT_SCREEN_MAX_RENDER_LINES = 300;
+
+/** Кламп скрытия к длине ленты. */
+export function clampHideNewest(hideNewest: number, total: number): number {
+  const totalSafe = Math.max(0, Math.floor(total) || 0);
+  const hide = Math.floor(hideNewest);
+  if (!Number.isFinite(hide) || hide <= 0) return 0;
+  return Math.min(hide, totalSafe);
+}
+
+/**
+ * Шаг PgUp/PgDn — пол-экрана как у Claude (не целый).
+ * Резерв 10 строк на шапку (2) + футер с подсказками.
+ */
+export function scrollPageStep(viewportRows: number): number {
+  const rows = Math.floor(viewportRows);
+  const usable = (Number.isFinite(rows) ? rows : TUI_FALLBACK_ROWS) - 10;
+  return Math.max(5, Math.floor(Math.max(10, usable) / 2));
+}
+
+/** Сдвиг скрытия с клампом (delta>0 — вверх, <0 — вниз). */
+export function applyHideDelta(
+  hideNewest: number,
+  delta: number,
+  total: number,
+): number {
+  return clampHideNewest(hideNewest + Math.floor(delta || 0), total);
+}
+
+/**
+ * Видимое окно ленты: срез `[0, total-hide)` хвостом не длиннее cap.
+ * `hiddenNew` — сколько новых строк за пилюлей `↑ N новых`.
+ */
+export function sliceTranscript<T>(
+  lines: T[],
+  hideNewest: number,
+  cap: number = ALT_SCREEN_MAX_RENDER_LINES,
+): { visible: T[]; hiddenNew: number } {
+  const total = lines.length;
+  const hide = clampHideNewest(hideNewest, total);
+  const end = total - hide;
+  const capSafe = Math.max(1, Math.floor(cap) || ALT_SCREEN_MAX_RENDER_LINES);
+  const start = Math.max(0, end - capSafe);
+  return { visible: lines.slice(start, end), hiddenNew: hide };
 }
 
 /**
@@ -498,8 +551,8 @@ export function headerSeparator(columns: number): string {
 }
 
 /**
- * Подсказка горячих клавиш под полем ввода. Скролл нативный терминальный
- * (колесо/Shift+PgUp самого терминала), поэтому про колесо тут ни слова.
+ * Подсказка горячих клавиш под полем ввода. Скролл внутренний
+ * (PgUp/PgDn, строка в шапке), поэтому про скролл тут ни слова.
  * Tab/стрелки — выбор команды как в Claude Code, Enter — выбрать/отправить.
  */
 export const HOTKEYS_HINT =
@@ -507,11 +560,13 @@ export const HOTKEYS_HINT =
 
 /**
  * Подсказка с жирными клавишами как в Codex (ключи — bold, описания — dim).
+ * Одна строка truncate-end как футер Claude: перенос менял бы высоту
+ * динамики каждый кадр и давал призраки при стирании.
  */
 export function HotkeysHint(): React.JSX.Element {
   const parts = HOTKEYS_HINT.split(" · ");
   return (
-    <Text dimColor wrap="wrap">
+    <Text dimColor wrap="truncate-end">
       {parts.map((part, index) => {
         const dash = part.indexOf(" — ");
         const key = dash === -1 ? part : part.slice(0, dash);
@@ -624,10 +679,12 @@ export interface WelcomeInput {
 }
 
 /**
- * Стартовый блок как в classic-режиме Claude Code: печатается один раз
- * и уплывает вверх вместе с диалогом — закреплённой шапки нет.
- * Отступ сверху, чтобы блочный арт не упирался в край окна.
- * Чистая функция для тестов: id раздаёт вызывающий через nextId.
+ * Стартовый блок ленты: арт-логотип + мета + разделитель + хинт.
+ * Живёт в скроллируемой ленте под закреплённой шапкой (AltHeader):
+ * при длинном диалоге уплывает вверх внутри вьюпорта.
+ * Арт-строки идут тоном "logo" с truncate-end, чтобы широкое окно
+ * не рвало их wrap-ом в две строки. Отступ сверху, чтобы арт не упирался
+ * в край окна. Чистая функция для тестов: id раздаёт вызывающий через nextId.
  */
 export function buildWelcomeLines(
   input: WelcomeInput,
@@ -637,7 +694,7 @@ export function buildWelcomeLines(
   lines.push({ id: nextId(), text: "", tone: "info" });
   if (shouldUseArtWelcome(input.columns)) {
     for (const artLine of renderLogoRows())
-      lines.push({ id: nextId(), text: artLine, tone: "info" });
+      lines.push({ id: nextId(), text: artLine, tone: "logo" });
   } else {
     lines.push({
       id: nextId(),
@@ -674,8 +731,19 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   /** Корень проекта: скиллы берём из его `.chisel/skills`. */
   const projectCwd = props.cwd ?? process.cwd();
-  const { columns: inkColumns } = useWindowSize();
-  const columns = normalizeViewport({ columns: inkColumns }).columns;
+  // Ширина/высота ТОЛЬКО из Ink (useWindowSize): Yoga-корень и стирание
+  // динамики считают по ним же. Отдельный живой сисколл в рендере давал
+  // рассинхрон (наш кадр шире, чем думает Ink) — Ink стирал динамику
+  // неверным числом строк и старые боксы оставались призраками.
+  // Актуальный размер проталкивается в stdout до render()
+  // через syncTerminalSizeToStdout() в cli.ts — этого достаточно.
+  const { columns: inkColumns, rows: inkRows } = useWindowSize();
+  const viewportSize = normalizeViewport({
+    columns: inkColumns,
+    rows: inkRows,
+  });
+  const columns = viewportSize.columns;
+  const rows = viewportSize.rows;
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -690,8 +758,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     baseUrl: props.baseUrl,
   }));
   const nextTranscriptId = useRef(0);
-  // Стартовые значения берём из пропсов один раз: дальше модель/путь
-  // меняются через runtime и видны в статус-строке над вводом.
+  // Стартовый блок — первые строки скроллируемой ленты под закреплённой
+  // шапкой (AltHeader). Ширина — из Ink-размера первого кадра.
   const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(() =>
     buildWelcomeLines(
       {
@@ -704,19 +772,28 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     ),
   );
   // Незавершённый стриминговый ответ живёт отдельно от истории:
-  // по завершении коммитится в Static одной записью (см. wasBusy ниже).
+  // по завершении коммитится в ленту одной записью (см. wasBusy ниже).
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
   // Очередь follow-up запросов как в Claude Code: Enter во время работы
   // не теряется. Состояние — для показа, ref — для логики в эффектах.
   const [queued, setQueued] = useState<QueuedPrompt[]>([]);
   const queuedRef = useRef<QueuedPrompt[]>([]);
-  // Замер зон для filler-отступа, прижимающего ввод к низу окна.
-  // useBoxMetrics обновляется сам при любом изменении layout.
-  const staticRef = useRef<DOMElement | null>(null);
-  const footerRef = useRef<DOMElement | null>(null);
-  const staticMetrics = useBoxMetrics(staticRef);
-  const footerMetrics = useBoxMetrics(footerRef);
+  // Внутренний скролл ленты (fullscreen как у Claude): сколько новейших
+  // строк скрыто от вида. 0 — следим за низом; вверх ставит follow на паузу.
+  const [hideNewest, setHideNewest] = useState(0);
+  const transcriptLenRef = useRef(0);
+  // Новые строки при скролле вверх вьюпорт не дёргают: конец среза
+  // зафиксирован, счётчик превращается в пилюлю `↑ N новых`.
+  useEffect(() => {
+    const prev = transcriptLenRef.current;
+    const cur = transcript.length;
+    transcriptLenRef.current = cur;
+    if (cur > prev)
+      setHideNewest((hidden) =>
+        hidden > 0 ? clampHideNewest(hidden + (cur - prev), cur) : hidden,
+      );
+  }, [transcript.length]);
   const skills = loadSkills(projectCwd);
   // Как /команды вызываются только invocable-скиллы; скрытые
   // (`user-invocable: false`) живут только в каталоге и /skills.
@@ -801,8 +878,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       streamingRef.current = null;
       setStreaming(null);
       const id = nextTranscriptId.current++;
-      // Скролл нативный терминальный: новые строки просто дописываются
-      // в <Static>, терминал сам прокручивает вывод. Никаких offset.
+      // Лента дописывается в конец; при активном скролле вверх пин-эффект
+      // выше сдвинет hideNewest и вьюпорт не дёрнется (см. пилюлю).
       setTranscript((lines) => [
         ...lines,
         ...(flushed ? [flushed] : []),
@@ -833,9 +910,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
     setStreaming(null);
-    // Как /clear в classic-режиме Claude Code: новый разговор, а не чистка
-    // экрана — уже напечатанное остаётся в скроллбэке терминала выше.
+    // /clear и /new: новый разговор — вьюпорт возвращается к низу,
+    // пилюля гаснет. В alt-screen старое не остаётся в scrollback
+    // (отдельный буфер), поэтому чистим ленту полностью.
     setTranscript([]);
+    setHideNewest(0);
   }, []);
 
   const wasBusy = useRef(false);
@@ -1200,7 +1279,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       append("Устанавливаю тихо и перезапускаюсь…", "info");
       await props.onLaunchInstaller?.(downloaded.path, true);
       // Даём строке отрисоваться: иначе exit() в том же тике не оставит
-      // в scrollback финального сообщения, и покажется, что приложение
+      // финального сообщения в ленте, и покажется, что приложение
       // «просто исчезло».
       await new Promise((resolve) => setTimeout(resolve, 800));
       exit();
@@ -1250,10 +1329,40 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (settings || skillsOpen || restartingSetup) return;
-    // Скролл — нативный терминальный (колесо/Shift+PgUp самого терминала),
-    // история лежит в scrollback: отдельных клавиш скролла нет.
+    // Внутренний скролл ленты как в Claude fullscreen: PgUp/PgDn —
+    // пол-экрана, Ctrl+U/D — ±10 строк, Home — верх, End — низ.
+    // Вверх ставит follow на паузу (новые строки копятся в пилюлю),
+    // End и ввод внизу возвращают к живому краю.
     // Ввод разрешён и во время работы агента: Enter встаёт в очередь
     // как в Claude Code. Выход работает даже пока агент думает.
+    if (key.pageUp) {
+      setHideNewest((hidden) =>
+        applyHideDelta(hidden, scrollPageStep(rows), transcript.length),
+      );
+      return;
+    }
+    if (key.pageDown) {
+      setHideNewest((hidden) =>
+        applyHideDelta(hidden, -scrollPageStep(rows), transcript.length),
+      );
+      return;
+    }
+    if (key.home) {
+      setHideNewest(transcript.length);
+      return;
+    }
+    if (key.end) {
+      setHideNewest(0);
+      return;
+    }
+    if (key.ctrl && (character === "u" || character === "U")) {
+      setHideNewest((hidden) => applyHideDelta(hidden, 10, transcript.length));
+      return;
+    }
+    if (key.ctrl && (character === "d" || character === "D")) {
+      setHideNewest((hidden) => applyHideDelta(hidden, -10, transcript.length));
+      return;
+    }
     if (key.ctrl && character === "c") {
       exit();
       return;
@@ -1337,10 +1446,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
   });
 
-  // Панели занимают динамическую зону под историей (как в classic-режиме
-  // Claude Code): <Static>-история всегда смонтирована и никогда
-  // не перепечатывается, вместо ввода рисуется панель.
-  // Никакой фиксированной высоты кадра больше нет.
+  // Панели занимают место футера под лентой (как модалки Claude):
+  // лента выше остаётся смонтированной, вместо ввода рисуется панель.
   const panel = restartingSetup ? (
     <SetupApp
       onComplete={completeRestartedSetup}
@@ -1404,9 +1511,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             .join(" · ")}
         </Text>
       ) : null}
-      <Text dimColor wrap="truncate-end">
-        {runtime.model} · {shortenHome(projectCwd)}
-      </Text>
       <Editor
         value={editor.value}
         cursor={editor.cursor}
@@ -1414,45 +1518,82 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         selectedRow={selectedVisibleIndex}
         columns={columns}
       />
+      {/* Статус-строка ПОД вводом как у Claude Code
+          (там: input, под ним dim-статус permissions/model).
+          Одна строка truncate-end: не переносится и не меняет высоту
+          динамики — иначе Ink стирает неверное число строк и оставляет
+          призраки боксов. */}
+      <Text dimColor wrap="truncate-end">
+        {runtime.model} · {shortenHome(projectCwd)}
+      </Text>
     </>
   );
 
-  // Filler-отступ: при коротком диалоге добивает пустотой до нижней кромки
-  // окна — ввод всегда внизу как зафиксированный. История длиннее окна —
-  // ноль, дальше нативный скролл. До первого замера — ноль, чтобы старт
-  // не печатал лишнюю пустоту в scrollback.
-  // Filler только по живому размеру окна: высота буфера conhost — не окно,
-  // по ней filler печатал сотни строк и прятал стартовый блок в скроллбэке.
-  const measured = staticMetrics.hasMeasured && footerMetrics.hasMeasured;
-  const windowRows = liveWindowRows();
-  const fillRows =
-    measured && windowRows !== undefined
-      ? computeFillRows(windowRows, staticMetrics.height, footerMetrics.height)
-      : 0;
-
+  // Fullscreen как у Claude: фиксированный вьюпорт высотой в окно.
+  // Шапка закреплена сверху, лента — срезом с привязкой к низу
+  // (overflow hidden + justifyContent flex-end), ввод зафиксирован снизу.
+  // Без <Static>: в alt-screen он толкает живую зону и провоцирует
+  // полный clear каждый кадр.
+  const { visible: visibleLines, hiddenNew } = sliceTranscript(
+    transcript,
+    hideNewest,
+  );
   return (
-    <Box flexDirection="column" width="100%">
-      <Box flexDirection="column" width="100%" ref={staticRef}>
-        <Static items={transcript}>
-          {(line) => (
-            <TranscriptLineView key={line.id} line={line} columns={columns} />
-          )}
-        </Static>
-      </Box>
-      {fillRows > 0 ? (
-        <Box flexDirection="column" width="100%">
-          {Array.from({ length: fillRows }, (_, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: строки-заглушки без идентичности
-            <Text key={index}> </Text>
-          ))}
-        </Box>
-      ) : null}
-      <Box flexDirection="column" width="100%" ref={footerRef}>
-        {streaming ? (
+    <Box flexDirection="column" width={columns} height={rows}>
+      <AltHeader
+        model={runtime.model}
+        cwd={projectCwd}
+        version={props.version}
+      />
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        overflow="hidden"
+        width="100%"
+        justifyContent="flex-end"
+      >
+        {visibleLines.map((line) => (
+          <TranscriptLineView key={line.id} line={line} columns={columns} />
+        ))}
+        {streaming && hiddenNew === 0 ? (
           <TranscriptLineView line={streaming} columns={columns} />
         ) : null}
+      </Box>
+      {hiddenNew > 0 ? (
+        <Box width="100%" flexShrink={0}>
+          <Text dimColor wrap="truncate-end">
+            ↑ {hiddenNew} новых · End — вниз
+          </Text>
+        </Box>
+      ) : null}
+      <Box flexDirection="column" width="100%" flexShrink={0}>
         {panel ?? footer}
       </Box>
+    </Box>
+  );
+}
+
+/**
+ * Закреплённая шапка fullscreen-режима как у Claude Code: видна всегда,
+ * никуда не уплывает. 2 строки: заголовок + скролл-подсказка.
+ */
+function AltHeader({
+  model,
+  cwd,
+  version,
+}: {
+  model: string;
+  cwd: string;
+  version?: string;
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="column" width="100%" flexShrink={0}>
+      <Text bold wrap="truncate-end">
+        {formatHeaderTitle({ model, cwd, version })}
+      </Text>
+      <Text dimColor wrap="truncate-end">
+        PgUp/PgDn — скролл · Home/End — верх/низ · /help — команды
+      </Text>
     </Box>
   );
 }
@@ -1481,6 +1622,15 @@ function TranscriptLineView({
   columns: number;
 }): React.JSX.Element {
   const tone = line.tone ?? "assistant";
+  if (tone === "logo") {
+    // Арт шапки: truncate-end, иначе wrap рвал строку 76 клеток
+    // в две и «шапка плыла». Как в Claude — лого печатается 1:1.
+    return (
+      <Box width="100%" flexShrink={0}>
+        <Text wrap="truncate-end">{line.text}</Text>
+      </Box>
+    );
+  }
   if (tone === "dim") {
     // Вторичные строки стартового блока и разделители: тихо, dim.
     return (

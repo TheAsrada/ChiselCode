@@ -141,10 +141,10 @@ async function startApp(
   };
 }
 
-describe("tui scrollback render", () => {
+describe("tui alt-screen render", () => {
   test("startup prints the welcome block, status line and input", async () => {
-    // Стартовый блок как в classic-режиме Claude Code: арт-логотип, мета,
-    // подсказки — печатается один раз и дальше уплывает вверх с диалогом.
+    // Стартовый блок как в fullscreen-режиме Claude Code: закреплённая шапка
+    // сверху, арт-логотип первым в ленте, ввод зафиксирован снизу.
     const app = await startApp(100, 30);
     try {
       const text = app.chunks();
@@ -157,6 +157,43 @@ describe("tui scrollback render", () => {
       expect(text).not.toContain("колесо");
     } finally {
       app.unmount();
+    }
+  });
+
+  test("header stays visible on entry without filler gap (Claude fullscreen)", async () => {
+    // Регрессия «шапки не видно»: filler считал высоту Static через Yoga
+    // (absolute → всегда ~0) и печатал 20+ пустых строк между шапкой
+    // и вводом. Как в Claude fullscreen шапка закреплена сверху,
+    // зазор между логотипом и вводом маленький.
+    const stdout = process.stdout as unknown as {
+      getWindowSize?: () => [number, number];
+    };
+    const original = stdout.getWindowSize;
+    try {
+      // Окно 30 строк при буфере 300: старый filler дал бы 25 пустых.
+      stdout.getWindowSize = () => [100, 30];
+      const app = await startApp(100, 30);
+      try {
+        const text = app.chunks();
+        const lines = text.split("\n");
+        const logoFirst = renderLogoRows()[0] ?? "";
+        const logoIndex = lines.findIndex((line) =>
+          line.includes(logoFirst.trim().slice(0, 20)),
+        );
+        const inputIndex = lines.findIndex((line) =>
+          line.includes("Спросите что-нибудь"),
+        );
+        expect(logoIndex).toBeGreaterThanOrEqual(0);
+        expect(inputIndex).toBeGreaterThan(logoIndex);
+        // Шапка + мета + разделитель + хинт + статус ≈ 9-10 строк, никак не 30+.
+        expect(inputIndex - logoIndex).toBeLessThan(20);
+      } finally {
+        app.unmount();
+      }
+    } finally {
+      if (original === undefined)
+        delete (stdout as Record<string, unknown>).getWindowSize;
+      else stdout.getWindowSize = original;
     }
   });
 
@@ -174,10 +211,10 @@ describe("tui scrollback render", () => {
     }
   });
 
-  test("history stays in scrollback in order, newest last", async () => {
-    // Нативный scrollback вместо кастомного окна: раннее напечатанное
-    // остаётся выше позднего, шапка-арт — самой первой.
-    const app = await startApp(100, 30);
+  test("history stays in viewport in order, newest last", async () => {
+    // Fullscreen alt-screen: лента — срез с привязкой к низу,
+    // раннее выше позднего. Высокое окно чтобы вьюпорт всё вместил.
+    const app = await startApp(100, 60);
     try {
       for (let i = 0; i < 30; i += 1) {
         app.transcript?.append(`строка истории номер ${i}`, "info");
@@ -191,6 +228,35 @@ describe("tui scrollback render", () => {
       expect(firstIndex).toBeGreaterThan(artIndex);
       expect(lastIndex).toBeGreaterThan(firstIndex);
       expect(text).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("pgup pins the viewport and new lines pile into a pill", async () => {
+    // Как у Claude fullscreen: скролл вверх ставит follow на паузу,
+    // новые строки копятся в пилюлю `↑ N новых`, PgDn возвращает к низу.
+    const app = await startApp(100, 30);
+    try {
+      for (let i = 0; i < 30; i += 1) {
+        app.transcript?.append(`строка истории номер ${i}`, "info");
+      }
+      await tick(150);
+      expect(app.chunks()).not.toContain("новых");
+      app.stdin.write("\x1b[5~");
+      await tick(300);
+      app.transcript?.append("самая новая строка", "info");
+      await tick(300);
+      expect(app.chunks()).toContain("новых");
+      // Шаг PgDn — пол-экрана (10 при 30 строках): скрыто было 11,
+      // поэтому два PgDn чтобы вернуться к живому краю.
+      // В debug-режиме кадры копятся, поэтому проверяем появление
+      // новейшей строки в виде, а не исчезновение пилюли из истории кадров.
+      app.stdin.write("\x1b[6~");
+      await tick(300);
+      app.stdin.write("\x1b[6~");
+      await tick(300);
+      expect(app.chunks()).toContain("самая новая строка");
     } finally {
       app.unmount();
     }

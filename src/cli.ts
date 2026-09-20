@@ -479,9 +479,15 @@ async function startTui(options: RunOptions): Promise<void> {
   // Иначе Ink стартует с кэшированных 80x24 — ввод узкий посреди экрана,
   // а выравнивание приходит только после ввода текста.
   syncTerminalSizeToStdout();
-  // Скролл нативный терминальный (как в classic-режиме Claude Code):
-  // mouse-трекинг НЕ включаем специально, чтобы колесо листало scrollback,
-  // а текст выделялся и копировался как обычно.
+  // Fullscreen как у Claude Code (`/tui fullscreen`): отдельный буфер
+  // DEC 1049, шапка закреплена сверху, лента со внутренним скроллом,
+  // ввод зафиксирован снизу. Mouse-трекинг НЕ включаем: колесо в alt-screen
+  // без него не доходит до приложения, зато текст не захватывается —
+  // скролл клавиатурой (PgUp/PgDn, Ctrl+U/D, Home/End), как и задумано.
+  // Откат к scrollback: CHISEL_ALT_SCREEN=0 или CHISEL_NO_ALT_SCREEN=1.
+  const useAltScreen =
+    process.env.CHISEL_ALT_SCREEN !== "0" &&
+    process.env.CHISEL_NO_ALT_SCREEN !== "1";
   try {
     instance = render(
       React.createElement(TuiApp, {
@@ -740,8 +746,10 @@ async function startTui(options: RunOptions): Promise<void> {
           }
         },
       }),
-      // Без alternateScreen: история остаётся в scrollback-буфере терминала
-      // как в classic-режиме Claude Code (скролл и копирование — нативные).
+      // Fullscreen alt-screen как у Claude: выход восстанавливает
+      // primary screen, история alt-буфера не сыплется в scrollback.
+      // Откат: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1.
+      { alternateScreen: useAltScreen },
     );
   } catch {
     // Ink требует raw mode терминала. В урезанных консолях Windows
