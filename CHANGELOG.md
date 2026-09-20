@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.17] - 2026-09-20
+
+### Changed
+
+- Шапка TUI переработана в стиле топовых CLI (OpenCode/Codex/Claude Code): убраны нейрослоп-анимация (бегущий импульс `●`, мигающая искра-стамеска с переливом cyan/yellow/magenta) и разноцветность. Теперь статичный монохром: бренд `◈ ChiselCode` жирным в дефолтном цвете терминала, модель обычным начертанием, путь и версия dim, разделитель тонкий dim во всю ширину. Без `useAnimation`-тика полноэкранный кадр на Windows/conhost не перерисовывается и не мерцает. Провайдер убран из шапки (виден в `/status`), формат: `◈ ChiselCode · <model> · <~/cwd> · v<version>`. Чистые хелперы `formatHeaderTitle`/`headerSeparator` покрыты тестами.
+
 ## [0.5.16] - 2026-09-20
 
 ### Fixed

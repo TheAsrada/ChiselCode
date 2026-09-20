@@ -79,13 +79,11 @@ function visualWidth(line: string): number {
 }
 
 /**
- * Первая строка каждого полного кадра — шапка приложения. Искра шапки
- * анимирована (◈↔◆), поэтому маркер — любой из двух глифов с пробелом:
- * делить кадры только по ◈ склеивало бы ◆-кадры с соседними и рвало
- * проверку ширины stale-строками. Оба глифа — из Geometric Shapes:
- * есть в любом шрифте консоли, квадратиков-тофу не бывает.
+ * Первая строка каждого полного кадра — шапка приложения. Шапка статичная
+ * (монохром, без анимации как у OpenCode/Codex), маркер — всегда «◈ ChiselCode».
+ * Глиф из Geometric Shapes: есть в любом шрифте консоли, квадратиков-тофу нет.
  */
-const FRAME_MARKER_PATTERN = /(?=[◈◆] ChiselCode)/;
+const FRAME_MARKER_PATTERN = /(?=◈ ChiselCode)/;
 
 /** Номера «строка истории номер N», видимые в кадре, по порядку. */
 function historyNumbers(frame: string[]): number[] {
@@ -187,11 +185,13 @@ describe("tui fullscreen render", () => {
       for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(100);
       }
-      // Шапка сверху.
-      expect(frame[0]).toContain("ChiselCode");
-      // Разделитель шапки — во всю ширину окна, по нему бежит импульс.
+      // Шапка сверху: статичный монохром как у OpenCode/Codex.
+      expect(frame[0]).toContain("◈ ChiselCode");
+      expect(frame[0]).toContain("test-model");
+      // Разделитель шапки — статичный, во всю ширину окна, без импульса.
       expect(visualWidth(frame[1] ?? "")).toBe(100);
-      expect(frame[1]).toContain("●");
+      expect(frame[1]).not.toContain("●");
+      expect(frame[1]?.trim()).toMatch(/^─+$/);
       // Поле ввода — внизу кадра.
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
@@ -210,8 +210,9 @@ describe("tui fullscreen render", () => {
         expect(visualWidth(line)).toBeLessThanOrEqual(200);
       }
       // Шапка закреплена сверху даже в полном экране.
-      expect(frame[0]).toContain("ChiselCode");
+      expect(frame[0]).toContain("◈ ChiselCode");
       expect(visualWidth(frame[1] ?? "")).toBe(200);
+      expect(frame[1]).not.toContain("●");
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
       expect(bottom).toContain("колесо");

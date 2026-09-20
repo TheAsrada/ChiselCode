@@ -1,4 +1,4 @@
-import { Box, Text, useAnimation, useApp, useInput, useWindowSize } from "ink";
+import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
@@ -585,74 +585,38 @@ export function fullWidthSeparator(columns: number): string {
 }
 
 /**
- * Живая шапка: интервал анимации в миллисекундах. Один общий тик крутит
- * и искру-стамеску, и бегущий импульс по разделителю — Ink сводит все
- * анимации на один таймер, лишних перерисовок нет. Тик неспешный, чтобы
- * полноэкранная перерисовка на Windows/conhost не мерцала.
+ * Стильная статичная шапка как у топовых CLI (OpenCode/Codex/Claude Code):
+ * монохром, без анимации и разноцветности.
+ * - Первая строка: бренд жирным (адаптивный foreground терминала),
+ *   модель — обычным начертанием, всё вторичное (путь, версия) — dim.
+ * - Вторая строка: тонкий статичный разделитель во всю ширину окна.
+ * Никаких useAnimation-тиков: шапка не перерисовывает полноэкранный кадр
+ * на Windows/conhost и не мерцает. Высота строго 2 строки (TUI_HEADER_ROWS).
  */
-export const HEADER_ANIMATION_INTERVAL_MS = 180;
-/** Импульс бежит по разделителю этим шагом за тик (клеток). */
-export const HEADER_PULSE_STEP = 2;
-
-export type HeaderMarkColor = "cyan" | "yellow" | "magenta";
-
-export interface HeaderMarkFrame {
-  ch: string;
-  color: HeaderMarkColor;
+export interface HeaderTitleInput {
+  model: string;
+  cwd?: string;
+  version?: string;
 }
 
 /**
- * Искра-стамеска: логотип «высекает» искры. Только глифы, которые уже
- * используются в интерфейсе (◈ ◆) — они точно есть в шрифтах conhost
- * и считаются шириной в одну клетку и Ink, и терминалом.
+ * Плоский текст шапки одной строкой (без ANSI, для тестов и снепшотов).
+ * Формат: `◈ ChiselCode · <model> · <~/cwd> · v<version>`.
+ * Пустые части пропускаются, ничего не раздувается.
  */
-export const HEADER_MARK_FRAMES: HeaderMarkFrame[] = [
-  { ch: "◈", color: "cyan" },
-  { ch: "◆", color: "yellow" },
-  { ch: "◈", color: "cyan" },
-  { ch: "◆", color: "magenta" },
-];
-
-/** Кадр искры по счётчику useAnimation: зациклен, чист для тестов. */
-export function headerMarkFrame(frame: number): HeaderMarkFrame {
-  const index =
-    ((Math.floor(frame) % HEADER_MARK_FRAMES.length) +
-      HEADER_MARK_FRAMES.length) %
-    HEADER_MARK_FRAMES.length;
-  return HEADER_MARK_FRAMES[index] ?? { ch: "◈", color: "cyan" };
+export function formatHeaderTitle(input: HeaderTitleInput): string {
+  const parts: string[] = ["◈ ChiselCode"];
+  const model = input.model.trim();
+  if (model) parts.push(model);
+  const cwd = input.cwd?.trim();
+  if (cwd) parts.push(shortenHome(cwd));
+  if (input.version?.trim()) parts.push(`v${input.version.trim()}`);
+  return parts.join(" · ");
 }
 
-export interface PulseSeparatorParts {
-  before: string;
-  after: string;
-}
-
-/**
- * Части разделителя вокруг бегущего импульса. Сам импульс (●) caller
- * подкрашивает отдельно — поэтому части, а не готовая строка.
- * Суммарная ширина — ровно ширина окна: before + 1 + after.
- */
-export function pulseSeparatorParts(
-  columns: number,
-  frame: number,
-): PulseSeparatorParts {
-  const width = Math.max(Math.floor(columns) || TUI_FALLBACK_COLUMNS, 10);
-  const pos =
-    (((Math.floor(frame) * HEADER_PULSE_STEP) % width) + width) % width;
-  return {
-    before: "─".repeat(pos),
-    after: "─".repeat(width - pos - 1),
-  };
-}
-
-/**
- * Разделитель с бегущим импульсом одной строкой (для тестов и снепшотов).
- * Длина — ровно ширина окна: импульс не раздувает строку и не сбивает
- * счётчик строк Ink на Windows.
- */
-export function animatedSeparator(columns: number, frame: number): string {
-  const { before, after } = pulseSeparatorParts(columns, frame);
-  return `${before}●${after}`;
+/** Статичный разделитель шапки во всю ширину окна (монохром, без импульса). */
+export function headerSeparator(columns: number): string {
+  return fullWidthSeparator(columns);
 }
 
 /**
@@ -1536,7 +1500,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         overflow="hidden"
       >
         <Header
-          providerLabel={runtime.providerLabel}
           model={runtime.model}
           columns={columns}
           version={props.version}
@@ -1566,7 +1529,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         overflow="hidden"
       >
         <Header
-          providerLabel={runtime.providerLabel}
           model={runtime.model}
           columns={columns}
           version={props.version}
@@ -1613,7 +1575,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         overflow="hidden"
       >
         <Header
-          providerLabel={runtime.providerLabel}
           model={runtime.model}
           columns={columns}
           version={props.version}
@@ -1707,7 +1668,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   return (
     <Box flexDirection="column" height={rows} width={columns} overflow="hidden">
       <Header
-        providerLabel={runtime.providerLabel}
         model={runtime.model}
         columns={columns}
         version={props.version}
@@ -1769,48 +1729,40 @@ export function shortenHome(path: string): string {
 /**
  * Закреплённая шапка: ровно две строки (заголовок + разделитель) при любой
  * ширине окна. Первая строка — единый инлайн-Text с truncate-end, поэтому
- * длинный сервис/модель/путь обрезаются в одну строку и никогда не раздувают
+ * длинная модель/путь обрезаются в одну строку и никогда не раздувают
  * шапку до трёх строк и не сдвигают смету истории (TUI_HEADER_ROWS).
- * Живая: искра-стамеска высекает искры, а по разделителю бежит импульс —
- * всё на одном тике useAnimation, ширина строк всегда ровно columns.
+ * Стиль как у топовых CLI (OpenCode/Codex): статичный монохром —
+ * бренд жирным в дефолтном цвете терминала, модель обычным начертанием,
+ * всё вторичное dim, разделитель тонкий dim во всю ширину.
+ * Без анимации и разноцветности: шапка не крутит перерисовку кадра.
  */
 function Header({
-  providerLabel,
   model,
   columns,
   version,
   cwd,
 }: {
-  providerLabel: string;
   model: string;
   columns: number;
   version?: string;
   cwd?: string;
 }): React.JSX.Element {
   const safeColumns = normalizeViewport({ columns }).columns;
-  const { frame } = useAnimation({ interval: HEADER_ANIMATION_INTERVAL_MS });
-  const mark = headerMarkFrame(frame);
-  const pulse = pulseSeparatorParts(safeColumns, frame);
+  const shortCwd = cwd ? shortenHome(cwd) : undefined;
   return (
     <Box flexDirection="column" flexShrink={0} width="100%" height={2}>
       <Box width="100%" height={1} overflow="hidden">
         <Text wrap="truncate-end">
-          <Text bold color={mark.color}>
-            {mark.ch} ChiselCode
-          </Text>
-          {version ? <Text dimColor> v{version}</Text> : null}
+          <Text bold>◈ ChiselCode</Text>
           <Text dimColor> · </Text>
-          <Text color="magenta">{providerLabel}</Text>
-          <Text dimColor> · </Text>
-          <Text color="yellow">{model}</Text>
-          {cwd ? <Text dimColor> · {shortenHome(cwd)}</Text> : null}
+          <Text>{model}</Text>
+          {shortCwd ? <Text dimColor> · {shortCwd}</Text> : null}
+          {version ? <Text dimColor> · v{version}</Text> : null}
         </Text>
       </Box>
       <Box width="100%" height={1} overflow="hidden">
         <Text dimColor wrap="truncate">
-          {pulse.before}
-          <Text color="cyan">●</Text>
-          {pulse.after}
+          {fullWidthSeparator(safeColumns)}
         </Text>
       </Box>
     </Box>
