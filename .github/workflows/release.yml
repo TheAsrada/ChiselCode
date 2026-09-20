@@ -86,7 +86,11 @@ jobs:
         shell: pwsh
         run: |
           $ver = node -p "require('./package.json').version"
-          makensis "/DVERSION=$ver" installer/chiselcode.nsi
+          # VIProductVersion принимает только цифры X.X.X.X: суффиксы
+          # вроде -hotfix отрезаем, недостающие части добиваем нулями.
+          $num = ($ver -replace '[-+].*$','')
+          while (($num.Split('.')).Count -lt 4) { $num += '.0' }
+          makensis "/DVERSION=$ver" "/DVERSION_NUMERIC=$num" installer/chiselcode.nsi
       - name: Upload installer
         shell: pwsh
         timeout-minutes: 20

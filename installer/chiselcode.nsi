@@ -1,7 +1,10 @@
 ﻿; ChiselCode Windows installer (NSIS 3, MUI2).
 ; Build from the repository root:
-;   makensis /DVERSION=0.4.0 installer\chiselcode.nsi
+;   makensis /DVERSION=0.4.0 /DVERSION_NUMERIC=0.4.0.0 installer\chiselcode.nsi
 ; Produces: dist\release\ChiselCode-Setup-<VERSION>.exe
+; VERSION — полная версия для имён и подписей (может быть с суффиксом
+; вроде 0.5.20-hotfix.1), VERSION_NUMERIC — только цифры X.X.X.X
+; для VIProductVersion (NSIS не принимает суффиксы).
 ; User-level install: no admin rights needed, adds chisel.exe to the user PATH.
 ; NOTE: makensis resolves relative paths against the script directory
 ; (installer/), not the current working directory.
@@ -15,6 +18,9 @@
 
 !ifndef VERSION
   !define VERSION "0.0.0"
+!endif
+!ifndef VERSION_NUMERIC
+  !define VERSION_NUMERIC "0.0.0.0"
 !endif
 
 !define APPNAME "ChiselCode"
@@ -43,7 +49,7 @@ BrandingText "${APPNAME} ${VERSION}"
 Icon "assets\${ICONFILE}"
 UninstallIcon "assets\${ICONFILE}"
 
-VIProductVersion "${VERSION}.0"
+VIProductVersion "${VERSION_NUMERIC}"
 VIAddVersionKey "ProductName" "${APPNAME}"
 VIAddVersionKey "FileDescription" "${APPNAME} Setup"
 VIAddVersionKey "LegalCopyright" "MIT"
