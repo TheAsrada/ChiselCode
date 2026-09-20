@@ -10,6 +10,7 @@ import {
   ART_HEADER_ROWS,
   createTuiApprovalResolver,
   syncTerminalSizeToStdout,
+  TUI_HEADER_ROWS,
   TuiApp,
   type TuiTranscript,
 } from "../../src/ui/tui.js";
@@ -91,9 +92,17 @@ const FRAME_MARKER_PATTERN = new RegExp(
   `(?=${ART_MARKER_LINE}|</> ChiselCode)`,
 );
 
-/** Индекс строки разделителя шапки: арт — после логотипа и мета, слим — вторая. */
+/** Индекс строки разделителя шапки: арт — после логотипа и мета, слим — последняя. */
 function headerSeparatorIndex(art: boolean): number {
-  return art ? ART_HEADER_ROWS - 1 : 1;
+  return art ? ART_HEADER_ROWS - 1 : TUI_HEADER_ROWS - 1;
+}
+
+/**
+ * Индекс текстовой строки шапки: арт — мета под логотипом (после отступа),
+ * слим — заголовок (после отступа). Нулевая строка всегда пустой отступ.
+ */
+function headerTextIndex(art: boolean): number {
+  return art ? 1 + LOGO_TERM_ROWS : 1;
 }
 
 /** Номера «строка истории номер N», видимые в кадре, по порядку. */
@@ -173,15 +182,19 @@ async function startApp(
     /**
      * Последний полный кадр. В debug-режиме кадры идут друг за другом
      * сплошным текстом (последняя строка кадра склеена с шапкой
-     * следующего), поэтому кадр вырезаем по маркеру первой строки —
-     * он же первая строка каждого полного кадра. Делим с lookahead,
-     * чтобы маркер остался в начале чанка.
+     * следующего), поэтому кадр вырезаем по маркеру начала шапки —
+     * первой строке логотипа в арт-режиме или слим-заголовку.
+     * Делим с lookahead, чтобы маркер остался в начале чанка.
+     * Нулевая строка шапки — пустой отступ без маркера: она остаётся
+     * в хвосте предыдущего чанка, поэтому добираем её оттуда —
+     * иначе кадр был бы на строку короче окна.
      */
     frame: (frameRows: number) => {
       const text = stripAnsi(output);
       const parts = text.split(FRAME_MARKER_PATTERN);
       const lastFrameText = parts.at(-1) ?? "";
-      return lastFrameText.split("\n").slice(0, frameRows);
+      const gapLine = (parts.at(-2) ?? "").split("\n").at(-1) ?? "";
+      return [gapLine, ...lastFrameText.split("\n")].slice(0, frameRows);
     },
     unmount: () => instance.unmount(),
   };
@@ -196,10 +209,11 @@ describe("tui fullscreen render", () => {
       for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(100);
       }
-      // Арт-шапка сверху (100x30 — широко и высоко): пиксельный логотип,
-      // под ним дим-строка с моделью, затем разделитель во всю ширину.
-      expect(frame.slice(0, LOGO_TERM_ROWS).join("\n")).toContain("█");
-      expect(frame[LOGO_TERM_ROWS]).toContain("test-model");
+      // Арт-шапка сверху (100x30 — широко и высоко): отступ, пиксельный
+      // логотип, под ним дим-строка с моделью, затем разделитель во всю ширину.
+      expect(frame[0]).toBe("");
+      expect(frame.slice(1, 1 + LOGO_TERM_ROWS).join("\n")).toContain("█");
+      expect(frame[headerTextIndex(true)]).toContain("test-model");
       const separator = headerSeparatorIndex(true);
       expect(visualWidth(frame[separator] ?? "")).toBe(100);
       expect(frame[separator]).not.toContain("●");
@@ -222,8 +236,9 @@ describe("tui fullscreen render", () => {
         expect(visualWidth(line)).toBeLessThanOrEqual(200);
       }
       // Арт-шапка закреплена сверху даже в полном экране.
-      expect(frame.slice(0, LOGO_TERM_ROWS).join("\n")).toContain("█");
-      expect(frame[LOGO_TERM_ROWS]).toContain("test-model");
+      expect(frame[0]).toBe("");
+      expect(frame.slice(1, 1 + LOGO_TERM_ROWS).join("\n")).toContain("█");
+      expect(frame[headerTextIndex(true)]).toContain("test-model");
       const wideSeparator = headerSeparatorIndex(true);
       expect(visualWidth(frame[wideSeparator] ?? "")).toBe(200);
       expect(frame[wideSeparator]).not.toContain("●");
@@ -247,8 +262,8 @@ describe("tui fullscreen render", () => {
       for (const line of frame) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
-      expect(frame[0]).toContain("ChiselCode");
-      expect(visualWidth(frame[1] ?? "")).toBe(60);
+      expect(frame[headerTextIndex(false)]).toContain("ChiselCode");
+      expect(visualWidth(frame[headerSeparatorIndex(false)] ?? "")).toBe(60);
       const bottom = frame.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
     } finally {
@@ -279,7 +294,7 @@ describe("tui fullscreen render", () => {
       for (const line of narrow) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
-      expect(narrow[0]).toContain("ChiselCode");
+      expect(narrow[headerTextIndex(false)]).toContain("ChiselCode");
       expect(narrow.slice(-6).join("\n")).toContain("Спросите что-нибудь");
       app.stdout.columns = 120;
       app.stdout.rows = 40;
@@ -290,7 +305,7 @@ describe("tui fullscreen render", () => {
       for (const line of wide) {
         expect(visualWidth(line)).toBeLessThanOrEqual(120);
       }
-      expect(wide.slice(0, LOGO_TERM_ROWS).join("\n")).toContain("█");
+      expect(wide.slice(1, 1 + LOGO_TERM_ROWS).join("\n")).toContain("█");
       expect(wide.slice(-6).join("\n")).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
@@ -728,8 +743,8 @@ describe("tui fullscreen render", () => {
       for (const line of healed) {
         expect(visualWidth(line)).toBeLessThanOrEqual(60);
       }
-      expect(healed[0]).toContain("ChiselCode");
-      expect(visualWidth(healed[1] ?? "")).toBe(60);
+      expect(healed[headerTextIndex(false)]).toContain("ChiselCode");
+      expect(visualWidth(healed[headerSeparatorIndex(false)] ?? "")).toBe(60);
       const bottom = healed.slice(-6).join("\n");
       expect(bottom).toContain("Спросите что-нибудь");
     } finally {

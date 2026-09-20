@@ -19,11 +19,8 @@ import {
   navigateEditorHistory,
 } from "../../src/ui/editor.js";
 import {
-  LOGO_PIXEL_ROWS,
   LOGO_TERM_ROWS,
   LOGO_WIDTH,
-  logoPixelGrid,
-  packPixelPair,
   renderLogoRows,
 } from "../../src/ui/logo.js";
 import {
@@ -220,7 +217,7 @@ describe("interactive viewport layout", () => {
       suggestionsCount: 0,
     });
     expect(wide).toBeLessThan(narrow);
-    expect(TUI_HEADER_ROWS).toBe(2);
+    expect(TUI_HEADER_ROWS).toBe(3);
     // wrappedLines считает по доступной ширине, а не по окну минус магия.
     expect(wrappedLines("x".repeat(100), 100)).toBe(1);
     expect(wrappedLines("x".repeat(101), 100)).toBe(2);
@@ -275,38 +272,27 @@ describe("interactive viewport layout", () => {
       expect(line).not.toContain("●");
       expect(fullWidthSeparator(columns)).toBe(line);
     }
-    // Шапка по-прежнему две строки — смета истории не меняется.
-    expect(TUI_HEADER_ROWS).toBe(2);
+    // Слим-шапка — три строки (отступ + заголовок + разделитель).
+    expect(TUI_HEADER_ROWS).toBe(3);
   });
 
-  test("pixel logo packs into exact half-block terminal rows", () => {
-    // Сетка 7 пиксельных рядов из `#`/`.`: все ряды одной ширины — иначе буквы поплывут.
-    const grid = logoPixelGrid();
-    expect(grid).toHaveLength(LOGO_PIXEL_ROWS);
-    expect(LOGO_PIXEL_ROWS).toBe(7);
-    for (const row of grid) {
-      expect(row).toHaveLength(75);
-      expect(row).toMatch(/^[#.]+$/);
-    }
-    // Таблица упаковки пары пикселей: оба — █, верх — ▀, низ — ▄, пусто — пробел.
-    expect(packPixelPair("#", "#")).toBe("█");
-    expect(packPixelPair("#", ".")).toBe("▀");
-    expect(packPixelPair(".", "#")).toBe("▄");
-    expect(packPixelPair(".", ".")).toBe(" ");
-    expect(packPixelPair("#.#", "##.")).toBe("█▄▀");
-    // Терминальные строки: 4 ряда half-блоков, только █▀▄ и пробелы,
-    // ширина ≤ 75, максимум ровно 75, детерминированы.
+  test("TAAG logo is embedded literally with exact geometry", () => {
+    // ASCII-арт `<i>ChiselCode`, шрифт Coder Mini: 5 строк half-блоков,
+    // только пробелы и █▀▄, ширина ≤ 76, максимум ровно 76.
+    // Пробелы значимы (внутренние просветы букв) — сверяем построчно.
     const lines = renderLogoRows();
     expect(lines).toHaveLength(LOGO_TERM_ROWS);
-    expect(LOGO_TERM_ROWS).toBe(4);
-    expect(LOGO_WIDTH).toBe(75);
+    expect(LOGO_TERM_ROWS).toBe(5);
+    expect(LOGO_WIDTH).toBe(76);
     for (const line of lines) {
-      expect(line).toMatch(/^[█▀▄ ]*$/);
+      expect(line).toMatch(/^[ █▀▄]+$/);
       expect([...line].length).toBeLessThanOrEqual(LOGO_WIDTH);
     }
     expect(Math.max(...lines.map((line) => [...line].length))).toBe(LOGO_WIDTH);
+    // Возвращается копия: мутация не портит шапку.
     expect(renderLogoRows()).toEqual(lines);
-    // Логотип непустой: есть залитые клетки и просветы между глифами.
+    expect(renderLogoRows()).not.toBe(lines);
+    // Логотип непустой и не сплошная плашка: есть и заливка, и просветы.
     const inked = lines.join("").replace(/ /g, "");
     expect(inked.length).toBeGreaterThan(50);
     expect(lines.join("\n")).toContain(" ");
@@ -317,14 +303,16 @@ describe("interactive viewport layout", () => {
     // слим-строка на узких/низких/битых размерах.
     expect(shouldUseArtHeader(LOGO_WIDTH, ART_MIN_ROWS)).toBe(true);
     expect(shouldUseArtHeader(200, 60)).toBe(true);
+    expect(shouldUseArtHeader(100, 20)).toBe(true);
+    expect(shouldUseArtHeader(100, 19)).toBe(false);
     expect(shouldUseArtHeader(LOGO_WIDTH - 1, 60)).toBe(false);
     expect(shouldUseArtHeader(200, ART_MIN_ROWS - 1)).toBe(false);
     expect(shouldUseArtHeader(20, 10)).toBe(false);
     expect(shouldUseArtHeader(0, 0)).toBe(false);
     expect(shouldUseArtHeader(Number.NaN, 30)).toBe(false);
-    // Арт-шапка: логотип + дим-строка мета + разделитель.
-    expect(ART_HEADER_ROWS).toBe(LOGO_TERM_ROWS + 2);
-    expect(ART_HEADER_ROWS).toBe(6);
+    // Арт-шапка: отступ + логотип + дим-строка мета + разделитель.
+    expect(ART_HEADER_ROWS).toBe(LOGO_TERM_ROWS + 3);
+    expect(ART_HEADER_ROWS).toBe(8);
     // Мета-строка под логотипом: модель · путь · версия, пустое пропускается.
     expect(
       formatHeaderMeta({ model: "m", cwd: "/tmp/x", version: "1.2.3" }),

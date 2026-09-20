@@ -105,18 +105,20 @@ export interface TuiTranscript {
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
-/** Высота слим-шапки: строка заголовка + разделитель. */
-export const TUI_HEADER_ROWS = 2;
+/** Высота слим-шапки: отступ сверху + строка заголовка + разделитель. */
+export const TUI_HEADER_ROWS = 3;
 /**
- * Высота арт-шапки: пиксельный логотип + дим-строка мета + разделитель.
+ * Высота арт-шапки: отступ сверху + пиксельный логотип + дим-строка мета
+ * + разделитель. Отступ нужен, чтобы блочный арт не упирался в верхний
+ * край окна (как paddingTop у шапки OpenCode).
  * Логотип монохромный (half-блоки), без анимации — кадр не перерисовывается.
  */
-export const ART_HEADER_ROWS = LOGO_TERM_ROWS + 2;
+export const ART_HEADER_ROWS = LOGO_TERM_ROWS + 3;
 /**
  * Минимальная высота окна для арт-шапки: ниже — слим-вариант, чтобы
- * контенту и футеру оставалось место (арт 6 + футер ~5 + контент).
+ * контенту и футеру оставалось место (арт 8 + футер ~5 + контент).
  */
-export const ART_MIN_ROWS = 16;
+export const ART_MIN_ROWS = 20;
 
 /**
  * Показывать ли пиксельный логотип в шапке (как multi-size логотипы
@@ -1770,13 +1772,14 @@ export function shortenHome(path: string): string {
 
 /**
  * Закреплённая шапка: при любой ширине окна занимает ровно headerRows строк
- * (арт — ART_HEADER_ROWS, слим — TUI_HEADER_ROWS). Все строки — инлайн-Text
- * с truncate-end, поэтому длинная модель/путь обрезаются и никогда не раздувают
- * шапку и не сдвигают смету истории.
+ * (арт — ART_HEADER_ROWS, слим — TUI_HEADER_ROWS). Первая строка — всегда
+ * пустой отступ, чтобы арт не упирался в верхний край окна. Остальные строки —
+ * инлайн-Text с truncate-end, поэтому длинная модель/путь обрезаются
+ * и никогда не раздувают шапку и не сдвигают смету истории.
  * Стиль как у топовых CLI: статичный монохром без анимации и разноцветности.
- * - art: пиксельный логотип `</> ChiselCode` (half-блоки, 4 строки) +
+ * - art: пусто + пиксельный логотип `</> ChiselCode` (half-блоки, 4 строки) +
  *   дим-строка `модель · ~/путь · vверсия` + тонкий dim-разделитель;
- * - слим: одна строка `</> ChiselCode · модель · ~/путь · vверсия`
+ * - слим: пусто + одна строка `</> ChiselCode · модель · ~/путь · vверсия`
  *   (бренд жирным, модель обычным, вторичное dim) + разделитель.
  */
 function Header({
@@ -1808,7 +1811,7 @@ function Header({
       height={art ? ART_HEADER_ROWS : TUI_HEADER_ROWS}
     >
       {art ? (
-        <Box flexDirection="column" width="100%" flexShrink={0}>
+        <Box flexDirection="column" width="100%" flexShrink={0} marginTop={1}>
           {renderLogoRows().map((line) => (
             <Box key={line} width="100%" height={1} overflow="hidden">
               <Text wrap="truncate-end">{line}</Text>
@@ -1821,7 +1824,7 @@ function Header({
           </Box>
         </Box>
       ) : (
-        <Box width="100%" height={1} overflow="hidden">
+        <Box width="100%" height={1} overflow="hidden" marginTop={1}>
           <Text wrap="truncate-end">
             <Text bold>{"</> ChiselCode"}</Text>
             {modelText ? (
