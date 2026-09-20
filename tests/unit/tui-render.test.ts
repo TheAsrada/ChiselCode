@@ -5,12 +5,9 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import React from "react";
-import { LOGO_TERM_ROWS, renderLogoRows } from "../../src/ui/logo.js";
+import { LOGO_WIDTH, renderLogoRows } from "../../src/ui/logo.js";
 import {
-  ART_HEADER_ROWS,
   createTuiApprovalResolver,
-  syncTerminalSizeToStdout,
-  TUI_HEADER_ROWS,
   TuiApp,
   type TuiTranscript,
 } from "../../src/ui/tui.js";
@@ -77,44 +74,6 @@ function stripAnsi(input: string): string {
   return result.replace(/\r/g, "");
 }
 
-function visualWidth(line: string): number {
-  return Array.from(line).length;
-}
-
-/**
- * Первая строка каждого полного кадра — шапка приложения. Шапка статичная
- * (монохром, без анимации как у OpenCode/Codex) и responsive: на широких
- * окнах начинается с первой строки пиксельного логотипа, на узких —
- * со слим-строки «</> ChiselCode». Кадр вырезаем по любому из двух маркеров.
- */
-const ART_MARKER_LINE = renderLogoRows()[0] ?? "";
-const FRAME_MARKER_PATTERN = new RegExp(
-  `(?=${ART_MARKER_LINE}|</> ChiselCode)`,
-);
-
-/** Индекс строки разделителя шапки: арт — после логотипа и мета, слим — последняя. */
-function headerSeparatorIndex(art: boolean): number {
-  return art ? ART_HEADER_ROWS - 1 : TUI_HEADER_ROWS - 1;
-}
-
-/**
- * Индекс текстовой строки шапки: арт — мета под логотипом (после отступа),
- * слим — заголовок (после отступа). Нулевая строка всегда пустой отступ.
- */
-function headerTextIndex(art: boolean): number {
-  return art ? 1 + LOGO_TERM_ROWS : 1;
-}
-
-/** Номера «строка истории номер N», видимые в кадре, по порядку. */
-function historyNumbers(frame: string[]): number[] {
-  const result: number[] = [];
-  for (const line of frame) {
-    const match = /строка истории номер (\d+)/.exec(line);
-    if (match?.[1] !== undefined) result.push(Number(match[1]));
-  }
-  return result;
-}
-
 const tick = (ms = 60): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -123,7 +82,6 @@ interface Harness {
   stdout: MockStdout;
   transcript?: TuiTranscript;
   chunks(): string;
-  frame(rows: number): string[];
   unmount(): void;
 }
 
@@ -179,326 +137,109 @@ async function startApp(
       return transcript;
     },
     chunks: () => stripAnsi(output),
-    /**
-     * Последний полный кадр. В debug-режиме кадры идут друг за другом
-     * сплошным текстом (последняя строка кадра склеена с шапкой
-     * следующего), поэтому кадр вырезаем по маркеру начала шапки —
-     * первой строке логотипа в арт-режиме или слим-заголовку.
-     * Делим с lookahead, чтобы маркер остался в начале чанка.
-     * Нулевая строка шапки — пустой отступ без маркера: она остаётся
-     * в хвосте предыдущего чанка, поэтому добираем её оттуда —
-     * иначе кадр был бы на строку короче окна.
-     */
-    frame: (frameRows: number) => {
-      const text = stripAnsi(output);
-      const parts = text.split(FRAME_MARKER_PATTERN);
-      const lastFrameText = parts.at(-1) ?? "";
-      const gapLine = (parts.at(-2) ?? "").split("\n").at(-1) ?? "";
-      return [gapLine, ...lastFrameText.split("\n")].slice(0, frameRows);
-    },
     unmount: () => instance.unmount(),
   };
 }
 
-describe("tui fullscreen render", () => {
-  test("idle frame fits the window and pins input to the bottom", async () => {
+describe("tui scrollback render", () => {
+  test("startup prints the welcome block, status line and input", async () => {
+    // Стартовый блок как в classic-режиме Claude Code: арт-логотип, мета,
+    // подсказки — печатается один раз и дальше уплывает вверх с диалогом.
     const app = await startApp(100, 30);
     try {
-      const frame = app.frame(30);
-      expect(frame.length).toBe(30);
-      for (const line of frame) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(100);
-      }
-      // Арт-шапка сверху (100x30 — широко и высоко): отступ, пиксельный
-      // логотип, под ним дим-строка с моделью, затем разделитель во всю ширину.
-      expect(frame[0]).toBe("");
-      expect(frame.slice(1, 1 + LOGO_TERM_ROWS).join("\n")).toContain("█");
-      expect(frame[headerTextIndex(true)]).toContain("test-model");
-      const separator = headerSeparatorIndex(true);
-      expect(visualWidth(frame[separator] ?? "")).toBe(100);
-      expect(frame[separator]).not.toContain("●");
-      expect(frame[separator]?.trim()).toMatch(/^─+$/);
-      // Поле ввода — внизу кадра.
-      const bottom = frame.slice(-6).join("\n");
-      expect(bottom).toContain("Спросите что-нибудь");
-      expect(bottom).toContain("колесо");
+      const text = app.chunks();
+      for (const artLine of renderLogoRows()) expect(text).toContain(artLine);
+      expect(text).toContain("test-model");
+      // Статус-строка над вводом: модель и проект видны всегда,
+      // даже когда стартовый блок уплыл из вида.
+      expect(text).toContain("Спросите что-нибудь");
+      expect(text).toContain("Shift+Enter");
+      expect(text).not.toContain("колесо");
     } finally {
       app.unmount();
     }
   });
 
-  test("fullscreen frame keeps header on top and input pinned", async () => {
-    const app = await startApp(200, 60);
+  test("narrow window falls back to the slim welcome title", async () => {
+    // Окно уже логотипа (76 клеток): вместо арта — слим-строка.
+    expect(LOGO_WIDTH).toBe(76);
+    const app = await startApp(60, 20);
     try {
-      const frame = app.frame(60);
-      expect(frame.length).toBe(60);
-      for (const line of frame) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(200);
-      }
-      // Арт-шапка закреплена сверху даже в полном экране.
-      expect(frame[0]).toBe("");
-      expect(frame.slice(1, 1 + LOGO_TERM_ROWS).join("\n")).toContain("█");
-      expect(frame[headerTextIndex(true)]).toContain("test-model");
-      const wideSeparator = headerSeparatorIndex(true);
-      expect(visualWidth(frame[wideSeparator] ?? "")).toBe(200);
-      expect(frame[wideSeparator]).not.toContain("●");
-      const bottom = frame.slice(-6).join("\n");
-      expect(bottom).toContain("Спросите что-нибудь");
-      expect(bottom).toContain("колесо");
+      const text = app.chunks();
+      expect(text).toContain("</> ChiselCode");
+      expect(text).toContain("test-model");
+      expect(text).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
     }
   });
 
-  test("frame adapts after window resize without overflow", async () => {
+  test("history stays in scrollback in order, newest last", async () => {
+    // Нативный scrollback вместо кастомного окна: раннее напечатанное
+    // остаётся выше позднего, шапка-арт — самой первой.
     const app = await startApp(100, 30);
-    try {
-      app.stdout.columns = 60;
-      app.stdout.rows = 20;
-      app.stdout.emit("resize");
-      await tick();
-      const frame = app.frame(20);
-      expect(frame.length).toBe(20);
-      for (const line of frame) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(60);
-      }
-      expect(frame[headerTextIndex(false)]).toContain("ChiselCode");
-      expect(visualWidth(frame[headerSeparatorIndex(false)] ?? "")).toBe(60);
-      const bottom = frame.slice(-6).join("\n");
-      expect(bottom).toContain("Спросите что-нибудь");
-    } finally {
-      app.unmount();
-    }
-  });
-
-  test("frame survives rapid shrink-grow without overflow", async () => {
-    // Регрессия искажения при ресайзе: переходный кадр никогда не шире
-    // живого окна — иначе терминал переносит длинные строки сам и весь
-    // интерфейс «плывёт». Сужаем и тут же разворачиваем обратно: оба кадра
-    // обязаны влезать в актуальное окно, шапка сверху, ввод снизу.
-    const app = await startApp(100, 30);
-    try {
-      for (let i = 0; i < 20; i += 1) {
-        app.transcript?.append(
-          `длинная строка истории номер ${i} для проверки переоборачивания при изменении ширины окна терминала`,
-          "info",
-        );
-      }
-      await tick(150);
-      app.stdout.columns = 60;
-      app.stdout.rows = 20;
-      app.stdout.emit("resize");
-      await tick();
-      const narrow = app.frame(20);
-      expect(narrow.length).toBe(20);
-      for (const line of narrow) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(60);
-      }
-      expect(narrow[headerTextIndex(false)]).toContain("ChiselCode");
-      expect(narrow.slice(-6).join("\n")).toContain("Спросите что-нибудь");
-      app.stdout.columns = 120;
-      app.stdout.rows = 40;
-      app.stdout.emit("resize");
-      await tick();
-      const wide = app.frame(40);
-      expect(wide.length).toBe(40);
-      for (const line of wide) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(120);
-      }
-      expect(wide.slice(1, 1 + LOGO_TERM_ROWS).join("\n")).toContain("█");
-      expect(wide.slice(-6).join("\n")).toContain("Спросите что-нибудь");
-    } finally {
-      app.unmount();
-    }
-  });
-
-  test("long history keeps input pinned and paging works", async () => {
-    const app = await startApp(80, 24);
-    try {
-      for (let i = 0; i < 50; i += 1) {
-        app.transcript?.append(`строка истории номер ${i}`, "info");
-      }
-      await tick(150);
-      const frame = app.frame(24);
-      expect(frame.length).toBe(24);
-      for (const line of frame) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(80);
-      }
-      const bottom = frame.slice(-6).join("\n");
-      expect(bottom).toContain("Спросите что-нибудь");
-      expect(bottom).toContain("колесо");
-      // Самая свежая строка видна, счётчиков «…ещё N» больше нет —
-      // весь вьюпорт отдан контенту.
-      expect(frame.join("\n")).toContain("строка истории номер 49");
-      expect(frame.join("\n")).not.toContain("записей выше");
-      expect(frame.join("\n")).not.toContain("записей ниже");
-      // Видимые строки идут подряд без дыр: Yoga не схлопывает строки.
-      expect(historyNumbers(frame)).toEqual(
-        Array.from(
-          { length: historyNumbers(frame).length },
-          (_, index) => (historyNumbers(frame)[0] ?? 0) + index,
-        ),
-      );
-
-      // Shift+↑ уходит вверх построчно: видны старые записи, свежих нет,
-      // а подсказка предлагает Esc как путь назад вниз.
-      // (Колесо мыши шлёт тот же сдвиг через фильтр stdin в cli.ts —
-      // оно покрыто юнит-тестами mouse.test.ts.)
-      for (let i = 0; i < 5; i += 1) {
-        app.stdin.write("\x1b[1;2A");
-        await tick(60);
-      }
-      const up = app.frame(24).join("\n");
-      expect(up).toContain("строка истории номер 44");
-      expect(up).not.toContain("строка истории номер 49");
-      expect(up).toContain("Esc — вниз");
-      // Shift+↓ несколько раз возвращается вниз, End — сразу вниз.
-      for (let i = 0; i < 5; i += 1) {
-        app.stdin.write("\x1b[1;2B");
-        await tick(60);
-      }
-      app.stdin.write("\x1b[F");
-      await tick(150);
-      const down = app.frame(24);
-      expect(down.join("\n")).toContain("строка истории номер 49");
-      expect(down.join("\n")).not.toContain("Esc — вниз");
-      // Esc тоже возвращает к вводу после прокрутки вверх.
-      for (let i = 0; i < 5; i += 1) {
-        app.stdin.write("\x1b[1;2A");
-        await tick(60);
-      }
-      expect(app.frame(24).join("\n")).toContain("Esc — вниз");
-      app.stdin.write("\x1b");
-      await tick(150);
-      expect(app.frame(24).join("\n")).toContain("строка истории номер 49");
-    } finally {
-      app.unmount();
-    }
-  });
-
-  test("tall answer reads in parts with Home and End", async () => {
-    // Ответ выше экрана: середина читается скроллом построчно,
-    // а не проскакивает целиком за один тик колеса.
-    const app = await startApp(80, 24);
-    try {
-      app.transcript?.append("начало журнала", "info");
-      const code = Array.from({ length: 30 }, (_, i) => `код-строка-${i}`).join(
-        "\n",
-      );
-      app.transcript?.append(`\`\`\`\n${code}\n\`\`\``, "assistant");
-      app.transcript?.append("конец журнала", "info");
-      await tick(200);
-      // Внизу по умолчанию: хвост кода и конец, верха кода нет.
-      const bottom = app.frame(24).join("\n");
-      expect(bottom).toContain("код-строка-29");
-      expect(bottom).toContain("конец журнала");
-      expect(bottom).not.toContain("код-строка-0");
-      expect(bottom).not.toContain("начало журнала");
-      // Home — в самое начало: видно начало журнала и верх кода.
-      app.stdin.write("\x1b[H");
-      await tick(200);
-      const top = app.frame(24).join("\n");
-      expect(top).toContain("начало журнала");
-      expect(top).toContain("код-строка-0");
-      expect(top).not.toContain("код-строка-29");
-      // Середина достижима: десять Shift+↑ от дна — минус десять строк.
-      app.stdin.write("\x1b[F");
-      await tick(200);
-      for (let i = 0; i < 10; i += 1) {
-        app.stdin.write("\x1b[1;2A");
-        await tick(40);
-      }
-      const mid = app.frame(24).join("\n");
-      expect(mid).toContain("код-строка-19");
-      expect(mid).not.toContain("код-строка-29");
-      expect(mid).not.toContain("конец журнала");
-      expect(mid).toContain("Esc — вниз");
-    } finally {
-      app.unmount();
-    }
-  });
-
-  test("new messages keep the reader where they scrolled", async () => {
-    // Sticky-bottom: ушедшего вверх не дёргает вниз, прибитый следит за новым.
-    const app = await startApp(80, 24);
     try {
       for (let i = 0; i < 30; i += 1) {
         app.transcript?.append(`строка истории номер ${i}`, "info");
       }
       await tick(150);
-      app.stdin.write("\x1b[H");
-      await tick(200);
-      const top = app.frame(24).join("\n");
-      expect(top).toContain("строка истории номер 0");
-      expect(top).not.toContain("строка истории номер 29");
-      // Новое сообщение не сбрасывает прокрутку: мы всё ещё наверху,
-      // свежее видно только после End.
-      app.transcript?.append("самое свежее сообщение", "info");
-      await tick(200);
-      const stayed = app.frame(24).join("\n");
-      expect(stayed).toContain("строка истории номер 0");
-      expect(stayed).not.toContain("самое свежее сообщение");
-      expect(stayed).toContain("Esc — вниз");
-      app.stdin.write("\x1b[F");
-      await tick(200);
-      expect(app.frame(24).join("\n")).toContain("самое свежее сообщение");
+      const text = app.chunks();
+      const artIndex = text.indexOf(renderLogoRows()[0] ?? "");
+      const firstIndex = text.indexOf("строка истории номер 0");
+      const lastIndex = text.indexOf("строка истории номер 29");
+      expect(artIndex).toBeGreaterThanOrEqual(0);
+      expect(firstIndex).toBeGreaterThan(artIndex);
+      expect(lastIndex).toBeGreaterThan(firstIndex);
+      expect(text).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
     }
   });
 
-  test("narrow window with long history drops no lines", async () => {
-    // Регрессия: смета футера не учитывала перенос строки горячих клавиш,
-    // Yoga схлопывал случайную строку истории в ноль (дыра в журнале).
-    const app = await startApp(60, 20);
+  test("typed prompt is submitted with Enter", async () => {
+    let submitted: string | undefined;
+    const app = await startApp(100, 30, {
+      onSubmit: async (prompt: string) => {
+        submitted = prompt;
+      },
+    });
     try {
-      for (let i = 0; i < 50; i += 1) {
-        app.transcript?.append(`строка истории номер ${i}`, "info");
+      for (const ch of "сделай дело") {
+        app.stdin.write(ch);
+        await tick(20);
       }
-      await tick(150);
-      const frame = app.frame(20);
-      expect(frame.length).toBe(20);
-      for (const line of frame) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(60);
-      }
-      const numbers = historyNumbers(frame);
-      expect(numbers.length).toBeGreaterThan(5);
-      expect(numbers).toEqual(
-        Array.from(
-          { length: numbers.length },
-          (_, index) => (numbers[0] ?? 0) + index,
-        ),
-      );
-      expect(numbers.at(-1)).toBe(49);
-      const bottom = frame.slice(-6).join("\n");
-      expect(bottom).toContain("Спросите что-нибудь");
+      app.stdin.write("\r");
+      await tick(400);
+      expect(submitted).toBe("сделай дело");
+      // Ввод виден в поле (эхо), пустой ввод не отправляется.
+      expect(app.chunks()).toContain("сделай дело");
     } finally {
       app.unmount();
     }
   });
 
-  test("narrow window wraps long error lines without overflow", async () => {
-    const app = await startApp(60, 20);
+  test("streaming chunks stay in one assistant line", async () => {
+    // Регрессия скрина: первый чанк через append рвал ответ —
+    // одиночные "I"/"The" отдельными строками. Теперь весь onText
+    // идёт через appendToLast в одну незавершённую строку.
+    const app = await startApp(100, 30);
     try {
-      app.transcript?.append(
-        'Anthropic API error (503): 503 {"error":{"code":"model_not_found","message":"No available channel for model gpt-5-6-sol under group default (distributor) (request id: 20260913074845429824002868d9d60KCSdWH1)","type":"new_api_error"}}',
-        "error",
-      );
-      await tick(150);
-      const frame = app.frame(20);
-      expect(frame.length).toBe(20);
-      for (const line of frame) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(60);
-      }
-      const bottom = frame.slice(-6).join("\n");
-      expect(bottom).toContain("Спросите что-нибудь");
-      // Видимые строки истории идут подряд без дыр.
-      expect(historyNumbers(frame)).toEqual(
-        Array.from(
-          { length: historyNumbers(frame).length },
-          (_, index) => (historyNumbers(frame)[0] ?? 0) + index,
-        ),
-      );
+      app.transcript?.appendToLast("I");
+      await tick(100);
+      app.transcript?.appendToLast(" need to understand");
+      await tick(100);
+      app.transcript?.appendToLast(" what you mean.");
+      await tick(200);
+      const text = app.chunks();
+      expect(text).toContain("I need to understand what you mean.");
+      // Инструмент коммитит стриминг, следующий текст — новая строка.
+      app.transcript?.append("[chisel] read_file README.txt", "tool");
+      await tick(100);
+      app.transcript?.appendToLast("The file says hello.");
+      await tick(200);
+      const after = app.chunks();
+      expect(after).toContain("I need to understand what you mean.");
+      expect(after).toContain("The file says hello.");
     } finally {
       app.unmount();
     }
@@ -566,9 +307,7 @@ describe("tui fullscreen render", () => {
       await tick(200);
       app.stdin.write("\x1b");
       await tick(200);
-      expect(app.frame(30).slice(-6).join("\n")).toContain(
-        "Спросите что-нибудь",
-      );
+      expect(app.chunks()).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
       await rm(root, { recursive: true, force: true });
@@ -678,88 +417,6 @@ describe("tui fullscreen render", () => {
     }
   });
 
-  test("frame recovers from lost resize event without input", async () => {
-    // Регрессия «съезжания» при fullscreen/resize на Windows: событие
-    // resize ОС потеряно (conhost/Bun его часто не шлёт) и ввода нет —
-    // кадр обязан сам перестроиться по опросу живого размера, а не висеть
-    // кривым до первой нажатой клавиши. Симулируем именно потерю события:
-    // живой сисколл getWindowSize() уже отдаёт новый размер, а emit
-    // 'resize' никто не делает и в stdin ничего не пишем.
-    //
-    // Важно: тихий синхрон пути рендера (TuiApp, emitResize=false) уже
-    // прописал новый размер в stdout.columns БЕЗ эмита — как бывает при
-    // любом конкурентном рендере до тика опроса. Старый код после этого
-    // видел changed=false и НЕ уведомлял Ink вообще (корень Yoga и счётчики
-    // строк log-update оставались stale — визуальное «съезжание» на живом
-    // терминале, которое в debug-моках не видно, там нет erase-логики).
-    // Новый код уведомляет по ref-флагу последнего уведомлённого размера,
-    // а не по сравнению с полями TTY — эмит обязан произойти.
-    const realStdout = process.stdout as unknown as {
-      getWindowSize?: () => [number, number];
-      columns?: number;
-      rows?: number;
-      emit?: (event: string) => boolean;
-    };
-    const hadGetWindowSize = typeof realStdout.getWindowSize === "function";
-    const prevGetWindowSize = realStdout.getWindowSize;
-    const prevColumns = realStdout.columns;
-    const prevRows = realStdout.rows;
-    const prevEmit = realStdout.emit?.bind(realStdout) as
-      | ((event: string, ...args: unknown[]) => boolean)
-      | undefined;
-    let liveColumns = 100;
-    let liveRows = 30;
-    let resizeEmits = 0;
-    realStdout.getWindowSize = () => [liveColumns, liveRows];
-    realStdout.emit = ((event: string, ...args: unknown[]) => {
-      if (event === "resize") resizeEmits += 1;
-      return prevEmit?.(event, ...args) ?? false;
-    }) as typeof realStdout.emit;
-    const app = await startApp(100, 30);
-    try {
-      const initial = app.frame(30);
-      expect(initial.length).toBe(30);
-      expect(visualWidth(initial[headerSeparatorIndex(true)] ?? "")).toBe(100);
-      // Счётчик эмитов сбрасываем после монтирования: дальше считаем только
-      // уведомления, вызванные самим ресайзом.
-      resizeEmits = 0;
-      // Окно сузили, событие потеряно; конкурентный рендер уже тихо
-      // протолкнул новый размер в stdout.columns без эмита.
-      liveColumns = 60;
-      liveRows = 20;
-      syncTerminalSizeToStdout(false);
-      const stale = app.frame(30);
-      expect(visualWidth(stale[headerSeparatorIndex(true)] ?? "")).toBe(100);
-      // Ждём тик опроса (VIEWPORT_POLL_MS) + перерисовку — без emit и ввода.
-      await tick(900);
-      // Опрос обязан уведомить Ink штатным путём resized() — иначе корень
-      // Yoga и счётчики строк останутся stale навсегда (старый код: 0).
-      expect(resizeEmits).toBeGreaterThanOrEqual(1);
-      // Но без шторма: одно изменение — пара уведомлений максимум
-      // (опрос + догоняющий эффект), а не цикл.
-      expect(resizeEmits).toBeLessThanOrEqual(3);
-      const healed = app.frame(20);
-      expect(healed.length).toBe(20);
-      for (const line of healed) {
-        expect(visualWidth(line)).toBeLessThanOrEqual(60);
-      }
-      expect(healed[headerTextIndex(false)]).toContain("ChiselCode");
-      expect(visualWidth(healed[headerSeparatorIndex(false)] ?? "")).toBe(60);
-      const bottom = healed.slice(-6).join("\n");
-      expect(bottom).toContain("Спросите что-нибудь");
-    } finally {
-      app.unmount();
-      if (hadGetWindowSize) {
-        realStdout.getWindowSize = prevGetWindowSize;
-      } else {
-        delete realStdout.getWindowSize;
-      }
-      realStdout.columns = prevColumns;
-      realStdout.rows = prevRows;
-      if (prevEmit !== undefined) realStdout.emit = prevEmit;
-    }
-  });
-
   test("unknown command hints the closest match", async () => {
     // Enter больше не дополняет префикс молча: опечатка уходит в ошибку
     // с подсказкой «возможно, вы имели в виду».
@@ -850,33 +507,6 @@ describe("tui fullscreen render", () => {
       const text = app.chunks();
       expect(text).toContain("…и ещё ");
       expect(text).toContain("/help");
-    } finally {
-      app.unmount();
-    }
-  });
-
-  test("streaming chunks stay in one assistant line", async () => {
-    // Регрессия скрина: первый чанк через append рвал ответ —
-    // одиночные "I"/"The" отдельными строками. Теперь весь onText
-    // идёт через appendToLast в одну незавершённую строку.
-    const app = await startApp(100, 30);
-    try {
-      app.transcript?.appendToLast("I");
-      await tick(100);
-      app.transcript?.appendToLast(" need to understand");
-      await tick(100);
-      app.transcript?.appendToLast(" what you mean.");
-      await tick(200);
-      const text = app.chunks();
-      expect(text).toContain("I need to understand what you mean.");
-      // Инструмент коммитит стриминг, следующий текст — новая строка.
-      app.transcript?.append("[chisel] read_file README.txt", "tool");
-      await tick(100);
-      app.transcript?.appendToLast("The file says hello.");
-      await tick(200);
-      const after = app.chunks();
-      expect(after).toContain("I need to understand what you mean.");
-      expect(after).toContain("The file says hello.");
     } finally {
       app.unmount();
     }

@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import { Box, Static, Text, useApp, useInput, useWindowSize } from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
@@ -35,15 +35,8 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
-import { LOGO_TERM_ROWS, LOGO_WIDTH, renderLogoRows } from "./logo.js";
-import { MarkdownText, parseBlocks, plainInlineText } from "./markdown.js";
-import {
-  SHIFT_SCROLL_ROWS,
-  subscribeWheel,
-  WHEEL_BATCH_MS,
-  type WheelDirection,
-  wheelScrollRows,
-} from "./mouse.js";
+import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
+import { MarkdownText } from "./markdown.js";
 import {
   type ModelListResult,
   SettingsPanel,
@@ -74,7 +67,7 @@ export type TranscriptTone =
   | "warn"
   | "error"
   | "success"
-  | "brand";
+  | "dim";
 
 export interface TuiTranscriptLine {
   id: number;
@@ -88,48 +81,31 @@ export interface TuiTranscript {
 }
 
 /**
- * Адаптивная раскладка как в Claude Code:
- * - шапка закреплена сверху и занимает всю ширину окна;
- * - история занимает всё свободное место и пересчитывается при ресайзе;
- * - поле ввода / подтверждение закреплены снизу на всю ширину и растут вверх.
- * Все оценки высоты считаются от актуального числа колонок, поэтому при
- * разворачивании окна ввод не «съезжает», а текст просто переоборачивается.
- * Кадр клампится к живому размеру окна (clampViewportToTerminal) и рисуется
- * явным width={columns}: даже в переходный кадр ресайза вывод не шире
- * физического окна, иначе терминал переносит строки сам и счётчик строк
- * Ink рассинхронизируется — весь интерфейс «искажает» навсегда.
+ * Раскладка как в classic-режиме Claude Code: обычный scrollback-буфер
+ * терминала вместо alternate screen.
+ * - Стартовый блок (логотип + модель/путь/версия + подсказки) печатается
+ *   один раз и уплывает вверх вместе с диалогом — закреплённой шапки нет;
+ * - завершённые сообщения уходят в <Static> (нативный скролл терминала,
+ *   выделение и копирование мышью работают сами);
+ * - незавершённый стриминг, подтверждение и поле ввода живут в динамической
+ *   зоне снизу. Никакой сметы высоты и кастомного скролла: переносом строк
+ *   занимается сам Ink/Yoga.
  * Живой размер проталкивается в process.stdout (syncTerminalSizeToStdout),
  * потому что Yoga-корень Ink читает только stdout.columns/rows и на
- * Windows застревает на 80x24 без этого синхрона (узкий кадр посреди
- * полного экрана).
+ * Windows застревает на 80x24 без этого синхрона.
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
-/** Высота слим-шапки: отступ сверху + строка заголовка + разделитель. */
-export const TUI_HEADER_ROWS = 3;
 /**
- * Высота арт-шапки: отступ сверху + пиксельный логотип + дим-строка мета
- * + разделитель. Отступ нужен, чтобы блочный арт не упирался в верхний
- * край окна (как paddingTop у шапки OpenCode).
- * Логотип монохромный (half-блоки), без анимации — кадр не перерисовывается.
+ * Показывать ли пиксельный логотип в стартовом блоке: он печатается один
+ * раз и никуда не пересчитывается, поэтому важна только ширина —
+ * арт уже ширины окна обрежется truncate-end и поплывёт.
+ * Чистая функция для тестов.
  */
-export const ART_HEADER_ROWS = LOGO_TERM_ROWS + 3;
-/**
- * Минимальная высота окна для арт-шапки: ниже — слим-вариант, чтобы
- * контенту и футеру оставалось место (арт 8 + футер ~5 + контент).
- */
-export const ART_MIN_ROWS = 20;
-
-/**
- * Показывать ли пиксельный логотип в шапке (как multi-size логотипы
- * у Gemini CLI: big на широких, слим-строка на узких/низких).
- * Чистая функция для тестов и сметы layout.
- */
-export function shouldUseArtHeader(columns: number, rows: number): boolean {
+export function shouldUseArtWelcome(columns: number): boolean {
   const width = Math.floor(columns);
-  const height = Math.floor(rows);
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
-  return width >= LOGO_WIDTH && height >= ART_MIN_ROWS;
+  if (!Number.isFinite(width)) return false;
+  return width >= LOGO_WIDTH;
 }
 export const TUI_FALLBACK_COLUMNS = 80;
 export const TUI_FALLBACK_ROWS = 24;
@@ -162,14 +138,6 @@ export function normalizeViewport(viewport: {
  * буфера conhost, а не экрана (в Bun stdout.rows бывает и 3000). */
 const MAX_VISIBLE_COLUMNS = 1000;
 const MAX_VISIBLE_ROWS = 400;
-/** Как часто перепроверяем размер окна (событие resize в Bun/Windows ненадёжно).
- * Опрос дешёвый: только поля TTY и переменные окружения, без дочерних
- * процессов — интерфейс никогда не блокируется на время опроса.
- * Интервал короткий, чтобы пропущенное событие resize быстро подхватить
- * следующим опросом: кадр при этом всегда клампится к живому размеру
- * (см. clampViewportToTerminal), поэтому промежуточные кадры только уже —
- * уже безопасно, шире — нет. */
-const VIEWPORT_POLL_MS = 500;
 
 function saneDimension(
   value: unknown,
@@ -206,9 +174,9 @@ export interface TerminalSizeSources {
  *   conhost 3000 — не экран);
  * - источник Console — только запасной вариант на случай, если все
  *   остальные пусты: он никогда не перекрывает живой размер TTY/Ink.
- *   Переоценка размера страшнее недооценки: кадр выше окна уводит
- *   закреплённую шапку за верхний край, а опрос с дочерними процессами
- *   блокирует интерфейс — поэтому никаких спаунов в пути рендера.
+ *   Переоценка размера страшнее недооценки: слишком широкий кадр терминал
+ *   переносит сам, а опрос с дочерними процессами блокирует интерфейс —
+ *   поэтому никаких спаунов в пути рендера.
  *
  * Почему getWindowSize первым: `stdout.columns/rows` — кэшированное поле,
  * которое на Windows/conhost застревает на 80x24 (событие resize в Bun
@@ -244,50 +212,10 @@ export function resolveTerminalSize(
 }
 
 /**
- * Кламп вьюпорта к живому размеру терминала — главный фикс искажения
- * текста при ресайзе.
- *
- * Проблема: состояние вьюпорта (`useLiveViewport`/`useWindowSize`) отстаёт
- * от реального окна на один кадр — событие resize уже пришло в Ink
- * (корневой Yoga-узел уже новой ширины), а пропсы кадра ещё старые.
- * Если окно сузили (120 → 80), а кадр отрисован шириной 120, Ink выводит
- * строки длиннее физического окна: терминал сам переносит их, счётчик
- * строк log-update рассинхронизируется — и дальше каждый кадр стирает
- * не то число строк. Отсюда «весь интерфейс искажает», и артефакты уже
- * не уходят сами.
- *
- * Правило: кадр никогда не шире/выше живого окна. Уже — безопасно
- * (пустая кромка на один кадр), шире — нет (перенос терминалом и вечные
- * артефакты). Поэтому берём минимум, когда оба размера известны;
- * когда живой размер недоступен (pipe/CI) — остаётся вьюпорт.
- */
-export function clampViewportToTerminal(
-  viewport: TuiViewport,
-  terminal: { columns?: unknown; rows?: unknown },
-): TuiViewport {
-  const liveColumns = saneDimension(
-    terminal.columns,
-    TUI_MIN_COLUMNS,
-    MAX_VISIBLE_COLUMNS,
-  );
-  const liveRows = saneDimension(terminal.rows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
-  return {
-    columns:
-      liveColumns !== undefined
-        ? Math.min(viewport.columns, liveColumns)
-        : viewport.columns,
-    rows:
-      liveRows !== undefined
-        ? Math.min(viewport.rows, liveRows)
-        : viewport.rows,
-  };
-}
-
-/**
  * Реальный размер терминала: прямой опрос TTY (getWindowSize + stdout)
  * плюс переменные окружения. Только дешёвые синхронные чтения —
- * никаких дочерних процессов: кадр собирается мгновенно, а полноэкранный
- * режим и максимизация подхватываются через событие resize и опрос.
+ * никаких дочерних процессов: размер собирается мгновенно, а ресайз
+ * подхватывается подпиской Ink на событие resize.
  * Источник Ink подмешивается вызывающим кодом как запасной вариант.
  * Порядок важен: живой сисколл getWindowSize() первее кэшированных
  * `stdout.columns/rows` (см. resolveTerminalSize).
@@ -409,24 +337,19 @@ export function formatTerminalSizeLine(report: TerminalSizeReport): string {
  * Зачем: Ink вычисляет ширину Yoga-корня только из `stdout.columns/rows`
  * (см. `getWindowSize()` в `node_modules/ink/build/utils.js` — сисколл
  * `getWindowSize()` он не вызывает). На Windows/conhost эти поля застревают
- * на 80x24, и корневой узел остаётся узким: `width="100%"` рисует узкий
- * кадр посреди полного экрана (пустота справа, как на баг-репорте), а
- * `clampViewportToTerminal` по stale-значению не даёт вырасти.
+ * на 80x24, и корневой узел остаётся узким: вывод рисуется узкой полосой
+ * посреди полного экрана (пустота справа, как на баг-репорте).
  *
  * После записи эмитим `resize`, чтобы Ink выполнил свой штатный путь
- * сужения (clear экрана + пересчёт layout) даже когда Bun не прислал
- * событие сам: иначе переходный широкий кадр оставляет вечные артефакты,
- * которые уходили только после ввода текста (следующего ре-рендера).
+ * сужения (пересчёт layout) даже когда Bun не прислал событие сам.
  *
- * ВАЖНО: эмит запрещён в пути React-рендера (TuiApp вызывает с
- * emitResize=false). Подписчик Ink (`resized()`) срабатывает синхронно:
- * эмит посреди рендера даёт ре-entrant рендер Ink внутри рендера React —
- * состояние log-update (счётчик строк) портится и интерфейс уходит
- * в вечный рассинхрон на каждом ресайзе. Эмитить можно только вне рендера:
- * опрос useLiveViewport, синхрон до render() в cli.ts.
+ * ВАЖНО: эмит запрещён в пути React-рендера. Подписчик Ink (`resized()`)
+ * срабатывает синхронно: эмит посреди рендера даёт ре-entrant рендер Ink
+ * внутри рендера React. Эмитить можно только вне рендера:
+ * синхрон до render() в cli.ts.
  *
  * Чистый эффект: только присвоение полей TTY, без дочерних процессов.
- * Возвращает живой размер для клампа текущего кадра.
+ * Возвращает живой размер.
  */
 export function syncTerminalSizeToStdout(emitResize = true): {
   columns?: number;
@@ -469,155 +392,15 @@ export function syncTerminalSizeToStdout(emitResize = true): {
   return live;
 }
 
-/**
- * Безопасное слияние двух источников размера: кадр никогда не больше
- * меньшего из известных размеров. Переоценка страшнее недооценки: кадр
- * выше/шире физического окна (или шире Yoga-корня Ink) терминал переносит
- * сам — счётчик строк Ink рассинхронизируется, а закреплённая шапка уезжает
- * за верхний край навсегда. Недооценка даёт лишь узкий кадр на один опрос,
- * который следующим resize догоняет полный экран.
- */
-export function pickSafeViewportDimension(
-  liveValue: number | undefined,
-  inkValue: number | undefined,
-): number | undefined {
-  if (liveValue !== undefined && inkValue !== undefined)
-    return Math.min(liveValue, inkValue);
-  return liveValue ?? inkValue;
-}
-
-/**
- * Отличается ли размер A от размера B. Единая точка сравнения для пути
- * уведомлений о ресайзе: решение «надо ли пинать Ink» принимается по
- * ref-флагу последнего уведомлённого размера, а НЕ по сравнению живого
- * размера с полями `stdout.columns/rows` (см. lastNotifiedRef ниже).
- */
-export function isViewportSizeChanged(
-  next: { columns?: number; rows?: number },
-  prev: { columns?: number; rows?: number },
-): boolean {
-  return next.columns !== prev.columns || next.rows !== prev.rows;
-}
-
-/**
- * Живой вьюпорт: Ink-сигнал + прямой опрос TTY + событие resize
- * + дешёвый опрос раз в VIEWPORT_POLL_MS (в Bun событие resize может
- * не приходить, тогда максимизация окна подхватывается опросом).
- *
- * Кадр берёт МИНИМУМ живого TTY и размера Ink, а не приоритет live:
- * при запуске через ярлык размер консоли «устаканивается» уже после
- * пре-рендер синхрона (cli.ts) — свежий live больше stale-корня Ink,
- * созданного в render(), и широкий кадр выталкивает шапку за верхний
- * край до первого ввода. Минимум держит кадр внутри корня (шапка видна
- * сразу), а эффект ниже догоняет корень форсированным resize без ожидания
- * ввода: Ink перечитывает уже синхронизированный stdout и кадр сам
- * вырастает до полного экрана за пару кадров.
- */
-function useLiveViewport(): TuiViewport {
-  const inkSize = useWindowSize();
-  const [live, setLive] = useState(() => readLiveTerminalSize());
-  // Последний размер, о котором мы УЖЕ уведомили Ink через emit('resize').
-  // Отдельный флаг, а не сравнение с полями stdout.columns/rows: тихий
-  // синхрон в пути рендера (TuiApp, emitResize=false) пишет туда свежий
-  // размер без эмита — и старое сравнение «live vs stdout» видело
-  // changed=false и глотало уведомление. Итог: событие resize ОС потеряно
-  // (conhost/Bun его часто не шлёт) + уведомление съедено тихим синхроном
-  // + в idle нет рендеров — корень Yoga Ink и счётчики строк log-update
-  // оставались stale НАВСЕГДА, интерфейс «съезжал» при fullscreen/resize
-  // и чинился только следующим вводом (первым же setState с пересчётом).
-  // Ref-флаг неуязвим к порядку записи: уведомили один раз на каждое
-  // distinct-изменение живого размера — и Ink всегда получает свой штатный
-  // путь resized() (clear при сужении + пересчёт layout + перерисовка).
-  const lastNotifiedRef = useRef(live);
-  useEffect(() => {
-    let disposed = false;
-    const update = (): void => {
-      if (disposed) return;
-      // Только запись, без эмита внутри: эмит ниже — один на изменение,
-      // по ref-флагу. Порядок важен: флаг обновляем ДО эмита, потому что
-      // update сам подписан на 'resize' — вложенный вызов должен увидеть,
-      // что уведомление уже отправлено, иначе будет рекурсия.
-      const next = syncTerminalSizeToStdout(false);
-      if (isViewportSizeChanged(next, lastNotifiedRef.current)) {
-        lastNotifiedRef.current = next;
-        try {
-          const stdout = process.stdout as unknown as {
-            emit?: (event: string) => boolean;
-          };
-          stdout.emit?.("resize");
-        } catch {
-          // Best effort: Ink и следующий ввод догонят размер и без пинка.
-        }
-      }
-      setLive((prev) => {
-        if (!isViewportSizeChanged(next, prev)) return prev;
-        return next;
-      });
-    };
-    update();
-    const stdout = process.stdout as unknown as {
-      on?: (event: string, listener: () => void) => void;
-      off?: (event: string, listener: () => void) => void;
-    };
-    if (typeof stdout?.on === "function") stdout.on("resize", update);
-    const timer = setInterval(update, VIEWPORT_POLL_MS);
-    return () => {
-      disposed = true;
-      clearInterval(timer);
-      stdout?.off?.("resize", update);
-    };
-  }, []);
-  const liveColumns = live.columns;
-  const liveRows = live.rows;
-  const inkColumns = saneDimension(
-    inkSize.columns,
-    TUI_MIN_COLUMNS,
-    MAX_VISIBLE_COLUMNS,
-  );
-  const inkRows = saneDimension(inkSize.rows, TUI_MIN_ROWS, MAX_VISIBLE_ROWS);
-  // Догоняющий resize вне пути рендера (в эффекте — безопасно, см.
-  // syncTerminalSizeToStdout): если корень Ink отстал от живого TTY,
-  // штатный опрос молчит (live стабилен — changed=false, эмита нет),
-  // и без пинка Ink так и останется узким навсегда. Эмит дёргает
-  // подписчиков Ink (resized + useWindowSize): корень перечитывает stdout
-  // и кадр вырастает до полного экрана сам, без ввода текста.
-  // Эффект срабатывает один раз на расхождение: после догона размеры
-  // равны и эмит прекращается — цикла нет.
-  useEffect(() => {
-    if (liveColumns === undefined && liveRows === undefined) return;
-    const mismatch =
-      (liveColumns !== undefined &&
-        inkColumns !== undefined &&
-        liveColumns !== inkColumns) ||
-      (liveRows !== undefined && inkRows !== undefined && liveRows !== inkRows);
-    if (!mismatch) return;
-    try {
-      const stdout = process.stdout as unknown as {
-        emit?: (event: string) => boolean;
-      };
-      stdout.emit?.("resize");
-    } catch {
-      // Best effort: опрос и следующий ввод догонят размер и без пинка.
-    }
-  }, [liveColumns, liveRows, inkColumns, inkRows]);
-  const columns = pickSafeViewportDimension(liveColumns, inkColumns);
-  const rows = pickSafeViewportDimension(liveRows, inkRows);
-  return normalizeViewport({ columns, rows });
-}
-
 /** Полноширинный разделитель под актуальную ширину окна. */
 export function fullWidthSeparator(columns: number): string {
   return "─".repeat(Math.max(Math.floor(columns) || TUI_FALLBACK_COLUMNS, 10));
 }
 
 /**
- * Стильная статичная шапка как у топовых CLI (OpenCode/Codex/Claude Code):
- * монохром, без анимации и разноцветности.
- * - Первая строка: бренд жирным (адаптивный foreground терминала),
- *   модель — обычным начертанием, всё вторичное (путь, версия) — dim.
- * - Вторая строка: тонкий статичный разделитель во всю ширину окна.
- * Никаких useAnimation-тиков: шапка не перерисовывает полноэкранный кадр
- * на Windows/conhost и не мерцает. Высота строго 2 строки (TUI_HEADER_ROWS).
+ * Монохромный стиль стартового блока как у топовых CLI: бренд жирным
+ * (адаптивный foreground терминала), модель — обычным начертанием,
+ * всё вторичное (путь, версия) — dim. Без анимации и разноцветности.
  */
 export interface HeaderTitleInput {
   model: string;
@@ -626,12 +409,7 @@ export interface HeaderTitleInput {
 }
 
 /**
- * Плоский текст шапки одной строкой (без ANSI, для тестов и снепшотов).
- * Формат: `</> ChiselCode · <model> · <~/cwd> · v<version>`.
- * Пустые части пропускаются, ничего не раздувается.
- */
-/**
- * Дим-строка мета под логотипом арт-шапки: `model · ~/cwd · vX`.
+ * Дим-строка мета стартового блока: `model · ~/cwd · vX`.
  * Пустые части пропускаются, ничего не раздувается.
  */
 export function formatHeaderMeta(input: HeaderTitleInput): string {
@@ -644,44 +422,34 @@ export function formatHeaderMeta(input: HeaderTitleInput): string {
   return parts.join(" · ");
 }
 
+/**
+ * Плоский текст слим-заголовка одной строкой (без ANSI, для тестов).
+ * Формат: `</> ChiselCode · <model> · <~/cwd> · v<version>`.
+ * Пустые части пропускаются, ничего не раздувается.
+ */
 export function formatHeaderTitle(input: HeaderTitleInput): string {
   const meta = formatHeaderMeta(input);
   return meta ? `</> ChiselCode · ${meta}` : "</> ChiselCode";
 }
 
-/** Статичный разделитель шапки во всю ширину окна (монохром, без импульса). */
+/** Статичный разделитель под стартовым блоком во всю ширину окна. */
 export function headerSeparator(columns: number): string {
   return fullWidthSeparator(columns);
 }
 
 /**
- * Подсказка горячих клавиш под полем ввода. Держим в одну строку на 80
- * колонках, чтобы высота футера была предсказуема при любом размере окна.
+ * Подсказка горячих клавиш под полем ввода. Скролл нативный терминальный
+ * (колесо/Shift+PgUp самого терминала), поэтому про колесо тут ни слова.
  * Tab/стрелки — выбор команды как в Claude Code, Enter — выбрать/отправить.
  */
 export const HOTKEYS_HINT =
-  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · колесо — журнал";
-
-/** Та же строка, когда журнал прокручен вверх: Esc ведёт вниз, а не закрывает. */
-export const HOTKEYS_HINT_SCROLLED =
-  "Tab/↑/↓ — команда · Enter — отправить · Esc — вниз · колесо — журнал";
-
-/** Подсказка горячих клавиш: при прокрученном журнале Esc — это «назад вниз». */
-export function hotkeysHint(scrolledUp: boolean): string {
-  return scrolledUp ? HOTKEYS_HINT_SCROLLED : HOTKEYS_HINT;
-}
+  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · Shift+Enter — новая строка";
 
 /**
  * Подсказка с жирными клавишами как в Codex (ключи — bold, описания — dim).
- * Тот же текст, что hotkeysHint(), вложенные Text идут инлайном как везде
- * в журнале — перенос совпадает со сметой hotkeyHintRows.
  */
-export function HotkeysHint({
-  scrolledUp = false,
-}: {
-  scrolledUp?: boolean;
-}): React.JSX.Element {
-  const parts = hotkeysHint(scrolledUp).split(" · ");
+export function HotkeysHint(): React.JSX.Element {
+  const parts = HOTKEYS_HINT.split(" · ");
   return (
     <Text dimColor wrap="wrap">
       {parts.map((part, index) => {
@@ -700,9 +468,6 @@ export function HotkeysHint({
     </Text>
   );
 }
-
-/** Шаг Shift+↑/↓ и доля колеса для скролла — из mouse.ts, в одних руках. */
-export { SHIFT_SCROLL_ROWS, WHEEL_BATCH_MS, wheelScrollRows } from "./mouse.js";
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
@@ -791,37 +556,66 @@ export interface TuiAppProps {
   cwd?: string;
 }
 
+export interface WelcomeInput {
+  columns: number;
+  model: string;
+  cwd: string;
+  version?: string;
+}
+
+/**
+ * Стартовый блок как в classic-режиме Claude Code: печатается один раз
+ * и уплывает вверх вместе с диалогом — закреплённой шапки нет.
+ * Отступ сверху, чтобы блочный арт не упирался в край окна.
+ * Чистая функция для тестов: id раздаёт вызывающий через nextId.
+ */
+export function buildWelcomeLines(
+  input: WelcomeInput,
+  nextId: () => number,
+): TuiTranscriptLine[] {
+  const lines: TuiTranscriptLine[] = [];
+  lines.push({ id: nextId(), text: "", tone: "info" });
+  if (shouldUseArtWelcome(input.columns)) {
+    for (const artLine of renderLogoRows())
+      lines.push({ id: nextId(), text: artLine, tone: "info" });
+  } else {
+    lines.push({
+      id: nextId(),
+      text: formatHeaderTitle({
+        model: input.model,
+        cwd: input.cwd,
+        version: input.version,
+      }),
+      tone: "info",
+    });
+  }
+  lines.push({
+    id: nextId(),
+    text: formatHeaderMeta({
+      model: input.model,
+      cwd: input.cwd,
+      version: input.version,
+    }),
+    tone: "dim",
+  });
+  lines.push({
+    id: nextId(),
+    text: fullWidthSeparator(input.columns),
+    tone: "dim",
+  });
+  lines.push({
+    id: nextId(),
+    text: "Введите задачу и нажмите Enter · /help — команды · /status — состояние",
+    tone: "dim",
+  });
+  return lines;
+}
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
-  const viewport = useLiveViewport();
   /** Корень проекта: скиллы берём из его `.chisel/skills`. */
   const projectCwd = props.cwd ?? process.cwd();
-  /**
-   * Живой размер — синхронный опрос консоли прямо во время рендера
-   * (дешёвый, без спаунов). Это раньше, чем состояние
-   * `viewport`/`useWindowSize` (оно приходит следующим рендером через
-   * интервал или событие resize): ввод символа сразу пересчитывает кадр
-   * на актуальную ширину, а не ждёт 500 мс опроса.
-   * Заодно проталкиваем размер в `process.stdout`, чтобы Yoga-корень Ink
-   * (он читает только `stdout.columns/rows`) уже этот кадр считал layout
-   * на правильной ширине — иначе полноэкранный кадр остаётся узким 80.
-   * Без эмита resize: эмит посреди рендера даёт ре-entrant рендер Ink
-   * (см. syncTerminalSizeToStdout) — resize рассылает только опрос
-   * вне рендера. Присвоение полей подписчиков не триггерит и безопасно.
-   * Кламп гарантирует: кадр никогда не шире/выше физического окна,
-   * иначе терминал переносит длинные строки сам и счётчик строк Ink
-   * рассинхронизируется навсегда (искажение всего интерфейса).
-   */
-  const liveTerminal = syncTerminalSizeToStdout(false);
-  const { columns, rows } = clampViewportToTerminal(viewport, liveTerminal);
-  /**
-   * Высота шапки responsive (как multi-size логотипы у Gemini CLI):
-   * пиксельный арт на широких и высоких окнах, слим-строка иначе.
-   * Смета истории/футера ниже считается от той же высоты, что рисует
-   * Header, поэтому рассинхрона нет на любом размере окна.
-   */
-  const useArtHeader = shouldUseArtHeader(columns, rows);
-  const headerRows = useArtHeader ? ART_HEADER_ROWS : TUI_HEADER_ROWS;
+  const { columns: inkColumns } = useWindowSize();
+  const columns = normalizeViewport({ columns: inkColumns }).columns;
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -835,16 +629,24 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     model: props.model,
     baseUrl: props.baseUrl,
   }));
-  const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(
-    intro(props.providerLabel, props.model, props.version),
+  const nextTranscriptId = useRef(0);
+  // Стартовые значения берём из пропсов один раз: дальше модель/путь
+  // меняются через runtime и видны в статус-строке над вводом.
+  const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(() =>
+    buildWelcomeLines(
+      {
+        columns,
+        model: props.model,
+        cwd: projectCwd,
+        version: props.version,
+      },
+      () => nextTranscriptId.current++,
+    ),
   );
   // Незавершённый стриминговый ответ живёт отдельно от истории:
-  // alternate screen никогда не получает статический вывод в скроллбэк,
-  // а незавершённая строка остаётся частью перерисовываемого кадра.
+  // по завершении коммитится в Static одной записью (см. wasBusy ниже).
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
-  const [transcriptOffset, setTranscriptOffset] = useState(0);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
-  const nextTranscriptId = useRef(0);
   const skills = loadSkills(projectCwd);
   // Как /команды вызываются только invocable-скиллы; скрытые
   // (`user-invocable: false`) живут только в каталоге и /skills.
@@ -900,7 +702,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     setSuggestionsDismissed(false);
   };
   // Показываем не больше MAX_VISIBLE_SUGGESTIONS строк: окно сдвигается за
-  // выбранной, остаток — счётчиком. Те же строки идут в замер высоты футера.
+  // выбранной, остаток — счётчиком.
   const suggestionWindowStart =
     Math.floor(selectedSuggestionIndex / MAX_VISIBLE_SUGGESTIONS) *
     MAX_VISIBLE_SUGGESTIONS;
@@ -923,92 +725,19 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     props.approvalResolver.bind(setRequest);
     return () => props.approvalResolver.dispose();
   }, [props.approvalResolver]);
-  // Живые габариты скролла для подписки колеса: эффект ниже подписан один
-  // раз, а актуальные columns/contentRows/max читает из рефа при событии.
-  const scrollDimsRef = useRef({ columns: 80, contentRows: 0, maxScroll: 0 });
-  // Батчинг колеса: один физический флик шлёт десяток SGR-событий, и каждое
-  // без батчинга — отдельная полноэкранная перерисовка (на Windows с полной
-  // очисткой: мерцание и «тупняк»). Копим дельту и сбрасываем одним setState.
-  const wheelAccumRef = useRef(0);
-  const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  const wheelLastDirRef = useRef<WheelDirection | null>(null);
-  useEffect(() => {
-    // Колесо мыши: события уже вычищены из stdin фильтром (mouse.ts) до Ink,
-    // сюда приходит только направление. Таймер и подписка чистятся здесь же.
-    const flush = (): void => {
-      wheelTimerRef.current = undefined;
-      const delta = wheelAccumRef.current;
-      wheelAccumRef.current = 0;
-      wheelLastDirRef.current = null;
-      if (delta === 0) return;
-      const max = scrollDimsRef.current.maxScroll;
-      setTranscriptOffset((offset) =>
-        Math.max(0, Math.min(offset + delta, max)),
-      );
-    };
-    const arm = (): void => {
-      if (wheelTimerRef.current) clearTimeout(wheelTimerRef.current);
-      wheelTimerRef.current = setTimeout(flush, WHEEL_BATCH_MS);
-    };
-    const unsubscribe = subscribeWheel((direction) => {
-      const { contentRows, maxScroll } = scrollDimsRef.current;
-      const step = wheelScrollRows(contentRows);
-      const signed = direction === "up" ? step : -step;
-      // Смена направления — сначала отдать накопленное: иначе разворот
-      // флика чувствуется с задержкой.
-      if (wheelLastDirRef.current && wheelLastDirRef.current !== direction) {
-        if (wheelTimerRef.current) clearTimeout(wheelTimerRef.current);
-        wheelTimerRef.current = undefined;
-        const pending = wheelAccumRef.current;
-        wheelAccumRef.current = 0;
-        wheelLastDirRef.current = null;
-        if (pending !== 0)
-          setTranscriptOffset((offset) =>
-            Math.max(0, Math.min(offset + pending, maxScroll)),
-          );
-      }
-      wheelLastDirRef.current = direction;
-      // Один сброс — не дальше экрана: огромный флик не швыряет в начало.
-      const cap = Math.max(contentRows, 1);
-      wheelAccumRef.current = Math.max(
-        -cap,
-        Math.min(cap, wheelAccumRef.current + signed),
-      );
-      arm();
-    });
-    return () => {
-      if (wheelTimerRef.current) clearTimeout(wheelTimerRef.current);
-      wheelTimerRef.current = undefined;
-      unsubscribe();
-    };
-  }, []);
   const pushLine = useCallback(
     (text: string, tone: TranscriptTone = "assistant"): void => {
       const flushed = streamingRef.current;
       streamingRef.current = null;
       setStreaming(null);
       const id = nextTranscriptId.current++;
-      const added: TuiTranscriptLine[] = [
+      // Скролл нативный терминальный: новые строки просто дописываются
+      // в <Static>, терминал сам прокручивает вывод. Никаких offset.
+      setTranscript((lines) => [
+        ...lines,
         ...(flushed ? [flushed] : []),
         { id, text, tone },
-      ];
-      // Sticky-bottom: читающего историю вверх не дёргаем вниз — окно стоит
-      // на месте (offset растёт на высоту новых строк), прибитый ко дну
-      // остаётся прибитым. Раньше любой append делал setTranscriptOffset(0),
-      // а appendToLast дёргал на каждый токен стриминга.
-      const dims = scrollDimsRef.current;
-      const addedRows = added.reduce(
-        (sum, line) => sum + expandLineRows(line, dims.columns).length,
-        0,
-      );
-      setTranscriptOffset((offset) =>
-        offset === 0
-          ? 0
-          : Math.min(offset + addedRows, dims.maxScroll + addedRows),
-      );
-      setTranscript((lines) => [...lines, ...added]);
+      ]);
     },
     [],
   );
@@ -1028,15 +757,15 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       streamingRef.current = line;
       setStreaming(line);
     }
-    // Без сброса прокрутки: чанки идут на каждый токен, сброс швырял бы
-    // читающего вниз десятки раз за ответ. Коммит — в pushLine/wasBusy.
+    // Коммит накопленного — в pushLine/wasBusy ниже.
   }, []);
 
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
     setStreaming(null);
+    // Как /clear в classic-режиме Claude Code: новый разговор, а не чистка
+    // экрана — уже напечатанное остаётся в скроллбэке терминала выше.
     setTranscript([]);
-    setTranscriptOffset(0);
   }, []);
 
   const wasBusy = useRef(false);
@@ -1047,14 +776,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         streamingRef.current = null;
         setStreaming(null);
         setTranscript((lines) => [...lines, flushed]);
-        // Тот же sticky-bottom, что в pushLine: ушедшего вверх не дёргаем.
-        const dims = scrollDimsRef.current;
-        const addedRows = expandLineRows(flushed, dims.columns).length;
-        setTranscriptOffset((offset) =>
-          offset === 0
-            ? 0
-            : Math.min(offset + addedRows, dims.maxScroll + addedRows),
-        );
       }
     }
     wasBusy.current = busy;
@@ -1373,8 +1094,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       }
       append("Устанавливаю тихо и перезапускаюсь…", "info");
       await props.onLaunchInstaller?.(downloaded.path, true);
-      // Даём кадру отрисоваться: иначе exit() в том же тике стирает
-      // alternate screen, и кажется, что приложение «просто исчезло».
+      // Даём строке отрисоваться: иначе exit() в том же тике не оставит
+      // в scrollback финального сообщения, и покажется, что приложение
+      // «просто исчезло».
       await new Promise((resolve) => setTimeout(resolve, 800));
       exit();
     } catch (cause) {
@@ -1423,39 +1145,15 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (settings || skillsOpen || restartingSetup) return;
-    // Скролл журнала в СТРОКАХ терминала (как браузер): колесо — четверть
-    // видимой высоты, Shift+↑/↓ — ровно строка, Home/End — края,
-    // Esc — вернуться вниз к вводу. Ввод закреплён снизу.
-    // Скролл и выход работают даже пока агент думает.
-    if (key.escape && transcriptOffset > 0) {
-      setTranscriptOffset(0);
-      return;
-    }
-    if (key.shift && key.upArrow) {
-      const max = scrollDimsRef.current.maxScroll;
-      setTranscriptOffset((offset) =>
-        Math.min(offset + SHIFT_SCROLL_ROWS, max),
-      );
-      return;
-    }
-    if (key.shift && key.downArrow) {
-      setTranscriptOffset((offset) => Math.max(offset - SHIFT_SCROLL_ROWS, 0));
-      return;
-    }
-    if (key.home) {
-      setTranscriptOffset(scrollDimsRef.current.maxScroll);
-      return;
-    }
-    if (key.end) {
-      setTranscriptOffset(0);
-      return;
-    }
+    // Скролл — нативный терминальный (колесо/Shift+PgUp самого терминала),
+    // история лежит в scrollback: отдельных клавиш скролла нет.
+    // Выход работает даже пока агент думает.
     if (key.ctrl && character === "c") {
       exit();
       return;
     }
     if (busy) return;
-    // Esc закрывает список команд как в Claude Code (скролл уже обработан выше).
+    // Esc закрывает список команд как в Claude Code.
     if (key.escape && hasCommandSelection) {
       setSuggestionsDismissed(true);
       return;
@@ -1484,7 +1182,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     // Стрелки при открытом списке — навигация по командам как в Claude Code,
-    // иначе — история запросов. Shift+стрелки уже ушли в скролл выше.
+    // иначе — история запросов.
     if (key.upArrow && hasCommandSelection) {
       setSuggestionIndex(
         (previous) => (previous - 1 + suggestions.length) % suggestions.length,
@@ -1534,229 +1232,99 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
   });
 
-  if (restartingSetup)
-    return (
-      <Box
-        flexDirection="column"
-        height={rows}
-        width={columns}
-        overflow="hidden"
-      >
-        <Header
-          model={runtime.model}
-          columns={columns}
-          version={props.version}
-          cwd={projectCwd}
-          art={useArtHeader}
-        />
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          flexShrink={1}
-          overflow="hidden"
-          width="100%"
-        >
-          <SetupApp
-            onComplete={completeRestartedSetup}
-            onCancel={cancelRestartedSetup}
-            exitOnComplete={false}
-          />
-        </Box>
-      </Box>
-    );
-  if (settings)
-    return (
-      <Box
-        flexDirection="column"
-        height={rows}
-        width={columns}
-        overflow="hidden"
-      >
-        <Header
-          model={runtime.model}
-          columns={columns}
-          version={props.version}
-          cwd={projectCwd}
-          art={useArtHeader}
-        />
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          flexShrink={1}
-          overflow="hidden"
-          width="100%"
-        >
-          <SettingsPanel
-            initialValues={{
-              provider: runtime.provider,
-              model: runtime.model,
-              baseUrl: runtime.baseUrl,
-            }}
-            initialScreen={settings}
-            onSave={props.onSaveSettings}
-            onClose={() => setSettings(undefined)}
-            onCheckConnection={props.onCheckConnection}
-            onListModels={props.onListModels}
-            onKeyStatus={props.onKeyStatus}
-            onSetupRequested={requestSetupRestart}
-            onSaved={(values) =>
-              setRuntime({
-                provider: values.provider,
-                providerLabel: providerName(values.provider),
-                model: values.model,
-                baseUrl: values.baseUrl,
-              })
-            }
-          />
-        </Box>
-      </Box>
-    );
-  if (skillsOpen)
-    return (
-      <Box
-        flexDirection="column"
-        height={rows}
-        width={columns}
-        overflow="hidden"
-      >
-        <Header
-          model={runtime.model}
-          columns={columns}
-          version={props.version}
-          cwd={projectCwd}
-          art={useArtHeader}
-        />
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          flexShrink={1}
-          overflow="hidden"
-          width="100%"
-        >
-          <SkillsPanel
-            skills={skills}
-            activeNames={activeSkillNames}
-            onToggle={(skill) => {
-              const active = activeSkillNames.includes(skill.name);
-              setActiveSkillNames((names) =>
-                active
-                  ? names.filter((name) => name !== skill.name)
-                  : [...names, skill.name],
-              );
-              append(
-                active
-                  ? `◈ Скилл /${skill.name} отключён.`
-                  : `◈ Скилл /${skill.name} задействован: его инструкции добавятся к следующим запросам.`,
-                "info",
-              );
-            }}
-            onClose={() => setSkillsOpen(false)}
-          />
-        </Box>
-      </Box>
-    );
-  const transcriptLines = streaming ? [...transcript, streaming] : transcript;
-  // Смета футера не зависит от скролла (хинт резервируется по худшему
-  // варианту), поэтому контент/максимум считаются прямо здесь — до useInput
-  // в коде ниже они не нужны: обработчики читают свежий scrollDimsRef.
-  const footerProbeRows = estimateFooterHeight({
-    request,
-    busy,
-    editorValue: editor.value,
-    editorCursor: editor.cursor,
-    columns: columns,
-    suggestionsCount: suggestionRows.length,
-    suggestionLines: suggestionRows,
-    model: runtime.model,
-    scrolledUp: false,
-  });
-  const probeContentRows = Math.max(rows - footerProbeRows - headerRows, 0);
-  const probeMaxScroll = maxTranscriptScrollRows(
-    transcriptLines,
-    columns,
-    probeContentRows,
-  );
-  scrollDimsRef.current = {
-    columns,
-    contentRows: probeContentRows,
-    maxScroll: probeMaxScroll,
-  };
-  const clampedTranscriptOffset = Math.min(transcriptOffset, probeMaxScroll);
-  // Журнал прокручен вверх: подсказка показывает «Esc — вниз».
-  const scrolledUp = clampedTranscriptOffset > 0;
+  // Панели занимают динамическую зону под историей (как в classic-режиме
+  // Claude Code): <Static>-история всегда смонтирована и никогда
+  // не перепечатывается, вместо ввода рисуется панель.
+  // Никакой фиксированной высоты кадра больше нет.
+  const panel = restartingSetup ? (
+    <SetupApp
+      onComplete={completeRestartedSetup}
+      onCancel={cancelRestartedSetup}
+      exitOnComplete={false}
+    />
+  ) : settings ? (
+    <SettingsPanel
+      initialValues={{
+        provider: runtime.provider,
+        model: runtime.model,
+        baseUrl: runtime.baseUrl,
+      }}
+      initialScreen={settings}
+      onSave={props.onSaveSettings}
+      onClose={() => setSettings(undefined)}
+      onCheckConnection={props.onCheckConnection}
+      onListModels={props.onListModels}
+      onKeyStatus={props.onKeyStatus}
+      onSetupRequested={requestSetupRestart}
+      onSaved={(values) =>
+        setRuntime({
+          provider: values.provider,
+          providerLabel: providerName(values.provider),
+          model: values.model,
+          baseUrl: values.baseUrl,
+        })
+      }
+    />
+  ) : skillsOpen ? (
+    <SkillsPanel
+      skills={skills}
+      activeNames={activeSkillNames}
+      onToggle={(skill) => {
+        const active = activeSkillNames.includes(skill.name);
+        setActiveSkillNames((names) =>
+          active
+            ? names.filter((name) => name !== skill.name)
+            : [...names, skill.name],
+        );
+        append(
+          active
+            ? `◈ Скилл /${skill.name} отключён.`
+            : `◈ Скилл /${skill.name} задействован: его инструкции добавятся к следующим запросам.`,
+          "info",
+        );
+      }}
+      onClose={() => setSkillsOpen(false)}
+    />
+  ) : null;
   const footer = request ? (
     <Approval request={request} columns={columns} />
   ) : (
-    <Editor
-      value={editor.value}
-      cursor={editor.cursor}
-      busy={busy}
-      model={runtime.model}
-      suggestionRows={suggestionRows}
-      selectedRow={selectedVisibleIndex}
-      columns={columns}
-      scrolledUp={scrolledUp}
-    />
-  );
-  const footerRows = footerProbeRows;
-  const visible = visibleTranscriptWindow(
-    transcriptLines,
-    rows,
-    columns,
-    footerRows,
-    clampedTranscriptOffset,
-    headerRows,
+    <>
+      <Text dimColor wrap="truncate-end">
+        {runtime.model} · {shortenHome(projectCwd)}
+      </Text>
+      <Editor
+        value={editor.value}
+        cursor={editor.cursor}
+        busy={busy}
+        model={runtime.model}
+        suggestionRows={suggestionRows}
+        selectedRow={selectedVisibleIndex}
+        columns={columns}
+      />
+    </>
   );
 
   return (
-    <Box flexDirection="column" height={rows} width={columns} overflow="hidden">
-      <Header
-        model={runtime.model}
-        columns={columns}
-        version={props.version}
-        cwd={projectCwd}
-        art={useArtHeader}
-      />
-      <Box
-        flexDirection="column"
-        flexGrow={1}
-        flexShrink={1}
-        overflow="hidden"
-        width="100%"
-      >
-        {visible.lines.map((line) => (
+    <Box flexDirection="column" width="100%">
+      <Static items={transcript}>
+        {(line) => (
           <TranscriptLineView key={line.id} line={line} columns={columns} />
-        ))}
-        {visible.lines.length === 0 &&
-        visible.hiddenAboveCount === 0 &&
-        visible.hiddenBelowCount === 0 ? (
-          <Box flexDirection="column" width="100%" flexShrink={0}>
-            <Text dimColor wrap="wrap">
-              <Text bold color="green">
-                ❯{" "}
-              </Text>
-              Введите задачу и нажмите Enter
-            </Text>
-            <Text dimColor wrap="wrap">
-              {"  "}/help — команды · /status — состояние · /sessions — сеансы
-            </Text>
-            <Text dimColor wrap="wrap">
-              {"  "}Shift+Enter — новая строка · Tab — подстановка команды ·
-              колесо — журнал
-            </Text>
-          </Box>
+        )}
+      </Static>
+      <Box flexDirection="column" width="100%">
+        {streaming ? (
+          <TranscriptLineView line={streaming} columns={columns} />
         ) : null}
-      </Box>
-      <Box flexDirection="column" flexShrink={0} width="100%">
-        {footer}
+        {panel ?? footer}
       </Box>
     </Box>
   );
 }
 
 /**
- * Путь покороче для шапки: домашняя папка — как ~/…, как в Codex.
- * Чистая функция для тестов.
+ * Путь покороче для стартового блока и статус-строки: домашняя папка —
+ * как ~/…, как в Codex. Чистая функция для тестов.
  */
 export function shortenHome(path: string): string {
   const home = process.env.HOME || process.env.USERPROFILE || "";
@@ -1770,81 +1338,6 @@ export function shortenHome(path: string): string {
   return path;
 }
 
-/**
- * Закреплённая шапка: при любой ширине окна занимает ровно headerRows строк
- * (арт — ART_HEADER_ROWS, слим — TUI_HEADER_ROWS). Первая строка — всегда
- * пустой отступ, чтобы арт не упирался в верхний край окна. Остальные строки —
- * инлайн-Text с truncate-end, поэтому длинная модель/путь обрезаются
- * и никогда не раздувают шапку и не сдвигают смету истории.
- * Стиль как у топовых CLI: статичный монохром без анимации и разноцветности.
- * - art: пусто + пиксельный логотип `</> ChiselCode` (half-блоки, 4 строки) +
- *   дим-строка `модель · ~/путь · vверсия` + тонкий dim-разделитель;
- * - слим: пусто + одна строка `</> ChiselCode · модель · ~/путь · vверсия`
- *   (бренд жирным, модель обычным, вторичное dim) + разделитель.
- */
-function Header({
-  model,
-  columns,
-  version,
-  cwd,
-  art,
-}: {
-  model: string;
-  columns: number;
-  version?: string;
-  cwd?: string;
-  art: boolean;
-}): React.JSX.Element {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const shortCwd = cwd ? shortenHome(cwd) : undefined;
-  const modelText = model.trim();
-  const tailParts: string[] = [];
-  if (shortCwd?.trim()) tailParts.push(shortCwd.trim());
-  if (version?.trim()) tailParts.push(`v${version.trim()}`);
-  const tailText = tailParts.join(" · ");
-  const metaText = [modelText, tailText].filter(Boolean).join(" · ");
-  return (
-    <Box
-      flexDirection="column"
-      flexShrink={0}
-      width="100%"
-      height={art ? ART_HEADER_ROWS : TUI_HEADER_ROWS}
-    >
-      {art ? (
-        <Box flexDirection="column" width="100%" flexShrink={0} marginTop={1}>
-          {renderLogoRows().map((line) => (
-            <Box key={line} width="100%" height={1} overflow="hidden">
-              <Text wrap="truncate-end">{line}</Text>
-            </Box>
-          ))}
-          <Box width="100%" height={1} overflow="hidden">
-            <Text dimColor wrap="truncate-end">
-              {metaText}
-            </Text>
-          </Box>
-        </Box>
-      ) : (
-        <Box width="100%" height={1} overflow="hidden" marginTop={1}>
-          <Text wrap="truncate-end">
-            <Text bold>{"</> ChiselCode"}</Text>
-            {modelText ? (
-              <>
-                <Text dimColor> · </Text>
-                <Text>{modelText}</Text>
-              </>
-            ) : null}
-            {tailText ? <Text dimColor> · {tailText}</Text> : null}
-          </Text>
-        </Box>
-      )}
-      <Box width="100%" height={1} overflow="hidden">
-        <Text dimColor wrap="truncate">
-          {fullWidthSeparator(safeColumns)}
-        </Text>
-      </Box>
-    </Box>
-  );
-}
 function TranscriptLineView({
   line,
   columns,
@@ -1853,33 +1346,18 @@ function TranscriptLineView({
   columns: number;
 }): React.JSX.Element {
   const tone = line.tone ?? "assistant";
-  if (tone === "brand") {
-    const [provider, ...modelParts] = line.text.split(" · ");
+  if (tone === "dim") {
+    // Вторичные строки стартового блока и разделители: тихо, dim.
     return (
-      <Box flexDirection="column" marginBottom={1} width="100%" flexShrink={0}>
-        <Box width="100%">
-          <Text bold color="cyan">
-            ◈ ChiselCode
-          </Text>
-          <Text dimColor> · </Text>
-          <Text color="magenta" wrap="truncate-end">
-            {provider ?? ""}
-          </Text>
-          <Text dimColor> · </Text>
-          <Text color="yellow" wrap="truncate-end">
-            {modelParts.join(" · ")}
-          </Text>
-        </Box>
-        <Text dimColor wrap="truncate">
-          {fullWidthSeparator(columns)}
+      <Box width="100%" flexShrink={0}>
+        <Text dimColor wrap="wrap">
+          {line.text}
         </Text>
       </Box>
     );
   }
   if (tone === "user") {
     // Залитый блок как в Codex: префикс ❯ жирным зелёным, текст обычным.
-    // paddingX сужает контент на 2 клетки — смета зеркалит
-    // (expandLineRows считает user по safeColumns - 2).
     const clean = line.text.replace(/^[❯›]\s?/, "");
     return (
       <Box
@@ -1900,7 +1378,7 @@ function TranscriptLineView({
   }
   if (tone === "tool") {
     // Gutter вызова: «◆ глагол детали» — глагол жирным в цвете операции,
-    // детали dim. Тот же текст, что в смете, — перенос совпадает.
+    // детали dim.
     const summary = line.text.replace(/^\[chisel\]\s?/, "");
     const preview =
       summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
@@ -1956,10 +1434,8 @@ function TranscriptLineView({
         <Text wrap="wrap">{line.text}</Text>
       </Box>
     );
-  // Ответ ассистента: левая акцентная черта как в OpenCode, markdown
-  // внутри на клетку уже — смета зеркалит (expandLineRows считает
-  // assistant по safeColumns - 1). flexShrink={0}: переполнение режется
-  // снизу, Yoga не схлопывает строки истории в ноль.
+  // Ответ ассистента: левая акцентная черта как в OpenCode.
+  // flexShrink={0}: переполнение режется снизу.
   return (
     <Box marginTop={1} width="100%" flexShrink={0}>
       <Box
@@ -1997,513 +1473,6 @@ function approvalPreview(request: ApprovalRequest): string {
     : request.preview;
 }
 
-function estimateApprovalHeight(
-  request: ApprovalRequest,
-  columns: number,
-): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const width = Math.max(safeColumns - 4, 10);
-  const meta = toolDisplay(request.tool);
-  const header = `? [${meta.icon}] ${meta.label} — нужно подтверждение`;
-  const controls = "[y] разрешить · [n] отклонить (Esc — тоже отклонить)";
-  // marginTop (1) + рамка (2) + вертикальные отступы preview (2) +
-  // заголовок, preview и controls с переносом по внутренней ширине.
-  // Перенос — по словам, как в рендере (wrapUnitRows), а не ceil(len/width).
-  return (
-    5 +
-    wrapUnitRows(header, width).length +
-    wrapUnitRows(approvalPreview(request), width).length +
-    wrapUnitRows(controls, width).length
-  );
-}
-
-export interface FooterHeightInput {
-  request?: ApprovalRequest;
-  busy: boolean;
-  editorValue?: string;
-  /** Позиция курсора: «█» в конце дописывает клетку (см. editorContentRows). */
-  editorCursor?: number;
-  columns?: number;
-  suggestionsCount: number;
-  /** Точные строки подсказок (для переноса на узких окнах). */
-  suggestionLines?: string[];
-  /** Модель для строки спиннера «Думаю…». */
-  model?: string;
-  /**
-   * Журнал прокручен вверх: в подсказке Esc — это «назад вниз».
-   * На высоту не влияет: хинт всегда резервируется по худшему варианту,
-   * чтобы скролл не менял футер. Поле оставлено для совместимости.
-   */
-  scrolledUp?: boolean;
-}
-
-/** Высота нижней панели с учётом подсказок и многострочного черновика. */
-export function estimateFooterHeight({
-  request,
-  busy,
-  editorValue = "",
-  editorCursor,
-  columns = 80,
-  suggestionsCount,
-  suggestionLines,
-  model = "",
-  scrolledUp = false,
-}: FooterHeightInput): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  if (request) return estimateApprovalHeight(request, safeColumns);
-  // scrolledUp на высоту не влияет (хинт резервируется по худшему варианту).
-  void scrolledUp;
-  const innerWidth = Math.max(safeColumns - 4, 10);
-  // Ввод живёт внутри рамки (2) + paddingX (2). Спиннер меряем верхней
-  // оценкой секундомера («88м 88с»): занижение страшнее завышения —
-  // занижение режет свежие строки, завышение лишь прячет одну строку.
-  // Курсор «█» в конце дописывает клетку: на границе ширины это целая строка.
-  const editorRows = busy
-    ? wrapUnitRows(`${SPINNER_MEASURE_TEXT}${model}`, innerWidth).length
-    : editorContentRows(
-        editorValue,
-        editorCursor ?? editorValue.length,
-        innerWidth,
-      );
-  const lines =
-    suggestionLines ??
-    Array.from({ length: Math.max(suggestionsCount, 0) }, () => " ");
-  // Подсказки — всегда truncate-end, т.е. ровно строка на пункт:
-  // считать переносом через wrappedLines было завышением на узких окнах.
-  const suggestionsRows = !busy && lines.length > 0 ? 3 + lines.length : 0;
-  // Верхний отступ (1) + рамка редактора (2) + строка горячих клавиш.
-  // Хинт резервируем по худшему из двух вариантов («закрыть»/«вниз»),
-  // чтобы скролл не менял высоту футера и окно не мигало на границе.
-  return editorRows + 3 + hotkeyHintRows(safeColumns) + suggestionsRows;
-}
-
-/** Строки подсказки горячих клавиш: максимум из обоих состояний скролла. */
-export function hotkeyHintRows(columns: number): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  return Math.max(
-    wrapUnitRows(HOTKEYS_HINT, safeColumns).length,
-    wrapUnitRows(HOTKEYS_HINT_SCROLLED, safeColumns).length,
-  );
-}
-
-/**
- * Высота текста ввода: первая логическая строка живёт с префиксом «❯ »
- * (2 клетки только первой визуальной строки), остальные — на всю ширину.
- * Пустой ввод — плейсхолдер в одну строку (truncate-end).
- */
-export function editorContentRows(
-  value: string,
-  cursor: number,
-  innerWidth: number,
-): number {
-  const width = Math.max(Math.floor(innerWidth) || 10, 10);
-  if (!value) return 1;
-  const safeCursor = Math.max(0, Math.min(Math.floor(cursor), value.length));
-  // Курсор в конце — видимый «█»: дописываем клетку до переноса.
-  const effective = safeCursor >= value.length ? `${value}█` : value;
-  const logical = effective.split("\n");
-  let rows = 0;
-  logical.forEach((line, index) => {
-    rows +=
-      index === 0
-        ? wrapPrefixedRows(line, "❯ ", width).length
-        : wrapTextRows(line, width).length;
-  });
-  return Math.max(rows, 1);
-}
-
-/**
- * Текст спиннера «Думаю…» для сметы: верхняя оценка длины секундомера.
- * Реальный formatDuration растёт от «0.4с» до «Nм NNс» — меряем максимумом,
- * чтобы длинная работа не занизила футер и не отрезала свежие строки.
- */
-export const SPINNER_MEASURE_TEXT = "◐ Думаю 88м 88с · ";
-
-export interface VisibleTranscriptTail {
-  lines: TuiTranscriptLine[];
-  hiddenCount: number;
-}
-
-export interface VisibleTranscriptWindow {
-  lines: TuiTranscriptLine[];
-  /** Строк скрыто сверху (единица — строки терминала, а не записи). */
-  hiddenAboveCount: number;
-  /** Строк скрыто снизу — всегда равно offset после клампа. */
-  hiddenBelowCount: number;
-}
-
-/** Суммарная высота журнала в строках терминала. */
-export function totalTranscriptRows(
-  lines: TuiTranscriptLine[],
-  columns: number,
-): number {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  return lines.reduce(
-    (sum, line) => sum + expandLineRows(line, safeColumns).length,
-    0,
-  );
-}
-
-/**
- * Сколько строк можно спрятать снизу: всё, что не влезает в контент.
- * Ноль — журнал влезает целиком, скроллить нечего.
- */
-export function maxTranscriptScrollRows(
-  lines: TuiTranscriptLine[],
-  columns: number,
-  contentRows: number,
-): number {
-  return Math.max(
-    totalTranscriptRows(lines, columns) - Math.max(contentRows, 0),
-    0,
-  );
-}
-
-/**
- * Копия записи с обрезанным верхом/низом для границ окна. Показываем
- * срез [skipTop, skipTop + keepRows) визуальных строк. id сохраняется
- * (React не ремаунтит строку), а тон сбрасывается в info: срез рендерится
- * plain-переносом, и тогда его высота ТОЧНО равна длине среза — смета
- * снова не может разъехаться с рендером. Целая запись возвращается как есть.
- */
-export function sliceTranscriptLine(
-  line: TuiTranscriptLine,
-  skipTopRows: number,
-  keepRows: number,
-  columns: number,
-): TuiTranscriptLine | null {
-  const rows = expandLineRows(line, columns);
-  if (keepRows >= rows.length && skipTopRows <= 0) return line;
-  if (keepRows <= 0) return null;
-  const slice = rows.slice(
-    Math.max(skipTopRows, 0),
-    Math.max(skipTopRows, 0) + Math.max(keepRows, 0),
-  );
-  if (slice.length === 0) return null;
-  return { ...line, text: slice.join("\n"), tone: "info" };
-}
-
-/**
- * Выбирает окно истории над закреплённой нижней панелью — в СТРОКАХ
- * терминала, как браузер, а не в записях. offset — сколько строк спрятано
- * снизу (0 — прибит ко дну). Граничные записи режутся сверху/снизу срезом
- * (sliceTranscriptLine), поэтому читается даже середина ответа выше экрана —
- * раньше высокие записи проскакивали целиком и их середина была невидима.
- */
-export function visibleTranscriptWindow(
-  lines: TuiTranscriptLine[],
-  rows: number,
-  columns: number,
-  footerRows: number,
-  offset = 0,
-  topRows = 0,
-): VisibleTranscriptWindow {
-  const safeRows = Math.max(Math.floor(rows) || TUI_FALLBACK_ROWS, 1);
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const contentRows = Math.max(safeRows - footerRows - topRows, 0);
-  const heights = lines.map((line) => expandLineRows(line, safeColumns).length);
-  const total = heights.reduce((sum, height) => sum + height, 0);
-  const maxScroll = Math.max(total - contentRows, 0);
-  const safeScroll = Math.max(0, Math.min(Math.floor(offset) || 0, maxScroll));
-  // Окно — строки [total - safeScroll - contentRows, total - safeScroll).
-  const windowEnd = total - safeScroll;
-  const windowStart = Math.max(windowEnd - contentRows, 0);
-  const visible: TuiTranscriptLine[] = [];
-  let cursor = 0;
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const height = heights[index] ?? 0;
-    if (!line || height <= 0) continue;
-    const lineStart = cursor;
-    const lineEnd = cursor + height;
-    cursor = lineEnd;
-    if (lineEnd <= windowStart || lineStart >= windowEnd) continue;
-    const skipTop = Math.max(windowStart - lineStart, 0);
-    const skipBottom = Math.max(lineEnd - windowEnd, 0);
-    if (skipTop === 0 && skipBottom === 0) {
-      visible.push(line);
-      continue;
-    }
-    const cut = sliceTranscriptLine(
-      line,
-      skipTop,
-      height - skipTop - skipBottom,
-      safeColumns,
-    );
-    if (cut) visible.push(cut);
-  }
-  return {
-    lines: visible,
-    hiddenAboveCount: windowStart,
-    hiddenBelowCount: safeScroll,
-  };
-}
-
-/** Совместимый помощник: показывает самый новый хвост истории. */
-export function visibleTranscriptTail(
-  lines: TuiTranscriptLine[],
-  rows: number,
-  columns: number,
-  footerRows: number,
-  topRows = 0,
-): VisibleTranscriptTail {
-  const visible = visibleTranscriptWindow(
-    lines,
-    rows,
-    columns,
-    footerRows,
-    0,
-    topRows,
-  );
-  return { lines: visible.lines, hiddenCount: visible.hiddenAboveCount };
-}
-
-/**
- * Ширина символа в клетках терминала: CJK/эмодзи — 2, остальное — 1.
- * Глифы интерфейса (◈ ◆ ❯ ● ─ █ ▌ • ✗ ⚠) — всегда 1: так их считают
- * и Ink (string-width), и conhost. Неизвестное — 1, а не 0.
- */
-export function charCellWidth(char: string): 1 | 2 {
-  const code = char.codePointAt(0) ?? 0;
-  if (
-    (code >= 0x1100 && code <= 0x115f) ||
-    (code >= 0x231a && code <= 0x231b) ||
-    (code >= 0x2329 && code <= 0x232a) ||
-    (code >= 0x2e80 && code <= 0x303e) ||
-    (code >= 0x3041 && code <= 0x33ff) ||
-    (code >= 0x3400 && code <= 0x4dbf) ||
-    (code >= 0x4e00 && code <= 0xa4cf) ||
-    (code >= 0xa960 && code <= 0xa97c) ||
-    (code >= 0xac00 && code <= 0xd7ff) ||
-    (code >= 0xf900 && code <= 0xfaff) ||
-    (code >= 0xfe10 && code <= 0xfe19) ||
-    (code >= 0xfe30 && code <= 0xfe4f) ||
-    (code >= 0xff00 && code <= 0xff60) ||
-    (code >= 0xffe0 && code <= 0xffe6) ||
-    (code >= 0x1f300 && code <= 0x1faff) ||
-    (code >= 0x20000 && code <= 0x3fffd)
-  )
-    return 2;
-  return 1;
-}
-
-/** Видимая ширина строки в клетках (суррогатные пары — один символ). */
-export function textCellWidth(text: string): number {
-  let width = 0;
-  for (const char of text) width += charCellWidth(char);
-  return width;
-}
-
-/**
- * Жадный перенос слов как в Yoga/Ink: слова копятся в строку, пока влезают
- * вместе с пробелами, а слово длиннее строки рвётся по клеткам.
- * Первая визуальная строка может быть уже остальных (firstBudget) — туда
- * уходит инлайновый префикс («❯ », «◆ »), который занимает клетки только
- * в первой строке, а не в каждой.
- */
-export function wrapRowsWithFirstBudget(
-  text: string,
-  firstBudget: number,
-  width: number,
-): string[] {
-  const safeWidth = Math.max(Math.floor(width) || 10, 10);
-  const safeFirst = Math.max(
-    Math.min(Math.floor(firstBudget) || safeWidth, safeWidth),
-    1,
-  );
-  const rows: string[] = [];
-  let current = "";
-  let currentWidth = 0;
-  let budget = safeFirst;
-  const push = (): void => {
-    rows.push(current);
-    current = "";
-    currentWidth = 0;
-    budget = safeWidth;
-  };
-  const feedChars = (word: string): void => {
-    for (const char of word) {
-      const charWidth = charCellWidth(char);
-      if (currentWidth + charWidth > budget && current !== "") push();
-      current += char;
-      currentWidth += charWidth;
-    }
-  };
-  for (const word of text.split(" ")) {
-    const wordWidth = textCellWidth(word);
-    if (current === "") {
-      if (wordWidth <= budget) {
-        current = word;
-        currentWidth = wordWidth;
-      } else feedChars(word);
-      continue;
-    }
-    if (currentWidth + 1 + wordWidth <= budget) {
-      current += ` ${word}`;
-      currentWidth += 1 + wordWidth;
-      continue;
-    }
-    push();
-    if (wordWidth <= budget) {
-      current = word;
-      currentWidth = wordWidth;
-    } else feedChars(word);
-  }
-  push();
-  return rows;
-}
-
-/** Перенос одной логической строки (пустая — одна визуальная строка). */
-export function wrapTextRows(text: string, width: number): string[] {
-  const safeWidth = Math.max(Math.floor(width) || 10, 10);
-  return wrapRowsWithFirstBudget(text, safeWidth, safeWidth);
-}
-
-/**
- * Перенос текста с инлайновым префиксом («❯ », «◆ », «▌ », «• »):
- * префикс занимает клетки только первой визуальной строки и входит
- * в неё буквально — продолжения идут на всю ширину. Строки получаются
- * ровно такими, как в рендере: срезы окна можно перерисовывать как есть.
- */
-export function wrapPrefixedRows(
-  text: string,
-  prefix: string,
-  width: number,
-): string[] {
-  const safeWidth = Math.max(Math.floor(width) || 10, 10);
-  const rows = wrapRowsWithFirstBudget(
-    text,
-    safeWidth - textCellWidth(prefix),
-    safeWidth,
-  );
-  const first = rows[0] ?? "";
-  return [`${prefix}${first}`, ...rows.slice(1)];
-}
-
-/** Визуальные строки многострочного текста: каждая логическая — ≥1 строка. */
-export function wrapUnitRows(text: string, width: number): string[] {
-  const safeWidth = Math.max(Math.floor(width) || 10, 10);
-  return text.split("\n").flatMap((line) => wrapTextRows(line, safeWidth));
-}
-
-/**
- * Число строк текста с учётом переноса — word-wrap по словам и клеткам,
- * как реально переносит Ink. Старая формула ceil(len/width) занижала на
- * текстах с пробелами (перенос по словам раньше) и на CJK/эмодзи (2 клетки).
- * Второй аргумент — уже доступная ширина (usable width).
- */
-export function wrappedLines(text: string, usableWidth: number): number {
-  const width = Math.max(Math.floor(usableWidth) || 10, 10);
-  return wrapUnitRows(text, width).length;
-}
-
-/**
- * Развёртка markdown-ответа в визуальные строки — зеркало MarkdownText.
- * Считаем по видимому тексту (plainInlineText): разметка `**`, ссылки
- * `[t](url)`→`t (url)` — ровно то, что занимает клетки в рендере.
- */
-export function expandMarkdownRows(text: string, columns: number): string[] {
-  // Ширина приходит уже sane от вызывающего (view отдаёт контенту
-  // columns минус gutter/border) — только floor, без min-20 клампа,
-  // иначе узкие окна считались бы шире рендера.
-  const safeColumns = Math.max(Math.floor(columns) || 10, 10);
-  const codeWidth = Math.max(safeColumns - 4, 10);
-  const rows: string[] = [];
-  for (const block of parseBlocks(text)) {
-    if (block.kind === "hr") {
-      rows.push("─".repeat(safeColumns));
-      continue;
-    }
-    if (block.kind === "heading" || block.kind === "paragraph") {
-      rows.push(...wrapUnitRows(plainInlineText(block.text), safeColumns));
-      continue;
-    }
-    if (block.kind === "quote") {
-      // Префикс «▌ » уже в строке: продолжение без префикса считается
-      // с полной шириной внутри wrapUnitRows построчно — но первая строка
-      // несёт префикс, поэтому режем через wrapPrefixedRows построчно.
-      for (const line of block.text.split("\n"))
-        rows.push(
-          ...wrapPrefixedRows(plainInlineText(line), "▌ ", safeColumns),
-        );
-      continue;
-    }
-    if (block.kind === "list") {
-      block.items.forEach((item, itemIndex) => {
-        const prefix = block.ordered ? `${itemIndex + 1}. ` : "• ";
-        rows.push(
-          ...wrapPrefixedRows(plainInlineText(item), prefix, safeColumns),
-        );
-      });
-      continue;
-    }
-    // код: верхний отступ + рамка + язык + строки + рамка + нижний отступ
-    // (borderStyle round 2 + marginY 2, внутренняя ширина columns - 4).
-    rows.push("");
-    rows.push(`╭${"─".repeat(Math.max(safeColumns - 2, 1))}╮`);
-    if (block.language) rows.push(...wrapUnitRows(block.language, codeWidth));
-    for (const line of block.code.split("\n"))
-      rows.push(...wrapTextRows(line, codeWidth));
-    rows.push(`╰${"─".repeat(Math.max(safeColumns - 2, 1))}╯`);
-    rows.push("");
-  }
-  return rows;
-}
-
-/**
- * Разворачивает запись журнала в визуальные строки — ровно то, что рисует
- * TranscriptLineView, включая пустые строки отступов. Единственный источник
- * правды для сметы: estimateLineHeight — это длина развёртки, поэтому смета
- * не может разъехаться с рендером.
- * Зеркала рендера:
- * - префиксы «❯ »/«◆ »/«✗ »/«⚠ » — инлайн, занимают клетки только первой
- *   визуальной строки (wrapPrefixedRows), а не сужают каждую строку;
- * - cli.ts шлёт тексты уже с префиксами («❯ …», «✗ …», «⚠ …»,
- *   «[chisel] …») — view их срезает и ставит свои, развёртка делает то же;
- * - markdown — по видимому тексту без разметки (plainInlineText).
- */
-export function expandLineRows(
-  line: TuiTranscriptLine,
-  columns: number,
-): string[] {
-  const safeColumns = normalizeViewport({ columns }).columns;
-  const tone = line.tone ?? "assistant";
-  if (tone === "brand") return [line.text, fullWidthSeparator(safeColumns), ""];
-  if (tone === "user") {
-    const clean = line.text.replace(/^[❯›]\s?/, "");
-    // Залитый блок с paddingX=1: контент на 2 клетки уже окна.
-    return [
-      "",
-      ...wrapPrefixedRows(clean, "❯ ", Math.max(safeColumns - 2, 10)),
-    ];
-  }
-  if (tone === "tool") {
-    const summary = line.text.replace(/^\[chisel\]\s?/, "");
-    const preview =
-      summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
-    return wrapPrefixedRows(preview, "◆ ", safeColumns);
-  }
-  if (tone === "error") {
-    const clean = line.text.replace(/^✗\s?/, "");
-    return wrapPrefixedRows(clean, "✗ ", safeColumns);
-  }
-  if (tone === "warn") {
-    const clean = line.text.replace(/^⚠\s?/, "");
-    return wrapPrefixedRows(clean, "⚠ ", safeColumns);
-  }
-  if (tone === "success" || tone === "info")
-    return wrapUnitRows(line.text, safeColumns);
-  // assistant: левая черта забирает клетку + верхний отступ.
-  return ["", ...expandMarkdownRows(line.text, Math.max(safeColumns - 1, 10))];
-}
-
-/** Высота записи журнала: длина её развёртки — всегда равна рендеру. */
-export function estimateLineHeight(
-  line: TuiTranscriptLine,
-  columns: number,
-): number {
-  return expandLineRows(line, columns).length;
-}
 function Approval({
   request,
   columns,
@@ -2552,7 +1521,6 @@ function Editor({
   suggestionRows,
   selectedRow,
   columns,
-  scrolledUp = false,
 }: {
   value: string;
   cursor: number;
@@ -2563,8 +1531,6 @@ function Editor({
   /** Индекс подсвеченной строки в suggestionRows. */
   selectedRow: number;
   columns: number;
-  /** Журнал прокручен вверх: в подсказке Esc — это «назад вниз». */
-  scrolledUp?: boolean;
 }): React.JSX.Element {
   void columns;
   return (
@@ -2619,7 +1585,7 @@ function Editor({
           </Text>
         )}
       </Box>
-      <HotkeysHint scrolledUp={scrolledUp} />
+      <HotkeysHint />
     </Box>
   );
 }
@@ -2641,13 +1607,4 @@ function renderWithCursor(value: string, cursor: number): React.ReactNode {
       <Text>{after}</Text>
     </>
   );
-}
-function intro(
-  _providerLabel: string,
-  _model: string,
-  _version?: string,
-): TuiTranscriptLine[] {
-  // Стартовый транскрипт пустой: сервис/модель уже в закреплённой шапке,
-  // подсказки — в /help и в строке горячих клавиш. Ничего не пишем при запуске.
-  return [];
 }

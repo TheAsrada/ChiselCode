@@ -44,7 +44,6 @@ import {
   stripActiveSkillsBlock,
 } from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
-import { createMouseFilter } from "./ui/mouse.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import {
@@ -477,16 +476,12 @@ async function startTui(options: RunOptions): Promise<void> {
   let instance: ReturnType<typeof render> | undefined;
   // Первый кадр должен сразу знать полноэкранный размер: проталкиваем живой
   // сисколл getWindowSize() в stdout.columns/rows до создания Yoga-корня Ink.
-  // Иначе Ink стартует с кэшированных 80x24 — шапка узкая, ввод посреди
-  // экрана, а выравнивание приходит только после ввода текста.
+  // Иначе Ink стартует с кэшированных 80x24 — ввод узкий посреди экрана,
+  // а выравнивание приходит только после ввода текста.
   syncTerminalSizeToStdout();
-  // Фильтр мыши между настоящим stdin и Ink: выкусывает SGR-последовательности
-  // колеса/кликов до парсера Ink, иначе они печатаются в поле ввода как текст.
-  // Колесо уже разведено подписчикам через subscribeWheel в TuiApp.
-  const mouse = createMouseFilter({
-    stdin: process.stdin,
-    stdout: process.stdout,
-  });
+  // Скролл нативный терминальный (как в classic-режиме Claude Code):
+  // mouse-трекинг НЕ включаем специально, чтобы колесо листало scrollback,
+  // а текст выделялся и копировался как обычно.
   try {
     instance = render(
       React.createElement(TuiApp, {
@@ -745,15 +740,10 @@ async function startTui(options: RunOptions): Promise<void> {
           }
         },
       }),
-      {
-        alternateScreen: true,
-        ...(mouse
-          ? { stdin: mouse.stdin as unknown as NodeJS.ReadStream }
-          : {}),
-      },
+      // Без alternateScreen: история остаётся в scrollback-буфере терминала
+      // как в classic-режиме Claude Code (скролл и копирование — нативные).
     );
   } catch {
-    mouse?.dispose();
     // Ink требует raw mode терминала. В урезанных консолях Windows
     // (двойной клик, старый conhost) render() бросает исключение —
     // переключаемся на простой построчный режим, чтобы окно не мигало и не закрывалось.
@@ -767,8 +757,6 @@ async function startTui(options: RunOptions): Promise<void> {
     await instance.waitUntilExit();
   } catch {
     await startTuiFallback(options);
-  } finally {
-    mouse?.dispose();
   }
 }
 
