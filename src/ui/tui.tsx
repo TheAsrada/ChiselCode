@@ -136,6 +136,27 @@ export function computeFillRows(
 }
 
 /**
+ * Высота ВИДИМОГО окна в строках — только из живого сисколла getWindowSize().
+ * `stdout.rows` на conhost равен высоте БУФЕРА (300–3000), а не окна:
+ * filler по нему печатал сотни пустых строк и уносил стартовый блок
+ * далеко вверх из вида. Без сисколла — undefined, filler выключается.
+ */
+export function liveWindowRows(): number | undefined {
+  try {
+    const stdout = process.stdout as unknown as {
+      getWindowSize?: () => [number, number];
+    };
+    if (typeof stdout?.getWindowSize !== "function") return undefined;
+    const size = stdout.getWindowSize();
+    const rows = Math.floor(size?.[1]);
+    if (!Number.isFinite(rows) || rows <= 0) return undefined;
+    return rows;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Показывать ли пиксельный логотип в стартовом блоке: он печатается один
  * раз и никуда не пересчитывается, поэтому важна только ширина —
  * арт уже ширины окна обрежется truncate-end и поплывёт.
@@ -653,9 +674,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   /** Корень проекта: скиллы берём из его `.chisel/skills`. */
   const projectCwd = props.cwd ?? process.cwd();
-  const { columns: inkColumns, rows: inkRows } = useWindowSize();
+  const { columns: inkColumns } = useWindowSize();
   const columns = normalizeViewport({ columns: inkColumns }).columns;
-  const viewportRows = normalizeViewport({ rows: inkRows }).rows;
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -1401,10 +1421,14 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // окна — ввод всегда внизу как зафиксированный. История длиннее окна —
   // ноль, дальше нативный скролл. До первого замера — ноль, чтобы старт
   // не печатал лишнюю пустоту в scrollback.
+  // Filler только по живому размеру окна: высота буфера conhost — не окно,
+  // по ней filler печатал сотни строк и прятал стартовый блок в скроллбэке.
   const measured = staticMetrics.hasMeasured && footerMetrics.hasMeasured;
-  const fillRows = measured
-    ? computeFillRows(viewportRows, staticMetrics.height, footerMetrics.height)
-    : 0;
+  const windowRows = liveWindowRows();
+  const fillRows =
+    measured && windowRows !== undefined
+      ? computeFillRows(windowRows, staticMetrics.height, footerMetrics.height)
+      : 0;
 
   return (
     <Box flexDirection="column" width="100%">

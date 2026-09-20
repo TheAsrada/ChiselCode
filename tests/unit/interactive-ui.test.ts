@@ -35,6 +35,7 @@ import {
   fullWidthSeparator,
   HOTKEYS_HINT,
   headerSeparator,
+  liveWindowRows,
   normalizeViewport,
   shortenHome,
   shouldUseArtWelcome,
@@ -244,6 +245,33 @@ describe("scrollback header", () => {
     expect(computeFillRows(10, 0, 0)).toBe(10);
     expect(computeFillRows(Number.NaN, 5, 5)).toBe(14);
     expect(computeFillRows(30, Number.NaN, 7)).toBe(23);
+  });
+
+  test("liveWindowRows reads only the getWindowSize syscall", () => {
+    // conhost: stdout.rows — высота БУФЕРА (300+), сисколл — видимое окно.
+    // Filler по буферу печатал сотни строк и прятал стартовый блок.
+    const stdout = process.stdout as unknown as {
+      getWindowSize?: () => [number, number];
+    };
+    const original = stdout.getWindowSize;
+    try {
+      stdout.getWindowSize = () => [120, 30];
+      expect(liveWindowRows()).toBe(30);
+      // Нет сисколла — undefined: filler выключается вместо сотен строк.
+      delete (stdout as Record<string, unknown>).getWindowSize;
+      expect(liveWindowRows()).toBeUndefined();
+      // Мусор и исключения — тоже undefined.
+      stdout.getWindowSize = () => [0, -5];
+      expect(liveWindowRows()).toBeUndefined();
+      stdout.getWindowSize = () => {
+        throw new Error("no tty");
+      };
+      expect(liveWindowRows()).toBeUndefined();
+    } finally {
+      if (original === undefined)
+        delete (stdout as Record<string, unknown>).getWindowSize;
+      else stdout.getWindowSize = original;
+    }
   });
 });
 
