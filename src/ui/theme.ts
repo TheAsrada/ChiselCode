@@ -229,15 +229,6 @@ export function formatStatusDashboard(input: StatusDashboardInput): string {
   return lines.join("\n");
 }
 
-/** Стартовых приветственных строк больше нет: шапка показывает сервис/модель, подсказки — в /help. */
-export function welcomeLines(
-  _providerLabel: string,
-  _model: string,
-  _version: string,
-): string[] {
-  return [];
-}
-
 export interface DoneSummaryInput {
   elapsedMs: number;
   totalTokens: number;

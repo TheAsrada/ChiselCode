@@ -1063,8 +1063,8 @@ async function saveSetup(values: SetupValues): Promise<void> {
 
 /**
  * Сохраняет ключ и конфиг без вывода в stdout.
- * Отдельно от saveSetup: встроенный в TUI мастер работает в alternate
- * screen, где прямой write в stdout портит кадр Ink — итог там
+ * Отдельно от saveSetup: встроенный в TUI мастер работает внутри
+ * Ink-интерфейса, где прямой write в stdout портит вывод, — итог там
  * показывает сам интерфейс строкой в журнале.
  */
 async function persistSetup(values: SetupValues): Promise<void> {

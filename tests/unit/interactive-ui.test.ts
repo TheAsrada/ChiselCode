@@ -29,6 +29,7 @@ import {
   sortModelOptions,
 } from "../../src/ui/settings.js";
 import {
+  computeFillRows,
   formatHeaderMeta,
   formatHeaderTitle,
   fullWidthSeparator,
@@ -232,6 +233,17 @@ describe("scrollback header", () => {
     });
     expect(normalizeViewport({ columns: 10, rows: 5 }).columns).toBe(20);
     expect(normalizeViewport({ columns: 10, rows: 5 }).rows).toBe(10);
+  });
+
+  test("filler pushes input to the bottom on short history", () => {
+    // Пустотой добиваем до нижней кромки окна — ввод всегда внизу
+    // как зафиксированный. История длиннее окна — ноль.
+    expect(computeFillRows(30, 9, 7)).toBe(14);
+    expect(computeFillRows(24, 10, 5)).toBe(9);
+    expect(computeFillRows(30, 100, 7)).toBe(0);
+    expect(computeFillRows(10, 0, 0)).toBe(10);
+    expect(computeFillRows(Number.NaN, 5, 5)).toBe(14);
+    expect(computeFillRows(30, Number.NaN, 7)).toBe(23);
   });
 });
 

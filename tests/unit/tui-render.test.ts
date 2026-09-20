@@ -218,6 +218,54 @@ describe("tui scrollback render", () => {
     }
   });
 
+  test("input stays visible while busy and follow-ups queue up", async () => {
+    // Как в Claude Code: ввод зафиксирован внизу и не исчезает в работе
+    // (спиннер — отдельной строкой), а Enter во время работы встаёт
+    // в очередь и уходит следующим по порядку.
+    const submitted: string[] = [];
+    let releaseCurrent = (): void => {};
+    const app = await startApp(100, 30, {
+      onSubmit: async (prompt: string) => {
+        submitted.push(prompt);
+        await new Promise<void>((resolve) => {
+          releaseCurrent = resolve;
+        });
+      },
+    });
+    try {
+      for (const ch of "первая") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(submitted).toEqual(["первая"]);
+      // Агент занят, но поле ввода на месте, спиннер — отдельно.
+      expect(app.chunks()).toContain("Думаю");
+      expect(app.chunks()).toContain("Спросите что-нибудь");
+      // Второй Enter во время работы — в очередь, агент его ещё не видел.
+      for (const ch of "вторая") {
+        app.stdin.write(ch);
+        await tick(20);
+      }
+      app.stdin.write("\r");
+      await tick(400);
+      expect(submitted).toEqual(["первая"]);
+      expect(app.chunks()).toContain("В очереди (1)");
+      // Агент закончил первую — вторая ушла сама, порядок сохранён.
+      releaseCurrent();
+      await tick(500);
+      expect(submitted).toEqual(["первая", "вторая"]);
+    } finally {
+      try {
+        releaseCurrent();
+      } catch {
+        // Уже отпущен — нечего освобождать.
+      }
+      app.unmount();
+    }
+  });
+
   test("streaming chunks stay in one assistant line", async () => {
     // Регрессия скрина: первый чанк через append рвал ответ —
     // одиночные "I"/"The" отдельными строками. Теперь весь onText

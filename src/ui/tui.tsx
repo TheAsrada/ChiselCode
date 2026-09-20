@@ -1,4 +1,13 @@
-import { Box, Static, Text, useApp, useInput, useWindowSize } from "ink";
+import type { DOMElement } from "ink";
+import {
+  Box,
+  Static,
+  Text,
+  useApp,
+  useBoxMetrics,
+  useInput,
+  useWindowSize,
+} from "ink";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
@@ -49,6 +58,7 @@ import {
   type ToolTone,
   toolDisplay,
   toolTone,
+  truncate,
   USER_BUBBLE_BG,
 } from "./theme.js";
 import { Thinking } from "./thinking.js";
@@ -96,6 +106,35 @@ export interface TuiTranscript {
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
+/**
+ * Отложенный запрос: Enter во время работы агента не теряется,
+ * а встаёт в очередь как в Claude Code и уходит следующим.
+ */
+export interface QueuedPrompt {
+  prompt: string;
+  display?: string;
+}
+
+/**
+ * Сколько пустых строк добавить между историей и вводом, чтобы ввод
+ * оказался на нижней кромке окна при коротком диалоге (как зафиксированный
+ * ввод в Claude Code). История длиннее окна — ноль, дальше работает
+ * нативный скролл. Чистая функция для тестов.
+ */
+export function computeFillRows(
+  viewportRows: number,
+  staticHeight: number,
+  footerHeight: number,
+): number {
+  const rows = Math.max(
+    Math.floor(viewportRows) || TUI_FALLBACK_ROWS,
+    TUI_MIN_ROWS,
+  );
+  const content = Math.max(0, Math.floor(staticHeight) || 0);
+  const footer = Math.max(0, Math.floor(footerHeight) || 0);
+  return Math.max(0, rows - content - footer);
+}
+
 /**
  * Показывать ли пиксельный логотип в стартовом блоке: он печатается один
  * раз и никуда не пересчитывается, поэтому важна только ширина —
@@ -614,8 +653,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
   /** Корень проекта: скиллы берём из его `.chisel/skills`. */
   const projectCwd = props.cwd ?? process.cwd();
-  const { columns: inkColumns } = useWindowSize();
+  const { columns: inkColumns, rows: inkRows } = useWindowSize();
   const columns = normalizeViewport({ columns: inkColumns }).columns;
+  const viewportRows = normalizeViewport({ rows: inkRows }).rows;
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -647,6 +687,16 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // по завершении коммитится в Static одной записью (см. wasBusy ниже).
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
+  // Очередь follow-up запросов как в Claude Code: Enter во время работы
+  // не теряется. Состояние — для показа, ref — для логики в эффектах.
+  const [queued, setQueued] = useState<QueuedPrompt[]>([]);
+  const queuedRef = useRef<QueuedPrompt[]>([]);
+  // Замер зон для filler-отступа, прижимающего ввод к низу окна.
+  // useBoxMetrics обновляется сам при любом изменении layout.
+  const staticRef = useRef<DOMElement | null>(null);
+  const footerRef = useRef<DOMElement | null>(null);
+  const staticMetrics = useBoxMetrics(staticRef);
+  const footerMetrics = useBoxMetrics(footerRef);
   const skills = loadSkills(projectCwd);
   // Как /команды вызываются только invocable-скиллы; скрытые
   // (`user-invocable: false`) живут только в каталоге и /skills.
@@ -769,17 +819,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   }, []);
 
   const wasBusy = useRef(false);
-  useEffect(() => {
-    if (wasBusy.current && !busy) {
-      const flushed = streamingRef.current;
-      if (flushed) {
-        streamingRef.current = null;
-        setStreaming(null);
-        setTranscript((lines) => [...lines, flushed]);
-      }
-    }
-    wasBusy.current = busy;
-  }, [busy]);
 
   useEffect(() => {
     props.bindTranscript({
@@ -792,6 +831,17 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   function append(text: string, tone: TranscriptTone = "assistant"): void {
     pushLine(text, tone);
   }
+  /**
+   * Отложить запрос в очередь: ввод во время работы агента не теряется,
+   * а уходит следующим (как Enter в Claude Code). В журнале виден сразу.
+   */
+  function enqueuePrompt(prompt: string, display?: string): void {
+    setEditor((state) => addEditorHistory(state, display ?? prompt));
+    resetCommandSelection();
+    const item: QueuedPrompt = { prompt, display };
+    queuedRef.current.push(item);
+    setQueued((items) => [...items, item]);
+  }
   function submit(value: string): void {
     const prompt = value.trim();
     if (!prompt) return;
@@ -803,6 +853,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     if (isSlashInput(prompt)) {
       const skill = findSkill(prompt);
       if (skill) {
+        // Скилл во время работы — в очередь, иначе выполнился бы
+        // параллельно с активным агентом и потерялся в cli-гарде.
+        if (busy) {
+          enqueuePrompt(expandSkill(skill.skill, skill.args), prompt);
+          return;
+        }
         runSkill(prompt, skill.skill, skill.args);
         return;
       }
@@ -815,6 +871,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       );
       setEditor((state) => addEditorHistory(state, prompt));
       resetCommandSelection();
+      return;
+    }
+    // Обычный текст во время работы — в очередь, а не в никуда.
+    if (busy) {
+      enqueuePrompt(prompt);
       return;
     }
     submitPrompt(prompt);
@@ -840,6 +901,30 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       )
       .finally(() => setBusy(false));
   }
+  // Свежий submitPrompt для эффекта ниже: эффект подписан только на busy
+  // (снимок на момент перехода), а отправлять надо актуальным замыканием
+  // (свежие скиллы/рантайм). Refs в зависимостях не нужны.
+  const submitRef = useRef(submitPrompt);
+  submitRef.current = submitPrompt;
+  useEffect(() => {
+    if (wasBusy.current && !busy) {
+      const flushed = streamingRef.current;
+      if (flushed) {
+        streamingRef.current = null;
+        setStreaming(null);
+        setTranscript((lines) => [...lines, flushed]);
+      }
+      // Очередь как в Claude Code: первый отложенный запрос уходит
+      // следующим, остальные ждут. setQueued чистит показ,
+      // queuedRef — источник правды для логики.
+      const next = queuedRef.current.shift();
+      if (next) {
+        setQueued((items) => items.slice(1));
+        submitRef.current(next.prompt, next.display);
+      }
+    }
+    wasBusy.current = busy;
+  }, [busy]);
   function findSkill(
     prompt: string,
   ): { skill: Skill; args: string } | undefined {
@@ -1147,12 +1232,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     if (settings || skillsOpen || restartingSetup) return;
     // Скролл — нативный терминальный (колесо/Shift+PgUp самого терминала),
     // история лежит в scrollback: отдельных клавиш скролла нет.
-    // Выход работает даже пока агент думает.
+    // Ввод разрешён и во время работы агента: Enter встаёт в очередь
+    // как в Claude Code. Выход работает даже пока агент думает.
     if (key.ctrl && character === "c") {
       exit();
       return;
     }
-    if (busy) return;
     // Esc закрывает список команд как в Claude Code.
     if (key.escape && hasCommandSelection) {
       setSuggestionsDismissed(true);
@@ -1290,14 +1375,21 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     <Approval request={request} columns={columns} />
   ) : (
     <>
+      {busy ? <Thinking model={runtime.model} /> : null}
+      {queued.length > 0 ? (
+        <Text dimColor wrap="truncate-end">
+          В очереди ({queued.length}):{" "}
+          {queued
+            .map((item) => truncate(item.display ?? item.prompt, 60))
+            .join(" · ")}
+        </Text>
+      ) : null}
       <Text dimColor wrap="truncate-end">
         {runtime.model} · {shortenHome(projectCwd)}
       </Text>
       <Editor
         value={editor.value}
         cursor={editor.cursor}
-        busy={busy}
-        model={runtime.model}
         suggestionRows={suggestionRows}
         selectedRow={selectedVisibleIndex}
         columns={columns}
@@ -1305,14 +1397,33 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     </>
   );
 
+  // Filler-отступ: при коротком диалоге добивает пустотой до нижней кромки
+  // окна — ввод всегда внизу как зафиксированный. История длиннее окна —
+  // ноль, дальше нативный скролл. До первого замера — ноль, чтобы старт
+  // не печатал лишнюю пустоту в scrollback.
+  const measured = staticMetrics.hasMeasured && footerMetrics.hasMeasured;
+  const fillRows = measured
+    ? computeFillRows(viewportRows, staticMetrics.height, footerMetrics.height)
+    : 0;
+
   return (
     <Box flexDirection="column" width="100%">
-      <Static items={transcript}>
-        {(line) => (
-          <TranscriptLineView key={line.id} line={line} columns={columns} />
-        )}
-      </Static>
-      <Box flexDirection="column" width="100%">
+      <Box flexDirection="column" width="100%" ref={staticRef}>
+        <Static items={transcript}>
+          {(line) => (
+            <TranscriptLineView key={line.id} line={line} columns={columns} />
+          )}
+        </Static>
+      </Box>
+      {fillRows > 0 ? (
+        <Box flexDirection="column" width="100%">
+          {Array.from({ length: fillRows }, (_, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: строки-заглушки без идентичности
+            <Text key={index}> </Text>
+          ))}
+        </Box>
+      ) : null}
+      <Box flexDirection="column" width="100%" ref={footerRef}>
         {streaming ? (
           <TranscriptLineView line={streaming} columns={columns} />
         ) : null}
@@ -1516,16 +1627,12 @@ function Approval({
 function Editor({
   value,
   cursor,
-  busy,
-  model,
   suggestionRows,
   selectedRow,
   columns,
 }: {
   value: string;
   cursor: number;
-  busy: boolean;
-  model: string;
   /** Готовые строки подсказок (подсвеченная уже с префиксом, остальные — имена). */
   suggestionRows: string[];
   /** Индекс подсвеченной строки в suggestionRows. */
@@ -1535,7 +1642,7 @@ function Editor({
   void columns;
   return (
     <Box flexDirection="column" marginTop={1} width="100%" flexShrink={0}>
-      {suggestionRows.length && !busy ? (
+      {suggestionRows.length ? (
         <Box
           flexDirection="column"
           borderStyle="round"
@@ -1560,14 +1667,12 @@ function Editor({
       ) : null}
       <Box
         borderStyle="round"
-        borderColor={busy ? "yellow" : "cyan"}
+        borderColor="cyan"
         paddingX={1}
         width="100%"
         flexShrink={0}
       >
-        {busy ? (
-          <Thinking model={model} />
-        ) : value ? (
+        {value ? (
           <Box width="100%">
             <Text wrap="wrap">
               <Text bold color="green">
