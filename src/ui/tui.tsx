@@ -1882,14 +1882,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         selectedRow={selectedVisibleIndex}
         columns={columns}
       />
-      {/* Статус-строка ПОД вводом как у Claude Code
-          (там: input, под ним dim-статус permissions/model).
-          Одна строка truncate-end: не переносится и не меняет высоту
-          динамики — иначе Ink стирает неверное число строк и оставляет
-          призраки боксов. */}
-      <Text dimColor wrap="truncate-end">
-        {runtime.model} · {shortenHome(projectCwd)}
-      </Text>
     </>
   );
 
@@ -1961,7 +1953,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 }
 
 /**
- * Путь покороче для стартового блока и статус-строки: домашняя папка —
+ * Путь покороче для стартового блока: домашняя папка —
  * как ~/…, как в Codex. Чистая функция для тестов.
  */
 export function shortenHome(path: string): string {

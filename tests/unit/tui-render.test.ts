@@ -162,8 +162,8 @@ describe("tui render", () => {
     try {
       const initial = app.frame();
       const row = inputRow();
-      expect(row).toBe(19);
-      expect(app.frame().split("\n")[22]).toContain("test-model");
+      expect(row).toBe(20);
+      expect(app.frame().trimEnd().split("\n").at(-1)).toContain("Tab/");
       for (const key of [
         "\x1b[<65;1;1M",
         "\x1b[6~",
@@ -283,12 +283,12 @@ describe("tui render", () => {
       app.stdout.emit("resize");
       await tick(250);
       expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(15);
-      expect(app.frame()).toContain("test-model");
+      expect(app.frame()).not.toContain("test-model");
       expect(app.frame()).toContain("Спросите что-нибудь");
       app.stdin.write("x".repeat(3000));
       await tick(200);
       expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(15);
-      expect(app.frame().trimEnd().split("\n").at(-1)).toContain("test-model");
+      expect(app.frame().trimEnd().split("\n").at(-1)).toContain("Tab/");
       expect(app.frame()).toContain("█");
     } finally {
       app.unmount();
@@ -312,15 +312,13 @@ describe("tui render", () => {
     }
   });
 
-  test("startup prints the welcome block, status line and input", async () => {
+  test("startup prints the welcome block and pinned input", async () => {
     // Шапка — первое сообщение ленты: арт-логотип, мета, ввод снизу.
     const app = await startApp(100, 30);
     try {
       const text = app.chunks();
       for (const artLine of renderLogoRows()) expect(text).toContain(artLine);
       expect(text).toContain("test-model");
-      // Статус-строка над вводом: модель и проект видны всегда,
-      // даже когда стартовый блок уплыл из вида.
       expect(text).toContain("Спросите что-нибудь");
       expect(text).toContain("Shift+Enter");
       expect(text).not.toContain("колесо");
