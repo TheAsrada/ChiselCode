@@ -339,3 +339,64 @@ export function MarkdownText({
     </Box>
   );
 }
+
+/** Клетки видимого текста (кириллица — по кодпоинтам; CJK уже — неточно). */
+function cellWidth(text: string): number {
+  return [...text].length;
+}
+
+/**
+ * Сколько строк займёт сегмент при переносе в ширине width.
+ * Пустой сегмент — всё равно строка (как рендерит Ink).
+ */
+export function wrapTextRows(segment: string, width: number): number {
+  const w = Math.max(10, Math.floor(width) || 80);
+  return Math.max(1, Math.ceil(cellWidth(segment) / w));
+}
+
+/**
+ * Точная смета высоты MarkdownText: зеркалит структуру рендера выше —
+ * те же блоки, те же префиксы (`• `, `▌ `, нумерация), те же рамки
+ * (code: border 2 + marginY 2 + язык) и сужение (code: ширина − 4).
+ * Длины считаются по ВИДИМОМУ тексту (plainInlineText: маркеры срезаны,
+ * ссылка видна как `t (url)`). columns — ширина ВНУТРИ gutter-рамки
+ * ассистента, вызывающий вычитает рамку сам. Погрешность — только вверх
+ * (концевые пробелы, пустые Text): недокорм даёт пустые строки, перекорм
+ * обрезал бы свежие — поэтому запас всегда вверх.
+ */
+export function estimateMarkdownRows(text: string, columns: number): number {
+  const inner = Math.max(10, Math.floor(columns) || 80);
+  let rows = 0;
+  for (const block of parseBlocks(text)) {
+    switch (block.kind) {
+      case "heading":
+        rows += wrapTextRows(plainInlineText(block.text), inner);
+        break;
+      case "paragraph":
+        for (const segment of block.text.split("\n"))
+          rows += wrapTextRows(plainInlineText(segment), inner);
+        break;
+      case "code": {
+        const codeWidth = Math.max(10, inner - 4);
+        rows += 2 + 2 + (block.language ? 1 : 0);
+        for (const line of block.code.split("\n"))
+          rows += wrapTextRows(line, codeWidth);
+        break;
+      }
+      case "list":
+        block.items.forEach((item, index) => {
+          const prefix = block.ordered ? `${index + 1}. ` : "• ";
+          rows += wrapTextRows(prefix + plainInlineText(item), inner);
+        });
+        break;
+      case "quote":
+        for (const line of block.text.split("\n"))
+          rows += wrapTextRows(`▌ ${plainInlineText(line)}`, inner);
+        break;
+      case "hr":
+        rows += 1;
+        break;
+    }
+  }
+  return Math.max(1, rows);
+}

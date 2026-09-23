@@ -103,7 +103,11 @@ describe("ToolRegistry", () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-"));
     const outside = await mkdtemp(join(tmpdir(), "chiselcode-outside-"));
     paths.push(root, outside);
-    await symlink(outside, join(root, "escape"));
+    await symlink(
+      outside,
+      join(root, "escape"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
 
     const result = await registry(root).execute("write_file", {
       path: "escape/created.txt",

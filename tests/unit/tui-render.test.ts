@@ -82,6 +82,7 @@ interface Harness {
   stdout: MockStdout;
   transcript?: TuiTranscript;
   chunks(): string;
+  frame(): string;
   unmount(): void;
 }
 
@@ -90,14 +91,18 @@ async function startApp(
   rows: number,
   hooks?: {
     cwd?: string;
+    classic?: boolean;
     onSubmit?: (prompt: string, display?: string) => Promise<void>;
   },
 ): Promise<Harness> {
   const stdout = createMockStdout(columns, rows);
   const stdin = createMockStdin();
   let output = "";
+  let frame = "";
   stdout.on("data", (chunk) => {
     output += chunk.toString();
+    const visible = stripAnsi(chunk.toString());
+    if (visible.trim()) frame = visible;
   });
   let transcript: TuiTranscript | undefined;
   const resolver = createTuiApprovalResolver();
@@ -117,6 +122,7 @@ async function startApp(
       providerLabel: "Anthropic (Claude)",
       model: "test-model",
       cwd: hooks?.cwd,
+      classic: hooks?.classic ?? false,
     }),
     {
       stdout: stdout as unknown as NodeJS.WriteStream,
@@ -137,14 +143,119 @@ async function startApp(
       return transcript;
     },
     chunks: () => stripAnsi(output),
+    frame: () => frame,
     unmount: () => instance.unmount(),
   };
 }
 
-describe("tui alt-screen render", () => {
+describe("tui render", () => {
+  test("a long response scrolls by terminal rows, including its tail", async () => {
+    const app = await startApp(60, 20);
+    const numbered = Array.from(
+      { length: 80 },
+      (_, i) => `ROW-${String(i).padStart(3, "0")}`,
+    ).join("\n");
+    const visibleRows = () => app.frame().match(/ROW-\d{3}/g) ?? [];
+    try {
+      app.transcript?.append(numbered, "assistant");
+      await tick(250);
+      expect(visibleRows().at(-1)).toBe("ROW-079");
+      const before = visibleRows();
+      app.stdin.write("\x1b[<64;1;1M");
+      await tick(250);
+      const after = visibleRows();
+      expect(Number(after[0]?.slice(4))).toBe(Number(before[0]?.slice(4)) - 3);
+      expect(after.at(-1)).toBe("ROW-076");
+      app.transcript?.appendToLast("STREAM-NEW");
+      await tick(200);
+      expect(visibleRows()).toEqual(after);
+      app.transcript?.appendToLast("\nSTREAM-NEXT");
+      await tick(200);
+      expect(visibleRows()).toEqual(after);
+      app.stdin.write("\x1b[F");
+      await tick(200);
+      expect(app.frame()).toContain("STREAM-NEXT");
+      expect(app.frame()).toContain("Спросите что-нибудь");
+      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(19);
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("shift wheel preserves direction and pager scrolls within a message", async () => {
+    const app = await startApp(60, 20);
+    try {
+      app.transcript?.append(
+        Array.from({ length: 80 }, (_, i) => `LINE-${i}`).join("\n"),
+        "info",
+      );
+      await tick(200);
+      const tail = app.frame();
+      app.stdin.write("\x1b[<68;1;1M");
+      await tick(200);
+      expect(app.frame()).not.toContain("LINE-79");
+      app.stdin.write("\x1b[<69;1;1M");
+      await tick(200);
+      expect(app.frame()).toBe(tail);
+      app.stdin.write("\x0f");
+      await tick(200);
+      expect(app.frame()).toContain("LINE-79");
+      app.stdin.write("\x1b[<64;1;1M");
+      await tick(200);
+      expect(app.frame()).toContain("LINE-76");
+      expect(app.frame()).not.toContain("LINE-79");
+      app.stdin.write("g");
+      await tick(200);
+      expect(app.frame()).toContain("ChiselCode");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("resize keeps the frame bounded and input on the last row", async () => {
+    const app = await startApp(100, 30);
+    try {
+      app.transcript?.append(
+        "中文 👩‍💻 длинный текст ".repeat(300),
+        "assistant",
+      );
+      await tick(200);
+      app.stdout.columns = 45;
+      app.stdout.rows = 16;
+      app.stdout.emit("resize");
+      await tick(250);
+      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(15);
+      expect(app.frame()).toContain("test-model");
+      expect(app.frame()).toContain("Спросите что-нибудь");
+      app.stdin.write("x".repeat(3000));
+      await tick(200);
+      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(15);
+      expect(app.frame().trimEnd().split("\n").at(-1)).toContain("test-model");
+      expect(app.frame()).toContain("█");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("classic mode transcript opens and returns to the draft", async () => {
+    const app = await startApp(60, 20, { classic: true });
+    try {
+      app.stdin.write("draft");
+      await tick(200);
+      app.stdin.write("\x0f");
+      await tick(200);
+      expect(app.frame()).toContain("Транскрипт");
+      app.stdin.write("q");
+      await tick(200);
+      expect(app.frame()).toContain("draft");
+      expect(app.frame()).not.toContain("Транскрипт ·");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("startup prints the welcome block, status line and input", async () => {
-    // Стартовый блок как в fullscreen-режиме Claude Code: закреплённая шапка
-    // сверху, арт-логотип первым в ленте, ввод зафиксирован снизу.
+    // Шапка — первое сообщение ленты: арт-логотип, мета, ввод снизу.
     const app = await startApp(100, 30);
     try {
       const text = app.chunks();
@@ -160,40 +271,21 @@ describe("tui alt-screen render", () => {
     }
   });
 
-  test("header stays visible on entry without filler gap (Claude fullscreen)", async () => {
-    // Регрессия «шапки не видно»: filler считал высоту Static через Yoga
-    // (absolute → всегда ~0) и печатал 20+ пустых строк между шапкой
-    // и вводом. Как в Claude fullscreen шапка закреплена сверху,
-    // зазор между логотипом и вводом маленький.
-    const stdout = process.stdout as unknown as {
-      getWindowSize?: () => [number, number];
-    };
-    const original = stdout.getWindowSize;
+  test("welcome is the first message with no pinned duplicate", async () => {
+    // Регрессия скриншота: закреплённая шапка дублировала welcome
+    // (заголовок сверху + тот же арт/мета снизу) с пустотой между ними.
+    // Шапка — первое сообщение ленты и всё: в арт-режиме слим-заголовка
+    // `</> ChiselCode` нет вообще, арт и ввод на месте.
+    // (Замер зазора тут бессмыслен: кадры alt-screen фиксированной высоты
+    // добиваются пустыми строками по дизайну, в debug они копятся.)
+    const app = await startApp(100, 30);
     try {
-      // Окно 30 строк при буфере 300: старый filler дал бы 25 пустых.
-      stdout.getWindowSize = () => [100, 30];
-      const app = await startApp(100, 30);
-      try {
-        const text = app.chunks();
-        const lines = text.split("\n");
-        const logoFirst = renderLogoRows()[0] ?? "";
-        const logoIndex = lines.findIndex((line) =>
-          line.includes(logoFirst.trim().slice(0, 20)),
-        );
-        const inputIndex = lines.findIndex((line) =>
-          line.includes("Спросите что-нибудь"),
-        );
-        expect(logoIndex).toBeGreaterThanOrEqual(0);
-        expect(inputIndex).toBeGreaterThan(logoIndex);
-        // Шапка + мета + разделитель + хинт + статус ≈ 9-10 строк, никак не 30+.
-        expect(inputIndex - logoIndex).toBeLessThan(20);
-      } finally {
-        app.unmount();
-      }
+      const text = app.chunks();
+      for (const artLine of renderLogoRows()) expect(text).toContain(artLine);
+      expect(text).not.toContain("</> ChiselCode");
+      expect(text).toContain("Спросите что-нибудь");
     } finally {
-      if (original === undefined)
-        delete (stdout as Record<string, unknown>).getWindowSize;
-      else stdout.getWindowSize = original;
+      app.unmount();
     }
   });
 
@@ -233,30 +325,137 @@ describe("tui alt-screen render", () => {
     }
   });
 
-  test("pgup pins the viewport and new lines pile into a pill", async () => {
-    // Как у Claude fullscreen: скролл вверх ставит follow на паузу,
-    // новые строки копятся в пилюлю `↑ N новых`, PgDn возвращает к низу.
+  test("pgup pins the viewport, new lines wait quietly", async () => {
+    // Скролл вверх ставит вид на паузу без счётчиков: новые строки
+    // копятся скрытыми, PgDn возвращает к живому краю.
     const app = await startApp(100, 30);
     try {
       for (let i = 0; i < 30; i += 1) {
         app.transcript?.append(`строка истории номер ${i}`, "info");
       }
       await tick(150);
-      expect(app.chunks()).not.toContain("новых");
       app.stdin.write("\x1b[5~");
       await tick(300);
       app.transcript?.append("самая новая строка", "info");
       await tick(300);
-      expect(app.chunks()).toContain("новых");
+      // Вид стоит на месте: новейшей строки не видно, пилюли нет.
+      expect(app.chunks()).not.toContain("самая новая строка");
+      expect(app.chunks()).not.toContain("новых");
       // Шаг PgDn — пол-экрана (10 при 30 строках): скрыто было 11,
       // поэтому два PgDn чтобы вернуться к живому краю.
-      // В debug-режиме кадры копятся, поэтому проверяем появление
-      // новейшей строки в виде, а не исчезновение пилюли из истории кадров.
       app.stdin.write("\x1b[6~");
       await tick(300);
       app.stdin.write("\x1b[6~");
       await tick(300);
       expect(app.chunks()).toContain("самая новая строка");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("home shows the head of the feed instead of a blank screen", async () => {
+    // Регрессия чёрного экрана: срез [0,0) давал пустой вьюпорт вместо шапки.
+    // Высокое окно чтобы голова целиком влезла в кадр.
+    const app = await startApp(100, 60);
+    try {
+      for (let i = 0; i < 30; i += 1) {
+        app.transcript?.append(`строка истории номер ${i}`, "info");
+      }
+      await tick(150);
+      app.stdin.write("\x1b[H");
+      await tick(300);
+      const text = app.chunks();
+      for (const artLine of renderLogoRows()) expect(text).toContain(artLine);
+      expect(text).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("mixed markdown feed keeps the tail visible while following", async () => {
+    // Живой сценарий из репорта: юзер + ответ с кодом и списком + шум.
+    // Хвост с точной сметой обязан показать код целиком и свежие строки,
+    // ничего не обрезав снизу.
+    const app = await startApp(100, 40);
+    try {
+      app.transcript?.append("❯ объясни код", "user");
+      app.transcript?.append(
+        "Вот разбор:\n\n```ts\nconst x = 1;\nconst y = 2;\n```\n\n- раз\n- два",
+        "assistant",
+      );
+      for (let i = 0; i < 20; i += 1) {
+        app.transcript?.append(`строка ${i}`, "info");
+      }
+      await tick(200);
+      const text = app.chunks();
+      expect(text).toContain("const x = 1;");
+      expect(text).toContain("const y = 2;");
+      expect(text).toContain("строка 19");
+      expect(text).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("classic conhost prints welcome once with input below", async () => {
+    // Legacy conhost: Static дописывается в scrollback, перерисовок нет —
+    // шапка первым сообщением, ввод сразу под ней, дублей и пустот нет.
+    const app = await startApp(100, 30, { classic: true });
+    try {
+      const text = app.chunks();
+      for (const artLine of renderLogoRows()) expect(text).toContain(artLine);
+      expect(text).not.toContain("</> ChiselCode");
+      expect(text).toContain("test-model");
+      expect(text).toContain("Спросите что-нибудь");
+      // История дописывается следом, порядок прямой.
+      app.transcript?.append("первая строка", "info");
+      await tick(150);
+      app.transcript?.append("вторая строка", "info");
+      await tick(150);
+      const after = app.chunks();
+      expect(after.indexOf("первая строка")).toBeLessThan(
+        after.indexOf("вторая строка"),
+      );
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("ctrl-o opens the transcript overlay and q goes back", async () => {
+    // Как у Claude: Ctrl+O — полноэкранный просмотр вместо чата,
+    // q — назад к вводу (черновик цел, лента на месте).
+    const app = await startApp(100, 30);
+    try {
+      app.transcript?.append("какая-то история", "info");
+      await tick(150);
+      expect(app.chunks()).not.toContain("Транскрипт");
+      app.stdin.write("\x0f");
+      await tick(300);
+      expect(app.chunks()).toContain("Транскрипт");
+      app.stdin.write("q");
+      await tick(300);
+      expect(app.chunks()).toContain("Спросите что-нибудь");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("wheel scrolls the feed without typing into input", async () => {
+    // SGR-колесо (как шлёт терминал с 1006): вверх ставит вид на паузу
+    // без счётчиков, последовательность в редактор не попадает.
+    const app = await startApp(100, 30);
+    try {
+      for (let i = 0; i < 30; i += 1) {
+        app.transcript?.append(`строка истории номер ${i}`, "info");
+      }
+      await tick(150);
+      app.stdin.write("[<64;1;1M");
+      await tick(300);
+      app.transcript?.append("самая новая строка", "info");
+      await tick(300);
+      expect(app.chunks()).not.toContain("самая новая строка");
+      // Мусора SGR в поле ввода нет.
+      expect(app.chunks()).not.toContain("[<64");
     } finally {
       app.unmount();
     }

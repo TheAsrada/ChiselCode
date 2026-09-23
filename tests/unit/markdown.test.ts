@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseBlocks, parseInline } from "../../src/ui/markdown.js";
+import {
+  estimateMarkdownRows,
+  parseBlocks,
+  parseInline,
+  wrapTextRows,
+} from "../../src/ui/markdown.js";
 
 describe("parseInline", () => {
   test("leaves plain text untouched", () => {
@@ -66,5 +71,26 @@ describe("parseBlocks", () => {
     expect(parseBlocks("3. третий\n4. четвёртый")).toEqual([
       { kind: "list", ordered: true, items: ["третий", "четвёртый"] },
     ]);
+  });
+});
+
+describe("estimateMarkdownRows", () => {
+  test("wraps by visible cells", () => {
+    expect(wrapTextRows("hello", 20)).toBe(1);
+    expect(wrapTextRows("x".repeat(45), 20)).toBe(3);
+    expect(wrapTextRows("", 20)).toBe(1);
+  });
+
+  test("counts blocks like the renderer", () => {
+    // Абзац с переносом — по сегментам, маркеры в длину не входят.
+    expect(estimateMarkdownRows("a\nb", 20)).toBe(2);
+    expect(estimateMarkdownRows(`**${"x".repeat(19)}**`, 20)).toBe(1);
+    expect(estimateMarkdownRows("# Заголовок", 20)).toBe(1);
+    expect(estimateMarkdownRows("- раз\n- два", 20)).toBe(2);
+    expect(estimateMarkdownRows("> цитата", 20)).toBe(1);
+    expect(estimateMarkdownRows("---", 20)).toBe(1);
+    // Код: рамка 2 + отступы 2 + язык 1 + строки.
+    expect(estimateMarkdownRows("```ts\nconst x = 1;\n```", 40)).toBe(6);
+    expect(estimateMarkdownRows("```\nopen fence", 40)).toBe(5);
   });
 });

@@ -44,6 +44,7 @@ import {
   stripActiveSkillsBlock,
 } from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
+import { SGR_DISABLE, SGR_ENABLE, shouldEnableMouse } from "./ui/mouse.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import {
@@ -57,6 +58,7 @@ import {
   createTuiApprovalResolver,
   describeTerminalSize,
   formatTerminalSizeLine,
+  shouldUseAltScreen,
   syncTerminalSizeToStdout,
   TuiApp,
   type TuiTranscript,
@@ -480,14 +482,19 @@ async function startTui(options: RunOptions): Promise<void> {
   // а выравнивание приходит только после ввода текста.
   syncTerminalSizeToStdout();
   // Fullscreen как у Claude Code (`/tui fullscreen`): отдельный буфер
-  // DEC 1049, шапка закреплена сверху, лента со внутренним скроллом,
-  // ввод зафиксирован снизу. Mouse-трекинг НЕ включаем: колесо в alt-screen
-  // без него не доходит до приложения, зато текст не захватывается —
-  // скролл клавиатурой (PgUp/PgDn, Ctrl+U/D, Home/End), как и задумано.
-  // Откат к scrollback: CHISEL_ALT_SCREEN=0 или CHISEL_NO_ALT_SCREEN=1.
-  const useAltScreen =
-    process.env.CHISEL_ALT_SCREEN !== "0" &&
-    process.env.CHISEL_NO_ALT_SCREEN !== "1";
+  // DEC 1049, шапка первым сообщением ленты, внутренний скролл,
+  // ввод зафиксирован снизу. Legacy conhost на Windows alt-screen рвёт
+  // (stale-фрагменты, мерцание) — там автоматически классика: scrollback
+  // с дописываемым Static, скролл и выделение нативные терминальные.
+  // Мышь SGR (1000+1006, только press+wheel, без motion): колесо скроллит
+  // ленту, скорость — CHISEL_SCROLL_SPEED (1..20, дефолт 3), Shift+колесо —
+  // рывок на пол-экрана. Нативное выделение при захвате — через Shift.
+  // Откаты: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1 — всегда классика;
+  // CHISEL_FORCE_ALT=1 — всегда alt-screen.
+  const useAltScreen = shouldUseAltScreen(process.env);
+  // SGR-захват мыши живёт шире render-блока: гасим его в finally
+  // у waitUntilExit (иначе шелл после нас получал бы SGR-мусор).
+  let mouseOn = false;
   try {
     instance = render(
       React.createElement(TuiApp, {
@@ -502,6 +509,7 @@ async function startTui(options: RunOptions): Promise<void> {
         baseUrl: options.baseUrl ?? providerConfig?.baseUrl,
         version: VERSION,
         cwd: activeOptions.cwd ?? process.cwd(),
+        classic: !useAltScreen,
         bindTranscript: (nextTranscript: TuiTranscript) => {
           transcript = nextTranscript;
         },
@@ -748,9 +756,23 @@ async function startTui(options: RunOptions): Promise<void> {
       }),
       // Fullscreen alt-screen как у Claude: выход восстанавливает
       // primary screen, история alt-буфера не сыплется в scrollback.
-      // Откат: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1.
+      // В классике флага нет — обычный буфер, история остаётся в окне.
       { alternateScreen: useAltScreen },
     );
+    // SGR-захват мыши ПОСЛЕ входа в alt-screen (Ink включает его синхронно
+    // в конструкторе): порядок важен, иначе режимы сбросятся переключением
+    // буфера. Выключаем строго наоборот (1006→1000) в finally ниже.
+    mouseOn =
+      useAltScreen &&
+      process.stdout.isTTY === true &&
+      shouldEnableMouse(process.env);
+    if (mouseOn) {
+      try {
+        process.stdout.write(SGR_ENABLE);
+      } catch {
+        // Не-TTY/pipe: трекинг просто не включится, скролл клавиатурой жив.
+      }
+    }
   } catch {
     // Ink требует raw mode терминала. В урезанных консолях Windows
     // (двойной клик, старый conhost) render() бросает исключение —
@@ -761,11 +783,28 @@ async function startTui(options: RunOptions): Promise<void> {
     await startTuiFallback(options);
     return;
   }
+  // Bun on Windows can miss resize events; keep Ink's own dimensions current.
+  const sizeSync =
+    process.platform === "win32" && process.stdout.isTTY
+      ? setInterval(() => syncTerminalSizeToStdout(), 250)
+      : undefined;
+  sizeSync?.unref();
+  let failed = false;
   try {
     await instance.waitUntilExit();
   } catch {
-    await startTuiFallback(options);
+    failed = true;
+  } finally {
+    if (sizeSync) clearInterval(sizeSync);
+    if (mouseOn) {
+      try {
+        process.stdout.write(SGR_DISABLE);
+      } catch {
+        // Best effort if stdout has already closed.
+      }
+    }
   }
+  if (failed) await startTuiFallback(options);
 }
 
 async function startTuiFallback(options: RunOptions): Promise<void> {

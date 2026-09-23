@@ -32,16 +32,27 @@ import {
   ALT_SCREEN_MAX_RENDER_LINES,
   applyHideDelta,
   clampHideNewest,
+  clampTop,
   computeFillRows,
+  displayCellWidth,
+  estimateLineRows,
+  fitWindow,
   formatHeaderMeta,
   formatHeaderTitle,
+  frameRows,
   fullWidthSeparator,
   HOTKEYS_HINT,
   headerSeparator,
+  hideForVisual,
   liveWindowRows,
+  nextPromptIndex,
   normalizeViewport,
+  prevPromptIndex,
+  promptLineIndices,
   scrollPageStep,
+  searchMatchIndices,
   shortenHome,
+  shouldUseAltScreen,
   shouldUseArtWelcome,
   sliceTranscript,
 } from "../../src/ui/tui.js";
@@ -252,8 +263,38 @@ describe("alt-screen header", () => {
     expect(computeFillRows(30, Number.NaN, 7)).toBe(23);
   });
 
+  test("frame stays one row below fullscreen to dodge win32 clear", () => {
+    // Ink на win32 чистит весь терминал перед каждым кадром высотой >= окна:
+    // кадр ровно в окно мигал бы на каждое нажатие. Минус строка — дешёвое
+    // eraseLines, а нижняя правая клетка (скролл conhost #969) не трогается.
+    expect(frameRows(30)).toBe(29);
+    expect(frameRows(24)).toBe(23);
+    expect(frameRows(10)).toBe(9);
+    expect(frameRows(Number.NaN)).toBe(23);
+  });
+
+  test("legacy conhost falls back to classic, modern terminals go alt-screen", () => {
+    // Ручные overrides бьют всё.
+    expect(shouldUseAltScreen({ CHISEL_ALT_SCREEN: "0" }, "win32")).toBe(false);
+    expect(shouldUseAltScreen({ CHISEL_NO_ALT_SCREEN: "1" }, "win32")).toBe(
+      false,
+    );
+    expect(shouldUseAltScreen({ CHISEL_FORCE_ALT: "1" }, "win32")).toBe(true);
+    // Вне Windows — всегда alt-screen.
+    expect(shouldUseAltScreen({}, "linux")).toBe(true);
+    expect(shouldUseAltScreen({}, "darwin")).toBe(true);
+    // Windows: только современные терминалы, голый conhost — классика.
+    expect(shouldUseAltScreen({}, "win32")).toBe(false);
+    expect(shouldUseAltScreen({ WT_SESSION: "abc" }, "win32")).toBe(true);
+    expect(shouldUseAltScreen({ TERM_PROGRAM: "vscode" }, "win32")).toBe(true);
+    expect(shouldUseAltScreen({ WEZTERM_EXECUTABLE: "/w" }, "win32")).toBe(
+      true,
+    );
+    expect(shouldUseAltScreen({ ConEmuANSI: "ON" }, "win32")).toBe(true);
+  });
+
   test("alt-screen scroll pins the viewport like Claude fullscreen", () => {
-    // hideNewest=0 — следим за низом; вверх — пауза, новые копятся в пилюлю.
+    // hideNewest=0 — следим за низом; вверх — пауза, вид стоит на месте.
     expect(clampHideNewest(0, 50)).toBe(0);
     expect(clampHideNewest(-3, 50)).toBe(0);
     expect(clampHideNewest(5, 50)).toBe(5);
@@ -267,7 +308,7 @@ describe("alt-screen header", () => {
     expect(applyHideDelta(0, 10, 50)).toBe(10);
     expect(applyHideDelta(45, 10, 50)).toBe(50);
     expect(applyHideDelta(5, -10, 50)).toBe(0);
-    // Срез: хвост до cap, скрытые — в счётчик пилюли.
+    // Срез: хвост до cap, hiddenNew — сколько новых скрыто от вида.
     const lines = Array.from({ length: 10 }, (_, i) => i);
     expect(sliceTranscript(lines, 0)).toEqual({ visible: lines, hiddenNew: 0 });
     expect(sliceTranscript(lines, 3)).toEqual({
@@ -277,6 +318,108 @@ describe("alt-screen header", () => {
     expect(sliceTranscript(lines, 99).hiddenNew).toBe(10);
     expect(sliceTranscript(lines, 0, 4).visible).toEqual([6, 7, 8, 9]);
     expect(ALT_SCREEN_MAX_RENDER_LINES).toBe(300);
+  });
+
+  test("alt-screen window fits the tail into the visual budget", () => {
+    // Хвост по визуальному бюджету: переоценка безопасна (пустота),
+    // недооценка обрезала бы свежие строки — оценки с запасом вверх.
+    expect(displayCellWidth("abc")).toBe(3);
+    expect(displayCellWidth("привет")).toBe(6);
+    const cols = 20;
+    // Арт — ровно строка, остальное — ceil + запас за отступы пузырей.
+    expect(estimateLineRows({ text: "x".repeat(76), tone: "logo" }, 100)).toBe(
+      1,
+    );
+    expect(estimateLineRows({ text: "hello", tone: "info" }, cols)).toBe(1);
+    expect(estimateLineRows({ text: "x".repeat(45), tone: "info" }, cols)).toBe(
+      3,
+    );
+    expect(estimateLineRows({ text: "hello", tone: "assistant" }, cols)).toBe(
+      2,
+    );
+    expect(estimateLineRows({ text: "a\nb", tone: "dim" }, cols)).toBe(2);
+    // Пузырь: отступ + префикс ❯ в ширине минус padding.
+    expect(estimateLineRows({ text: "hi", tone: "user" }, cols)).toBe(2);
+    // Markdown считается по видимому тексту: код с рамкой, буллеты с префиксом.
+    expect(
+      estimateLineRows(
+        { text: "```ts\nconst x = 1;\n```", tone: "assistant" },
+        40,
+      ),
+    ).toBe(1 + 6);
+    expect(
+      estimateLineRows({ text: "- раз\n- два", tone: "assistant" }, cols),
+    ).toBe(1 + 2);
+    // Хвост: влезает всё — всё и видно; переполнение — старые за кадром.
+    const mk = (n: number) => ({
+      id: n,
+      text: `строка ${n}`,
+      tone: "info" as const,
+    });
+    const ten = Array.from({ length: 10 }, (_, i) => mk(i));
+    expect(fitWindow(ten, cols, 100, "end").visible.map((l) => l.id)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    ]);
+    const tail = fitWindow(ten, cols, 3, "end");
+    expect(tail.visible.map((l) => l.id)).toEqual([7, 8, 9]);
+    expect(tail.hiddenAbove).toBe(7);
+    // Голова для Home: верх влезает в бюджет.
+    const head = fitWindow(ten, cols, 3, "start");
+    expect(head.visible.map((l) => l.id)).toEqual([0, 1, 2]);
+    expect(head.hiddenAbove).toBe(0);
+    // Пусто и тесно: хотя бы одна строка, вид не пустеет.
+    expect(fitWindow([], cols, 10, "end").visible).toEqual([]);
+    expect(fitWindow(ten, cols, 0, "end").visible).toHaveLength(1);
+  });
+
+  test("transcript pager jumps by prompts and searches", () => {
+    // Ctrl+O пейджер: { / } — по промптам, / + n/N — по совпадениям.
+    const lines = [
+      { id: 0, text: "welcome", tone: "info" as const },
+      { id: 1, text: "первая задача", tone: "user" as const },
+      { id: 2, text: "ответ один", tone: "assistant" as const },
+      { id: 3, text: "вторая задача", tone: "user" as const },
+      { id: 4, text: "ответ два", tone: "assistant" as const },
+    ];
+    expect(promptLineIndices(lines)).toEqual([1, 3]);
+    expect(prevPromptIndex(lines, 4)).toBe(3);
+    expect(prevPromptIndex(lines, 3)).toBe(1);
+    expect(prevPromptIndex(lines, 0)).toBe(0);
+    expect(nextPromptIndex(lines, 1)).toBe(3);
+    expect(nextPromptIndex(lines, 3)).toBe(4);
+    expect(nextPromptIndex(lines, 0)).toBe(1);
+    expect(searchMatchIndices(lines, "задача")).toEqual([1, 3]);
+    expect(searchMatchIndices(lines, "ОТВЕТ")).toEqual([2, 4]);
+    expect(searchMatchIndices(lines, "  ")).toEqual([]);
+    expect(searchMatchIndices(lines, "нет такого")).toEqual([]);
+    expect(clampTop(99, 5)).toBe(4);
+    expect(clampTop(-2, 5)).toBe(0);
+    expect(clampTop(2, 5)).toBe(2);
+    expect(clampTop(0, 0)).toBe(0);
+  });
+
+  test("visual scroll steps glide instead of chunking", () => {
+    // Шаги в визуальных строках: короткие мотаются пачками,
+    // длинный markdown — целиком, квантование до целых строк.
+    const cols = 20;
+    const short = (n: number) => ({
+      id: n,
+      text: `строка ${n}`,
+      tone: "info" as const,
+    });
+    const ten = Array.from({ length: 10 }, (_, i) => short(i));
+    expect(hideForVisual(ten, cols, 0, 5)).toBe(5);
+    expect(hideForVisual(ten, cols, 0, 99)).toBe(10);
+    expect(hideForVisual(ten, cols, 5, -3)).toBe(2);
+    expect(hideForVisual(ten, cols, 2, -99)).toBe(0);
+    expect(hideForVisual([], cols, 0, 5)).toBe(0);
+    // Длинная строка (3 ряда) проглатывает маленький шаг целиком.
+    const mixed = [
+      { id: 0, text: "x".repeat(45), tone: "info" as const },
+      short(1),
+    ];
+    expect(hideForVisual(mixed, cols, 0, 2)).toBe(2);
+    expect(hideForVisual(mixed, cols, 2, -2)).toBe(1);
   });
 
   test("liveWindowRows reads only the getWindowSize syscall", () => {

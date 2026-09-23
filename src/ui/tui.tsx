@@ -1,6 +1,15 @@
-import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import {
+  Box,
+  type DOMElement,
+  Static,
+  Text,
+  useApp,
+  useBoxMetrics,
+  useInput,
+  useWindowSize,
+} from "ink";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
 import type {
   ApprovalDecision,
@@ -36,7 +45,13 @@ import {
   navigateEditorHistory,
 } from "./editor.js";
 import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
-import { MarkdownText } from "./markdown.js";
+import {
+  estimateMarkdownRows,
+  MarkdownText,
+  wrapTextRows,
+} from "./markdown.js";
+import { parseSGRMouse, resolveScrollSpeed } from "./mouse.js";
+import { emptyScrollMetrics, moveScroll, ScrollViewport } from "./scroll.js";
 import {
   type ModelListResult,
   SettingsPanel,
@@ -83,22 +98,9 @@ export interface TuiTranscript {
 }
 
 /**
- * Раскладка как в fullscreen-режиме Claude Code (`/tui fullscreen`):
- * alternate screen (DEC 1049) с фиксированным вьюпортом высотой в окно.
- * - Сверху закреплённая шапка: `</> ChiselCode · модель · путь · версия`
- *   + строка скролл-подсказки — видна всегда, никуда не уплывает;
- * - в середине лента диалога с ВНУТРЕННИМ скроллом: видимое окно —
- *   срез по логическим строкам с привязкой к низу (`justifyContent flex-end`
- *   + `overflow hidden`), скролл — PgUp/PgDn (пол-экрана), Ctrl+U/D (±10),
- *   Home/End; новые сообщения при скролле вверх не дёргают вьюпорт,
- *   вместо этого пилюля `↑ N новых · End — вниз`;
- * - снизу зафиксированный ввод: редактор, под ним dim-статус
- *   `модель · путь` одной строкой truncate-end.
- * Никакого <Static>: в alt-screen он толкает живую зону и провоцирует
- * полный clear каждый кадр. Ширина/высота — только из Ink `useWindowSize`
- * (Yoga и стирание динамики считают по ней же); живой размер заранее
- * проталкивается в process.stdout через syncTerminalSizeToStdout в cli.ts.
- * Откат к scrollback: `CHISEL_ALT_SCREEN=0` или `CHISEL_NO_ALT_SCREEN=1`.
+ * The welcome block is the first transcript item. Fullscreen uses a measured
+ * viewport with row-by-row scrolling and a bounded footer; classic mode uses
+ * terminal scrollback. Scrolling up anchors a row until End resumes following.
  */
 export const TUI_MIN_COLUMNS = 20;
 export const TUI_MIN_ROWS = 10;
@@ -157,8 +159,8 @@ export function liveWindowRows(): number | undefined {
 /**
  * Fullscreen alt-screen: внутренний скролл ленты как у Claude Code.
  * `hideNewest` — сколько новейших логических строк скрыто от вида
- * (0 — следим за низом). Новые сообщения при скролле вверх вьюпорт
- * не дёргают: конец среза зафиксирован, счётчик превращается в пилюлю.
+ * (0 — следим за низом). Скролл вверх ставит follow на паузу:
+ * конец среза зафиксирован, вид стоит на месте без счётчиков.
  * Чистые функции для тестов.
  */
 
@@ -174,8 +176,50 @@ export function clampHideNewest(hideNewest: number, total: number): number {
 }
 
 /**
+ * Высота кадра: на строку МЕНЬШЕ окна. На win32 Ink делает полный clear
+ * терминала перед каждым кадром высотой >= высоты окна
+ * (shouldClearTerminalForFrame: wasFullscreen || isFullscreen) — иначе
+ * каждое нажатие клавиши мигало бы всем экраном. Кадр ниже окна идёт
+ * дешёвым инкрементальным стиранием eraseLines, а запись в нижнюю правую
+ * клетку (она скроллит буфер conhost, рассинхрон #969) не происходит вовсе.
+ * Чистая функция для тестов.
+ */
+export function frameRows(viewportRows: number): number {
+  const rows = Math.floor(viewportRows);
+  const safe = Number.isFinite(rows) ? rows : TUI_FALLBACK_ROWS;
+  return Math.max(TUI_MIN_ROWS - 1, safe - 1);
+}
+
+/**
+ * Alt-screen или классика (как разграничение у Codex #12457).
+ * Legacy conhost на Windows рвёт перерисовку alt-буфера: stale-фрагменты
+ * сверху, чёрные дыры, мерцание на каждый кадр. Там — только классика:
+ * дописываемый Static без единого стирания ломаться нечему.
+ * Современные терминалы определяются по переменным окружения:
+ * Windows Terminal (WT_SESSION), WezTerm, TERM_PROGRAM (VSCode, mintty…),
+ * ConEmu. Вне Windows alt-screen включён по умолчанию.
+ * Ручные overrides: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1 — всегда
+ * классика; CHISEL_FORCE_ALT=1 — всегда alt-screen.
+ * Чистая функция для тестов.
+ */
+export function shouldUseAltScreen(
+  env: NodeJS.ProcessEnv,
+  platform: string = process.platform,
+): boolean {
+  if (env.CHISEL_ALT_SCREEN === "0" || env.CHISEL_NO_ALT_SCREEN === "1")
+    return false;
+  if (env.CHISEL_FORCE_ALT === "1") return true;
+  if (platform !== "win32") return true;
+  if (env.WT_SESSION) return true;
+  if (env.WEZTERM_EXECUTABLE || env.WEZTERM_PANE) return true;
+  if (env.TERM_PROGRAM) return true;
+  if (env.ConEmuANSI === "ON") return true;
+  return false;
+}
+
+/**
  * Шаг PgUp/PgDn — пол-экрана как у Claude (не целый).
- * Резерв 10 строк на шапку (2) + футер с подсказками.
+ * Резерв 10 строк на футер с подсказками и вводом.
  */
 export function scrollPageStep(viewportRows: number): number {
   const rows = Math.floor(viewportRows);
@@ -193,8 +237,52 @@ export function applyHideDelta(
 }
 
 /**
- * Видимое окно ленты: срез `[0, total-hide)` хвостом не длиннее cap.
- * `hiddenNew` — сколько новых строк за пилюлей `↑ N новых`.
+ * Сдвиг скрытия на N ВИЗУАЛЬНЫХ строк (плавный скролл вместо прыжков
+ * целыми сообщениями: короткие строки мотаются по несколько штук,
+ * длинный markdown — по одному). Квантование — до целых логических
+ * строк: скрываем/открываем строки целиком, пока их оценка не покроет
+ * запрошенные строки. Чистая функция для тестов.
+ */
+export function hideForVisual(
+  lines: TuiTranscriptLine[],
+  columns: number,
+  hideNewest: number,
+  deltaRows: number,
+): number {
+  const total = lines.length;
+  let hide = clampHideNewest(hideNewest, total);
+  const delta = Math.floor(deltaRows || 0);
+  if (delta > 0) {
+    // Вверх: прячем строки с конца видимой области, пока сумма оценок
+    // не покроет запрошенные строки. Дальше верха (total) не уходим.
+    let need = delta;
+    let index = total - hide - 1;
+    while (need > 0 && index >= 0) {
+      const line = lines[index];
+      need -= line ? estimateLineRows(line, columns) : 1;
+      index -= 1;
+      hide += 1;
+    }
+    return Math.min(hide, total);
+  }
+  if (delta < 0) {
+    // Вниз: открываем строки сверху скрытой области (ближайшие к виду).
+    let need = -delta;
+    let index = total - hide;
+    while (need > 0 && hide > 0) {
+      const line = lines[index];
+      need -= line ? estimateLineRows(line, columns) : 1;
+      index += 1;
+      hide -= 1;
+    }
+    return Math.max(0, hide);
+  }
+  return hide;
+}
+
+/**
+ * Видимое окно ленты: срез `[0, total-hide)`.
+ * `hiddenNew` — сколько новых строк скрыто от вида (вид стоит на месте).
  */
 export function sliceTranscript<T>(
   lines: T[],
@@ -207,6 +295,143 @@ export function sliceTranscript<T>(
   const capSafe = Math.max(1, Math.floor(cap) || ALT_SCREEN_MAX_RENDER_LINES);
   const start = Math.max(0, end - capSafe);
   return { visible: lines.slice(start, end), hiddenNew: hide };
+}
+
+/** Ширина строки в клетках терминала (кириллица/эмодзи — по кодпоинтам). */
+export function displayCellWidth(text: string): number {
+  return [...text].length;
+}
+
+/**
+ * Смета высоты логической строки ленты — зеркалит TranscriptLineView:
+ * те же отступы (user/assistant marginTop), та же ширина (пузырь −2,
+ * gutter ассистента −1), markdown считается по видимому тексту
+ * (estimateMarkdownRows). Погрешность — только вверх: недокорм даёт
+ * пару пустых строк, перекорм обрезал бы свежие снизу.
+ */
+export function estimateLineRows(
+  line: Pick<TuiTranscriptLine, "text" | "tone">,
+  columns: number,
+): number {
+  const cols = Math.max(10, Math.floor(columns) || TUI_FALLBACK_COLUMNS);
+  const tone = line.tone ?? "assistant";
+  // Арт — ровно по строке, truncate-end, без отступов.
+  if (tone === "logo") return 1;
+  // Ответ ассистента: marginTop + markdown внутри gutter-рамки (−1).
+  if (tone === "assistant")
+    return 1 + estimateMarkdownRows(line.text, cols - 1);
+  // Пузырь пользователя: marginTop + префикс ❯ + paddingX (−2).
+  if (tone === "user") {
+    const inner = Math.max(10, cols - 2);
+    const clean = line.text.replace(/^[❯›]\s?/, "");
+    let rows = 1;
+    clean.split("\n").forEach((segment, index) => {
+      rows += wrapTextRows(index === 0 ? `❯ ${segment}` : segment, inner);
+    });
+    return Math.max(1, rows);
+  }
+  // Плоские строки без отступов: сумма переносов по сегментам.
+  let rows = 0;
+  for (const segment of line.text.split("\n"))
+    rows += wrapTextRows(segment, cols);
+  return Math.max(1, rows);
+}
+
+/**
+ * Окно ленты, влезающее в бюджет строк: хвост (`anchor "end"`, следим
+ * за низом) или голова (`anchor "start"`, Home — верх). Возвращает срез
+ * и сколько логических строк осталось за кадром сверху (`hiddenAbove`).
+ * Хотя бы одна строка возвращается всегда, чтобы вид не пустел.
+ */
+export function fitWindow(
+  lines: TuiTranscriptLine[],
+  columns: number,
+  budgetRows: number,
+  anchor: "start" | "end" = "end",
+): { visible: TuiTranscriptLine[]; hiddenAbove: number } {
+  const budget = Math.max(1, Math.floor(budgetRows) || 1);
+  if (lines.length === 0) return { visible: [], hiddenAbove: 0 };
+  if (anchor === "start") {
+    let used = 0;
+    let end = 0;
+    while (end < lines.length) {
+      const line = lines[end];
+      if (!line) break;
+      const est = estimateLineRows(line, columns);
+      if (used + est > budget) break;
+      used += est;
+      end += 1;
+    }
+    if (end === 0) end = 1;
+    return { visible: lines.slice(0, end), hiddenAbove: 0 };
+  }
+  let used = 0;
+  let start = lines.length;
+  while (start > 0) {
+    const line = lines[start - 1];
+    if (!line) break;
+    const est = estimateLineRows(line, columns);
+    if (used + est > budget) break;
+    used += est;
+    start -= 1;
+  }
+  if (start === lines.length) start = lines.length - 1;
+  return { visible: lines.slice(start), hiddenAbove: start };
+}
+
+/** Индексы сообщений пользователя (промптов) в ленте. */
+export function promptLineIndices(lines: TuiTranscriptLine[]): number[] {
+  const out: number[] = [];
+  lines.forEach((line, index) => {
+    if ((line.tone ?? "assistant") === "user") out.push(index);
+  });
+  return out;
+}
+
+/** Предыдущий промпт выше позиции (для `{` в транскрипте). */
+export function prevPromptIndex(
+  lines: TuiTranscriptLine[],
+  fromTop: number,
+): number {
+  let best = 0;
+  for (const index of promptLineIndices(lines)) {
+    if (index < fromTop) best = index;
+    else break;
+  }
+  return best;
+}
+
+/** Следующий промпт ниже позиции (для `}` в транскрипте). */
+export function nextPromptIndex(
+  lines: TuiTranscriptLine[],
+  fromTop: number,
+): number {
+  for (const index of promptLineIndices(lines)) {
+    if (index > fromTop) return index;
+  }
+  return Math.max(0, lines.length - 1);
+}
+
+/** Строки с подстрокой запроса (поиск `/` в транскрипте, без регистра). */
+export function searchMatchIndices(
+  lines: TuiTranscriptLine[],
+  query: string,
+): number[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const out: number[] = [];
+  lines.forEach((line, index) => {
+    if (line.text.toLowerCase().includes(q)) out.push(index);
+  });
+  return out;
+}
+
+/** Кламп верха пейджера к длине ленты. */
+export function clampTop(top: number, total: number): number {
+  if (total <= 0) return 0;
+  const t = Math.floor(top);
+  if (!Number.isFinite(t) || t < 0) return 0;
+  return Math.min(t, total - 1);
 }
 
 /**
@@ -552,11 +777,12 @@ export function headerSeparator(columns: number): string {
 
 /**
  * Подсказка горячих клавиш под полем ввода. Скролл внутренний
- * (PgUp/PgDn, строка в шапке), поэтому про скролл тут ни слова.
- * Tab/стрелки — выбор команды как в Claude Code, Enter — выбрать/отправить.
+ * (PgUp/PgDn, колесо, строка в welcome-хинте), поэтому про скролл
+ * тут только транскрипт. Tab/стрелки — выбор команды как в Claude Code,
+ * Enter — выбрать/отправить.
  */
 export const HOTKEYS_HINT =
-  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · Shift+Enter — новая строка";
+  "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · Shift+Enter — новая строка · Ctrl+O — транскрипт";
 
 /**
  * Подсказка с жирными клавишами как в Codex (ключи — bold, описания — dim).
@@ -669,6 +895,11 @@ export interface TuiAppProps {
    * Без него — текущий рабочий каталог процесса.
    */
   cwd?: string;
+  /**
+   * Классика (scrollback) для legacy conhost: лента в дописываемом Static
+   * без перерисовок, высота не фиксируется. Без флага — alt-screen.
+   */
+  classic?: boolean;
 }
 
 export interface WelcomeInput {
@@ -680,8 +911,7 @@ export interface WelcomeInput {
 
 /**
  * Стартовый блок ленты: арт-логотип + мета + разделитель + хинт.
- * Живёт в скроллируемой ленте под закреплённой шапкой (AltHeader):
- * при длинном диалоге уплывает вверх внутри вьюпорта.
+ * Шапка и есть первое сообщение — нигде не дублируется.
  * Арт-строки идут тоном "logo" с truncate-end, чтобы широкое окно
  * не рвало их wrap-ом в две строки. Отступ сверху, чтобы арт не упирался
  * в край окна. Чистая функция для тестов: id раздаёт вызывающий через nextId.
@@ -722,7 +952,7 @@ export function buildWelcomeLines(
   });
   lines.push({
     id: nextId(),
-    text: "Введите задачу и нажмите Enter · /help — команды · /status — состояние",
+    text: "Введите задачу и нажмите Enter · /help — команды · PgUp/PgDn — скролл · Ctrl+O — транскрипт",
     tone: "dim",
   });
   return lines;
@@ -744,6 +974,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   });
   const columns = viewportSize.columns;
   const rows = viewportSize.rows;
+  // Классика для legacy conhost: Static дописывается в scrollback,
+  // перерисовок нет — ломаться нечему (см. shouldUseAltScreen).
+  const classic = props.classic ?? false;
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
@@ -758,8 +991,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     baseUrl: props.baseUrl,
   }));
   const nextTranscriptId = useRef(0);
-  // Стартовый блок — первые строки скроллируемой ленты под закреплённой
-  // шапкой (AltHeader). Ширина — из Ink-размера первого кадра.
+  // Стартовый блок — первые строки скроллируемой ленты (шапка и есть
+  // первое сообщение, дублей нет). Ширина — из Ink-размера первого кадра.
   const [transcript, setTranscript] = useState<TuiTranscriptLine[]>(() =>
     buildWelcomeLines(
       {
@@ -779,21 +1012,38 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // не теряется. Состояние — для показа, ref — для логики в эффектах.
   const [queued, setQueued] = useState<QueuedPrompt[]>([]);
   const queuedRef = useRef<QueuedPrompt[]>([]);
-  // Внутренний скролл ленты (fullscreen как у Claude): сколько новейших
-  // строк скрыто от вида. 0 — следим за низом; вверх ставит follow на паузу.
-  const [hideNewest, setHideNewest] = useState(0);
-  const transcriptLenRef = useRef(0);
-  // Новые строки при скролле вверх вьюпорт не дёргают: конец среза
-  // зафиксирован, счётчик превращается в пилюлю `↑ N новых`.
+  // Absolute visual row anchors stay put when streaming or appending history.
+  const [scrollTop, setScrollTop] = useState<number | null>(null);
+  const chatMetrics = useRef(emptyScrollMetrics());
+  const pagerMetrics = useRef(emptyScrollMetrics());
+  const scrollChat = (delta: number): void => {
+    const next = moveScroll(chatMetrics.current, delta);
+    chatMetrics.current.top = next ?? chatMetrics.current.maxTop;
+    setScrollTop(next);
+  };
+  const scrollPager = (delta: number): void => {
+    const next = moveScroll(pagerMetrics.current, delta);
+    pagerMetrics.current.top = next ?? pagerMetrics.current.maxTop;
+    setTTop(next);
+  };
+  const jumpToItem = (index: number): void => {
+    setTTop(pagerMetrics.current.itemTops[index] ?? 0);
+  };
+  // Транскрипт-пейджер Ctrl+O как у Claude: полноэкранный просмотр ленты
+  // с поиском, ввод при этом скрыт целиком (черновик сохраняется).
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [tTop, setTTop] = useState<number | null>(null);
+  const [tSearching, setTSearching] = useState(false);
+  const [tQuery, setTQuery] = useState("");
+  const [tMatchIdx, setTMatchIdx] = useState(0);
+  // Скорость колеса мыши: CHISEL_SCROLL_SPEED 1..20, дефолт 3.
+  const [scrollSpeed] = useState(() =>
+    resolveScrollSpeed(process.env.CHISEL_SCROLL_SPEED),
+  );
+  // Подтверждение важнее просмотра: пришедший approval закрывает пейджер.
   useEffect(() => {
-    const prev = transcriptLenRef.current;
-    const cur = transcript.length;
-    transcriptLenRef.current = cur;
-    if (cur > prev)
-      setHideNewest((hidden) =>
-        hidden > 0 ? clampHideNewest(hidden + (cur - prev), cur) : hidden,
-      );
-  }, [transcript.length]);
+    if (request) setTranscriptOpen(false);
+  }, [request]);
   const skills = loadSkills(projectCwd);
   // Как /команды вызываются только invocable-скиллы; скрытые
   // (`user-invocable: false`) живут только в каталоге и /skills.
@@ -850,12 +1100,15 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   };
   // Показываем не больше MAX_VISIBLE_SUGGESTIONS строк: окно сдвигается за
   // выбранной, остаток — счётчиком.
+  const suggestionLimit = Math.max(
+    1,
+    Math.min(MAX_VISIBLE_SUGGESTIONS, rows - 13),
+  );
   const suggestionWindowStart =
-    Math.floor(selectedSuggestionIndex / MAX_VISIBLE_SUGGESTIONS) *
-    MAX_VISIBLE_SUGGESTIONS;
+    Math.floor(selectedSuggestionIndex / suggestionLimit) * suggestionLimit;
   const visibleSuggestions = suggestions.slice(
     suggestionWindowStart,
-    suggestionWindowStart + MAX_VISIBLE_SUGGESTIONS,
+    suggestionWindowStart + suggestionLimit,
   );
   const hiddenSuggestionsCount =
     suggestions.length - (suggestionWindowStart + visibleSuggestions.length);
@@ -878,8 +1131,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       streamingRef.current = null;
       setStreaming(null);
       const id = nextTranscriptId.current++;
-      // Лента дописывается в конец; при активном скролле вверх пин-эффект
-      // выше сдвинет hideNewest и вьюпорт не дёрнется (см. пилюлю).
+      // Absolute row anchors keep the viewport still as history grows.
       setTranscript((lines) => [
         ...lines,
         ...(flushed ? [flushed] : []),
@@ -910,11 +1162,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
     setStreaming(null);
-    // /clear и /new: новый разговор — вьюпорт возвращается к низу,
-    // пилюля гаснет. В alt-screen старое не остаётся в scrollback
+    // /clear и /new: новый разговор — вьюпорт возвращается к низу.
+    // В alt-screen старое не остаётся в scrollback
     // (отдельный буфер), поэтому чистим ленту полностью.
     setTranscript([]);
-    setHideNewest(0);
+    setScrollTop(null);
   }, []);
 
   const wasBusy = useRef(false);
@@ -1319,6 +1571,21 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   }
 
   useInput((character, key) => {
+    // Мышь SGR первее всего: колесо скроллит даже в панелях и approval,
+    // остальные события (клики/отпускания) глотаются, чтобы не сыпались
+    // мусором в ввод. Шаг — в визуальных строках, Shift — рывок
+    // на пол-экрана: лента едет плавно, а не кусками сообщений.
+    const mouse = parseSGRMouse(character);
+    if (mouse) {
+      if (mouse.kind === "wheel-up" || mouse.kind === "wheel-down") {
+        const step =
+          (mouse.shift ? scrollPageStep(rows) : scrollSpeed) *
+          (mouse.kind === "wheel-up" ? -1 : 1);
+        if (transcriptOpen) scrollPager(step);
+        else if (!classic) scrollChat(step);
+      }
+      return;
+    }
     if (request) {
       // Принимаем и русскую раскладку: «н» — та же физическая клавиша, что y.
       const answer = character.toLowerCase();
@@ -1328,39 +1595,141 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         props.approvalResolver.resolve("denied");
       return;
     }
+    // Ctrl+O — транскрипт-пейджер как у Claude (j/k, g/G, {/}, /, n/N).
+    if (key.ctrl && (character === "o" || character === "O")) {
+      if (!settings && !skillsOpen && !restartingSetup) {
+        if (transcriptOpen) {
+          setTranscriptOpen(false);
+        } else {
+          setTSearching(false);
+          setTQuery("");
+          setTMatchIdx(0);
+          setTTop(null);
+          setTranscriptOpen(true);
+        }
+      }
+      return;
+    }
+    if (transcriptOpen) {
+      const currentItem = Math.max(
+        0,
+        pagerMetrics.current.itemTops.reduce(
+          (found, row, index) =>
+            row <= pagerMetrics.current.top ? index : found,
+          0,
+        ),
+      );
+      const matches = tQuery.trim()
+        ? searchMatchIndices(transcript, tQuery)
+        : [];
+      // Режим ввода запроса поиска после `/`.
+      if (tSearching) {
+        if (key.escape) {
+          setTSearching(false);
+          setTQuery("");
+          setTMatchIdx(0);
+          return;
+        }
+        if (key.return) {
+          setTSearching(false);
+          setTMatchIdx(0);
+          const first = matches[0];
+          if (first !== undefined) jumpToItem(first);
+          return;
+        }
+        if (key.backspace) {
+          setTQuery((query) => query.slice(0, -1));
+          return;
+        }
+        if (!key.ctrl && !key.meta && character) {
+          setTQuery((query) => (query + character).slice(0, 120));
+          return;
+        }
+        return;
+      }
+      if (character === "q" || character === "й" || key.escape) {
+        setTranscriptOpen(false);
+        return;
+      }
+      if (character === "j" || key.downArrow) {
+        scrollPager(1);
+        return;
+      }
+      if (character === "k" || key.upArrow) {
+        scrollPager(-1);
+        return;
+      }
+      if (key.pageUp) {
+        scrollPager(-scrollPageStep(rows));
+        return;
+      }
+      if (key.pageDown) {
+        scrollPager(scrollPageStep(rows));
+        return;
+      }
+      if (character === "g" || key.home) {
+        setTTop(0);
+        return;
+      }
+      if (character === "G" || key.end) {
+        setTTop(null);
+        return;
+      }
+      if (key.ctrl && (character === "u" || character === "U")) {
+        scrollPager(-10);
+        return;
+      }
+      if (key.ctrl && (character === "d" || character === "D")) {
+        scrollPager(10);
+        return;
+      }
+      if (character === "{") {
+        jumpToItem(prevPromptIndex(transcript, currentItem));
+        return;
+      }
+      if (character === "}") {
+        jumpToItem(nextPromptIndex(transcript, currentItem));
+        return;
+      }
+      if (character === "/") {
+        setTSearching(true);
+        setTQuery("");
+        setTMatchIdx(0);
+        return;
+      }
+      if ((character === "n" || character === "N") && matches.length > 0) {
+        const step = character === "n" ? 1 : -1;
+        const next = (tMatchIdx + step + matches.length) % matches.length;
+        setTMatchIdx(next);
+        const lineIndex = matches[next];
+        if (lineIndex !== undefined) jumpToItem(lineIndex);
+        return;
+      }
+      return;
+    }
     if (settings || skillsOpen || restartingSetup) return;
-    // Внутренний скролл ленты как в Claude fullscreen: PgUp/PgDn —
-    // пол-экрана, Ctrl+U/D — ±10 строк, Home — верх, End — низ.
-    // Вверх ставит follow на паузу (новые строки копятся в пилюлю),
-    // End и ввод внизу возвращают к живому краю.
-    // Ввод разрешён и во время работы агента: Enter встаёт в очередь
-    // как в Claude Code. Выход работает даже пока агент думает.
-    if (key.pageUp) {
-      setHideNewest((hidden) =>
-        applyHideDelta(hidden, scrollPageStep(rows), transcript.length),
-      );
+    if (!classic && key.pageUp) {
+      scrollChat(-scrollPageStep(rows));
       return;
     }
-    if (key.pageDown) {
-      setHideNewest((hidden) =>
-        applyHideDelta(hidden, -scrollPageStep(rows), transcript.length),
-      );
+    if (!classic && key.pageDown) {
+      scrollChat(scrollPageStep(rows));
       return;
     }
-    if (key.home) {
-      setHideNewest(transcript.length);
+    if (!classic && key.home) {
+      setScrollTop(0);
       return;
     }
-    if (key.end) {
-      setHideNewest(0);
+    if (!classic && key.end) {
+      setScrollTop(null);
       return;
     }
-    if (key.ctrl && (character === "u" || character === "U")) {
-      setHideNewest((hidden) => applyHideDelta(hidden, 10, transcript.length));
+    if (!classic && key.ctrl && character.toLowerCase() === "u") {
+      scrollChat(-10);
       return;
     }
-    if (key.ctrl && (character === "d" || character === "D")) {
-      setHideNewest((hidden) => applyHideDelta(hidden, -10, transcript.length));
+    if (!classic && key.ctrl && character.toLowerCase() === "d") {
+      scrollChat(10);
       return;
     }
     if (key.ctrl && character === "c") {
@@ -1514,6 +1883,17 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       <Editor
         value={editor.value}
         cursor={editor.cursor}
+        maxRows={Math.max(
+          1,
+          Math.min(
+            6,
+            frameRows(rows) -
+              (suggestionRows.length ? suggestionRows.length + 3 : 0) -
+              (busy ? 1 : 0) -
+              (queued.length ? 1 : 0) -
+              7,
+          ),
+        )}
         suggestionRows={suggestionRows}
         selectedRow={selectedVisibleIndex}
         columns={columns}
@@ -1529,71 +1909,70 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     </>
   );
 
-  // Fullscreen как у Claude: фиксированный вьюпорт высотой в окно.
-  // Шапка закреплена сверху, лента — срезом с привязкой к низу
-  // (overflow hidden + justifyContent flex-end), ввод зафиксирован снизу.
-  // Без <Static>: в alt-screen он толкает живую зону и провоцирует
-  // полный clear каждый кадр.
-  const { visible: visibleLines, hiddenNew } = sliceTranscript(
-    transcript,
-    hideNewest,
-  );
-  return (
-    <Box flexDirection="column" width={columns} height={rows}>
-      <AltHeader
-        model={runtime.model}
-        cwd={projectCwd}
-        version={props.version}
-      />
-      <Box
-        flexDirection="column"
-        flexGrow={1}
-        overflow="hidden"
-        width="100%"
-        justifyContent="flex-end"
-      >
-        {visibleLines.map((line) => (
-          <TranscriptLineView key={line.id} line={line} columns={columns} />
-        ))}
-        {streaming && hiddenNew === 0 ? (
-          <TranscriptLineView line={streaming} columns={columns} />
-        ) : null}
+  // Классика legacy conhost: Static дописывается в scrollback, динамическая
+  // зона (стриминг + панели/ввод) перерисовывается на месте маленьким куском.
+  // Ни одного clear, ни одного стирания истории — мерцать и рваться нечему.
+  if (classic && !transcriptOpen) {
+    return (
+      <Box flexDirection="column" width="100%">
+        <Static items={transcript}>
+          {(line) => (
+            <TranscriptLineView key={line.id} line={line} columns={columns} />
+          )}
+        </Static>
+        <Box flexDirection="column" width="100%">
+          {streaming ? (
+            <TranscriptLineView line={streaming} columns={columns} />
+          ) : null}
+          {panel ?? footer}
+        </Box>
       </Box>
-      {hiddenNew > 0 ? (
+    );
+  }
+
+  const feed = streaming ? [...transcript, streaming] : transcript;
+  const items = feed.map((line) => ({
+    id: line.id,
+    content: <MemoTranscriptLineView line={line} columns={columns} />,
+  }));
+  if (transcriptOpen) {
+    const matches = tQuery.trim() ? searchMatchIndices(transcript, tQuery) : [];
+    const overlayFrame = frameRows(rows);
+    return (
+      <Box flexDirection="column" width={columns} height={overlayFrame}>
         <Box width="100%" flexShrink={0}>
-          <Text dimColor wrap="truncate-end">
-            ↑ {hiddenNew} новых · End — вниз
+          <Text bold wrap="truncate-end">
+            Транскрипт · {transcript.length} строк · Ctrl+O/q — назад
           </Text>
         </Box>
-      ) : null}
-      <Box flexDirection="column" width="100%" flexShrink={0}>
+        <ScrollViewport items={items} top={tTop} metrics={pagerMetrics} />
+        <Box flexDirection="column" width="100%" flexShrink={0}>
+          {tSearching ? (
+            <Text wrap="truncate-end">/{tQuery}█</Text>
+          ) : tQuery.trim() ? (
+            <Text dimColor wrap="truncate-end">
+              /{tQuery} · {matches.length} совп. · n/N — далее
+            </Text>
+          ) : null}
+          <Text dimColor wrap="truncate-end">
+            {"j/k — строки · g/G — верх/низ · {/} — промпты · / — поиск"}
+          </Text>
+        </Box>
+      </Box>
+    );
+  }
+  return (
+    <Box flexDirection="column" width={columns} height={frameRows(rows)}>
+      <ScrollViewport items={items} top={scrollTop} metrics={chatMetrics} />
+      <Box
+        flexDirection="column"
+        width="100%"
+        flexShrink={0}
+        maxHeight={frameRows(rows) - 1}
+        overflow="hidden"
+      >
         {panel ?? footer}
       </Box>
-    </Box>
-  );
-}
-
-/**
- * Закреплённая шапка fullscreen-режима как у Claude Code: видна всегда,
- * никуда не уплывает. 2 строки: заголовок + скролл-подсказка.
- */
-function AltHeader({
-  model,
-  cwd,
-  version,
-}: {
-  model: string;
-  cwd: string;
-  version?: string;
-}): React.JSX.Element {
-  return (
-    <Box flexDirection="column" width="100%" flexShrink={0}>
-      <Text bold wrap="truncate-end">
-        {formatHeaderTitle({ model, cwd, version })}
-      </Text>
-      <Text dimColor wrap="truncate-end">
-        PgUp/PgDn — скролл · Home/End — верх/низ · /help — команды
-      </Text>
     </Box>
   );
 }
@@ -1614,7 +1993,11 @@ export function shortenHome(path: string): string {
   return path;
 }
 
-function TranscriptLineView({
+/**
+ * Одна строка ленты. Экспортирована для тестов точности сметы:
+ * estimateLineRows обязана совпадать с реальной высотой рендера.
+ */
+export function TranscriptLineView({
   line,
   columns,
 }: {
@@ -1738,6 +2121,8 @@ function TranscriptLineView({
     </Box>
   );
 }
+const MemoTranscriptLineView = memo(TranscriptLineView);
+
 /** Цвет искры тул-линии по первому слову сводки (там имя инструмента). */
 function toolToneFromSummary(summary: string): ToolTone {
   const first = summary.split(/\s/, 1)[0] ?? "";
@@ -1804,6 +2189,7 @@ function Editor({
   suggestionRows,
   selectedRow,
   columns,
+  maxRows,
 }: {
   value: string;
   cursor: number;
@@ -1812,6 +2198,7 @@ function Editor({
   /** Индекс подсвеченной строки в suggestionRows. */
   selectedRow: number;
   columns: number;
+  maxRows: number;
 }): React.JSX.Element {
   void columns;
   return (
@@ -1847,14 +2234,7 @@ function Editor({
         flexShrink={0}
       >
         {value ? (
-          <Box width="100%">
-            <Text wrap="wrap">
-              <Text bold color="green">
-                ❯{" "}
-              </Text>
-              {renderWithCursor(value, cursor)}
-            </Text>
-          </Box>
+          <EditorText value={value} cursor={cursor} maxRows={maxRows} />
         ) : (
           <Text dimColor wrap="truncate-end">
             <Text bold color="green">
@@ -1865,6 +2245,50 @@ function Editor({
         )}
       </Box>
       <HotkeysHint />
+    </Box>
+  );
+}
+
+/** Measure both the full draft and cursor prefix, keeping the cursor in view. */
+function EditorText({
+  value,
+  cursor,
+  maxRows,
+}: {
+  value: string;
+  cursor: number;
+  maxRows: number;
+}): React.JSX.Element {
+  const body = useRef<DOMElement>(null);
+  const prefix = useRef<DOMElement>(null);
+  const bodySize = useBoxMetrics(body);
+  const prefixSize = useBoxMetrics(prefix);
+  const height = Math.max(1, Math.min(maxRows, bodySize.height));
+  const offset = Math.max(
+    0,
+    Math.min(bodySize.height - height, prefixSize.height - height),
+  );
+  return (
+    <Box width="100%" height={height} overflow="hidden">
+      <Box
+        ref={body}
+        position="absolute"
+        top={-offset}
+        width="100%"
+        flexShrink={0}
+      >
+        <Text wrap="wrap">
+          <Text bold color="green">
+            ❯{" "}
+          </Text>
+          {renderWithCursor(value, cursor)}
+        </Text>
+      </Box>
+      <Box position="absolute" width="100%" height={0} overflow="hidden">
+        <Box ref={prefix} width="100%" flexShrink={0} alignSelf="flex-start">
+          <Text wrap="wrap">{`❯ ${value.slice(0, cursor)}█`}</Text>
+        </Box>
+      </Box>
     </Box>
   );
 }
