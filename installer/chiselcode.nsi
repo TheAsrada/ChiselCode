@@ -9,10 +9,9 @@
 ; NOTE: makensis resolves relative paths against the script directory
 ; (installer/), not the current working directory.
 ;
-; Brand assets live in installer\assets: logo-source.png is the original
-; artwork, logo.png is the same with transparent background, icon.ico
-; (16/32/48/256) is built from it by installer\assets\make-logo.ps1.
-; header.bmp/welcome.bmp (dark TUI theme) come from generate-assets.ps1.
+; Brand assets live in installer\assets. The installer uses generated photo
+; artwork (welcome-source.png), converted to a high-resolution 24-bit BMP.
+; No decorative drawing scripts run during packaging; see assets\README.md.
 ; Silent update (/S, used by the in-app `/update` command): no pages,
 ; installs quietly and relaunches the app if it was already installed.
 
@@ -45,9 +44,10 @@ Unicode true
 ManifestDPIAware true
 SetCompressor /SOLID lzma
 BrandingText "${APPNAME} ${VERSION}"
+SetFont "Segoe UI" 9
 
-Icon "assets\${ICONFILE}"
-UninstallIcon "assets\${ICONFILE}"
+!define MUI_ICON "assets\${ICONFILE}"
+!define MUI_UNICON "assets\${ICONFILE}"
 
 VIProductVersion "${VERSION_NUMERIC}"
 VIAddVersionKey "ProductName" "${APPNAME}"
@@ -56,21 +56,25 @@ VIAddVersionKey "LegalCopyright" "MIT"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 
-; Modern look: custom header + welcome art instead of stock gray bitmaps.
-!define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "assets\header.bmp"
+; Quiet native pages with a photographic welcome/finish panel.
+!define MUI_TEXTCOLOR "172033"
+!define MUI_BGCOLOR "FFFFFF"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "assets\welcome.bmp"
+!define MUI_WELCOMEFINISHPAGE_BITMAP_STRETCH "FitControl"
 
 !define MUI_ABORTWARNING
 !define MUI_UNABORTWARNING
 
-!define MUI_WELCOMEPAGE_TITLE "Установка ${APPNAME} ${VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "Мастер установит ${APPNAME} — безопасного помощника для работы с кодом.$\r$\n$\r$\nБудет добавлена команда chisel в PATH и ярлык в меню «Пуск». Права администратора не нужны.$\r$\n$\r$\nНажмите «Далее», чтобы продолжить."
+!define MUI_WELCOMEPAGE_TITLE "Ваш код.$\r$\nТочнее с ${APPNAME}."
+!define MUI_WELCOMEPAGE_TEXT "Помощник, который читает проект, объясняет код и помогает вносить изменения.$\r$\n$\r$\nУстановка для вашей учётной записи — без прав администратора.$\r$\n$\r$\nДобавим команду chisel в терминал и ярлык в меню «Пуск».$\r$\n$\r$\nПри первом запуске выберите провайдера и модель."
 
+!define MUI_FINISHPAGE_TITLE "${APPNAME} готов к работе"
+!define MUI_FINISHPAGE_TEXT "Откройте новый терминал в папке проекта и выполните команду chisel.$\r$\n$\r$\nПри первом запуске приложение поможет настроить подключение к выбранной модели."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXENAME}"
 !define MUI_FINISHPAGE_RUN_TEXT "Запустить ${APPNAME}"
 !define MUI_FINISHPAGE_LINK "Что нового в этом релизе"
 !define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/TheAsrada/ChiselCode/releases"
+!define MUI_FINISHPAGE_LINK_COLOR "245FCB"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "..\LICENSE"

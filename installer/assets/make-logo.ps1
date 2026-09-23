@@ -211,7 +211,7 @@ try {
   $logo.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
   "logo.png ok ($($logo.Width)x$($logo.Height))"
 
-  # --- icon.ico: классический BMP-пейлоад (как в generate-assets.ps1) ---
+  # --- icon.ico: классический BMP-пейлоад ---
   # Все размеры — из фотки логотипа (даунскейз); никакой рисованной
   # графики. Маленьким (16/32/48) — лёгкий unsharp после ресайза,
   # чтобы долото и скобки не мылились: это та же фотка, только чётче.

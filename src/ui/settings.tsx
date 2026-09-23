@@ -137,6 +137,8 @@ export function SettingsPanel({
   onListModels,
 }: SettingsPanelProps): React.JSX.Element {
   const [values, setValues] = useState(initialValues);
+  const quickModel = initialScreen === "model";
+  const savingRef = useRef(false);
   const [screen, setScreen] = useState<Screen>(initialScreen);
   // Состояние выбора модели из API: фильтр, подсветка, ручной режим.
   const [modelFilter, setModelFilter] = useState("");
@@ -289,7 +291,7 @@ export function SettingsPanel({
       return;
     }
     if (key.escape) {
-      if (screen === "menu") onClose();
+      if (screen === "menu" || quickModel) onClose();
       else goScreen("menu");
       return;
     }
@@ -372,9 +374,7 @@ export function SettingsPanel({
         // Поиск ничего не дал — набранное сразу становится своей моделью.
         if (filteredModels.length === 0 && modelFilter.trim()) {
           const custom = modelFilter.trim();
-          setValues((current) => ({ ...current, model: custom }));
-          setNotice("");
-          goScreen("menu");
+          selectModel(custom);
           return;
         }
         // Последняя строка — переход к ручному вводу, иначе выбор модели.
@@ -385,9 +385,7 @@ export function SettingsPanel({
         }
         const picked = filteredModels[safeModelIndex];
         if (!picked) return;
-        setValues((current) => ({ ...current, model: picked.id }));
-        setNotice("");
-        goScreen("menu");
+        selectModel(picked.id);
         return;
       }
       if (!key.ctrl && !key.meta && character) {
@@ -411,7 +409,7 @@ export function SettingsPanel({
         return;
       }
       if (key.return) {
-        goScreen("menu");
+        selectModel(values.model);
         return;
       }
       if (!key.ctrl && !key.meta && character) {
@@ -451,7 +449,26 @@ export function SettingsPanel({
     }
   });
 
-  async function save(): Promise<void> {
+  function selectModel(model: string): void {
+    const next = { ...values, model: model.trim() };
+    setValues(next);
+    setNotice("");
+    if (quickModel) void save(next);
+    else goScreen("menu");
+  }
+
+  async function save(valuesToSave = values): Promise<void> {
+    if (savingRef.current) return;
+    const values = {
+      ...valuesToSave,
+      model: valuesToSave.model.trim(),
+      apiKey: valuesToSave.apiKey?.trim() || undefined,
+      baseUrl:
+        normalizeBaseUrlForProvider(
+          valuesToSave.provider,
+          valuesToSave.baseUrl?.trim(),
+        ) || undefined,
+    };
     if (!values.model.trim()) {
       setError("Введите название модели.");
       return;
@@ -466,31 +483,22 @@ export function SettingsPanel({
     setError("");
     setNotice("");
     setScreen("saving");
+    savingRef.current = true;
     try {
-      if (
-        (await onSave({
-          ...values,
-          model: values.model.trim(),
-          apiKey: values.apiKey?.trim() || undefined,
-          baseUrl:
-            normalizeBaseUrlForProvider(
-              values.provider,
-              values.baseUrl?.trim(),
-            ) || undefined,
-        })) === "setup_required"
-      )
-        onSetupRequested();
+      if ((await onSave(values)) === "setup_required") onSetupRequested();
       else {
         onSaved(values);
         onClose();
       }
     } catch (cause) {
-      setScreen("menu");
+      setScreen(quickModel ? "model" : "menu");
       setError(
         cause instanceof Error
           ? cause.message
           : "Не удалось сохранить настройки.",
       );
+    } finally {
+      savingRef.current = false;
     }
   }
 
@@ -529,7 +537,7 @@ export function SettingsPanel({
     >
       <Box>
         <Text bold color="cyan">
-          ◈ Настройки
+          {quickModel ? "◈ Выбор модели" : "◈ Настройки"}
         </Text>
       </Box>
       {screen === "menu" ? (
@@ -651,19 +659,27 @@ export function SettingsPanel({
       <Text dimColor>
         {screen === "menu"
           ? "↑/↓ — выбор · Enter — открыть · Esc — закрыть"
-          : screen === "provider"
-            ? "↑/↓ — выбор · Enter — выбрать · Esc — назад"
-            : screen === "key"
-              ? "Печать · Enter — готово · Esc — назад · пусто — оставить"
-              : screen === "model" && !modelManual && onListModels
-                ? modelOptions
-                  ? "↑/↓ — выбор · Enter — выбрать · Esc — назад · печать — поиск"
-                  : "Подождите…"
-                : screen === "model" && modelManual && modelOptions
-                  ? "Печать · Enter — готово · Esc — к списку"
-                  : screen === "model" || screen === "base-url"
-                    ? "Печать · Enter — готово · Esc — назад"
-                    : "Подождите…"}
+          : screen === "model" && quickModel
+            ? modelLoading
+              ? "Подождите…"
+              : hasModelOptions
+                ? "↑/↓ — выбор · Enter — применить · Esc — закрыть · печать — поиск"
+                : modelOptions
+                  ? "Печать · Enter — применить · Esc — к списку"
+                  : "Печать · Enter — применить · Esc — закрыть"
+            : screen === "provider"
+              ? "↑/↓ — выбор · Enter — выбрать · Esc — назад"
+              : screen === "key"
+                ? "Печать · Enter — готово · Esc — назад · пусто — оставить"
+                : screen === "model" && !modelManual && onListModels
+                  ? modelOptions
+                    ? "↑/↓ — выбор · Enter — выбрать · Esc — назад · печать — поиск"
+                    : "Подождите…"
+                  : screen === "model" && modelManual && modelOptions
+                    ? "Печать · Enter — готово · Esc — к списку"
+                    : screen === "model" || screen === "base-url"
+                      ? "Печать · Enter — готово · Esc — назад"
+                      : "Подождите…"}
       </Text>
       {error ? <Text color="red">✗ {error}</Text> : null}
       {notice ? <Text color="green">✓ {notice}</Text> : null}

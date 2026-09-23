@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import React from "react";
+import type { TuiSettingsValues } from "../../src/ui/settings.js";
 import type { SetupValues } from "../../src/ui/setup.js";
 import {
   createTuiApprovalResolver,
@@ -313,6 +314,7 @@ describe("settings restart setup", () => {
     stdout.on("data", (chunk) => {
       output += chunk.toString();
     });
+    const saved: TuiSettingsValues[] = [];
     const resolver = createTuiApprovalResolver();
     const instance = render(
       React.createElement(TuiApp, {
@@ -321,7 +323,10 @@ describe("settings restart setup", () => {
         onSubmit: async () => {},
         onStatus: async () => "status",
         onSwitchProject: async (path: string) => path,
-        onSaveSettings: async () => "saved" as const,
+        onSaveSettings: async (values: TuiSettingsValues) => {
+          saved.push(values);
+          return "saved" as const;
+        },
         onCheckConnection: async () => "ok",
         onListModels: async () => ({
           ok: true as const,
@@ -351,12 +356,21 @@ describe("settings restart setup", () => {
       // Список из API виден (текущей нет — по алфавиту: a, b).
       expect(stripAnsi(output)).toContain("a-model");
       expect(stripAnsi(output)).toContain("b-model");
-      // ↓ до b-model + Enter — выбор, возврат в меню с новой моделью.
+      // Enter сразу сохраняет модель и возвращает в чат.
       stdin.write("\x1b[B");
       await tick(150);
+      output = "";
       stdin.write("\r");
       await tick(300);
-      expect(stripAnsi(output)).toContain("✎ Модель: b-model");
+      expect(saved).toHaveLength(1);
+      expect(saved[0]?.model).toBe("b-model");
+      const frame = stripAnsi(output);
+      expect(frame).toContain("b-model ·");
+      expect(frame).toContain("Спросите что-нибудь");
+      expect(frame).not.toContain("Сохранить и применить");
+      expect(frame.lastIndexOf("b-model ·")).toBeGreaterThan(
+        frame.lastIndexOf("test-model ·"),
+      );
     } finally {
       instance.unmount();
     }
@@ -369,6 +383,7 @@ describe("settings restart setup", () => {
     stdout.on("data", (chunk) => {
       output += chunk.toString();
     });
+    const saved: TuiSettingsValues[] = [];
     const resolver = createTuiApprovalResolver();
     const instance = render(
       React.createElement(TuiApp, {
@@ -377,7 +392,10 @@ describe("settings restart setup", () => {
         onSubmit: async () => {},
         onStatus: async () => "status",
         onSwitchProject: async (path: string) => path,
-        onSaveSettings: async () => "saved" as const,
+        onSaveSettings: async (values: TuiSettingsValues) => {
+          saved.push(values);
+          return "saved" as const;
+        },
         onCheckConnection: async () => "ok",
         onListModels: async () => ({
           ok: false as const,
@@ -412,11 +430,99 @@ describe("settings restart setup", () => {
         await tick(20);
       }
       await tick(150);
+      output = "";
       stdin.write("\r");
       await tick(300);
-      expect(stripAnsi(output)).toContain("✎ Модель: test-model-2");
+      expect(saved).toHaveLength(1);
+      expect(saved[0]?.model).toBe("test-model-2");
+      expect(stripAnsi(output)).toContain("test-model-2 ·");
+      expect(stripAnsi(output)).toContain("Спросите что-нибудь");
+      expect(stripAnsi(output)).not.toContain("Сохранить и применить");
     } finally {
       instance.unmount();
     }
   });
 });
+
+for (const scenario of ["custom", "retry", "cancel"] as const) {
+  test(`/model ${scenario} preserves immediate-apply behavior`, async () => {
+    const stdout = createMockStdout(40, 30);
+    const stdin = createMockStdin();
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    const saved: TuiSettingsValues[] = [];
+    let fail = scenario === "retry";
+    const instance = render(
+      React.createElement(TuiApp, {
+        approvalResolver: createTuiApprovalResolver(),
+        bindTranscript: () => {},
+        onSubmit: async () => {},
+        onStatus: async () => "status",
+        onSwitchProject: async (path: string) => path,
+        onSaveSettings: async (values: TuiSettingsValues) => {
+          if (fail) throw new Error("save-failed");
+          saved.push(values);
+          return "saved" as const;
+        },
+        onCheckConnection: async () => "ok",
+        onListModels: async () => ({
+          ok: true as const,
+          models: [{ id: "new-model" }],
+        }),
+        onCompleteSetup: async () => {},
+        provider: "anthropic",
+        providerLabel: "Anthropic",
+        model: "old-model",
+      }),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        exitOnCtrlC: false,
+        patchConsole: false,
+        debug: true,
+      },
+    );
+    try {
+      await tick();
+      for (const ch of "/model") {
+        stdin.write(ch);
+        await tick(20);
+      }
+      stdin.write("\r");
+      await tick(300);
+      if (scenario === "custom") {
+        for (const ch of "custom-model") {
+          stdin.write(ch);
+          await tick(20);
+        }
+      }
+      output = "";
+      stdin.write(scenario === "cancel" ? "\x1b" : "\r");
+      await tick(300);
+      if (scenario === "retry") {
+        expect(saved).toHaveLength(0);
+        expect(stripAnsi(output)).toContain("save-failed");
+        expect(stripAnsi(output)).not.toContain("Сохранить и применить");
+        fail = false;
+        output = "";
+        stdin.write("\r");
+        await tick(300);
+      }
+      if (scenario === "cancel") {
+        expect(saved).toHaveLength(0);
+        expect(stripAnsi(output)).toContain("old-model");
+      } else {
+        expect(saved).toHaveLength(1);
+        const expected = scenario === "custom" ? "custom-model" : "new-model";
+        expect(saved[0]?.model).toBe(expected);
+        expect(stripAnsi(output)).toContain(`ChiselCode · ${expected}`);
+      }
+      expect(stripAnsi(output)).toContain("Спросите что-нибудь");
+      expect(stripAnsi(output)).not.toContain("Сохранить и применить");
+    } finally {
+      instance.unmount();
+    }
+  });
+}

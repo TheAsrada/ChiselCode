@@ -90,6 +90,7 @@ export interface TuiTranscriptLine {
   id: number;
   text: string;
   tone?: TranscriptTone;
+  header?: "title" | "meta";
 }
 export interface TuiTranscript {
   append(line: string, tone?: TranscriptTone): void;
@@ -919,6 +920,7 @@ export function buildWelcomeLines(
         version: input.version,
       }),
       tone: "info",
+      header: "title",
     });
   }
   lines.push({
@@ -929,6 +931,7 @@ export function buildWelcomeLines(
       version: input.version,
     }),
     tone: "dim",
+    header: "meta",
   });
   lines.push({
     id: nextId(),
@@ -988,6 +991,26 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       () => nextTranscriptId.current++,
     ),
   );
+  useEffect(() => {
+    const meta = {
+      model: runtime.model,
+      cwd: projectCwd,
+      version: props.version,
+    };
+    setTranscript((lines) =>
+      lines.map((line) =>
+        line.header
+          ? {
+              ...line,
+              text:
+                line.header === "title"
+                  ? formatHeaderTitle(meta)
+                  : formatHeaderMeta(meta),
+            }
+          : line,
+      ),
+    );
+  }, [runtime.model, projectCwd, props.version]);
   // Незавершённый стриминговый ответ живёт отдельно от истории:
   // по завершении коммитится в ленту одной записью (см. wasBusy ниже).
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
