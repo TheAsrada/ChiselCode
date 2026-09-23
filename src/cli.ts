@@ -47,6 +47,7 @@ import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
 import { SGR_DISABLE, SGR_ENABLE, shouldEnableMouse } from "./ui/mouse.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
+import { createTerminalCursorGuard } from "./ui/terminal-cursor.js";
 import {
   formatDoneSummary,
   formatStatusDashboard,
@@ -486,6 +487,7 @@ async function startTui(options: RunOptions): Promise<void> {
   // native terminal scrollback cannot move the footer or scroll into empty rows.
   // Explicit opt-out: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1.
   const useAltScreen = shouldUseAltScreen(process.env);
+  const terminalCursor = await createTerminalCursorGuard(useAltScreen);
   // SGR-захват мыши живёт шире render-блока: гасим его в finally
   // у waitUntilExit (иначе шелл после нас получал бы SGR-мусор).
   let mouseOn = false;
@@ -753,6 +755,9 @@ async function startTui(options: RunOptions): Promise<void> {
       // В классике флага нет — обычный буфер, история остаётся в окне.
       { alternateScreen: useAltScreen },
     );
+    // Ink hides the VT cursor. In legacy Windows consoles also hide the
+    // native cursor, which otherwise blinks below the pinned input.
+    terminalCursor.hide();
     // SGR-захват мыши ПОСЛЕ входа в alt-screen (Ink включает его синхронно
     // в конструкторе): порядок важен, иначе режимы сбросятся переключением
     // буфера. Выключаем строго наоборот (1006→1000) в finally ниже.
@@ -768,6 +773,7 @@ async function startTui(options: RunOptions): Promise<void> {
       }
     }
   } catch {
+    terminalCursor.restore();
     // Ink требует raw mode терминала. В урезанных консолях Windows
     // (двойной клик, старый conhost) render() бросает исключение —
     // переключаемся на простой построчный режим, чтобы окно не мигало и не закрывалось.
@@ -797,6 +803,7 @@ async function startTui(options: RunOptions): Promise<void> {
         // Best effort if stdout has already closed.
       }
     }
+    terminalCursor.restore();
   }
   if (failed) await startTuiFallback(options);
 }
