@@ -273,7 +273,7 @@ describe("alt-screen header", () => {
     expect(frameRows(Number.NaN)).toBe(23);
   });
 
-  test("legacy conhost falls back to classic, modern terminals go alt-screen", () => {
+  test("fullscreen is the default even without terminal environment markers", () => {
     // Ручные overrides бьют всё.
     expect(shouldUseAltScreen({ CHISEL_ALT_SCREEN: "0" }, "win32")).toBe(false);
     expect(shouldUseAltScreen({ CHISEL_NO_ALT_SCREEN: "1" }, "win32")).toBe(
@@ -283,8 +283,8 @@ describe("alt-screen header", () => {
     // Вне Windows — всегда alt-screen.
     expect(shouldUseAltScreen({}, "linux")).toBe(true);
     expect(shouldUseAltScreen({}, "darwin")).toBe(true);
-    // Windows: только современные терминалы, голый conhost — классика.
-    expect(shouldUseAltScreen({}, "win32")).toBe(false);
+    // Shortcut/cmd launches must keep the same pinned input as Windows Terminal.
+    expect(shouldUseAltScreen({}, "win32")).toBe(true);
     expect(shouldUseAltScreen({ WT_SESSION: "abc" }, "win32")).toBe(true);
     expect(shouldUseAltScreen({ TERM_PROGRAM: "vscode" }, "win32")).toBe(true);
     expect(shouldUseAltScreen({ WEZTERM_EXECUTABLE: "/w" }, "win32")).toBe(

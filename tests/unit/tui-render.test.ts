@@ -8,6 +8,7 @@ import React from "react";
 import { LOGO_WIDTH, renderLogoRows } from "../../src/ui/logo.js";
 import {
   createTuiApprovalResolver,
+  shouldUseAltScreen,
   TuiApp,
   type TuiTranscript,
 } from "../../src/ui/tui.js";
@@ -149,6 +150,63 @@ async function startApp(
 }
 
 describe("tui render", () => {
+  test("Windows shortcut defaults to pinned input with no scrolling beyond content", async () => {
+    const app = await startApp(80, 24, {
+      classic: !shouldUseAltScreen({}, "win32"),
+    });
+    const inputRow = () =>
+      app
+        .frame()
+        .split("\n")
+        .findIndex((row) => row.includes("Спросите что-нибудь"));
+    try {
+      const initial = app.frame();
+      const row = inputRow();
+      expect(row).toBe(19);
+      expect(app.frame().split("\n")[22]).toContain("test-model");
+      for (const key of [
+        "\x1b[<65;1;1M",
+        "\x1b[6~",
+        "\x1b[F",
+        "\x1b[<64;1;1M",
+      ]) {
+        app.stdin.write(key);
+        await tick(100);
+        expect(app.frame()).toBe(initial);
+      }
+      app.transcript?.appendToLast(
+        Array.from({ length: 70 }, (_, i) => `MESSAGE-${i}`).join("\n"),
+      );
+      await tick(200);
+      expect(app.frame()).toContain("MESSAGE-69");
+      expect(inputRow()).toBe(row);
+      const bottom = app.frame();
+      for (let i = 0; i < 6; i++) app.stdin.write("\x1b[<65;1;1M");
+      await tick(200);
+      expect(app.frame()).toBe(bottom);
+      app.stdin.write("\x1b[5~");
+      await tick(200);
+      expect(app.frame()).not.toContain("MESSAGE-69");
+      expect(inputRow()).toBe(row);
+      app.stdin.write("\x1b[F");
+      await tick(200);
+      expect(app.frame()).toBe(bottom);
+      app.transcript?.appendToLast("\nMESSAGE-70");
+      await tick(200);
+      expect(app.frame()).toContain("MESSAGE-70");
+      expect(inputRow()).toBe(row);
+      app.transcript?.clear();
+      await tick(200);
+      const empty = app.frame();
+      app.stdin.write("\x1b[6~");
+      await tick(100);
+      expect(app.frame()).toBe(empty);
+      expect(inputRow()).toBe(row);
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("a long response scrolls by terminal rows, including its tail", async () => {
     const app = await startApp(60, 20);
     const numbered = Array.from(

@@ -20,6 +20,9 @@ export function moveScroll(
   metrics: ScrollMetrics,
   delta: number,
 ): number | null {
+  // There is nowhere to scroll until content actually overflows. Do not pause
+  // following on a wheel-up event at startup, or future output would be hidden.
+  if (metrics.maxTop <= 0) return null;
   const top = Math.max(0, Math.min(metrics.maxTop, metrics.top + delta));
   return delta > 0 && top === metrics.maxTop ? null : top;
 }

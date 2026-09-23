@@ -191,30 +191,15 @@ export function frameRows(viewportRows: number): number {
 }
 
 /**
- * Alt-screen или классика (как разграничение у Codex #12457).
- * Legacy conhost на Windows рвёт перерисовку alt-буфера: stale-фрагменты
- * сверху, чёрные дыры, мерцание на каждый кадр. Там — только классика:
- * дописываемый Static без единого стирания ломаться нечему.
- * Современные терминалы определяются по переменным окружения:
- * Windows Terminal (WT_SESSION), WezTerm, TERM_PROGRAM (VSCode, mintty…),
- * ConEmu. Вне Windows alt-screen включён по умолчанию.
- * Ручные overrides: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1 — всегда
- * классика; CHISEL_FORCE_ALT=1 — всегда alt-screen.
- * Чистая функция для тестов.
+ * Fullscreen is the default, including Windows shortcut/cmd launches without
+ * WT_SESSION. Terminal-brand environment variables do not describe VT support.
+ * Classic scrollback is an explicit opt-out only.
  */
 export function shouldUseAltScreen(
   env: NodeJS.ProcessEnv,
-  platform: string = process.platform,
+  _platform: string = process.platform,
 ): boolean {
-  if (env.CHISEL_ALT_SCREEN === "0" || env.CHISEL_NO_ALT_SCREEN === "1")
-    return false;
-  if (env.CHISEL_FORCE_ALT === "1") return true;
-  if (platform !== "win32") return true;
-  if (env.WT_SESSION) return true;
-  if (env.WEZTERM_EXECUTABLE || env.WEZTERM_PANE) return true;
-  if (env.TERM_PROGRAM) return true;
-  if (env.ConEmuANSI === "ON") return true;
-  return false;
+  return env.CHISEL_ALT_SCREEN !== "0" && env.CHISEL_NO_ALT_SCREEN !== "1";
 }
 
 /**
@@ -896,8 +881,8 @@ export interface TuiAppProps {
    */
   cwd?: string;
   /**
-   * Классика (scrollback) для legacy conhost: лента в дописываемом Static
-   * без перерисовок, высота не фиксируется. Без флага — alt-screen.
+   * Явный выбор классического scrollback: лента в Static, высота не
+   * фиксируется. По умолчанию — fullscreen с закреплённым вводом.
    */
   classic?: boolean;
 }
@@ -974,8 +959,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   });
   const columns = viewportSize.columns;
   const rows = viewportSize.rows;
-  // Классика для legacy conhost: Static дописывается в scrollback,
-  // перерисовок нет — ломаться нечему (см. shouldUseAltScreen).
+  // Classic scrollback is only used when explicitly requested.
   const classic = props.classic ?? false;
   const [editor, setEditor] = useState(createEditorState);
   const [request, setRequest] = useState<ApprovalRequest>();
@@ -1909,9 +1893,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     </>
   );
 
-  // Классика legacy conhost: Static дописывается в scrollback, динамическая
+  // Явно выбранная классика: Static дописывается в scrollback, динамическая
   // зона (стриминг + панели/ввод) перерисовывается на месте маленьким куском.
-  // Ни одного clear, ни одного стирания истории — мерцать и рваться нечему.
   if (classic && !transcriptOpen) {
     return (
       <Box flexDirection="column" width="100%">

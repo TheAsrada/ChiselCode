@@ -481,16 +481,10 @@ async function startTui(options: RunOptions): Promise<void> {
   // Иначе Ink стартует с кэшированных 80x24 — ввод узкий посреди экрана,
   // а выравнивание приходит только после ввода текста.
   syncTerminalSizeToStdout();
-  // Fullscreen как у Claude Code (`/tui fullscreen`): отдельный буфер
-  // DEC 1049, шапка первым сообщением ленты, внутренний скролл,
-  // ввод зафиксирован снизу. Legacy conhost на Windows alt-screen рвёт
-  // (stale-фрагменты, мерцание) — там автоматически классика: scrollback
-  // с дописываемым Static, скролл и выделение нативные терминальные.
-  // Мышь SGR (1000+1006, только press+wheel, без motion): колесо скроллит
-  // ленту, скорость — CHISEL_SCROLL_SPEED (1..20, дефолт 3), Shift+колесо —
-  // рывок на пол-экрана. Нативное выделение при захвате — через Shift.
-  // Откаты: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1 — всегда классика;
-  // CHISEL_FORCE_ALT=1 — всегда alt-screen.
+  // Fullscreen is the default on every platform, including launches from a
+  // Windows shortcut without WT_SESSION. The input stays below a bounded feed;
+  // native terminal scrollback cannot move the footer or scroll into empty rows.
+  // Explicit opt-out: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1.
   const useAltScreen = shouldUseAltScreen(process.env);
   // SGR-захват мыши живёт шире render-блока: гасим его в finally
   // у waitUntilExit (иначе шелл после нас получал бы SGR-мусор).
