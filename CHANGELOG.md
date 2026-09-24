@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.27] - 2026-09-24
+
+### Added
+
+- Structured file diffs for `edit_file`, `write_file`, and `delete_file`: applied path, change kind, complete patch, and exact added/removed line counts.
+- Shared inline diff view in approvals and the transcript: old/new line numbers, green additions, red removals, hunk headers, and readable `NO_COLOR` output.
+- Scrollable approval previews with pinned accept/reject controls. Rendering is capped at 200 diff rows with an explicit hidden-line count; very long lines are bounded without truncating stored patches.
+- Session-only diff metadata restores file changes after `/resume` without adding UI data to provider requests. Older sessions remain compatible.
+
+### Fixed
+
+- Successful file edits now replace the temporary activity row with a reviewable diff result instead of disappearing from the transcript.
+- Identical-content edits and overwrites report no changes without adding a fictitious diff or undo entry.
+- Literal replacements containing `$&`, `$$`, or similar sequences are written exactly as requested.
+
 ## [0.5.26] - 2026-09-23
 
 ### Changed

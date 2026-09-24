@@ -37,12 +37,7 @@ import {
   resolveSessionRef,
   shortSessionId,
 } from "./sessions/store.js";
-import {
-  expandSkill,
-  invocableSkills,
-  loadSkills,
-  stripActiveSkillsBlock,
-} from "./skills/skills.js";
+import { expandSkill, invocableSkills, loadSkills } from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
 import { SGR_DISABLE, SGR_ENABLE, shouldEnableMouse } from "./ui/mouse.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
@@ -51,10 +46,13 @@ import { createTerminalCursorGuard } from "./ui/terminal-cursor.js";
 import {
   formatDoneSummary,
   formatStatusDashboard,
-  formatToolSummary,
   paint,
   supportsColor,
 } from "./ui/theme.js";
+import {
+  replaySessionIntoTranscript,
+  toolTranscriptHandlers,
+} from "./ui/tool-transcript.js";
 import {
   createTuiApprovalResolver,
   describeTerminalSize,
@@ -416,47 +414,6 @@ async function readSessionSummary(
   }
 }
 
-const REPLAY_MESSAGE_LIMIT = 30;
-
-/**
- * Показывает историю сессии в журнале TUI при /resume: тексты пользователя
- * и ассистента по порядку, вызовы инструментов — одной строкой. Чистые
- * tool_result без текста пропускаются, чтобы не шуметь. Блок задействованных
- * скиллов из сообщений пользователя вырезается — видна только сама задача.
- */
-function replaySessionIntoTranscript(
-  view: TuiTranscript,
-  session: Session,
-): void {
-  const tail = session.messages.slice(-REPLAY_MESSAGE_LIMIT);
-  if (session.messages.length > tail.length)
-    view.append(
-      `… показаны последние ${tail.length} из ${session.messages.length} сообщений сессии.`,
-      "info",
-    );
-  for (const message of tail) {
-    const texts = message.content
-      .filter((block) => block.type === "text")
-      .map((block) =>
-        message.role === "user"
-          ? stripActiveSkillsBlock(block.text).trim()
-          : block.text.trim(),
-      )
-      .filter(Boolean);
-    const tools = message.content.filter((block) => block.type === "tool_use");
-    if (message.role === "user") {
-      if (texts.length > 0) view.append(texts.join("\n"), "user");
-      continue;
-    }
-    if (texts.length > 0) view.append(texts.join("\n"), "assistant");
-    if (tools.length > 0)
-      view.append(
-        `[chisel] ${tools.map((tool) => tool.name).join(", ")}`,
-        "tool",
-      );
-  }
-}
-
 async function startTui(options: RunOptions): Promise<void> {
   const config = await loadGlobalConfig();
   const configuredProvider = options.provider ?? config.defaultProvider;
@@ -700,16 +657,7 @@ async function startTui(options: RunOptions): Promise<void> {
                   transcript?.appendToLast(text);
                   hasAnyText = true;
                 },
-                onToolStart: (name, input) => {
-                  transcript?.append(
-                    `[chisel] ${formatToolSummary(name, input)}`,
-                    "tool",
-                  );
-                },
-                onToolResult: (name, result) => {
-                  if (result.isError)
-                    transcript?.append(`✗ ${name}: ${result.output}`, "error");
-                },
+                ...toolTranscriptHandlers(() => transcript),
               },
             );
             // Сессия живёт между сообщениями: следующее продолжит эту же.

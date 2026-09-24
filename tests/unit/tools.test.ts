@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ApprovalRequest } from "../../src/security/approval.js";
 import { ApprovalGate } from "../../src/security/approval.js";
+import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import type { ProjectConfig, Session } from "../../src/types/domain.js";
 
@@ -49,6 +51,80 @@ afterEach(async () => {
 });
 
 describe("ToolRegistry", () => {
+  for (const scenario of [
+    "create",
+    "overwrite",
+    "edit",
+    "denied",
+    "noop",
+  ] as const) {
+    test(`structured diff ${scenario} keeps approval and undo consistent`, async () => {
+      const root = await mkdtemp(join(tmpdir(), "chiselcode-"));
+      paths.push(root);
+      const current = session(root);
+      const requests: ApprovalRequest[] = [];
+      const gate = new ApprovalGate(
+        config,
+        {
+          autoApprove: false,
+          allowedTools: new Set(),
+          nonInteractive: false,
+        },
+        {
+          async requestApproval(request) {
+            requests.push(request);
+            if (scenario !== "create")
+              expect(await readFile(join(root, "file.txt"), "utf8")).toBe(
+                "old\nkeep\n",
+              );
+            return scenario === "denied" ? "denied" : "approved";
+          },
+        },
+      );
+      const tools = new ToolRegistry(root, [], gate, current);
+      const before = scenario === "create" ? null : "old\nkeep\n";
+      if (before !== null) {
+        await writeFile(join(root, "file.txt"), before);
+        await tools.execute("read_file", { path: "file.txt" });
+      }
+      const after = scenario === "noop" ? (before ?? "") : "$&\nnew\nkeep\n";
+      const result =
+        scenario === "edit" || scenario === "noop"
+          ? await tools.execute("edit_file", {
+              path: "file.txt",
+              old_str: before,
+              new_str: after,
+            })
+          : await tools.execute("write_file", {
+              path: "file.txt",
+              content: after,
+            });
+      if (scenario === "noop") {
+        expect(result.output).toContain("No changes");
+        expect(result.fileDiff).toBeUndefined();
+        expect(requests).toHaveLength(0);
+        expect(current.undoStack).toHaveLength(0);
+      } else {
+        const expected = buildFileDiff("file.txt", before, after);
+        expect(requests[0]?.fileDiff).toEqual(expected);
+        expect(requests[0]?.preview).toBe(expected.patch);
+        if (scenario === "denied") {
+          expect(result.isError).toBe(true);
+          expect(result.fileDiff).toBeUndefined();
+          expect(current.undoStack).toHaveLength(0);
+          expect(await readFile(join(root, "file.txt"), "utf8")).toBe(
+            before ?? "",
+          );
+        } else {
+          expect(result.fileDiff).toEqual(expected);
+          expect(result.isError).not.toBe(true);
+          expect(await readFile(join(root, "file.txt"), "utf8")).toBe(after);
+          expect(current.undoStack).toHaveLength(1);
+          expect(current.undoStack[0]).toMatchObject({ before, after });
+        }
+      }
+    });
+  }
   test("blocks writes to an existing unread file", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-"));
     paths.push(root);

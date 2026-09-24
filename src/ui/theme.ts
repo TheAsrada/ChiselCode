@@ -26,6 +26,13 @@ export const ELLIPSIS = "…";
  */
 export const USER_BUBBLE_BG = "#1f1f1f";
 export const ASSISTANT_GUTTER = "gray";
+export const DIFF_COLORS = {
+  add: "green",
+  remove: "red",
+  context: undefined,
+  hunk: "cyan",
+  note: undefined,
+} as const;
 
 export interface ToolDisplay {
   icon: string;

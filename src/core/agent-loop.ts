@@ -135,6 +135,10 @@ export class AgentLoop {
       for (const call of toolCalls) {
         this.handlers.onToolStart?.(call.name, call.input);
         const result = await this.tools.execute(call.name, call.input);
+        if (!result.isError && !result.requiresApproval && result.fileDiff) {
+          session.fileDiffs ??= {};
+          session.fileDiffs[call.id] = result.fileDiff;
+        }
         this.handlers.onToolResult?.(call.name, result);
         if (result.requiresApproval) {
           return {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgentLoop } from "../../src/core/agent-loop.js";
 import { createSession } from "../../src/sessions/store.js";
+import { buildFileDiff } from "../../src/tools/file-diff.js";
 import type {
   ProviderAdapter,
   ProviderRequest,
@@ -55,6 +56,64 @@ class MockProvider implements ProviderAdapter {
 }
 
 describe("AgentLoop", () => {
+  test("keeps applied UI diffs in the session but never in provider messages", async () => {
+    const requests: ProviderRequest[] = [];
+    const diff = buildFileDiff("new.ts", null, "hello\n");
+    const provider: ProviderAdapter = {
+      kind: "openai-compatible",
+      async *streamChat(request) {
+        requests.push(structuredClone(request));
+        yield {
+          type: "turn_complete",
+          message:
+            requests.length === 1
+              ? {
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "tool_use",
+                      id: "write-1",
+                      name: "write_file",
+                      input: { path: "new.ts", content: "hello\n" },
+                    },
+                  ],
+                }
+              : {
+                  role: "assistant",
+                  content: [{ type: "text", text: "Done" }],
+                },
+          stopReason: requests.length === 1 ? "tool_use" : "end_turn",
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      },
+      async listModels() {
+        return [];
+      },
+      async countTokens() {
+        return 0;
+      },
+    };
+    const tools = {
+      getDefinitions: () => [],
+      execute: async () => ({ output: "Wrote new.ts.", fileDiff: diff }),
+    };
+    const result = await new AgentLoop(provider, tools as never, "system").run(
+      createSession("/project", "openai-compatible", "test"),
+      "write",
+    );
+    expect(result.status).toBe("completed");
+    expect(result.session.fileDiffs?.["write-1"]).toBe(diff);
+    expect(requests[1]?.messages.at(-1)?.content).toEqual([
+      {
+        type: "tool_result",
+        toolUseId: "write-1",
+        content: "Wrote new.ts.",
+        isError: undefined,
+      },
+    ]);
+    expect(JSON.stringify(requests)).not.toContain('"fileDiff');
+    expect(JSON.stringify(requests)).not.toContain(diff.patch);
+  });
   test("feeds tool results back into the provider until completion", async () => {
     const tools = {
       getDefinitions: (): ToolDefinition[] => [],

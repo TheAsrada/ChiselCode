@@ -23,7 +23,7 @@ import {
   loadSkills,
   type Skill,
 } from "../skills/skills.js";
-import type { ProviderKind } from "../types/domain.js";
+import type { FileDiff, ProviderKind } from "../types/domain.js";
 import {
   commandHelpText,
   isSlashInput,
@@ -44,6 +44,7 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
+import { FileDiffView, fileDiffRows } from "./file-diff.js";
 import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import {
   estimateMarkdownRows,
@@ -91,9 +92,11 @@ export interface TuiTranscriptLine {
   text: string;
   tone?: TranscriptTone;
   header?: "title" | "meta";
+  fileDiff?: FileDiff;
 }
 export interface TuiTranscript {
-  append(line: string, tone?: TranscriptTone): void;
+  append(line: string, tone?: TranscriptTone, fileDiff?: FileDiff): void;
+  setToolActivity(text?: string): void;
   appendToLast(text: string): void;
   clear(): void;
 }
@@ -296,9 +299,10 @@ export function displayCellWidth(text: string): number {
  * пару пустых строк, перекорм обрезал бы свежие снизу.
  */
 export function estimateLineRows(
-  line: Pick<TuiTranscriptLine, "text" | "tone">,
+  line: Pick<TuiTranscriptLine, "text" | "tone" | "fileDiff">,
   columns: number,
 ): number {
+  if (line.fileDiff) return fileDiffRows(line.fileDiff);
   const cols = Math.max(10, Math.floor(columns) || TUI_FALLBACK_COLUMNS);
   const tone = line.tone ?? "assistant";
   // Арт — ровно по строке, truncate-end, без отступов.
@@ -407,7 +411,11 @@ export function searchMatchIndices(
   if (!q) return [];
   const out: number[] = [];
   lines.forEach((line, index) => {
-    if (line.text.toLowerCase().includes(q)) out.push(index);
+    if (
+      line.text.toLowerCase().includes(q) ||
+      line.fileDiff?.patch.toLowerCase().includes(q)
+    )
+      out.push(index);
   });
   return out;
 }
@@ -1015,6 +1023,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // по завершении коммитится в ленту одной записью (см. wasBusy ниже).
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
+  const [toolActivity, setActivity] = useState<TuiTranscriptLine>();
   // Очередь follow-up запросов как в Claude Code: Enter во время работы
   // не теряется. Состояние — для показа, ref — для логики в эффектах.
   const [queued, setQueued] = useState<QueuedPrompt[]>([]);
@@ -1133,7 +1142,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     return () => props.approvalResolver.dispose();
   }, [props.approvalResolver]);
   const pushLine = useCallback(
-    (text: string, tone: TranscriptTone = "assistant"): void => {
+    (
+      text: string,
+      tone: TranscriptTone = "assistant",
+      fileDiff?: FileDiff,
+    ): void => {
       const flushed = streamingRef.current;
       streamingRef.current = null;
       setStreaming(null);
@@ -1142,7 +1155,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       setTranscript((lines) => [
         ...lines,
         ...(flushed ? [flushed] : []),
-        { id, text, tone },
+        { id, text, tone, fileDiff },
       ]);
     },
     [],
@@ -1166,6 +1179,18 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     // Коммит накопленного — в pushLine/wasBusy ниже.
   }, []);
 
+  const setToolActivity = useCallback((text?: string): void => {
+    if (text) {
+      const flushed = streamingRef.current;
+      streamingRef.current = null;
+      setStreaming(null);
+      if (flushed) setTranscript((lines) => [...lines, flushed]);
+    }
+    setActivity(
+      text ? { id: nextTranscriptId.current++, text, tone: "tool" } : undefined,
+    );
+  }, []);
+
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
     setStreaming(null);
@@ -1173,6 +1198,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     // В alt-screen старое не остаётся в scrollback
     // (отдельный буфер), поэтому чистим ленту полностью.
     setTranscript([]);
+    setActivity(undefined);
     setScrollTop(null);
   }, []);
 
@@ -1180,11 +1206,19 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
 
   useEffect(() => {
     props.bindTranscript({
-      append: (text, tone = "assistant") => pushLine(text, tone),
+      append: (text, tone = "assistant", fileDiff) =>
+        pushLine(text, tone, fileDiff),
+      setToolActivity,
       appendToLast: (text) => appendToStreaming(text),
       clear: () => clearAll(),
     });
-  }, [props.bindTranscript, pushLine, appendToStreaming, clearAll]);
+  }, [
+    props.bindTranscript,
+    pushLine,
+    appendToStreaming,
+    clearAll,
+    setToolActivity,
+  ]);
 
   function append(text: string, tone: TranscriptTone = "assistant"): void {
     pushLine(text, tone);
@@ -1584,6 +1618,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     // на пол-экрана: лента едет плавно, а не кусками сообщений.
     const mouse = parseSGRMouse(character);
     if (mouse) {
+      if (request) return; // Approval owns its scroll viewport.
       if (mouse.kind === "wheel-up" || mouse.kind === "wheel-down") {
         const step =
           (mouse.shift ? scrollPageStep(rows) : scrollSpeed) *
@@ -1875,7 +1910,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     />
   ) : null;
   const footer = request ? (
-    <Approval request={request} columns={columns} />
+    <Approval request={request} columns={columns} rows={rows} />
   ) : (
     <>
       {busy ? <Thinking model={runtime.model} /> : null}
@@ -1922,13 +1957,20 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
           {streaming ? (
             <TranscriptLineView line={streaming} columns={columns} />
           ) : null}
+          {toolActivity ? (
+            <TranscriptLineView line={toolActivity} columns={columns} />
+          ) : null}
           {panel ?? footer}
         </Box>
       </Box>
     );
   }
 
-  const feed = streaming ? [...transcript, streaming] : transcript;
+  const feed = [
+    ...transcript,
+    ...(streaming ? [streaming] : []),
+    ...(toolActivity ? [toolActivity] : []),
+  ];
   const items = feed.map((line) => ({
     id: line.id,
     content: <MemoTranscriptLineView line={line} columns={columns} />,
@@ -2002,6 +2044,8 @@ export function TranscriptLineView({
   line: TuiTranscriptLine;
   columns: number;
 }): React.JSX.Element {
+  if (line.fileDiff)
+    return <FileDiffView fileDiff={line.fileDiff} columns={columns} />;
   const tone = line.tone ?? "assistant";
   if (tone === "logo") {
     // Арт шапки: truncate-end, иначе wrap рвал строку 76 клеток
@@ -2134,49 +2178,78 @@ function providerName(provider: ProviderKind): string {
   return "OpenAI-совместимый API";
 }
 
-function approvalPreview(request: ApprovalRequest): string {
-  const previewLines = request.preview.split("\n");
-  return previewLines.length > 12
-    ? `${previewLines.slice(0, 12).join("\n")}\n… (полный текст в скроллбэке не показан)`
-    : request.preview;
-}
-
-function Approval({
+export function Approval({
   request,
   columns,
+  rows,
 }: {
   request: ApprovalRequest;
   columns: number;
+  rows: number;
 }): React.JSX.Element {
+  const [top, setTop] = useState<number | null>(0);
+  const metrics = useRef(emptyScrollMetrics());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A new approval must start at the first diff row.
+  useEffect(() => {
+    setTop(0);
+  }, [request]);
+  useInput((character, key) => {
+    const mouse = parseSGRMouse(character);
+    let delta = 0;
+    if (key.upArrow || mouse?.kind === "wheel-up") delta = -3;
+    if (key.downArrow || mouse?.kind === "wheel-down") delta = 3;
+    if (key.pageUp) delta = -Math.max(1, metrics.current.height - 1);
+    if (key.pageDown) delta = Math.max(1, metrics.current.height - 1);
+    if (delta) setTop(moveScroll(metrics.current, delta));
+    if (key.home) setTop(0);
+    if (key.end) setTop(null);
+  });
   const meta = toolDisplay(request.tool);
-  const preview = approvalPreview(request);
-  void columns;
+  const width = Math.max(1, columns - 4);
+  // Non-file approvals also use a bounded, scrollable preview.
+  const rawLines = request.fileDiff ? [] : request.preview.split("\n");
+  const preview = rawLines
+    .slice(0, 200)
+    .map((line) => truncate(line, 1000))
+    .join("\n");
+  const color = process.env.NO_COLOR === undefined;
   return (
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="yellow"
+      borderColor={color ? "yellow" : undefined}
       paddingX={1}
-      marginTop={1}
       width="100%"
+      height={Math.max(7, Math.min(28, rows - 2))}
       flexShrink={0}
     >
-      <Text bold color="yellow" wrap="wrap">
-        ? [{meta.icon}] {meta.label} — нужно подтверждение
+      <Text bold={color} wrap="truncate-end">
+        ? {meta.label} — нужно подтверждение
       </Text>
-      <Box marginY={1} width="100%">
-        <Text wrap="wrap">{preview}</Text>
-      </Box>
-      <Text wrap="wrap">
-        [
-        <Text bold color="green">
-          y
-        </Text>
-        ] разрешить · [
-        <Text bold color="red">
-          n
-        </Text>
-        ] отклонить <Text dimColor>(Esc — тоже отклонить)</Text>
+      <ScrollViewport
+        metrics={metrics}
+        top={top}
+        items={[
+          {
+            id: 0,
+            content: request.fileDiff ? (
+              <FileDiffView fileDiff={request.fileDiff} columns={width} />
+            ) : (
+              <Box flexDirection="column" width={width} flexShrink={0}>
+                <Text>{preview}</Text>
+                {rawLines.length > 200 ? (
+                  <Text>… {rawLines.length - 200} more preview lines</Text>
+                ) : null}
+              </Box>
+            ),
+          },
+        ]}
+      />
+      <Text dimColor={color} wrap="truncate-end">
+        ↑/↓ · PgUp/PgDn · Home/End — просмотр
+      </Text>
+      <Text wrap="truncate-end">
+        {width < 36 ? "[y] Да · [n] Нет" : "[y] разрешить · [n/Esc] отклонить"}
       </Text>
     </Box>
   );

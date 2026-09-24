@@ -155,6 +155,16 @@ export interface Session {
   updatedAt: string;
   /** Короткое название для списков: первая строка первого промпта. */
   title?: string;
+  /** UI-only applied diffs keyed by tool-use id; never part of provider messages. */
+  fileDiffs?: Record<string, FileDiff>;
+}
+
+export interface FileDiff {
+  path: string;
+  kind: "create" | "edit" | "delete";
+  patch: string;
+  additions: number;
+  deletions: number;
 }
 
 export interface ToolExecutionResult {
@@ -162,6 +172,7 @@ export interface ToolExecutionResult {
   isError?: boolean;
   requiresApproval?: boolean;
   preview?: string;
+  fileDiff?: FileDiff;
 }
 
 export interface AgentResult {

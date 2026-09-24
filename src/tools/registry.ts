@@ -1,6 +1,5 @@
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { relative } from "node:path";
-import { createPatch } from "diff";
 import { execa } from "execa";
 import { z } from "zod";
 import type { ApprovalGate } from "../security/approval.js";
@@ -19,6 +18,8 @@ import {
   matchesPattern,
   resolveProjectPath,
 } from "../utils/paths.js";
+
+import { buildFileDiff } from "./file-diff.js";
 
 const MAX_READ_BYTES = 512_000;
 const MAX_RESULT_LINES = 2_000;
@@ -247,22 +248,28 @@ export class ToolRegistry {
         "Read-before-write policy: read this existing file first.",
       );
     const before = fileExists ? await readFile(path, "utf8") : null;
-    const preview = createPatch(
+    if (before === input.content)
+      return { output: `No changes to ${relative(this.projectRoot, path)}.` };
+    const fileDiff = buildFileDiff(
       relative(this.projectRoot, path),
-      before ?? "",
+      before,
       input.content,
-      "before",
-      "after",
     );
+    const preview = fileDiff.patch;
     const decision = await this.approvalGate.decide({
       tool: "write_file",
       preview,
+      fileDiff,
     });
     if (decision !== "approved") return approvalResult(decision, preview);
     await ensureParentDirectory(path);
     await writeFile(path, input.content, "utf8");
     this.recordUndo(path, before, input.content);
-    return { output: `Wrote ${relative(this.projectRoot, path)}.`, preview };
+    return {
+      output: `Wrote ${relative(this.projectRoot, path)}.`,
+      preview,
+      fileDiff,
+    };
   }
 
   private async editFile(
@@ -279,22 +286,28 @@ export class ToolRegistry {
       throw new Error(
         "old_str occurs more than once; include more context for a unique replacement.",
       );
-    const after = before.replace(input.old_str, input.new_str);
-    const preview = createPatch(
+    const after = before.replace(input.old_str, () => input.new_str);
+    if (before === after)
+      return { output: `No changes to ${relative(this.projectRoot, path)}.` };
+    const fileDiff = buildFileDiff(
       relative(this.projectRoot, path),
       before,
       after,
-      "before",
-      "after",
     );
+    const preview = fileDiff.patch;
     const decision = await this.approvalGate.decide({
       tool: "edit_file",
       preview,
+      fileDiff,
     });
     if (decision !== "approved") return approvalResult(decision, preview);
     await writeFile(path, after, "utf8");
     this.recordUndo(path, before, after);
-    return { output: `Edited ${relative(this.projectRoot, path)}.`, preview };
+    return {
+      output: `Edited ${relative(this.projectRoot, path)}.`,
+      preview,
+      fileDiff,
+    };
   }
 
   private async deleteFile(
@@ -304,21 +317,25 @@ export class ToolRegistry {
     if (!this.readPaths.has(path))
       throw new Error("Read-before-write policy: read this file first.");
     const before = await readFile(path, "utf8");
-    const preview = createPatch(
+    const fileDiff = buildFileDiff(
       relative(this.projectRoot, path),
       before,
-      "",
-      "before",
-      "after",
+      null,
     );
+    const preview = fileDiff.patch;
     const decision = await this.approvalGate.decide({
       tool: "delete_file",
       preview,
+      fileDiff,
     });
     if (decision !== "approved") return approvalResult(decision, preview);
     await rm(path);
     this.recordUndo(path, before, null);
-    return { output: `Deleted ${relative(this.projectRoot, path)}.`, preview };
+    return {
+      output: `Deleted ${relative(this.projectRoot, path)}.`,
+      preview,
+      fileDiff,
+    };
   }
 
   private async runShell(

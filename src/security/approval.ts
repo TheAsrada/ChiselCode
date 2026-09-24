@@ -1,4 +1,4 @@
-import type { ProjectConfig, ToolName } from "../types/domain.js";
+import type { FileDiff, ProjectConfig, ToolName } from "../types/domain.js";
 
 const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "write_file",
@@ -19,6 +19,7 @@ export interface ApprovalRequest {
   tool: string;
   preview: string;
   command?: string;
+  fileDiff?: FileDiff;
 }
 
 export interface ApprovalResolver {
