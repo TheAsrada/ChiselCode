@@ -51,6 +51,24 @@ afterEach(async () => {
 });
 
 describe("ToolRegistry", () => {
+  test("diff paths stay project-relative when the root is a filesystem alias", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-alias-"));
+    const links = await mkdtemp(join(tmpdir(), "chiselcode-links-"));
+    paths.push(links, root);
+    const alias = join(links, "project");
+    await symlink(
+      root,
+      alias,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const result = await registry(alias).execute("write_file", {
+      path: "new.txt",
+      content: "new\n",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.fileDiff?.path).toBe("new.txt");
+    expect(result.fileDiff?.patch).toContain("Index: new.txt");
+  });
   for (const scenario of [
     "create",
     "overwrite",

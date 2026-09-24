@@ -1,4 +1,4 @@
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
@@ -251,7 +251,7 @@ export class ToolRegistry {
     if (before === input.content)
       return { output: `No changes to ${relative(this.projectRoot, path)}.` };
     const fileDiff = buildFileDiff(
-      relative(this.projectRoot, path),
+      await this.diffPath(path),
       before,
       input.content,
     );
@@ -289,11 +289,7 @@ export class ToolRegistry {
     const after = before.replace(input.old_str, () => input.new_str);
     if (before === after)
       return { output: `No changes to ${relative(this.projectRoot, path)}.` };
-    const fileDiff = buildFileDiff(
-      relative(this.projectRoot, path),
-      before,
-      after,
-    );
+    const fileDiff = buildFileDiff(await this.diffPath(path), before, after);
     const preview = fileDiff.patch;
     const decision = await this.approvalGate.decide({
       tool: "edit_file",
@@ -317,11 +313,7 @@ export class ToolRegistry {
     if (!this.readPaths.has(path))
       throw new Error("Read-before-write policy: read this file first.");
     const before = await readFile(path, "utf8");
-    const fileDiff = buildFileDiff(
-      relative(this.projectRoot, path),
-      before,
-      null,
-    );
+    const fileDiff = buildFileDiff(await this.diffPath(path), before, null);
     const preview = fileDiff.patch;
     const decision = await this.approvalGate.decide({
       tool: "delete_file",
@@ -402,6 +394,12 @@ export class ToolRegistry {
       output: result.all || `(exit ${result.exitCode})`,
       isError: result.exitCode !== 0,
     };
+  }
+
+  private async diffPath(path: string): Promise<string> {
+    // safePath returns canonical paths. Canonicalize both sides before computing
+    // display paths (macOS /var aliases and Windows short names may differ).
+    return relative(await realpath(this.projectRoot), path);
   }
 
   private async safePath(candidate: string): Promise<string> {

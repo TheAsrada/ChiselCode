@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.28] - 2026-09-24
+
+### Fixed
+
+- File diff paths remain relative to the project when its root uses a macOS symlink or Windows short-name alias. This release includes all of the reviewable diff UX from 0.5.27.
+
 ## [0.5.27] - 2026-09-24
 
 ### Added
