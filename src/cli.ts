@@ -30,6 +30,7 @@ import { loadGlobalConfig, saveGlobalConfig } from "./config/load.js";
 import { AGENTROUTER_BASE_URL } from "./providers/agentrouter.js";
 import { normalizeBaseUrlForProvider } from "./providers/base-url.js";
 import { CredentialStore } from "./security/credentials.js";
+import { projectSessionStore } from "./sessions/project-store.js";
 import {
   formatSessionList,
   listSessions,
@@ -400,9 +401,10 @@ async function runUpdateFallback(rl: ReadlineInterface): Promise<boolean> {
 /** Сводка сессии для /status: не падает, если файл пропал. */
 async function readSessionSummary(
   id: string,
+  projectPath = process.cwd(),
 ): Promise<{ id: string; title?: string; totalTokens: number } | undefined> {
   try {
-    const session = await loadSession(id);
+    const session = await loadSession(id, projectPath);
     return {
       id: session.id,
       title: session.title?.trim() || undefined,
@@ -416,7 +418,14 @@ async function readSessionSummary(
 
 async function startTui(options: RunOptions): Promise<void> {
   const config = await loadGlobalConfig();
-  const configuredProvider = options.provider ?? config.defaultProvider;
+  const initialSession = options.resume
+    ? await (async () => {
+        const store = await projectSessionStore(options.cwd ?? process.cwd());
+        return store.load((await store.resolve(options.resume ?? "")).id);
+      })()
+    : undefined;
+  const configuredProvider =
+    options.provider ?? initialSession?.provider ?? config.defaultProvider;
   const provider = configuredProvider ?? "anthropic";
   const providerConfig = config.providers[provider];
   if (!(await hasApiKey(provider, providerConfig?.apiKeyRef))) {
@@ -429,7 +438,7 @@ async function startTui(options: RunOptions): Promise<void> {
   }
 
   const resolver = createTuiApprovalResolver();
-  let activeOptions: RunOptions = { ...options };
+  let activeOptions: RunOptions = { ...options, resume: initialSession?.id };
   let transcript: TuiTranscript | undefined;
   let active = false;
   let cachedSessionList: Session[] = [];
@@ -451,11 +460,13 @@ async function startTui(options: RunOptions): Promise<void> {
   try {
     instance = render(
       React.createElement(TuiApp, {
+        initialSession,
         approvalResolver: resolver,
         provider,
         providerLabel: providerLabel(provider),
         model:
           options.model ??
+          initialSession?.model ??
           providerConfig?.defaultModel ??
           config.defaultModel ??
           (defaultModelFor(provider) || "не выбрана"),
@@ -476,7 +487,10 @@ async function startTui(options: RunOptions): Promise<void> {
             currentConfig?.apiKeyRef,
           );
           const resumed = activeOptions.resume
-            ? await readSessionSummary(activeOptions.resume)
+            ? await readSessionSummary(
+                activeOptions.resume,
+                activeOptions.cwd ?? process.cwd(),
+              )
             : undefined;
           return formatStatusDashboard({
             providerLabel: providerLabel(currentProvider),
@@ -606,6 +620,14 @@ async function startTui(options: RunOptions): Promise<void> {
           };
         },
         onNewSession: async () => {
+          if (activeOptions.resume) {
+            const store = await projectSessionStore(
+              activeOptions.cwd ?? process.cwd(),
+            );
+            const current = await store.load(activeOptions.resume);
+            if (activeOptions.model) current.model = activeOptions.model;
+            await store.save(current);
+          }
           activeOptions = { ...activeOptions, resume: undefined };
           return "Начат новый сеанс: следующее сообщение откроет новую сессию.";
         },
@@ -615,17 +637,34 @@ async function startTui(options: RunOptions): Promise<void> {
           );
           return formatSessionList(cachedSessionList);
         },
+        activeSessionId: () => activeOptions.resume,
+        onSessionSummaries: async () =>
+          (
+            await projectSessionStore(activeOptions.cwd ?? process.cwd())
+          ).list(),
+        onPreviewSession: async (id: string) =>
+          (await projectSessionStore(activeOptions.cwd ?? process.cwd())).load(
+            id,
+          ),
+        onRenameSession: async (id: string, title: string) =>
+          (
+            await projectSessionStore(activeOptions.cwd ?? process.cwd())
+          ).rename(id, title),
+        onDeleteSession: async (id: string) => {
+          await (
+            await projectSessionStore(activeOptions.cwd ?? process.cwd())
+          ).delete(id);
+          if (activeOptions.resume === id) {
+            activeOptions = { ...activeOptions, resume: undefined };
+            transcript?.clear();
+          }
+        },
         onResumeSession: async (ref: string) => {
           const trimmed = ref.trim();
-          if (!trimmed)
-            return "Укажите номер из /sessions или начало id: /resume <номер>.";
-          const sessions = await listSessions(
+          const store = await projectSessionStore(
             activeOptions.cwd ?? process.cwd(),
           );
-          cachedSessionList = sessions;
-          const found = resolveSessionRef(sessions, trimmed);
-          if (!found)
-            return `Сеанс «${trimmed}» не найден. Покажите /sessions.`;
+          const found = await store.load((await store.resolve(trimmed)).id);
           activeOptions = { ...activeOptions, resume: found.id };
           transcript?.clear();
           if (transcript) replaySessionIntoTranscript(transcript, found);
@@ -793,7 +832,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         const found = loadSkills(activeOptions.cwd ?? process.cwd());
         if (found.length === 0) {
           process.stdout.write(
-            "Скиллов нет. Положите инструкции в .chisel/skills/<имя>/SKILL.md проекта.\n",
+            "Скиллов нет. Пользовательские навыки находятся в ChiselCode Home/skills/user/<имя>/SKILL.md.\n",
           );
         } else {
           for (const skill of found)
@@ -824,8 +863,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         continue;
       }
       if (line === "/clear") {
-        activeOptions = { ...activeOptions, resume: undefined };
-        process.stdout.write("Начат новый сеанс.\n");
+        process.stdout.write("Экран очищен; история сессии сохранена.\n");
         continue;
       }
       if (line === "/new") {
@@ -872,7 +910,10 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
           currentConfig?.apiKeyRef,
         );
         const resumed = activeOptions.resume
-          ? await readSessionSummary(activeOptions.resume)
+          ? await readSessionSummary(
+              activeOptions.resume,
+              activeOptions.cwd ?? process.cwd(),
+            )
           : undefined;
         process.stdout.write(
           `${formatStatusDashboard({

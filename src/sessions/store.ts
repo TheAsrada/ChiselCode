@@ -1,30 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { sessionsRootDir } from "../paths/home.js";
 import type { Session } from "../types/domain.js";
-import { scanGlob } from "../utils/fs-scan.js";
-
-function userDataDir(): string {
-  if (process.platform === "win32") {
-    return process.env.APPDATA
-      ? join(process.env.APPDATA, "chiselcode")
-      : join(process.env.USERPROFILE ?? process.cwd(), ".chiselcode");
-  }
-  return join(
-    process.env.XDG_CONFIG_HOME ??
-      join(process.env.HOME ?? process.cwd(), ".config"),
-    "chiselcode",
-  );
-}
+import { assertSessionId, projectSessionStore } from "./project-store.js";
 
 export function sessionsDirectory(): string {
-  return join(userDataDir(), "sessions");
+  return sessionsRootDir();
 }
-
-export function sessionPath(id: string): string {
-  return join(sessionsDirectory(), `${id}.json`);
-}
-
 export function createSession(
   projectPath: string,
   provider: Session["provider"],
@@ -37,6 +18,8 @@ export function createSession(
     messages: [],
     provider,
     model,
+    title: "Без названия",
+    titleSource: "auto",
     totalTokens: {
       inputTokens: 0,
       outputTokens: 0,
@@ -49,48 +32,33 @@ export function createSession(
     updatedAt: now,
   };
 }
-
 export async function saveSession(session: Session): Promise<void> {
-  await mkdir(sessionsDirectory(), { recursive: true });
-  session.updatedAt = new Date().toISOString();
-  const destination = sessionPath(session.id);
-  const temporary = `${destination}.${randomUUID()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(session, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await rename(temporary, destination);
+  await (await projectSessionStore(session.projectPath)).save(session);
 }
-
-export async function loadSession(id: string): Promise<Session> {
-  const source = await readFile(sessionPath(id), "utf8");
-  return JSON.parse(source) as Session;
+export async function loadSession(
+  id: string,
+  projectPath = process.cwd(),
+): Promise<Session> {
+  return (await projectSessionStore(projectPath)).load(assertSessionId(id));
 }
-
-export async function listSessions(projectPath?: string): Promise<Session[]> {
-  const directory = sessionsDirectory();
-  try {
-    const files = await Array.fromAsync(
-      scanGlob("*.json", { cwd: directory, absolute: true }),
-    );
-    const sessions = await Promise.all(
-      files.map(
-        async (file) => JSON.parse(await readFile(file, "utf8")) as Session,
-      ),
-    );
-    return sessions
-      .filter((session) => !projectPath || session.projectPath === projectPath)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
+export async function listSessions(
+  projectPath = process.cwd(),
+): Promise<Session[]> {
+  const store = await projectSessionStore(projectPath);
+  const summaries = await store.list();
+  const results = await Promise.allSettled(
+    summaries.map((item) => store.load(item.id)),
+  );
+  return results.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
 }
-
-export async function deleteSession(id: string): Promise<void> {
-  await rm(sessionPath(id), { force: true });
+export async function deleteSession(
+  id: string,
+  projectPath = process.cwd(),
+): Promise<void> {
+  await (await projectSessionStore(projectPath)).delete(assertSessionId(id));
 }
-
 export function estimateCost(
   provider: Session["provider"],
   model: string,

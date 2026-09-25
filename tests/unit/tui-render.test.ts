@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { render } from "ink";
 import React from "react";
+import { userSkillsDir } from "../../src/paths/home.js";
 import { LOGO_WIDTH, renderLogoRows } from "../../src/ui/logo.js";
 import {
   createTuiApprovalResolver,
@@ -12,6 +13,24 @@ import {
   TuiApp,
   type TuiTranscript,
 } from "../../src/ui/tui.js";
+
+async function prepareUserSkill(
+  root: string,
+  name: string,
+  content: string,
+): Promise<() => void> {
+  const envName =
+    process.platform === "win32" ? "LOCALAPPDATA" : "XDG_DATA_HOME";
+  const previous = process.env[envName];
+  process.env[envName] = root;
+  const dir = join(userSkillsDir(), name);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "SKILL.md"), content);
+  return () => {
+    if (previous === undefined) delete process.env[envName];
+    else process.env[envName] = previous;
+  };
+}
 
 type MockStdout = PassThrough & {
   columns: number;
@@ -615,13 +634,12 @@ describe("tui render", () => {
   });
 
   test("skill slash command expands and runs with short echo", async () => {
-    // Скилл из .chisel/skills: выполняются инструкции из SKILL.md,
+    // Пользовательский навык из ChiselCode Home: инструкции из SKILL.md,
     // а в журнале виден короткий `/имя args`.
     const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-cmd-"));
-    const dir = join(root, ".chisel", "skills", "hello");
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "SKILL.md"),
+    const restore = await prepareUserSkill(
+      root,
+      "hello",
       "---\nname: hello\ndescription: Поздороваться\n---\nСкажи $ARGUMENTS громко\n",
     );
     let submitted: { prompt: string; display?: string } | undefined;
@@ -644,16 +662,16 @@ describe("tui render", () => {
       expect(app.chunks()).not.toContain("Скажи world громко");
     } finally {
       app.unmount();
+      restore();
       await rm(root, { recursive: true, force: true });
     }
   });
 
   test("skills browser lists skills and opens details", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-skills-"));
-    const dir = join(root, ".chisel", "skills", "hello");
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "SKILL.md"),
+    const restore = await prepareUserSkill(
+      root,
+      "hello",
       "---\nname: hello\ndescription: Поздороваться\n---\nСкажи привет\n",
     );
     const app = await startApp(100, 30, { cwd: root });
@@ -679,16 +697,16 @@ describe("tui render", () => {
       expect(app.chunks()).toContain("Спросите что-нибудь");
     } finally {
       app.unmount();
+      restore();
       await rm(root, { recursive: true, force: true });
     }
   });
 
   test("skills browser toggles activation into the next request", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-active-"));
-    const dir = join(root, ".chisel", "skills", "hello");
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "SKILL.md"),
+    const restore = await prepareUserSkill(
+      root,
+      "hello",
       "---\nname: hello\ndescription: Поздороваться\n---\nСкажи привет\n",
     );
     const prompts: { prompt: string; display?: string }[] = [];
@@ -757,6 +775,7 @@ describe("tui render", () => {
       expect(prompts[1]?.prompt).toBe("второй");
     } finally {
       app.unmount();
+      restore();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -811,10 +830,9 @@ describe("tui render", () => {
 
   test("arrows select suggestion like Claude Code, tab/enter accepts", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-tui-tab-"));
-    const dir = join(root, ".chisel", "skills", "salsa");
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "SKILL.md"),
+    const restore = await prepareUserSkill(
+      root,
+      "salsa",
       "---\nname: salsa\ndescription: Танцевать\n---\nТанцуй $ARGUMENTS\n",
     );
     let submitted: { prompt: string; display?: string } | undefined;
@@ -845,6 +863,7 @@ describe("tui render", () => {
       expect(submitted?.prompt).toContain("Танцуй");
     } finally {
       app.unmount();
+      restore();
       await rm(root, { recursive: true, force: true });
     }
   });

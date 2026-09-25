@@ -145,7 +145,7 @@ jobs:
           chmod +x pkg/macos-arm64/chisel pkg/macos-x64/chisel
           for arch in arm64 x64; do
             mkdir -p "pkg/macos-$arch/skills"
-            cp -R skills/code-review skills/skill-creator "pkg/macos-$arch/skills/"
+            cp -R skills/bundled "pkg/macos-$arch/skills/"
           done
       - name: Build packages
         shell: bash
@@ -201,7 +201,7 @@ jobs:
           bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile="$root/usr/bin/chisel"
           chmod 0755 "$root/usr/bin/chisel"
           mkdir -p "$root/usr/bin/skills"
-          cp -R skills/code-review skills/skill-creator "$root/usr/bin/skills/"
+          cp -R skills/bundled "$root/usr/bin/skills/"
           cat > "$root/DEBIAN/control" <<EOF
           Package: chiselcode
           Version: $ver

@@ -52,9 +52,21 @@ export function replaySessionIntoTranscript(
   view: TuiTranscript,
   session: Session,
 ): void {
-  const tail = session.messages.slice(-REPLAY_MESSAGE_LIMIT);
+  const entries: Parameters<NonNullable<TuiTranscript["replace"]>>[0] = [];
+  const collector: TuiTranscript = {
+    append: (text, tone, fileDiff) => {
+      entries.push({ text, tone, fileDiff });
+    },
+    appendToLast: () => {},
+    setToolActivity: () => {},
+    clear: () => {},
+  };
+  const target = view.replace ? collector : view;
+  const tail = view.replace
+    ? session.messages
+    : session.messages.slice(-REPLAY_MESSAGE_LIMIT);
   if (session.messages.length > tail.length)
-    view.append(
+    target.append(
       `… показаны последние ${tail.length} из ${session.messages.length} сообщений сессии.`,
       "info",
     );
@@ -73,15 +85,15 @@ export function replaySessionIntoTranscript(
             ? stripActiveSkillsBlock(block.text).trim()
             : block.text.trim();
         if (text)
-          view.append(text, message.role === "user" ? "user" : "assistant");
+          target.append(text, message.role === "user" ? "user" : "assistant");
       } else if (block.type === "tool_use") {
         if (!session.fileDiffs?.[block.id])
-          view.append(
+          target.append(
             `[chisel] ${formatToolSummary(block.name, block.input)}`,
             "tool",
           );
       } else {
-        appendToolResult(view, names.get(block.toolUseId) ?? "tool", {
+        appendToolResult(target, names.get(block.toolUseId) ?? "tool", {
           output: block.content,
           isError: block.isError,
           fileDiff: session.fileDiffs?.[block.toolUseId],
@@ -89,4 +101,5 @@ export function replaySessionIntoTranscript(
       }
     }
   }
+  view.replace?.(entries);
 }

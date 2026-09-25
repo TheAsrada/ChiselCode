@@ -164,9 +164,6 @@ function SkillDetail({
 }
 
 function sourceLabel(source: SkillSource): string {
-  if (source === "project") return "проект";
-  if (source === "shared") return ".agents";
-  if (source === "personal") return "личные";
-  if (source === "global") return "конфиг";
+  if (source === "user") return "личные";
   return "из коробки";
 }

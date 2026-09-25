@@ -56,6 +56,24 @@ class MockProvider implements ProviderAdapter {
 }
 
 describe("AgentLoop", () => {
+  test("checkpoints only complete conversation stages", async () => {
+    const snapshots: number[] = [];
+    const tools = {
+      getDefinitions: () => [],
+      execute: async () => ({ output: "content" }),
+    };
+    const result = await new AgentLoop(
+      new MockProvider(),
+      tools as never,
+      "system",
+    ).run(createSession("/project", "anthropic", "test"), "Inspect", {
+      onCheckpoint: async (session) => {
+        snapshots.push(session.messages.length);
+      },
+    });
+    expect(result.status).toBe("completed");
+    expect(snapshots).toEqual([1, 3, 4]);
+  });
   test("keeps applied UI diffs in the session but never in provider messages", async () => {
     const requests: ProviderRequest[] = [];
     const diff = buildFileDiff("new.ts", null, "hello\n");

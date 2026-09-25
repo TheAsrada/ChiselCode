@@ -19,12 +19,8 @@ import {
 import { OpenAIAdapter, OpenAICompatibleAdapter } from "../providers/openai.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import { CredentialStore } from "../security/credentials.js";
-import {
-  createSession,
-  loadSession,
-  saveSession,
-  sessionTitleForPrompt,
-} from "../sessions/store.js";
+import { projectSessionStore } from "../sessions/project-store.js";
+import { createSession, sessionTitleForPrompt } from "../sessions/store.js";
 import { loadSkills } from "../skills/skills.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type {
@@ -255,22 +251,21 @@ export async function runPrompt(
   events: RunEventHandlers = {},
 ): Promise<{ result: AgentResult; exitCode: number }> {
   const projectRoot = options.cwd ?? process.cwd();
+  const sessionStore = await projectSessionStore(projectRoot);
   const config = await loadProjectConfig(projectRoot);
   const global = await loadGlobalConfig();
   const session = options.resume
-    ? await loadSession(options.resume)
+    ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)
     : createSession(
         projectRoot,
         resolveProvider(options, global.defaultProvider),
         resolveModel(options, global.defaultModel),
       );
-  if (!options.resume && prompt.trim())
+  if (options.resume && options.model) session.model = options.model;
+  if (options.resume && options.provider) session.provider = options.provider;
+  if (!options.resume && prompt.trim()) {
     session.title = sessionTitleForPrompt(prompt);
-
-  if (session.projectPath !== projectRoot) {
-    throw new Error(
-      `Session ${session.id} belongs to ${session.projectPath}, not ${projectRoot}.`,
-    );
+    session.titleSource = "auto";
   }
 
   const providerConfig = global.providers[session.provider];
@@ -315,6 +310,7 @@ export async function runPrompt(
     skills,
   );
   const dynamic = await collectDynamicContext(projectRoot);
+  session.gitBranch = dynamic.gitBranch;
   const system = buildSystemPrompt(
     await loadProjectInstructions(projectRoot),
     dynamic,
@@ -327,8 +323,10 @@ export async function runPrompt(
     onToolResult,
   });
 
-  const result = await loop.run(session, prompt);
-  await saveSession(result.session);
+  const result = await loop.run(session, prompt, {
+    onCheckpoint: (current) => sessionStore.save(current),
+  });
+  await sessionStore.save(result.session);
   if (
     !events.onText &&
     !events.onThinking &&

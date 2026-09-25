@@ -22,6 +22,7 @@ export interface AgentLoopOptions {
   maxIterations?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  onCheckpoint?: (session: Session) => Promise<void>;
 }
 
 export class AgentLoop {
@@ -42,12 +43,15 @@ export class AgentLoop {
       role: "user",
       content: [{ type: "text", text: prompt }],
     });
+    await options.onCheckpoint?.(session);
     let finalText = "";
     let emptyResponseRetries = 0;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-      if (options.signal?.aborted)
+      if (options.signal?.aborted) {
+        await options.onCheckpoint?.(session);
         return { status: "cancelled", text: finalText, session };
+      }
 
       let completed:
         | Extract<StreamEvent, { type: "turn_complete" }>
@@ -75,20 +79,24 @@ export class AgentLoop {
         }
       }
 
-      if (providerError)
+      if (providerError) {
+        await options.onCheckpoint?.(session);
         return {
           status: "failed",
           text: finalText,
           session,
           error: providerError,
         };
-      if (!completed)
+      }
+      if (!completed) {
+        await options.onCheckpoint?.(session);
         return {
           status: "failed",
           text: finalText,
           session,
           error: "Provider stream ended without a final message.",
         };
+      }
 
       session.messages.push(completed.message);
       addUsage(session, completed.usage);
@@ -98,6 +106,7 @@ export class AgentLoop {
 
       if (toolCalls.length === 0 || completed.stopReason === "refusal") {
         const responseText = finalText || extractText(completed.message);
+        await options.onCheckpoint?.(session);
         if (completed.stopReason === "refusal") {
           return {
             status: "failed",
@@ -118,6 +127,7 @@ export class AgentLoop {
                 },
               ],
             });
+            await options.onCheckpoint?.(session);
             continue;
           }
           return {
@@ -141,6 +151,9 @@ export class AgentLoop {
         }
         this.handlers.onToolResult?.(call.name, result);
         if (result.requiresApproval) {
+          // Do not persist an assistant tool call without its matching result.
+          session.messages.pop();
+          await options.onCheckpoint?.(session);
           return {
             status: "approval_required",
             text: finalText || extractText(completed.message),
@@ -159,6 +172,7 @@ export class AgentLoop {
         });
       }
       session.messages.push({ role: "user", content: results });
+      await options.onCheckpoint?.(session);
     }
 
     return {

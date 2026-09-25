@@ -1,7 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  bundledSkillsDir,
+  chiselHomeDir,
+  sessionsRootDir,
+  skillsRootDir,
+  userSkillsDir,
+} from "../../src/paths/home.js";
 import {
   buildActiveSkillsPrompt,
   expandSkill,
@@ -9,7 +24,6 @@ import {
   loadSkills,
   modelInvocableSkills,
   parseSkillFile,
-  personalSkillsDir,
   type Skill,
   skillsCatalogPrompt,
   splitFrontmatter,
@@ -26,7 +40,7 @@ function skill(instructions: string): Skill {
     name: "test",
     description: "",
     instructions,
-    source: "project",
+    source: "user",
     dir: "/tmp/test",
   };
 }
@@ -102,99 +116,116 @@ describe("SKILL.md files", () => {
     expect(body.trim()).toBe("Тело");
   });
 
-  test("loads from project, shared, global and bundled dirs", async () => {
+  test("migrates legacy project skills into central user storage without deleting sources", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-skills-"));
     try {
-      const project = join(root, "proj", ".chisel", "skills");
-      const shared = join(root, "proj", ".agents", "skills");
-      const personal = join(root, "personal");
-      const global = join(root, "global");
-      const bundled = join(root, "bundled");
-      for (const dir of [project, shared, personal, global, bundled])
-        await mkdir(dir, { recursive: true });
-      await mkdir(join(project, "review"), { recursive: true });
+      const project = join(root, "project");
+      const legacy = join(project, ".chisel", "skills", "memo");
+      const home = join(root, "home");
+      await mkdir(legacy, { recursive: true });
+      await mkdir(join(legacy, "references"));
       await writeFile(
-        join(project, "review", "SKILL.md"),
-        "Ревью $ARGUMENTS\n",
+        join(legacy, "SKILL.md"),
+        skillFile("memo", "Памятка", "Запомни"),
       );
-      await mkdir(join(shared, "plan"), { recursive: true });
-      await writeFile(join(shared, "plan", "SKILL.md"), "План\n");
-      await mkdir(join(global, "commit"), { recursive: true });
-      await writeFile(
-        join(global, "commit", "SKILL.md"),
-        "---\ndescription: Коммит\n---\nЗакоммить\n",
-      );
-      await mkdir(join(bundled, "explain"), { recursive: true });
-      await writeFile(join(bundled, "explain", "SKILL.md"), "Объясни код\n");
-      await mkdir(join(personal, "memo"), { recursive: true });
-      await writeFile(join(personal, "memo", "SKILL.md"), "Памятка\n");
-      // Мусор игнорируется: файлы вместо папок, чужие расширения.
-      await writeFile(join(project, "notes.txt"), "не скилл\n");
-      const loaded = loadSkills(join(root, "proj"), {
-        projectDir: project,
-        sharedDir: shared,
-        personalDir: personal,
-        globalDir: global,
-        bundledDir: bundled,
+      await writeFile(join(legacy, "references", "details.md"), "details");
+      const loaded = loadSkills(project, {
+        homeDir: home,
+        bundledSourceDir: join(root, "missing"),
+        legacyDirs: [join(project, ".chisel", "skills")],
       });
-      expect(loaded.map((s) => `${s.source}:${s.name}`).sort()).toEqual([
-        "bundled:explain",
-        "global:commit",
-        "personal:memo",
-        "project:review",
-        "shared:plan",
+      expect(loaded.map((entry) => `${entry.source}:${entry.name}`)).toEqual([
+        "user:memo",
       ]);
-      expect(loaded.find((s) => s.name === "commit")?.description).toBe(
-        "Коммит",
+      expect(loaded[0]?.dir).toBe(join(home, "skills", "user", "memo"));
+      expect(await readFile(join(legacy, "SKILL.md"), "utf8")).toContain(
+        "Запомни",
       );
-      expect(loaded.find((s) => s.name === "review")?.dir).toBe(
-        join(project, "review"),
+      expect(
+        await readFile(
+          join(home, "skills", "user", "memo", "SKILL.md"),
+          "utf8",
+        ),
+      ).toContain("Запомни");
+      expect(
+        await readFile(
+          join(home, "skills", "user", "memo", "references", "details.md"),
+          "utf8",
+        ),
+      ).toBe("details");
+      expect(await readdir(join(home, "skills", ".migrations"))).toHaveLength(
+        1,
       );
+      await writeFile(
+        join(legacy, "SKILL.md"),
+        skillFile("memo", "Changed", "Changed"),
+      );
+      expect(
+        loadSkills(project, {
+          homeDir: home,
+          bundledSourceDir: join(root, "missing"),
+          legacyDirs: [join(project, ".chisel", "skills")],
+        })[0]?.instructions,
+      ).toBe("Запомни");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test("project shadows the rest, built-ins win over files", async () => {
+  test("empty central directories yield no skills", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-skills-"));
     try {
-      const project = join(root, "skills");
-      const global = join(root, "global");
-      await mkdir(join(project, "review"), { recursive: true });
-      await mkdir(join(global, "review"), { recursive: true });
-      await mkdir(join(project, "settings"), { recursive: true });
-      await writeFile(join(global, "review", "SKILL.md"), "Глобальное ревью\n");
-      await writeFile(join(project, "review", "SKILL.md"), "Проектное ревью\n");
+      const old = join(root, ".chisel", "skills", "project-only");
+      await mkdir(old, { recursive: true });
       await writeFile(
-        join(project, "settings", "SKILL.md"),
-        "Попытка перекрыть /settings\n",
+        join(old, "SKILL.md"),
+        skillFile("project-only", "Legacy", "Old"),
       );
-      const loaded = loadSkills(root, {
-        projectDir: project,
-        globalDir: global,
-        sharedDir: join(root, "missing-shared"),
-        personalDir: join(root, "missing-personal"),
-        bundledDir: join(root, "missing"),
-      });
-      expect(loaded.map((s) => `${s.source}:${s.name}`)).toEqual([
-        "project:review",
-      ]);
-      expect(loaded[0]?.instructions).toContain("Проектное");
+      expect(
+        loadSkills(root, {
+          homeDir: join(root, "home"),
+          bundledSourceDir: join(root, "missing"),
+          legacyDirs: [],
+        }),
+      ).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  test("missing directories give an empty list", () => {
-    expect(
-      loadSkills("/nonexistent", {
-        projectDir: "/nonexistent/a",
-        sharedDir: "/nonexistent/s",
-        personalDir: "/nonexistent/p",
-        globalDir: "/nonexistent/b",
-        bundledDir: "/nonexistent/c",
-      }),
-    ).toEqual([]);
+  test("migration skips linked resources without deleting the legacy skill", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-skills-link-"));
+    try {
+      const legacyRoot = join(root, "legacy");
+      const skillDir = join(legacyRoot, "memo");
+      const outside = join(root, "outside");
+      await mkdir(skillDir, { recursive: true });
+      await mkdir(outside);
+      await writeFile(
+        join(skillDir, "SKILL.md"),
+        skillFile("memo", "Memo", "Read"),
+      );
+      await symlink(
+        outside,
+        join(skillDir, "references"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      const diagnostics: string[] = [];
+      expect(
+        loadSkills(root, {
+          homeDir: join(root, "home"),
+          bundledSourceDir: join(root, "missing"),
+          legacyDirs: [legacyRoot],
+          onDiagnostic: (message) => diagnostics.push(message),
+        }),
+      ).toEqual([]);
+      expect(diagnostics.join(" ")).toContain("Исходные файлы сохранены");
+      expect(await readFile(join(skillDir, "SKILL.md"), "utf8")).toContain(
+        "Read",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("expands $ARGUMENTS or appends args", () => {
@@ -208,11 +239,15 @@ describe("SKILL.md files", () => {
     );
   });
 
-  test("personal dir is the single home for new skills", () => {
-    const dir = personalSkillsDir();
-    expect(dir.length).toBeGreaterThan(0);
-    if (process.platform === "win32") expect(dir).toContain("skills");
-    else expect(dir).toContain("chiselcode");
+  test("path API keeps skills and sessions under one home", () => {
+    expect(skillsRootDir()).toBe(join(chiselHomeDir(), "skills"));
+    expect(bundledSkillsDir()).toBe(join(skillsRootDir(), "bundled"));
+    expect(userSkillsDir()).toBe(join(skillsRootDir(), "user"));
+    expect(sessionsRootDir()).toBe(join(chiselHomeDir(), "sessions"));
+    if (process.platform === "win32" && process.env.LOCALAPPDATA)
+      expect(chiselHomeDir()).toBe(
+        join(process.env.LOCALAPPDATA, "ChiselCode"),
+      );
   });
 
   test("manual and model invocation flags are independent", () => {
@@ -261,7 +296,7 @@ describe("SKILL.md files", () => {
         name: "review",
         description: "Ревью",
         instructions: "Сделай ревью",
-        source: "personal",
+        source: "user",
         dir: "/tmp/r",
       },
     ];
@@ -276,26 +311,52 @@ describe("SKILL.md files", () => {
     expect(stripActiveSkillsBlock("обычный текст")).toBe("обычный текст");
   });
 
-  test("personal shadows global and bundled", async () => {
+  test("bundled names stay reserved and conflicting user skills are diagnosed", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-skills-"));
     try {
-      const personal = join(root, "personal");
-      const global = join(root, "global");
-      await mkdir(join(personal, "memo"), { recursive: true });
-      await mkdir(join(global, "memo"), { recursive: true });
-      await writeFile(join(personal, "memo", "SKILL.md"), "Личная памятка\n");
-      await writeFile(join(global, "memo", "SKILL.md"), "Конфиг-памятка\n");
+      const home = join(root, "home");
+      const source = join(root, "package", "code-review");
+      const user = join(home, "skills", "user", "code-review");
+      await mkdir(source, { recursive: true });
+      await mkdir(user, { recursive: true });
+      await writeFile(
+        join(source, "SKILL.md"),
+        skillFile("code-review", "Bundled", "Original"),
+      );
+      await writeFile(
+        join(user, "SKILL.md"),
+        skillFile("code-review", "User", "Override"),
+      );
+      const diagnostics: string[] = [];
       const loaded = loadSkills(root, {
-        projectDir: join(root, "missing-p"),
-        sharedDir: join(root, "missing-s"),
-        personalDir: personal,
-        globalDir: global,
-        bundledDir: join(root, "missing-b"),
+        homeDir: home,
+        bundledSourceDir: join(root, "package"),
+        legacyDirs: [],
+        onDiagnostic: (message) => diagnostics.push(message),
       });
       expect(loaded.map((s) => `${s.source}:${s.name}`)).toEqual([
-        "personal:memo",
+        "bundled:code-review",
       ]);
-      expect(loaded[0]?.instructions).toContain("Личная");
+      expect(loaded[0]?.instructions).toBe("Original");
+      expect(diagnostics.join(" ")).toContain("зарезервировано");
+      expect(await readFile(join(user, "SKILL.md"), "utf8")).toContain(
+        "Override",
+      );
+      await writeFile(
+        join(source, "SKILL.md"),
+        skillFile("code-review", "Bundled", "Updated"),
+      );
+      expect(
+        loadSkills(root, {
+          homeDir: home,
+          bundledSourceDir: join(root, "package"),
+          legacyDirs: [],
+          onDiagnostic: () => {},
+        })[0]?.instructions,
+      ).toBe("Updated");
+      expect(await readFile(join(user, "SKILL.md"), "utf8")).toContain(
+        "Override",
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -308,27 +369,25 @@ describe("SKILL.md files", () => {
         name: "review",
         description: "Ревью diff",
         instructions: "Ревью",
-        source: "project",
-        dir: "/proj/.chisel/skills/review",
+        source: "user",
+        dir: "/home/skills/user/review",
       },
     ]);
     expect(catalog).toContain("<available_skills>");
     expect(catalog).toContain("<name>review</name>");
     expect(catalog).toContain("Ревью diff");
-    expect(catalog).not.toContain("/proj/.chisel/skills/review");
+    expect(catalog).not.toContain("/home/skills/user/review");
     expect(catalog).not.toContain("read_file");
     expect(catalog).not.toContain("Ревью</description>");
   });
 
-  test("bundled skills expose review to the model and creator only to manual slash", () => {
+  test("bundled skills expose review to the model and creator only to manual slash", async () => {
     const root = join(import.meta.dir, "..", "..");
-    const missing = join(root, "no-such-skills");
+    const temporary = await mkdtemp(join(tmpdir(), "chiselcode-bundled-"));
     const bundled = loadSkills(root, {
-      projectDir: missing,
-      sharedDir: missing,
-      personalDir: missing,
-      globalDir: missing,
-      bundledDir: join(root, "skills"),
+      homeDir: temporary,
+      bundledSourceDir: join(root, "skills", "bundled"),
+      legacyDirs: [],
     });
     expect(bundled.map((s) => s.name).sort()).toEqual([
       "code-review",
@@ -343,6 +402,7 @@ describe("SKILL.md files", () => {
     expect(catalog).toContain("<name>code-review</name>");
     expect(catalog).not.toContain("skill-creator");
     expect(catalog).not.toContain(bundled[0]?.instructions ?? "impossible");
+    await rm(temporary, { recursive: true, force: true });
   });
 });
 

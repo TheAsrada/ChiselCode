@@ -7,8 +7,8 @@ export const SLASH_COMMANDS = [
   { name: "/skills", description: "скиллы: выбрать и задействовать" },
   { name: "/status", description: "показать состояние сессии" },
   { name: "/new", description: "начать новый сеанс" },
-  { name: "/sessions", description: "список сеансов проекта" },
-  { name: "/resume", description: "вернуться к сеансу: <номер>" },
+  { name: "/sessions", description: "выбрать сеанс проекта" },
+  { name: "/resume", description: "открыть выбор сеанса" },
   { name: "/update", description: "проверить и установить обновление" },
   { name: "/doctor", description: "проверить настройку без показа ключей" },
   { name: "/exit", description: "закрыть ChiselCode" },
@@ -143,8 +143,9 @@ export function commandHelpText(skills: CommandSuggestion[] = []): string {
         `  ${`/${command.name}`.padEnd(width, " ")} — ${command.description}`,
       );
     }
-    lines.push("Скиллы лежат в `.chisel/skills/<имя>/SKILL.md`,");
-    lines.push("общие — в `.agents/skills/` или рядом с конфигом.");
+    lines.push(
+      "Пользовательские скиллы: ChiselCode Home/skills/user/<имя>/SKILL.md.",
+    );
   }
   lines.push(
     "",

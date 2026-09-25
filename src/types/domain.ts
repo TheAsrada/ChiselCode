@@ -22,6 +22,7 @@ export const ToolNameSchema = z.enum([
   "git_status",
   "git_commit",
   "load_skill",
+  "create_skill",
 ]);
 export type ToolName = z.infer<typeof ToolNameSchema>;
 
@@ -157,6 +158,8 @@ export interface Session {
   updatedAt: string;
   /** Короткое название для списков: первая строка первого промпта. */
   title?: string;
+  titleSource?: "auto" | "user";
+  gitBranch?: string;
   /** UI-only applied diffs keyed by tool-use id; never part of provider messages. */
   fileDiffs?: Record<string, FileDiff>;
 }

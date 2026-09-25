@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
+import { userSkillsDir } from "../../src/paths/home.js";
 import type { ApprovalRequest } from "../../src/security/approval.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import type { Skill } from "../../src/skills/skills.js";
@@ -65,7 +73,7 @@ describe("ToolRegistry", () => {
         name: "review",
         description: "review",
         instructions: "Review safely",
-        source: "project",
+        source: "user",
         dir: join(root, "review"),
       },
       {
@@ -98,7 +106,7 @@ describe("ToolRegistry", () => {
       name: "later",
       description: "later",
       instructions: "later",
-      source: "project",
+      source: "user",
       dir: root,
     });
     expect((await tools.execute("load_skill", { name: "later" })).isError).toBe(
@@ -116,7 +124,7 @@ describe("ToolRegistry", () => {
         name: "personal",
         description: "personal",
         instructions: "private instructions",
-        source: "personal",
+        source: "user",
         dir: external,
       },
     ]);
@@ -127,6 +135,114 @@ describe("ToolRegistry", () => {
       (await tools.execute("read_file", { path: join(external, "SKILL.md") }))
         .isError,
     ).toBe(true);
+  });
+
+  test("create_skill writes only central user skills and protects bundled names and paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-create-skill-"));
+    paths.push(root);
+    const envName =
+      process.platform === "win32" ? "LOCALAPPDATA" : "XDG_DATA_HOME";
+    const previous = process.env[envName];
+    process.env[envName] = root;
+    try {
+      const tools = registry(root);
+      const content =
+        "---\nname: release-helper\ndescription: Help with releases\n---\nRelease safely\n";
+      const created = await tools.execute("create_skill", {
+        name: "release-helper",
+        files: { "SKILL.md": content, "references/example.md": "Example" },
+      });
+      expect(created.isError).not.toBe(true);
+      expect(
+        await readFile(
+          join(userSkillsDir(), "release-helper", "SKILL.md"),
+          "utf8",
+        ),
+      ).toBe(content);
+      expect(
+        await readFile(
+          join(userSkillsDir(), "release-helper", "references", "example.md"),
+          "utf8",
+        ),
+      ).toBe("Example");
+      const outside = join(root, "outside");
+      await mkdir(outside);
+      await symlink(
+        outside,
+        join(userSkillsDir(), "release-helper", "scripts"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      expect(
+        (
+          await tools.execute("create_skill", {
+            name: "release-helper",
+            mode: "update",
+            files: { "SKILL.md": content, "scripts/escape.txt": "bad" },
+          })
+        ).isError,
+      ).toBe(true);
+      expect(
+        await readFile(join(outside, "escape.txt"), "utf8").catch(
+          () => "missing",
+        ),
+      ).toBe("missing");
+      expect(
+        await readFile(
+          join(userSkillsDir(), "release-helper", "SKILL.md"),
+          "utf8",
+        ),
+      ).toBe(content);
+      expect(
+        (
+          await tools.execute("create_skill", {
+            name: "code-review",
+            files: { "SKILL.md": content },
+          })
+        ).isError,
+      ).toBe(true);
+      expect(
+        (
+          await tools.execute("create_skill", {
+            name: "release-helper",
+            files: { "SKILL.md": content },
+          })
+        ).isError,
+      ).toBe(true);
+      expect(
+        (
+          await tools.execute("create_skill", {
+            name: "other",
+            files: {
+              "SKILL.md": content.replace("release-helper", "other"),
+              "../outside": "bad",
+            },
+          })
+        ).isError,
+      ).toBe(true);
+      const updated = await tools.execute("create_skill", {
+        name: "release-helper",
+        mode: "update",
+        files: {
+          "SKILL.md": content.replace("Release safely", "Release carefully"),
+        },
+      });
+      expect(updated.isError).not.toBe(true);
+      expect(
+        await readFile(
+          join(userSkillsDir(), "release-helper", "SKILL.md"),
+          "utf8",
+        ),
+      ).toContain("Release carefully");
+      expect(
+        await readFile(
+          join(userSkillsDir(), "release-helper", "references", "example.md"),
+          "utf8",
+        ),
+      ).toBe("Example");
+    } finally {
+      if (previous === undefined) delete process.env[envName];
+      else process.env[envName] = previous;
+    }
   });
 
   test("git_status and git_diff distinguish staged and unstaged changes", async () => {

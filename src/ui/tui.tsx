@@ -16,6 +16,7 @@ import type {
   ApprovalRequest,
   ApprovalResolver,
 } from "../security/approval.js";
+import type { SessionSummary } from "../sessions/project-store.js";
 import {
   buildActiveSkillsPrompt,
   expandSkill,
@@ -23,7 +24,7 @@ import {
   loadSkills,
   type Skill,
 } from "../skills/skills.js";
-import type { FileDiff, ProviderKind } from "../types/domain.js";
+import type { FileDiff, ProviderKind, Session } from "../types/domain.js";
 import {
   commandHelpText,
   isSlashInput,
@@ -53,6 +54,7 @@ import {
 } from "./markdown.js";
 import { parseSGRMouse, resolveScrollSpeed } from "./mouse.js";
 import { emptyScrollMetrics, moveScroll, ScrollViewport } from "./scroll.js";
+import { SessionPicker } from "./session-picker.js";
 import {
   type ModelListResult,
   SettingsPanel,
@@ -69,6 +71,7 @@ import {
   USER_BUBBLE_BG,
 } from "./theme.js";
 import { Thinking } from "./thinking.js";
+import { replaySessionIntoTranscript } from "./tool-transcript.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
   bind(setter?: (request: ApprovalRequest | undefined) => void): void;
@@ -98,6 +101,13 @@ export interface TuiTranscript {
   append(line: string, tone?: TranscriptTone, fileDiff?: FileDiff): void;
   setToolActivity(text?: string): void;
   appendToLast(text: string): void;
+  replace?(
+    entries: Array<{
+      text: string;
+      tone?: TranscriptTone;
+      fileDiff?: FileDiff;
+    }>,
+  ): void;
   clear(): void;
 }
 
@@ -832,6 +842,7 @@ export function createTuiApprovalResolver(): TuiApprovalResolver {
 }
 
 export interface TuiAppProps {
+  initialSession?: Session;
   approvalResolver: TuiApprovalResolver;
   bindTranscript(transcript: TuiTranscript): void;
   onSubmit(prompt: string, display?: string): Promise<void>;
@@ -845,6 +856,11 @@ export interface TuiAppProps {
   onListSessions?(): Promise<string>;
   /** Возврат к сеансу по номеру из списка или id (+реплей истории в вид). */
   onResumeSession?(ref: string): Promise<string>;
+  onSessionSummaries?(): Promise<SessionSummary[]>;
+  onPreviewSession?(id: string): Promise<Session>;
+  onRenameSession?(id: string, title: string): Promise<void>;
+  onDeleteSession?(id: string): Promise<void>;
+  activeSessionId?(): string | undefined;
   /** План самообновления: проверка релиза + файл установщика. */
   onPlanUpdate?(): Promise<SelfUpdatePlan>;
   /** Скачивание установщика во временную папку. */
@@ -885,8 +901,7 @@ export interface TuiAppProps {
   baseUrl?: string;
   version?: string;
   /**
-   * Корень проекта для скиллов (`.chisel/skills`, `.agents/skills`).
-   * Без него — текущий рабочий каталог процесса.
+   * Корень проекта для миграции старых навыков и работы агента.
    */
   cwd?: string;
   /**
@@ -955,7 +970,7 @@ export function buildWelcomeLines(
 }
 export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const { exit } = useApp();
-  /** Корень проекта: скиллы берём из его `.chisel/skills`. */
+  /** Корень проекта; навыки загружаются из ChiselCode Home. */
   const projectCwd = props.cwd ?? process.cwd();
   // Ширина/высота ТОЛЬКО из Ink (useWindowSize): Yoga-корень и стирание
   // динамики считают по ним же. Отдельный живой сисколл в рендере давал
@@ -977,6 +992,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<"menu" | "model">();
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSessions, setPickerSessions] = useState<SessionSummary[]>([]);
   // Мастер настройки поверх чата: тот же Ink-экран, без exit()/render().
   const [restartingSetup, setRestartingSetup] = useState(false);
   const [runtime, setRuntime] = useState(() => ({
@@ -1202,22 +1219,47 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     setScrollTop(null);
   }, []);
 
+  const replaceAll = useCallback(
+    (
+      entries: Array<{
+        text: string;
+        tone?: TranscriptTone;
+        fileDiff?: FileDiff;
+      }>,
+    ): void => {
+      streamingRef.current = null;
+      setStreaming(null);
+      setActivity(undefined);
+      setTranscript(
+        entries.map((entry) => ({ ...entry, id: nextTranscriptId.current++ })),
+      );
+      setScrollTop(null);
+    },
+    [],
+  );
+
   const wasBusy = useRef(false);
 
   useEffect(() => {
-    props.bindTranscript({
+    const bound: TuiTranscript = {
       append: (text, tone = "assistant", fileDiff) =>
         pushLine(text, tone, fileDiff),
       setToolActivity,
       appendToLast: (text) => appendToStreaming(text),
       clear: () => clearAll(),
-    });
+      replace: replaceAll,
+    };
+    props.bindTranscript(bound);
+    if (props.initialSession)
+      replaySessionIntoTranscript(bound, props.initialSession);
   }, [
     props.bindTranscript,
     pushLine,
     appendToStreaming,
     clearAll,
+    replaceAll,
     setToolActivity,
+    props.initialSession,
   ]);
 
   function append(text: string, tone: TranscriptTone = "assistant"): void {
@@ -1343,20 +1385,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     if (name === "/clear") {
       clearAll();
-      try {
-        append((await props.onNewSession?.()) ?? "Экран очищен.", "info");
-      } catch (cause) {
-        append(
-          `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
-          "error",
-        );
-      }
       return;
     }
     if (name === "/new") {
-      clearAll();
       try {
-        append((await props.onNewSession?.()) ?? "Начат новый сеанс.", "info");
+        const message = (await props.onNewSession?.()) ?? "Начат новый сеанс.";
+        clearAll();
+        append(message, "info");
       } catch (cause) {
         append(
           `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -1366,6 +1401,15 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (name === "/sessions") {
+      if (props.onSessionSummaries) {
+        try {
+          setPickerSessions(await props.onSessionSummaries());
+          setPickerOpen(true);
+        } catch (cause) {
+          append(`Ошибка: ${String(cause)}`, "error");
+        }
+        return;
+      }
       setBusy(true);
       try {
         append(
@@ -1383,13 +1427,29 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (name === "/resume") {
+      if (!args.trim() && props.onSessionSummaries) {
+        try {
+          setPickerSessions(await props.onSessionSummaries());
+          setPickerOpen(true);
+        } catch (cause) {
+          append(`Ошибка: ${String(cause)}`, "error");
+        }
+        return;
+      }
       setBusy(true);
       try {
-        append(
-          (await props.onResumeSession?.(args)) ??
-            "Возврат к сеансу недоступен.",
-          "info",
-        );
+        const message = await props.onResumeSession?.(args);
+        const id = props.activeSessionId?.();
+        if (id && props.onPreviewSession) {
+          const session = await props.onPreviewSession(id);
+          setRuntime((state) => ({
+            ...state,
+            model: session.model,
+            provider: session.provider,
+            providerLabel: providerName(session.provider),
+          }));
+        }
+        append(message ?? "Возврат к сеансу недоступен.", "info");
       } catch (cause) {
         append(
           `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -1612,6 +1672,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   }
 
   useInput((character, key) => {
+    if (pickerOpen) return;
     // Мышь SGR первее всего: колесо скроллит даже в панелях и approval,
     // остальные события (клики/отпускания) глотаются, чтобы не сыпались
     // мусором в ввод. Шаг — в визуальных строках, Shift — рывок
@@ -1942,6 +2003,45 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       />
     </>
   );
+
+  if (pickerOpen)
+    return (
+      <SessionPicker
+        sessions={pickerSessions}
+        activeId={props.activeSessionId?.()}
+        rows={rows}
+        onClose={() => setPickerOpen(false)}
+        onResume={async (id) => {
+          const message = await props.onResumeSession?.(id);
+          const session = await props.onPreviewSession?.(id);
+          if (session)
+            setRuntime((state) => ({
+              ...state,
+              model: session.model,
+              provider: session.provider,
+              providerLabel: providerName(session.provider),
+            }));
+          setPickerOpen(false);
+          if (message) append(message, "info");
+        }}
+        onPreview={async (id) => {
+          if (!props.onPreviewSession) throw new Error("Просмотр недоступен");
+          return props.onPreviewSession(id);
+        }}
+        onRename={async (id, title) => {
+          if (!props.onRenameSession)
+            throw new Error("Переименование недоступно");
+          await props.onRenameSession(id, title);
+        }}
+        onDelete={async (id) => {
+          if (!props.onDeleteSession) throw new Error("Удаление недоступно");
+          await props.onDeleteSession(id);
+        }}
+        onRefresh={async () =>
+          setPickerSessions((await props.onSessionSummaries?.()) ?? [])
+        }
+      />
+    );
 
   // Явно выбранная классика: Static дописывается в scrollback, динамическая
   // зона (стриминг + панели/ввод) перерисовывается на месте маленьким куском.

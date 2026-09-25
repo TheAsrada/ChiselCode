@@ -6,6 +6,7 @@ const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "delete_file",
   "run_shell",
   "git_commit",
+  "create_skill",
 ]);
 
 export type ApprovalDecision = "approved" | "denied" | "unavailable";

@@ -1,8 +1,25 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isInstalledBinary } from "../commands/update.js";
 import { globalConfigPath } from "../config/load.js";
+import {
+  bundledSkillsDir,
+  chiselHomeDir,
+  skillsRootDir,
+  userSkillsDir,
+} from "../paths/home.js";
 import { SLASH_COMMANDS } from "../ui/commands.js";
 
 /**
@@ -16,25 +33,14 @@ import { SLASH_COMMANDS } from "../ui/commands.js";
  * сам через load_skill по имени, когда задача совпадает с описанием.
  * Вручную скилл вызывается как /имя.
  *
- * Источники в порядке приоритета (первый найденный побеждает):
- * 1. `<проект>/.chisel/skills/<имя>/SKILL.md` — свои, можно коммитить;
- * 2. `<проект>/.agents/skills/<имя>/SKILL.md` — кросс-клиентский стандарт,
- *    те же скиллы подхватывают другие агенты;
- * 3. личная папка (`%LOCALAPPDATA%\ChiselCode\skills` на Windows) — для всех
- *    проектов; ВСЕ новые скиллы сохраняются только сюда;
- * 4. `<конфиг>/skills/<имя>/SKILL.md` — legacy-личные, рядом с config.json;
- * 5. `skills/<имя>/SKILL.md` рядом с бинарником (из установщика)
- *    или в репо (dev) — встроенные из коробки.
+ * Живые источники: ChiselCode Home/skills/bundled и /skills/user.
+ * Старые project/personal/global каталоги используются только для
+ * недеструктивной миграции в /skills/user.
  *
  * Встроенные slash-команды (`/settings`…) перекрыть нельзя.
  */
 
-export type SkillSource =
-  | "project"
-  | "shared"
-  | "personal"
-  | "global"
-  | "bundled";
+export type SkillSource = "user" | "bundled";
 
 export interface Skill {
   /** Без слэша: `code-review` для `/code-review`. Совпадает с папкой. */
@@ -58,34 +64,13 @@ export interface Skill {
 }
 
 export interface SkillLocations {
-  projectDir?: string;
-  sharedDir?: string;
-  personalDir?: string;
-  globalDir?: string;
-  bundledDir?: string;
-}
-
-/**
- * Личная папка скиллов для всех проектов — ЕДИНСТВЕННОЕ место, куда
- * сохраняются новые скиллы: `%LOCALAPPDATA%\ChiselCode\skills` на Windows,
- * `$XDG_DATA_HOME/chiselcode/skills` (или `~/.local/share/...`) elsewhere.
- */
-export function personalSkillsDir(): string {
-  if (process.platform === "win32") {
-    const local = process.env.LOCALAPPDATA?.trim();
-    if (local) return join(local, "ChiselCode", "skills");
-    return join(
-      process.env.USERPROFILE ?? process.cwd(),
-      "AppData",
-      "Local",
-      "ChiselCode",
-      "skills",
-    );
-  }
-  const dataHome =
-    process.env.XDG_DATA_HOME?.trim() ||
-    join(process.env.HOME ?? process.cwd(), ".local", "share");
-  return join(dataHome, "chiselcode", "skills");
+  /** Test/portable override; the application uses chiselHomeDir(). */
+  homeDir?: string;
+  /** Source files shipped with the app, copied into home/skills/bundled. */
+  bundledSourceDir?: string;
+  /** Override legacy sources for isolated migration tests. */
+  legacyDirs?: string[];
+  onDiagnostic?: (message: string) => void;
 }
 
 /** Имя скилла по спеке: латиница/цифры/дефис, без висячих и двойных дефисов. */
@@ -93,46 +78,22 @@ const SKILL_NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const MAX_SKILLS_PER_DIR = 100;
 const MAX_SKILL_FILE_BYTES = 64 * 1024;
 const SKILL_FILENAME = "SKILL.md";
+export const RESERVED_BUNDLED_SKILL_NAMES = new Set([
+  "skill-creator",
+  "code-review",
+]);
 
 const BUILT_IN_NAMES = new Set(SLASH_COMMANDS.map((c) => c.name.slice(1)));
-
-export function resolveSkillDirs(
-  cwd: string,
-  overrides: SkillLocations = {},
-): { dir: string; source: SkillSource }[] {
-  return [
-    {
-      dir: overrides.projectDir ?? join(cwd, ".chisel", "skills"),
-      source: "project",
-    },
-    {
-      dir: overrides.sharedDir ?? join(cwd, ".agents", "skills"),
-      source: "shared",
-    },
-    {
-      dir: overrides.personalDir ?? personalSkillsDir(),
-      source: "personal",
-    },
-    { dir: overrides.globalDir ?? defaultGlobalDir(), source: "global" },
-    { dir: overrides.bundledDir ?? defaultBundledDir(), source: "bundled" },
-  ];
+export function isReservedSkillName(name: string): boolean {
+  return RESERVED_BUNDLED_SKILL_NAMES.has(name) || BUILT_IN_NAMES.has(name);
 }
 
-function defaultBundledDir(): string {
-  // Установленный бинарник везёт skills/ рядом с собой; в dev-режиме —
-  // папка skills/ в корне репозитория.
-  if (isInstalledBinary()) return join(dirname(process.execPath), "skills");
+function bundledSourceDir(): string {
+  if (isInstalledBinary())
+    return join(dirname(process.execPath), "skills", "bundled");
   try {
     const here = dirname(fileURLToPath(import.meta.url));
-    return join(here, "..", "..", "skills");
-  } catch {
-    return "";
-  }
-}
-
-function defaultGlobalDir(): string {
-  try {
-    return join(dirname(globalConfigPath()), "skills");
+    return join(here, "..", "..", "skills", "bundled");
   } catch {
     return "";
   }
@@ -142,8 +103,25 @@ export function loadSkills(
   cwd: string,
   overrides: SkillLocations = {},
 ): Skill[] {
+  const home = overrides.homeDir ?? chiselHomeDir();
+  const root = overrides.homeDir ? join(home, "skills") : skillsRootDir();
+  const bundled = overrides.homeDir
+    ? join(root, "bundled")
+    : bundledSkillsDir();
+  const user = overrides.homeDir ? join(root, "user") : userSkillsDir();
+  const diagnostic = overrides.onDiagnostic ?? reportSkillDiagnostic;
+  ensureSkillDirs(home, root, bundled, user);
+  installBundledSkills(
+    overrides.bundledSourceDir ?? bundledSourceDir(),
+    bundled,
+    diagnostic,
+  );
+  migrateLegacySkills(cwd, user, root, overrides.legacyDirs, diagnostic);
   const found = new Map<string, Skill>();
-  for (const { dir, source } of resolveSkillDirs(cwd, overrides)) {
+  for (const { dir, source } of [
+    { dir: user, source: "user" },
+    { dir: bundled, source: "bundled" },
+  ] as const) {
     if (!dir) continue;
     let entries: string[];
     try {
@@ -156,16 +134,25 @@ export function loadSkills(
       const skillDir = join(dir, entry);
       let isDirectory = false;
       try {
-        isDirectory = statSync(skillDir).isDirectory();
+        const info = lstatSync(skillDir);
+        isDirectory = info.isDirectory() && !info.isSymbolicLink();
       } catch {
         continue;
       }
       if (!isDirectory) continue;
       const name = entry.toLowerCase();
       if (!SKILL_NAME_RE.test(name) || BUILT_IN_NAMES.has(name)) continue;
+      if (source === "user" && RESERVED_BUNDLED_SKILL_NAMES.has(name)) {
+        diagnostic(
+          `Пользовательский скилл «${name}» игнорируется: имя зарезервировано встроенным скиллом.`,
+        );
+        continue;
+      }
       if (found.has(name)) continue;
       let text: string;
       try {
+        const info = lstatSync(join(skillDir, SKILL_FILENAME));
+        if (!info.isFile() || info.isSymbolicLink()) continue;
         text = readFileSync(join(skillDir, SKILL_FILENAME), "utf8");
       } catch {
         continue;
@@ -175,15 +162,201 @@ export function loadSkills(
       if (parsed) found.set(name, { ...parsed, source, dir: skillDir });
     }
   }
-  // Порядок стабилен: сначала проектные (перекрывающие), потом остальные.
-  const order: Record<SkillSource, number> = {
-    project: 0,
-    shared: 1,
-    personal: 2,
-    global: 3,
-    bundled: 4,
-  };
-  return [...found.values()].sort((a, b) => order[a.source] - order[b.source]);
+  return [...found.values()];
+}
+
+const reportedDiagnostics = new Set<string>();
+function reportSkillDiagnostic(message: string): void {
+  if (reportedDiagnostics.has(message)) return;
+  reportedDiagnostics.add(message);
+  process.stderr.write(`ChiselCode: ${message}\n`);
+}
+
+function ensureSkillDirs(...paths: string[]): void {
+  for (const path of paths) {
+    mkdirSync(path, { recursive: true });
+    const info = lstatSync(path);
+    if (!info.isDirectory() || info.isSymbolicLink())
+      throw new Error(`Unsafe ChiselCode skills directory: ${path}`);
+  }
+}
+
+function installBundledSkills(
+  source: string,
+  destination: string,
+  diagnostic: (message: string) => void,
+): void {
+  if (source === destination) return;
+  if (!existsSync(source)) return;
+  for (const name of RESERVED_BUNDLED_SKILL_NAMES) {
+    const from = join(source, name, SKILL_FILENAME);
+    const toDir = join(destination, name);
+    const to = join(toDir, SKILL_FILENAME);
+    try {
+      if (!lstatSync(from).isFile()) continue;
+      ensureSkillDirs(toDir);
+      const text = readFileSync(from, "utf8");
+      if (pathExistsNoFollowSync(to)) {
+        const info = lstatSync(to);
+        if (!info.isFile() || info.isSymbolicLink())
+          throw new Error(`Unsafe bundled skill file: ${to}`);
+        if (readFileSync(to, "utf8") === text) continue;
+      }
+      const temporary = join(toDir, `.SKILL-${randomUUID()}.tmp`);
+      writeFileSync(temporary, text, { flag: "wx" });
+      renameSync(temporary, to);
+    } catch (error) {
+      diagnostic(
+        `Не удалось обновить встроенный скилл «${name}»: ${String(error)}`,
+      );
+    }
+  }
+}
+
+/** Copy legacy user skills once into the central user directory; originals stay put. */
+function migrateLegacySkills(
+  cwd: string,
+  destination: string,
+  legacyPersonalRoot: string,
+  overrideDirs: string[] | undefined,
+  diagnostic: (message: string) => void,
+): void {
+  const sources = overrideDirs ?? [
+    join(cwd, ".chisel", "skills"),
+    join(cwd, ".agents", "skills"),
+    legacyPersonalRoot,
+    join(dirname(globalConfigPath()), "skills"),
+    join(dirname(process.execPath), "skills"),
+  ];
+  for (const source of new Set(sources)) {
+    const markerDir = join(dirname(destination), ".migrations");
+    const sourceKey = resolve(source);
+    const marker = join(
+      markerDir,
+      createHash("sha256")
+        .update(
+          process.platform === "win32" ? sourceKey.toLowerCase() : sourceKey,
+        )
+        .digest("hex"),
+    );
+    if (pathExistsNoFollowSync(marker)) continue;
+    let entries: string[];
+    try {
+      const info = lstatSync(source);
+      if (!info.isDirectory() || info.isSymbolicLink()) continue;
+      entries = readdirSync(source);
+    } catch {
+      continue;
+    }
+    let sawCandidate = false;
+    let complete = true;
+    for (const entry of entries) {
+      const name = entry.toLowerCase();
+      if (!SKILL_NAME_RE.test(name) || entry === "user" || entry === "bundled")
+        continue;
+      sawCandidate = true;
+      const from = join(source, entry);
+      const to = join(destination, name);
+      if (BUILT_IN_NAMES.has(name)) {
+        complete = false;
+        diagnostic(
+          `Старый скилл «${name}» из ${source} не перенесён: имя занято встроенной командой.`,
+        );
+        continue;
+      }
+      if (RESERVED_BUNDLED_SKILL_NAMES.has(name)) {
+        if (
+          source !== legacyPersonalRoot &&
+          source !== join(dirname(process.execPath), "skills")
+        ) {
+          complete = false;
+          diagnostic(
+            `Старый скилл «${name}» из ${source} не перенесён: имя зарезервировано встроенным скиллом.`,
+          );
+        }
+        continue;
+      }
+      if (pathExistsNoFollowSync(to)) {
+        try {
+          if (
+            readFileSync(join(from, SKILL_FILENAME), "utf8") ===
+            readFileSync(join(to, SKILL_FILENAME), "utf8")
+          )
+            continue;
+        } catch {
+          /* Keep the conflict diagnostic below. */
+        }
+        complete = false;
+        diagnostic(
+          `Старый скилл «${name}» из ${source} оставлен на месте: ${to} уже существует.`,
+        );
+        continue;
+      }
+      try {
+        assertRegularSkillTree(from);
+        if (
+          !parseSkillFile(
+            name,
+            readFileSync(join(from, SKILL_FILENAME), "utf8"),
+          )
+        ) {
+          complete = false;
+          diagnostic(
+            `Старый скилл «${name}» из ${source} не перенесён: некорректный SKILL.md.`,
+          );
+          continue;
+        }
+        const temporary = join(destination, `.migration-${randomUUID()}`);
+        try {
+          copySkillTree(from, temporary);
+          if (!pathExistsNoFollowSync(to)) renameSync(temporary, to);
+        } finally {
+          if (existsSync(temporary))
+            rmSync(temporary, { recursive: true, force: true });
+        }
+      } catch (error) {
+        complete = false;
+        diagnostic(
+          `Не удалось перенести скилл «${name}» из ${source}: ${String(error)}. Исходные файлы сохранены.`,
+        );
+      }
+    }
+    if (complete && sawCandidate) {
+      ensureSkillDirs(markerDir);
+      try {
+        writeFileSync(marker, `${source}\n`, { flag: "wx" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
+  }
+}
+
+function assertRegularSkillTree(path: string): void {
+  const info = lstatSync(path);
+  if (info.isSymbolicLink() || (!info.isDirectory() && !info.isFile()))
+    throw new Error(`Unsupported link or file: ${path}`);
+  if (info.isDirectory())
+    for (const entry of readdirSync(path))
+      assertRegularSkillTree(join(path, entry));
+}
+
+function copySkillTree(source: string, destination: string): void {
+  if (lstatSync(source).isDirectory()) {
+    mkdirSync(destination);
+    for (const entry of readdirSync(source))
+      copySkillTree(join(source, entry), join(destination, entry));
+  } else copyFileSync(source, destination);
+}
+
+function pathExistsNoFollowSync(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 export interface ParsedSkill {

@@ -1,9 +1,24 @@
-import { readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { relative } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  lstat,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { join, relative } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
+import { chiselHomeDir, skillsRootDir, userSkillsDir } from "../paths/home.js";
 import type { ApprovalGate } from "../security/approval.js";
-import type { Skill } from "../skills/skills.js";
+import {
+  isReservedSkillName,
+  parseSkillFile,
+  type Skill,
+} from "../skills/skills.js";
 import type {
   Session,
   ToolDefinition,
@@ -64,6 +79,11 @@ const schemas = {
   git_status: z.object({}),
   git_commit: z.object({ message: z.string().min(1).max(500) }),
   load_skill: z.object({ name: z.string().min(1) }),
+  create_skill: z.object({
+    name: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/),
+    files: z.record(z.string(), z.string()),
+    mode: z.enum(["create", "update"]).default("create"),
+  }),
 } as const;
 
 type InputMap = { [Name in ToolName]: z.infer<(typeof schemas)[Name]> };
@@ -139,6 +159,13 @@ const definitions: ToolDefinition[] = [
     requiresApproval: false,
   },
   {
+    name: "create_skill",
+    description:
+      "Create or explicitly update a user skill under ChiselCode Home/skills/user. Supply SKILL.md and optional references/, scripts/, or assets/ files. Bundled names and arbitrary paths are rejected.",
+    inputSchema: z.toJSONSchema(schemas.create_skill),
+    requiresApproval: true,
+  },
+  {
     name: "git_commit",
     description: "Create a git commit with a message.",
     inputSchema: z.toJSONSchema(schemas.git_commit),
@@ -192,6 +219,8 @@ export class ToolRegistry {
           return await this.gitStatus(schemas.git_status.parse(rawInput));
         case "load_skill":
           return this.loadSkill(schemas.load_skill.parse(rawInput));
+        case "create_skill":
+          return await this.createSkill(schemas.create_skill.parse(rawInput));
         case "git_commit":
           return await this.gitCommit(schemas.git_commit.parse(rawInput));
       }
@@ -440,6 +469,91 @@ export class ToolRegistry {
     return { output: skill.instructions };
   }
 
+  private async createSkill(
+    input: InputMap["create_skill"],
+  ): Promise<ToolExecutionResult> {
+    if (isReservedSkillName(input.name))
+      throw new Error(
+        `Skill name "${input.name}" is reserved. Choose another name.`,
+      );
+    const files = Object.entries(input.files);
+    if (
+      !Object.hasOwn(input.files, "SKILL.md") ||
+      files.length === 0 ||
+      files.length > 32
+    )
+      throw new Error("Supply SKILL.md and no more than 32 skill files.");
+    if (!parseSkillFile(input.name, input.files["SKILL.md"] ?? ""))
+      throw new Error(
+        "SKILL.md needs a valid matching name, description, and instructions.",
+      );
+    if (Buffer.byteLength(input.files["SKILL.md"] ?? "", "utf8") > 64 * 1024)
+      throw new Error("SKILL.md exceeds the 64 KB loader limit.");
+    let bytes = 0;
+    for (const [path, content] of files) {
+      if (
+        path !== "SKILL.md" &&
+        !/^(references|scripts|assets)\/(?:[a-zA-Z0-9_-][a-zA-Z0-9._-]*\/)*[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/.test(
+          path,
+        )
+      )
+        throw new Error(`Invalid skill file path: ${path}`);
+      if (
+        path
+          .split("/")
+          .some(
+            (part) =>
+              part === "." ||
+              part === ".." ||
+              part.endsWith(".") ||
+              /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
+          )
+      )
+        throw new Error(`Invalid skill file path: ${path}`);
+      bytes += Buffer.byteLength(content, "utf8");
+    }
+    if (bytes > 256_000)
+      throw new Error("Skill files exceed the 256 KB limit.");
+    const destination = join(userSkillsDir(), input.name);
+    const decision = await this.approvalGate.decide({
+      tool: "create_skill",
+      preview: `${input.mode} user skill ${input.name} in ${destination}\nFiles: ${files.map(([name]) => name).join(", ")}`,
+    });
+    if (decision !== "approved") return approvalResult(decision, destination);
+    for (const path of [chiselHomeDir(), skillsRootDir(), userSkillsDir()]) {
+      await mkdir(path, { recursive: true });
+      const info = await lstat(path);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error(`Unsafe ChiselCode skills directory: ${path}`);
+    }
+    if (isReservedSkillName(input.name))
+      throw new Error("Bundled skill names are reserved.");
+    if (input.mode === "create") {
+      if (await pathExistsNoFollow(destination))
+        throw new Error(`User skill already exists: ${input.name}`);
+      const temporary = join(userSkillsDir(), `.create-${randomUUID()}`);
+      try {
+        await mkdir(temporary);
+        await writeSkillFiles(temporary, files);
+        if (await pathExistsNoFollow(destination))
+          throw new Error(`User skill already exists: ${input.name}`);
+        await rename(temporary, destination);
+      } finally {
+        if (await exists(temporary))
+          await rm(temporary, { recursive: true, force: true });
+      }
+    } else {
+      const info = await lstat(destination);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error(`Unsafe user skill directory: ${destination}`);
+      await validateSkillWritePaths(destination, files);
+      await writeSkillFiles(destination, files, true);
+    }
+    return {
+      output: `User skill ${input.mode === "create" ? "created" : "updated"}: ${destination}`,
+    };
+  }
+
   private async gitCommit(
     input: InputMap["git_commit"],
   ): Promise<ToolExecutionResult> {
@@ -513,6 +627,69 @@ export class ToolRegistry {
       createdAt: new Date().toISOString(),
     };
     this.session.undoStack.push(entry);
+  }
+}
+
+async function validateSkillWritePaths(
+  root: string,
+  files: [string, string][],
+): Promise<void> {
+  for (const [name] of files) {
+    const parts = name.split("/");
+    let parent = root;
+    for (const part of parts.slice(0, -1)) {
+      parent = join(parent, part);
+      if (!(await pathExistsNoFollow(parent))) continue;
+      const info = await lstat(parent);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error(`Unsafe skill subdirectory: ${parent}`);
+    }
+    const target = join(parent, parts.at(-1) ?? "");
+    if (!(await pathExistsNoFollow(target))) continue;
+    const info = await lstat(target);
+    if (!info.isFile() || info.isSymbolicLink())
+      throw new Error(`Unsafe skill file: ${target}`);
+  }
+}
+
+async function writeSkillFiles(
+  root: string,
+  files: [string, string][],
+  update = false,
+): Promise<void> {
+  for (const [name, content] of files) {
+    const parts = name.split("/");
+    let parent = root;
+    for (const part of parts.slice(0, -1)) {
+      parent = join(parent, part);
+      await mkdir(parent, { recursive: true });
+      const info = await lstat(parent);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error(`Unsafe skill subdirectory: ${parent}`);
+    }
+    const target = join(parent, parts.at(-1) ?? "");
+    if (update && (await pathExistsNoFollow(target))) {
+      const info = await lstat(target);
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new Error(`Unsafe skill file: ${target}`);
+    }
+    const temporary = join(parent, `.skill-${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporary, content, { flag: "wx" });
+      await rename(temporary, target);
+    } finally {
+      if (await exists(temporary)) await rm(temporary, { force: true });
+    }
+  }
+}
+
+async function pathExistsNoFollow(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 

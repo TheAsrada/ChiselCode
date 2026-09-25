@@ -50,7 +50,8 @@ function sink() {
 
 test("session storage round-trips complete diff metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-diff-session-"));
-  const variable = process.platform === "win32" ? "APPDATA" : "XDG_CONFIG_HOME";
+  const variable =
+    process.platform === "win32" ? "LOCALAPPDATA" : "XDG_DATA_HOME";
   const previous = process.env[variable];
   process.env[variable] = root;
   try {
@@ -58,7 +59,9 @@ test("session storage round-trips complete diff metadata", async () => {
     const diff = buildFileDiff("x", null, "new\n".repeat(400));
     session.fileDiffs = { "call-1": diff };
     await saveSession(session);
-    expect((await loadSession(session.id)).fileDiffs?.["call-1"]).toEqual(diff);
+    expect((await loadSession(session.id, root)).fileDiffs?.["call-1"]).toEqual(
+      diff,
+    );
   } finally {
     if (previous === undefined) delete process.env[variable];
     else process.env[variable] = previous;
