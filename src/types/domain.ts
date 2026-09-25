@@ -19,7 +19,9 @@ export const ToolNameSchema = z.enum([
   "delete_file",
   "run_shell",
   "git_diff",
+  "git_status",
   "git_commit",
+  "load_skill",
 ]);
 export type ToolName = z.infer<typeof ToolNameSchema>;
 

@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execa } from "execa";
 import type { ApprovalRequest } from "../../src/security/approval.js";
 import { ApprovalGate } from "../../src/security/approval.js";
+import type { Skill } from "../../src/skills/skills.js";
 import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import type { ProjectConfig, Session } from "../../src/types/domain.js";
@@ -31,7 +33,11 @@ function session(root: string): Session {
   };
 }
 
-function registry(root: string, autoApprove = true): ToolRegistry {
+function registry(
+  root: string,
+  autoApprove = true,
+  skills: Skill[] = [],
+): ToolRegistry {
   const gate = new ApprovalGate(
     config,
     { autoApprove, allowedTools: new Set(), nonInteractive: true },
@@ -41,7 +47,7 @@ function registry(root: string, autoApprove = true): ToolRegistry {
       },
     },
   );
-  return new ToolRegistry(root, [], gate, session(root));
+  return new ToolRegistry(root, [], gate, session(root), skills);
 }
 
 afterEach(async () => {
@@ -51,6 +57,128 @@ afterEach(async () => {
 });
 
 describe("ToolRegistry", () => {
+  test("load_skill uses only the registered snapshot and rejects manual-only names and paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-skills-tool-"));
+    paths.push(root);
+    const skills: Skill[] = [
+      {
+        name: "review",
+        description: "review",
+        instructions: "Review safely",
+        source: "project",
+        dir: join(root, "review"),
+      },
+      {
+        name: "creator",
+        description: "creator",
+        instructions: "Create",
+        disableModelInvocation: true,
+        source: "bundled",
+        dir: join(root, "creator"),
+      },
+    ];
+    const tools = registry(root, true, skills);
+    expect((await tools.execute("load_skill", { name: "review" })).output).toBe(
+      "Review safely",
+    );
+    expect(
+      (await tools.execute("load_skill", { name: "creator" })).isError,
+    ).toBe(true);
+    expect(
+      (
+        await tools.execute("load_skill", {
+          name: join(root, "review", "SKILL.md"),
+        })
+      ).isError,
+    ).toBe(true);
+    expect(
+      (await tools.execute("load_skill", { name: "../review" })).isError,
+    ).toBe(true);
+    skills.push({
+      name: "later",
+      description: "later",
+      instructions: "later",
+      source: "project",
+      dir: root,
+    });
+    expect((await tools.execute("load_skill", { name: "later" })).isError).toBe(
+      true,
+    );
+  });
+
+  test("personal skill outside project loads while read_file stays project-bound", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-project-"));
+    const external = await mkdtemp(join(tmpdir(), "chiselcode-personal-"));
+    paths.push(root, external);
+    await writeFile(join(external, "SKILL.md"), "private instructions");
+    const tools = registry(root, true, [
+      {
+        name: "personal",
+        description: "personal",
+        instructions: "private instructions",
+        source: "personal",
+        dir: external,
+      },
+    ]);
+    expect(
+      (await tools.execute("load_skill", { name: "personal" })).output,
+    ).toBe("private instructions");
+    expect(
+      (await tools.execute("read_file", { path: join(external, "SKILL.md") }))
+        .isError,
+    ).toBe(true);
+  });
+
+  test("git_status and git_diff distinguish staged and unstaged changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-git-tools-"));
+    paths.push(root);
+    await execa("git", ["init", "-q", root]);
+    await writeFile(join(root, "file.txt"), "original\n");
+    await execa("git", ["add", "file.txt"], { cwd: root });
+    await execa(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "base",
+      ],
+      { cwd: root },
+    );
+    await writeFile(join(root, "file.txt"), "staged\n");
+    await execa("git", ["add", "file.txt"], { cwd: root });
+    await writeFile(join(root, "file.txt"), "unstaged\n");
+    await writeFile(join(root, "new.txt"), "untracked\n");
+    const tools = registry(root);
+    const status = await tools.execute("git_status", {});
+    expect(status.isError).not.toBe(true);
+    expect(status.output).toContain("MM file.txt");
+    expect(status.output).toContain("?? new.txt");
+    const unstaged = await tools.execute("git_diff", {});
+    const staged = await tools.execute("git_diff", { scope: "staged" });
+    const all = await tools.execute("git_diff", { scope: "all" });
+    expect(unstaged.output).toContain("+unstaged");
+    expect(unstaged.output).not.toContain("+staged");
+    expect(staged.output).toContain("+staged");
+    expect(staged.output).not.toContain("+unstaged");
+    expect(all.output).toContain("+unstaged");
+    expect(all.output).toContain("-original");
+    expect(
+      (await tools.execute("git_diff", { scope: "all", path: "file.txt" }))
+        .output,
+    ).toContain("+unstaged");
+    expect(
+      (await tools.execute("git_diff", { scope: "all", path: "new.txt" }))
+        .output,
+    ).not.toContain("+unstaged");
+    expect(
+      (await tools.execute("git_diff", { scope: "all", path: "../outside" }))
+        .isError,
+    ).toBe(true);
+  });
   test("diff paths stay project-relative when the root is a filesystem alias", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-alias-"));
     const links = await mkdtemp(join(tmpdir(), "chiselcode-links-"));

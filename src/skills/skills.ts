@@ -13,8 +13,8 @@ import { SLASH_COMMANDS } from "../ui/commands.js";
  *
  * Прогрессивное раскрытие: в системный промпт попадает только каталог
  * (имя + описание ~100 токенов на скилл), полный SKILL.md агент читает
- * сам через read_file, когда задача совпадает с описанием, а вложенные
- * файлы — по мере необходимости. Вручную скилл вызывается как /имя.
+ * сам через load_skill по имени, когда задача совпадает с описанием.
+ * Вручную скилл вызывается как /имя.
  *
  * Источники в порядке приоритета (первый найденный побеждает):
  * 1. `<проект>/.chisel/skills/<имя>/SKILL.md` — свои, можно коммитить;
@@ -37,7 +37,7 @@ export type SkillSource =
   | "bundled";
 
 export interface Skill {
-  /** Без слэша: `review` для `/review`. Совпадает с именем папки. */
+  /** Без слэша: `code-review` для `/code-review`. Совпадает с папкой. */
   name: string;
   /** Когда вызывать: триггер для агента и строка в /skills и подсказках. */
   description: string;
@@ -47,10 +47,11 @@ export interface Skill {
   allowedTools?: string[];
   /**
    * Можно ли вызывать как /имя. `user-invocable: false` прячет скилл из
-   * slash-команд (как skill-creator): он остаётся в каталоге для агента
-   * и в браузере /skills, где его можно задействовать.
+   * slash-команд, но не из каталога для агента.
    */
   userInvocable?: boolean;
+  /** Ручной вызов разрешён, но автоматическая загрузка моделью запрещена. */
+  disableModelInvocation?: boolean;
   source: SkillSource;
   /** Папка скилла: там же scripts/, references/, assets/. */
   dir: string;
@@ -191,11 +192,17 @@ export interface ParsedSkill {
   instructions: string;
   allowedTools?: string[];
   userInvocable?: boolean;
+  disableModelInvocation?: boolean;
 }
 
 /** Скиллы, доступные как /команды (без `user-invocable: false`). */
 export function invocableSkills(skills: Skill[]): Skill[] {
   return skills.filter((skill) => skill.userInvocable !== false);
+}
+
+/** Скиллы, доступные модели через каталог и load_skill. */
+export function modelInvocableSkills(skills: Skill[]): Skill[] {
+  return skills.filter((skill) => skill.disableModelInvocation !== true);
 }
 
 /**
@@ -233,12 +240,22 @@ export function parseSkillFile(
     .trim()
     .toLowerCase();
   const userInvocable = invocableRaw === "false" ? false : undefined;
+  const modelInvocationRaw = String(data["disable-model-invocation"] ?? "")
+    .trim()
+    .toLowerCase();
+  const disableModelInvocation =
+    modelInvocationRaw === "true"
+      ? true
+      : modelInvocationRaw === "false"
+        ? false
+        : undefined;
   return {
     name,
     description,
     instructions,
     ...(allowedTools?.length ? { allowedTools } : {}),
     ...(userInvocable === false ? { userInvocable } : {}),
+    ...(disableModelInvocation !== undefined ? { disableModelInvocation } : {}),
   };
 }
 
@@ -392,17 +409,22 @@ export function stripActiveSkillsBlock(text: string): string {
 
 /**
  * Каталог скиллов для системного промпта (уровень 1 прогрессивного
- * раскрытия): только имя + описание + путь. Полный SKILL.md агент читает
- * сам через read_file, когда задача совпадает с описанием.
+ * раскрытия): только имя + описание. Тело загружается по имени через load_skill.
  */
 export function skillsCatalogPrompt(skills: Skill[]): string {
-  if (skills.length === 0) return "";
-  const lines = skills.map(
-    (skill) => `- /${skill.name} — ${skill.description} (файл: ${skill.dir})`,
-  );
+  const available = modelInvocableSkills(skills);
+  if (available.length === 0) return "";
+  const escapeXml = (text: string) =>
+    text
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
   return [
-    "Доступные скиллы — специализированные инструкции под задачи:",
-    ...lines,
-    "Если задача пользователя совпадает с описанием скилла: прочитай его SKILL.md инструментом read_file и строго следуй инструкциям; вложенные файлы скилла (scripts/, references/, assets/) открывай по мере необходимости. Скилл можно также вызвать напрямую командой /имя.",
+    "<available_skills>",
+    ...available.map(
+      (skill) =>
+        `  <skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(skill.description)}</description></skill>`,
+    ),
+    "</available_skills>",
   ].join("\n");
 }

@@ -1324,7 +1324,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     const head = space === -1 ? prompt : prompt.slice(0, space);
     if (!head.startsWith("/") || head.length < 2) return undefined;
     const args = space === -1 ? "" : prompt.slice(space).trim();
-    const skill = invocableSkills(loadSkills(projectCwd)).find(
+    const skill = slashSkills.find(
       (candidate) => `/${candidate.name}` === head,
     );
     return skill ? { skill, args } : undefined;
@@ -1338,7 +1338,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     setEditor(createEditorState());
     resetCommandSelection();
     if (name === "/help") {
-      append(commandHelpText(loadSkills(projectCwd)), "info");
+      append(commandHelpText(slashSkills), "info");
       return;
     }
     if (name === "/clear") {

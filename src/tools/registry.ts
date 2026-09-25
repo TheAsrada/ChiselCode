@@ -3,6 +3,7 @@ import { relative } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 import type { ApprovalGate } from "../security/approval.js";
+import type { Skill } from "../skills/skills.js";
 import type {
   Session,
   ToolDefinition,
@@ -56,8 +57,13 @@ const schemas = {
     cwd: z.string().min(1).optional(),
     timeout: z.number().int().min(1_000).max(600_000).optional(),
   }),
-  git_diff: z.object({ path: z.string().min(1).optional() }),
+  git_diff: z.object({
+    scope: z.enum(["unstaged", "staged", "all"]).default("unstaged"),
+    path: z.string().min(1).optional(),
+  }),
+  git_status: z.object({}),
   git_commit: z.object({ message: z.string().min(1).max(500) }),
+  load_skill: z.object({ name: z.string().min(1) }),
 } as const;
 
 type InputMap = { [Name in ToolName]: z.infer<(typeof schemas)[Name]> };
@@ -113,8 +119,23 @@ const definitions: ToolDefinition[] = [
   },
   {
     name: "git_diff",
-    description: "Show uncommitted git changes.",
+    description:
+      "Show Git changes: unstaged (default), staged, or all tracked changes against HEAD. Use git_status for untracked files.",
     inputSchema: z.toJSONSchema(schemas.git_diff),
+    requiresApproval: false,
+  },
+  {
+    name: "git_status",
+    description:
+      "Show current short Git status, including staged, unstaged, and untracked files.",
+    inputSchema: z.toJSONSchema(schemas.git_status),
+    requiresApproval: false,
+  },
+  {
+    name: "load_skill",
+    description:
+      "Load full instructions for an available skill by its exact registered name; never pass a path.",
+    inputSchema: z.toJSONSchema(schemas.load_skill),
     requiresApproval: false,
   },
   {
@@ -127,13 +148,17 @@ const definitions: ToolDefinition[] = [
 
 export class ToolRegistry {
   private readonly readPaths = new Set<string>();
+  private readonly skills: readonly Skill[];
 
   constructor(
     private readonly projectRoot: string,
     private readonly ignorePatterns: string[],
     private readonly approvalGate: ApprovalGate,
     private readonly session: Session,
-  ) {}
+    skills: readonly Skill[] = [],
+  ) {
+    this.skills = [...skills];
+  }
 
   getDefinitions(): ToolDefinition[] {
     return definitions;
@@ -163,6 +188,10 @@ export class ToolRegistry {
           return await this.runShell(schemas.run_shell.parse(rawInput));
         case "git_diff":
           return await this.gitDiff(schemas.git_diff.parse(rawInput));
+        case "git_status":
+          return await this.gitStatus(schemas.git_status.parse(rawInput));
+        case "load_skill":
+          return this.loadSkill(schemas.load_skill.parse(rawInput));
         case "git_commit":
           return await this.gitCommit(schemas.git_commit.parse(rawInput));
       }
@@ -360,8 +389,17 @@ export class ToolRegistry {
   private async gitDiff(
     input: InputMap["git_diff"],
   ): Promise<ToolExecutionResult> {
-    const args = ["diff", "--"];
-    if (input.path) args.push(input.path);
+    const args = ["diff"];
+    if (input.scope === "staged") args.push("--cached");
+    if (input.scope === "all") args.push("HEAD");
+    args.push("--");
+    if (input.path) {
+      if (input.path.startsWith(":"))
+        throw new Error("Git pathspec magic is not supported.");
+      const path = await this.safePath(input.path);
+      const rel = await this.diffPath(path);
+      if (rel) args.push(rel);
+    }
     const result = await execa("git", args, {
       cwd: this.projectRoot,
       reject: false,
@@ -374,6 +412,32 @@ export class ToolRegistry {
       ),
       isError: result.exitCode !== 0,
     };
+  }
+
+  private async gitStatus(
+    _input: InputMap["git_status"],
+  ): Promise<ToolExecutionResult> {
+    const result = await execa("git", ["status", "--short"], {
+      cwd: this.projectRoot,
+      reject: false,
+      all: true,
+    });
+    return {
+      output: limitLines(result.all || "Working tree clean.", MAX_RESULT_LINES),
+      isError: result.exitCode !== 0,
+    };
+  }
+
+  private loadSkill(input: InputMap["load_skill"]): ToolExecutionResult {
+    const skill = this.skills.find(
+      (candidate) => candidate.name === input.name,
+    );
+    if (!skill || skill.disableModelInvocation === true)
+      return {
+        output: `Skill "${input.name}" is not available for automatic loading.`,
+        isError: true,
+      };
+    return { output: skill.instructions };
   }
 
   private async gitCommit(

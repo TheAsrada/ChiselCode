@@ -7,6 +7,7 @@ import {
   expandSkill,
   invocableSkills,
   loadSkills,
+  modelInvocableSkills,
   parseSkillFile,
   personalSkillsDir,
   type Skill,
@@ -214,17 +215,18 @@ describe("SKILL.md files", () => {
     else expect(dir).toContain("chiselcode");
   });
 
-  test("user-invocable false hides the skill from slash commands", () => {
+  test("manual and model invocation flags are independent", () => {
     const parsed = parseSkillFile(
       "skill-creator",
-      "---\nname: skill-creator\ndescription: Писатель скиллов\nuser-invocable: false\n---\nПиши скиллы\n",
+      "---\nname: skill-creator\ndescription: Писатель скиллов\ndisable-model-invocation: true\n---\nПиши скиллы\n",
     );
-    expect(parsed?.userInvocable).toBe(false);
+    expect(parsed?.disableModelInvocation).toBe(true);
+    expect(parsed?.userInvocable).toBeUndefined();
     const hidden: Skill = {
       name: "skill-creator",
       description: "Писатель",
       instructions: "Пиши",
-      userInvocable: false,
+      disableModelInvocation: true,
       source: "bundled",
       dir: "/tmp/x",
     };
@@ -235,11 +237,22 @@ describe("SKILL.md files", () => {
       source: "bundled",
       dir: "/tmp/y",
     };
-    // В каталоге для агента остаются оба, в командах — только вызываемый.
-    expect(skillsCatalogPrompt([hidden, shown])).toContain("/skill-creator");
+    // Ручной вызов и автоматическая загрузка не зависят друг от друга.
+    expect(skillsCatalogPrompt([hidden, shown])).not.toContain("skill-creator");
     expect(invocableSkills([hidden, shown]).map((s) => s.name)).toEqual([
+      "skill-creator",
       "review",
     ]);
+    const agentOnly = { ...shown, userInvocable: false };
+    expect(skillsCatalogPrompt([agentOnly])).toContain("review");
+    expect(modelInvocableSkills([agentOnly])).toHaveLength(1);
+    expect(invocableSkills([agentOnly])).toHaveLength(0);
+    expect(
+      parseSkillFile(
+        "x",
+        "---\ndescription: x\ndisable-model-invocation: false\nuser-invocable: false\n---\nbody",
+      )?.disableModelInvocation,
+    ).toBe(false);
   });
 
   test("active skills wrap the prompt in a marked block", () => {
@@ -299,10 +312,37 @@ describe("SKILL.md files", () => {
         dir: "/proj/.chisel/skills/review",
       },
     ]);
-    expect(catalog).toContain("/review");
+    expect(catalog).toContain("<available_skills>");
+    expect(catalog).toContain("<name>review</name>");
     expect(catalog).toContain("Ревью diff");
-    expect(catalog).toContain("/proj/.chisel/skills/review");
-    expect(catalog).toContain("read_file");
+    expect(catalog).not.toContain("/proj/.chisel/skills/review");
+    expect(catalog).not.toContain("read_file");
+    expect(catalog).not.toContain("Ревью</description>");
+  });
+
+  test("bundled skills expose review to the model and creator only to manual slash", () => {
+    const root = join(import.meta.dir, "..", "..");
+    const missing = join(root, "no-such-skills");
+    const bundled = loadSkills(root, {
+      projectDir: missing,
+      sharedDir: missing,
+      personalDir: missing,
+      globalDir: missing,
+      bundledDir: join(root, "skills"),
+    });
+    expect(bundled.map((s) => s.name).sort()).toEqual([
+      "code-review",
+      "skill-creator",
+    ]);
+    expect(
+      invocableSkills(bundled)
+        .map((s) => s.name)
+        .sort(),
+    ).toEqual(["code-review", "skill-creator"]);
+    const catalog = skillsCatalogPrompt(bundled);
+    expect(catalog).toContain("<name>code-review</name>");
+    expect(catalog).not.toContain("skill-creator");
+    expect(catalog).not.toContain(bundled[0]?.instructions ?? "impossible");
   });
 });
 

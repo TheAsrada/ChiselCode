@@ -68,7 +68,7 @@ export function SkillsPanel({
         <Text bold color="cyan">
           ◈ Скиллы
         </Text>
-        {detail ? <Text dimColor> · /{detail.name}</Text> : null}
+        {detail ? <Text dimColor> · {detail.name}</Text> : null}
       </Box>
       {detail ? (
         <SkillDetail
@@ -91,9 +91,19 @@ export function SkillsPanel({
             — задействован для всех запросов.
           </Text>
           {skills.map((skill, index) => {
-            const row = activeNames.includes(skill.name)
-              ? `/${skill.name} — ${skill.description} ●`
-              : `/${skill.name} — ${skill.description}`;
+            const label =
+              skill.userInvocable === false ? skill.name : `/${skill.name}`;
+            const manual = skill.userInvocable !== false;
+            const automatic = skill.disableModelInvocation !== true;
+            const modes =
+              manual && automatic
+                ? "вручную и автоматически"
+                : manual
+                  ? "только вручную"
+                  : automatic
+                    ? "только агент"
+                    : "вызов отключён";
+            const row = `${label} — ${skill.description} [${modes}]${activeNames.includes(skill.name) ? " ●" : ""}`;
             return index === safeSelected ? (
               <Text key={skill.name} bold inverse color="green">
                 ❯ {row}
@@ -126,7 +136,8 @@ function SkillDetail({
   return (
     <Box flexDirection="column">
       <Text bold>
-        /{skill.name} <Text dimColor>· {sourceLabel(skill.source)}</Text>
+        {skill.userInvocable === false ? skill.name : `/${skill.name}`}{" "}
+        <Text dimColor>· {sourceLabel(skill.source)}</Text>
       </Text>
       <Text dimColor>{skill.dir}</Text>
       <Text>{skill.description}</Text>
@@ -141,7 +152,12 @@ function SkillDetail({
         <Text wrap="wrap">{skill.instructions}</Text>
       </Box>
       <Text dimColor>
-        Вызов вручную: /{skill.name} — агент выполнит инструкции разово.
+        {skill.userInvocable === false
+          ? "Ручной вызов отключён."
+          : `Вызов вручную: /${skill.name} — инструкции применятся разово.`}
+        {skill.disableModelInvocation === true
+          ? " Автоматическая загрузка отключена."
+          : " Агент может загрузить навык по задаче."}
       </Text>
     </Box>
   );

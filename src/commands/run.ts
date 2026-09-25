@@ -306,17 +306,19 @@ export async function runPrompt(
     },
     resolver,
   );
+  const skills = loadSkills(projectRoot);
   const registry = new ToolRegistry(
     projectRoot,
     config.ignorePatterns,
     approvalGate,
     session,
+    skills,
   );
   const dynamic = await collectDynamicContext(projectRoot);
   const system = buildSystemPrompt(
     await loadProjectInstructions(projectRoot),
     dynamic,
-    loadSkills(projectRoot),
+    skills,
   );
   const loop = new AgentLoop(provider, registry, system, {
     onText,

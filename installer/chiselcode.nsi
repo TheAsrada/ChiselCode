@@ -132,13 +132,16 @@ Section "ChiselCode" SecMain
   File "/oname=${ICONFILE}" "assets\${ICONFILE}"
   File "/oname=LICENSE.txt" "..\LICENSE"
   File "/oname=README.txt" "README.txt"
-  ; Bundled skills (/review, /commit, /skill-creator…): explicit file list,
+  ; Remove skills retired in v0.5.29 during upgrades.
+  Delete "$INSTDIR\skills\review\SKILL.md"
+  Delete "$INSTDIR\skills\commit\SKILL.md"
+  RMDir "$INSTDIR\skills\review"
+  RMDir "$INSTDIR\skills\commit"
+  ; Bundled skills (/code-review, /skill-creator): explicit file list,
   ; so the uninstaller below removes exactly what we shipped and never
   ; touches skills added by the user afterwards.
-  SetOutPath "$INSTDIR\skills\review"
-  File "..\skills\review\SKILL.md"
-  SetOutPath "$INSTDIR\skills\commit"
-  File "..\skills\commit\SKILL.md"
+  SetOutPath "$INSTDIR\skills\code-review"
+  File "..\skills\code-review\SKILL.md"
   SetOutPath "$INSTDIR\skills\skill-creator"
   File "..\skills\skill-creator\SKILL.md"
   SetOutPath "$INSTDIR"
@@ -202,9 +205,11 @@ Section "Uninstall"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\skills\review\SKILL.md"
   Delete "$INSTDIR\skills\commit\SKILL.md"
+  Delete "$INSTDIR\skills\code-review\SKILL.md"
   Delete "$INSTDIR\skills\skill-creator\SKILL.md"
   RMDir "$INSTDIR\skills\review"
   RMDir "$INSTDIR\skills\commit"
+  RMDir "$INSTDIR\skills\code-review"
   RMDir "$INSTDIR\skills\skill-creator"
   RMDir "$INSTDIR\skills"
   ; Legacy: custom markdown commands replaced by skills in v0.5.3.

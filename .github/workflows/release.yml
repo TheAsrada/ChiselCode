@@ -48,7 +48,7 @@ jobs:
             # Предыдущий релиз = последний созданный (текущий тег ещё не опубликован)
             prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
             if [ -n "$prev" ]; then
-              printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$GITHUB_REF_NAME" >> /tmp/release-notes.md
+              printf '\n**Полный список изменений**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$GITHUB_REF_NAME" >> /tmp/release-notes.md
             fi
             gh release create "$GITHUB_REF_NAME" --title "ChiselCode $GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
           else
@@ -143,6 +143,10 @@ jobs:
           bun build ./src/cli.ts --compile --target=bun-darwin-arm64 --outfile=pkg/macos-arm64/chisel
           bun build ./src/cli.ts --compile --target=bun-darwin-x64 --outfile=pkg/macos-x64/chisel
           chmod +x pkg/macos-arm64/chisel pkg/macos-x64/chisel
+          for arch in arm64 x64; do
+            mkdir -p "pkg/macos-$arch/skills"
+            cp -R skills/code-review skills/skill-creator "pkg/macos-$arch/skills/"
+          done
       - name: Build packages
         shell: bash
         run: |
@@ -196,6 +200,8 @@ jobs:
           mkdir -p "$root/DEBIAN" "$root/usr/bin"
           bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile="$root/usr/bin/chisel"
           chmod 0755 "$root/usr/bin/chisel"
+          mkdir -p "$root/usr/bin/skills"
+          cp -R skills/code-review skills/skill-creator "$root/usr/bin/skills/"
           cat > "$root/DEBIAN/control" <<EOF
           Package: chiselcode
           Version: $ver

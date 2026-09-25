@@ -50,6 +50,8 @@ export const TOOL_DISPLAY: Record<string, ToolDisplay> = {
   delete_file: { icon: "×", label: "Удаление файла" },
   run_shell: { icon: "$", label: "Команда shell" },
   git_diff: { icon: "≠", label: "Git diff" },
+  git_status: { icon: "#", label: "Git status" },
+  load_skill: { icon: "✧", label: "Загрузка скилла" },
   git_commit: { icon: "#", label: "Git commit" },
   self_update: { icon: "⇪", label: "Обновление ChiselCode" },
 };
@@ -152,8 +154,17 @@ export function formatToolSummary(
           : "";
       return `$ ${singleLine(command, 120)}${cwd}`;
     }
-    case "git_diff":
-      return path ? `git diff -- ${path}` : "git diff";
+    case "git_diff": {
+      const scope =
+        typeof input.scope === "string" && input.scope !== "unstaged"
+          ? ` ${input.scope}`
+          : "";
+      return `git diff${scope}${path ? ` -- ${path}` : ""}`;
+    }
+    case "git_status":
+      return "git status --short";
+    case "load_skill":
+      return `load_skill ${singleLine(input.name, 70)}`;
     case "git_commit": {
       const message = typeof input.message === "string" ? input.message : "";
       return `git commit -m «${singleLine(message, 100)}»`;
