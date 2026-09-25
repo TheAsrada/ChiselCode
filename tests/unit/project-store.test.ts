@@ -31,6 +31,27 @@ afterEach(async () => {
 });
 
 describe("project session storage", () => {
+  test("startNew saves the old conversation and creates a separate empty session", async () => {
+    const store = await projectSessionStore(join(root, "work"));
+    const old = store.create("anthropic", "old-model");
+    old.messages.push({
+      role: "user",
+      content: [{ type: "text", text: "Старый разговор" }],
+    });
+    await store.save(old);
+    const next = await store.startNew(
+      old.id,
+      { provider: "anthropic", model: "old-model" },
+      { model: "new-model" },
+    );
+    expect(next.id).not.toBe(old.id);
+    expect(next.messages).toEqual([]);
+    expect(next.model).toBe("new-model");
+    expect((await store.load(old.id)).messages).toHaveLength(1);
+    expect((await store.list()).map((item) => item.id)).toEqual(
+      expect.arrayContaining([old.id, next.id]),
+    );
+  });
   test("registry uses canonical path and keeps same-name projects separate", async () => {
     const a = join(root, "one", "same");
     const b = join(root, "two", "same");

@@ -416,6 +416,20 @@ async function readSessionSummary(
   }
 }
 
+async function clearProjectSession(
+  options: RunOptions,
+  fallbackProvider: ProviderKind,
+  fallbackModel: string,
+): Promise<string> {
+  const store = await projectSessionStore(options.cwd ?? process.cwd());
+  const next = await store.startNew(
+    options.resume,
+    { provider: fallbackProvider, model: fallbackModel },
+    { provider: options.provider, model: options.model },
+  );
+  return next.id;
+}
+
 async function startTui(options: RunOptions): Promise<void> {
   const config = await loadGlobalConfig();
   const initialSession = options.resume
@@ -619,17 +633,16 @@ async function startTui(options: RunOptions): Promise<void> {
             })),
           };
         },
-        onNewSession: async () => {
-          if (activeOptions.resume) {
-            const store = await projectSessionStore(
-              activeOptions.cwd ?? process.cwd(),
-            );
-            const current = await store.load(activeOptions.resume);
-            if (activeOptions.model) current.model = activeOptions.model;
-            await store.save(current);
-          }
-          activeOptions = { ...activeOptions, resume: undefined };
-          return "Начат новый сеанс: следующее сообщение откроет новую сессию.";
+        onClearSession: async () => {
+          const id = await clearProjectSession(
+            activeOptions,
+            provider,
+            activeOptions.model ??
+              config.defaultModel ??
+              defaultModelFor(provider) ??
+              "claude-opus-5",
+          );
+          activeOptions = { ...activeOptions, resume: id };
         },
         onListSessions: async () => {
           cachedSessionList = await listSessions(
@@ -824,7 +837,7 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
       if (line === "/exit") return;
       if (line === "/help") {
         process.stdout.write(
-          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить и тихо установить обновление\n/skills — доступные скиллы\n/new — новый сеанс\n/sessions — список сеансов\n/resume <номер> — вернуться к сеансу\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
+          "/help — помощь\n/status — состояние\n/doctor — проверка настройки\n/update — проверить и тихо установить обновление\n/skills — доступные скиллы\n/clear — сохранить сеанс, начать новый и очистить экран\n/sessions — список сеансов\n/resume <номер> — вернуться к сеансу\n/cwd <путь> — сменить папку проекта\n/exit — выход\nОбычный текст — задача для помощника.\n",
         );
         continue;
       }
@@ -863,14 +876,25 @@ async function startTuiFallback(options: RunOptions): Promise<void> {
         continue;
       }
       if (line === "/clear") {
-        process.stdout.write("Экран очищен; история сессии сохранена.\n");
-        continue;
-      }
-      if (line === "/new") {
-        activeOptions = { ...activeOptions, resume: undefined };
-        process.stdout.write(
-          "Начат новый сеанс: следующее сообщение откроет новую сессию.\n",
-        );
+        try {
+          const id = await clearProjectSession(
+            activeOptions,
+            provider,
+            activeOptions.model ??
+              config.defaultModel ??
+              defaultModelFor(provider) ??
+              "claude-opus-5",
+          );
+          activeOptions = { ...activeOptions, resume: id };
+          if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
+          process.stdout.write(
+            `◈ ChiselCode v${VERSION} — новый сеанс. Введите задачу и нажмите Enter.\n`,
+          );
+        } catch (error) {
+          process.stdout.write(
+            `Ошибка: ${error instanceof Error ? error.message : String(error)}\n`,
+          );
+        }
         continue;
       }
       if (line === "/sessions") {

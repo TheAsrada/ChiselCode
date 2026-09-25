@@ -198,10 +198,14 @@ async function typeCommand(stdin: MockStdin, command: string): Promise<void> {
 }
 
 describe("tui session commands", () => {
-  test("/clear does not start a new session", async () => {
+  test("/clear starts a saved new session and keeps the header", async () => {
     const stdout = createMockStdout(100, 30);
     const stdin = createMockStdin();
-    let newCalls = 0;
+    let clearCalls = 0;
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
     const instance = render(
       React.createElement(TuiApp, {
         approvalResolver: createTuiApprovalResolver(),
@@ -212,9 +216,8 @@ describe("tui session commands", () => {
         onSaveSettings: async () => "saved" as const,
         onCheckConnection: async () => "ok",
         onCompleteSetup: async () => {},
-        onNewSession: async () => {
-          newCalls += 1;
-          return "new";
+        onClearSession: async () => {
+          clearCalls += 1;
         },
         provider: "anthropic",
         providerLabel: "Anthropic",
@@ -230,8 +233,10 @@ describe("tui session commands", () => {
     );
     try {
       await tick();
+      output = "";
       await typeCommand(stdin, "/clear");
-      expect(newCalls).toBe(0);
+      expect(clearCalls).toBe(1);
+      expect(stripAnsi(output)).toContain("ChiselCode");
     } finally {
       instance.unmount();
     }
@@ -291,7 +296,7 @@ describe("tui session commands", () => {
       instance.unmount();
     }
   });
-  test("/new clears the view and starts a new session", async () => {
+  test("/new is no longer a built-in command", async () => {
     const stdout = createMockStdout(100, 30);
     const stdin = createMockStdin();
     let output = "";
@@ -309,9 +314,8 @@ describe("tui session commands", () => {
         onSaveSettings: async () => "saved" as const,
         onCheckConnection: async () => "ok",
         onCompleteSetup: async () => {},
-        onNewSession: async () => {
+        onClearSession: async () => {
           newCalls += 1;
-          return "new-session-ok";
         },
         provider: "anthropic",
         providerLabel: "Anthropic (Claude)",
@@ -328,8 +332,8 @@ describe("tui session commands", () => {
     try {
       await tick();
       await typeCommand(stdin, "/new");
-      expect(newCalls).toBe(1);
-      expect(stripAnsi(output)).toContain("new-session-ok");
+      expect(newCalls).toBe(0);
+      expect(stripAnsi(output)).not.toContain("new-session-ok");
     } finally {
       instance.unmount();
     }

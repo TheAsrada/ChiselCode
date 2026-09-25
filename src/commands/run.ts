@@ -263,7 +263,11 @@ export async function runPrompt(
       );
   if (options.resume && options.model) session.model = options.model;
   if (options.resume && options.provider) session.provider = options.provider;
-  if (!options.resume && prompt.trim()) {
+  if (
+    session.messages.length === 0 &&
+    session.titleSource !== "user" &&
+    prompt.trim()
+  ) {
     session.title = sessionTitleForPrompt(prompt);
     session.titleSource = "auto";
   }

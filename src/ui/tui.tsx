@@ -850,8 +850,8 @@ export interface TuiAppProps {
   onSwitchProject(path: string): Promise<string>;
   onCheckUpdate?(): Promise<string>;
   onDoctor?(): Promise<string>;
-  /** Начать новый сеанс: следующее сообщение откроет новую сессию. */
-  onNewSession?(): Promise<string>;
+  /** Сохранить текущий сеанс и создать новый. */
+  onClearSession?(): Promise<void>;
   /** Список сеансов проекта человекочитаемым текстом. */
   onListSessions?(): Promise<string>;
   /** Возврат к сеансу по номеру из списка или id (+реплей истории в вид). */
@@ -1211,13 +1211,31 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   const clearAll = useCallback((): void => {
     streamingRef.current = null;
     setStreaming(null);
-    // /clear и /new: новый разговор — вьюпорт возвращается к низу.
-    // В alt-screen старое не остаётся в scrollback
-    // (отдельный буфер), поэтому чистим ленту полностью.
+    // Применяется при замене истории (например, /resume).
     setTranscript([]);
     setActivity(undefined);
     setScrollTop(null);
   }, []);
+
+  const clearToWelcome = useCallback((): void => {
+    queuedRef.current = [];
+    setQueued([]);
+    streamingRef.current = null;
+    setStreaming(null);
+    setActivity(undefined);
+    setTranscript(
+      buildWelcomeLines(
+        {
+          columns,
+          model: runtime.model,
+          cwd: projectCwd,
+          version: props.version,
+        },
+        () => nextTranscriptId.current++,
+      ),
+    );
+    setScrollTop(null);
+  }, [columns, runtime.model, projectCwd, props.version]);
 
   const replaceAll = useCallback(
     (
@@ -1384,14 +1402,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       return;
     }
     if (name === "/clear") {
-      clearAll();
-      return;
-    }
-    if (name === "/new") {
+      if (busy) {
+        append("Дождитесь завершения ответа и повторите /clear.", "info");
+        return;
+      }
       try {
-        const message = (await props.onNewSession?.()) ?? "Начат новый сеанс.";
-        clearAll();
-        append(message, "info");
+        await props.onClearSession?.();
+        clearToWelcome();
       } catch (cause) {
         append(
           `Ошибка: ${cause instanceof Error ? cause.message : String(cause)}`,

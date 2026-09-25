@@ -302,6 +302,24 @@ export class ProjectSessionStore {
       updatedAt: now,
     };
   }
+  async startNew(
+    currentId: string | undefined,
+    defaults: { provider: Session["provider"]; model: string },
+    overrides: { provider?: Session["provider"]; model?: string } = {},
+  ): Promise<Session> {
+    const current = currentId ? await this.load(currentId) : undefined;
+    const provider =
+      overrides.provider ?? current?.provider ?? defaults.provider;
+    const model = overrides.model ?? current?.model ?? defaults.model;
+    if (current) {
+      current.provider = provider;
+      current.model = model;
+      await this.save(current);
+    }
+    const next = this.create(provider, model);
+    await this.save(next);
+    return next;
+  }
   async save(session: Session): Promise<void> {
     assertSessionId(session.id);
     session.updatedAt = new Date().toISOString();

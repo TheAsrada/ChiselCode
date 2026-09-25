@@ -61,6 +61,7 @@ describe("interactive commands", () => {
   test("parses only known complete slash commands", () => {
     expect(parseSlashCommand(" /help ")).toEqual({ name: "/help", args: "" });
     expect(parseSlashCommand("/unknown")).toBeUndefined();
+    expect(parseSlashCommand("/new")).toBeUndefined();
     expect(parseSlashCommand("/cwd C:\\projects\\demo")).toEqual({
       name: "/cwd",
       args: "C:\\projects\\demo",

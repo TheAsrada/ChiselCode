@@ -1,12 +1,14 @@
 export const SLASH_COMMANDS = [
   { name: "/help", description: "показать справку по командам" },
-  { name: "/clear", description: "очистить экран" },
+  {
+    name: "/clear",
+    description: "сохранить сеанс и начать новый, оставив шапку",
+  },
   { name: "/cwd", description: "сменить папку проекта: <путь>" },
   { name: "/settings", description: "открыть настройки" },
   { name: "/model", description: "сменить модель" },
   { name: "/skills", description: "скиллы: выбрать и задействовать" },
   { name: "/status", description: "показать состояние сессии" },
-  { name: "/new", description: "начать новый сеанс" },
   { name: "/sessions", description: "выбрать сеанс проекта" },
   { name: "/resume", description: "открыть выбор сеанса" },
   { name: "/update", description: "проверить и установить обновление" },
@@ -112,7 +114,7 @@ function levenshtein(a: string, b: string): number {
 }
 
 const HELP_GROUPS: { title: string; commands: string[] }[] = [
-  { title: "Сессия", commands: ["/new", "/sessions", "/resume", "/clear"] },
+  { title: "Сессия", commands: ["/clear", "/sessions", "/resume"] },
   { title: "Проект", commands: ["/cwd", "/status", "/doctor"] },
   {
     title: "Приложение",
