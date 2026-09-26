@@ -63,6 +63,7 @@ import {
   TuiApp,
   type TuiTranscript,
 } from "./ui/tui.js";
+import { createWindowsConsoleSelectionGuard } from "./ui/windows-clipboard.js";
 import { resolveProjectDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
 
@@ -471,6 +472,21 @@ async function startTui(options: RunOptions): Promise<void> {
   // SGR-захват мыши живёт шире render-блока: гасим его в finally
   // у waitUntilExit (иначе шелл после нас получал бы SGR-мусор).
   let mouseOn = false;
+  let selectionGuard:
+    | Awaited<ReturnType<typeof createWindowsConsoleSelectionGuard>>
+    | undefined;
+  if (
+    useAltScreen &&
+    process.platform === "win32" &&
+    !shouldEnableMouse(process.env)
+  ) {
+    try {
+      // Capture the shell's input mode before Ink switches stdin to raw mode.
+      selectionGuard = await createWindowsConsoleSelectionGuard();
+    } catch {
+      // Modern terminal hosts can still own selection without the legacy flag.
+    }
+  }
   try {
     instance = render(
       React.createElement(TuiApp, {
@@ -771,8 +787,17 @@ async function startTui(options: RunOptions): Promise<void> {
       } catch {
         // Не-TTY/pipe: трекинг просто не включится, скролл клавиатурой жив.
       }
+    } else if (useAltScreen && process.platform === "win32") {
+      // Ink/Bun raw mode clears QuickEdit in classic conhost. The terminal
+      // handles drag selection, right-click copy and right-click paste.
+      try {
+        selectionGuard?.ensure();
+      } catch {
+        // Windows Terminal can still select without the legacy console flag.
+      }
     }
   } catch {
+    selectionGuard?.close();
     terminalCursor.restore();
     // Ink требует raw mode терминала. В урезанных консолях Windows
     // (двойной клик, старый conhost) render() бросает исключение —
@@ -789,6 +814,11 @@ async function startTui(options: RunOptions): Promise<void> {
       ? setInterval(() => {
           syncTerminalSizeToStdout();
           if (useAltScreen) terminalCursor.hide();
+          try {
+            selectionGuard?.ensure();
+          } catch {
+            // Console may detach while the application is closing.
+          }
         }, 250)
       : undefined;
   sizeSync?.unref();
@@ -799,6 +829,7 @@ async function startTui(options: RunOptions): Promise<void> {
     failed = true;
   } finally {
     if (sizeSync) clearInterval(sizeSync);
+    selectionGuard?.close();
     if (mouseOn) {
       try {
         process.stdout.write(SGR_DISABLE);

@@ -868,6 +868,26 @@ describe("tui render", () => {
     }
   });
 
+  test("bracketed multi-line paste stays in the draft until Enter", async () => {
+    let submitted: string | undefined;
+    const app = await startApp(100, 30, {
+      onSubmit: async (prompt) => {
+        submitted = prompt;
+      },
+    });
+    try {
+      await tick(100);
+      app.stdin.write("\x1b[200~первая строка\r\nвторая строка\x1b[201~");
+      await tick(200);
+      expect(submitted).toBeUndefined();
+      app.stdin.write("\r");
+      await tick(200);
+      expect(submitted).toBe("первая строка\nвторая строка");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("enter on prefix accepts highlighted command instead of error", async () => {
     const app = await startApp(100, 30);
     try {

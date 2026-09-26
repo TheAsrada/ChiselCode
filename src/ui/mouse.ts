@@ -57,9 +57,19 @@ export function resolveScrollSpeed(env: string | undefined): number {
 }
 
 /**
- * Включать ли захват мыши: `CHISEL_NO_MOUSE=1` / `CHISEL_DISABLE_MOUSE=1`
- * оставляют только клавиатуру (как `CLAUDE_CODE_DISABLE_MOUSE`).
+ * В Windows нативное выделение и вставка важнее захвата кликов; захват
+ * включается явно через `CHISEL_MOUSE_CAPTURE=1`. Остальные платформы
+ * сохраняют скролл мышью. `CHISEL_NO_MOUSE=1` и
+ * `CHISEL_DISABLE_MOUSE=1` всегда отключают захват.
  */
-export function shouldEnableMouse(env: NodeJS.ProcessEnv): boolean {
-  return env.CHISEL_NO_MOUSE !== "1" && env.CHISEL_DISABLE_MOUSE !== "1";
+export function shouldEnableMouse(
+  env: NodeJS.ProcessEnv,
+  platform: string = process.platform,
+): boolean {
+  if (env.CHISEL_NO_MOUSE === "1" || env.CHISEL_DISABLE_MOUSE === "1")
+    return false;
+  // Windows Terminal and conhost own drag-selection and right-click
+  // copy/paste. SGR 1000 consumes those clicks before the host sees them.
+  // Keep capture available for users who prefer wheel scrolling in the app.
+  return platform !== "win32" || env.CHISEL_MOUSE_CAPTURE === "1";
 }

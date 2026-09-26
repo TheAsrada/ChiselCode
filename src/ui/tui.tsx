@@ -6,6 +6,7 @@ import {
   useApp,
   useBoxMetrics,
   useInput,
+  usePaste,
   useWindowSize,
 } from "ink";
 import type React from "react";
@@ -72,6 +73,10 @@ import {
 } from "./theme.js";
 import { Thinking } from "./thinking.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
+import {
+  copiedCharactersNotice,
+  watchWindowsClipboard,
+} from "./windows-clipboard.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
   bind(setter?: (request: ApprovalRequest | undefined) => void): void;
@@ -988,6 +993,26 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // Classic scrollback is only used when explicitly requested.
   const classic = props.classic ?? false;
   const [editor, setEditor] = useState(createEditorState);
+  const [copiedCharacters, setCopiedCharacters] = useState<number>();
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    watchWindowsClipboard((count) => setCopiedCharacters(count))
+      .then((dispose) => {
+        if (disposed) dispose();
+        else stop = dispose;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+  useEffect(() => {
+    if (copiedCharacters === undefined) return;
+    const timer = setTimeout(() => setCopiedCharacters(undefined), 3000);
+    return () => clearTimeout(timer);
+  }, [copiedCharacters]);
   const [request, setRequest] = useState<ApprovalRequest>();
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<"menu" | "model">();
@@ -1688,6 +1713,26 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     setRestartingSetup(false);
   }
 
+  // Bracketed paste keeps multi-line clipboard text atomic: embedded newlines
+  // are inserted into the draft instead of submitting the first line.
+  usePaste(
+    (text) => {
+      setEditor((state) =>
+        insertEditorText(state, text.replace(/\r\n?/g, "\n")),
+      );
+      setSuggestionIndex(0);
+      setSuggestionsDismissed(false);
+    },
+    {
+      isActive:
+        !pickerOpen &&
+        !request &&
+        !settings &&
+        !skillsOpen &&
+        !restartingSetup &&
+        !transcriptOpen,
+    },
+  );
   useInput((character, key) => {
     if (pickerOpen) return;
     // Мышь SGR первее всего: колесо скроллит даже в панелях и approval,
@@ -2003,6 +2048,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       <Editor
         value={editor.value}
         cursor={editor.cursor}
+        copiedCharacters={copiedCharacters}
         maxRows={Math.max(
           1,
           Math.min(
@@ -2111,9 +2157,15 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
               /{tQuery} · {matches.length} совп. · n/N — далее
             </Text>
           ) : null}
-          <Text dimColor wrap="truncate-end">
-            {"j/k — строки · g/G — верх/низ · {/} — промпты · / — поиск"}
-          </Text>
+          {copiedCharacters === undefined ? (
+            <Text dimColor wrap="truncate-end">
+              {"j/k — строки · g/G — верх/низ · {/} — промпты · / — поиск"}
+            </Text>
+          ) : (
+            <Text color="green" wrap="truncate-end">
+              {copiedCharactersNotice(copiedCharacters)}
+            </Text>
+          )}
         </Box>
       </Box>
     );
@@ -2374,6 +2426,7 @@ export function Approval({
 function Editor({
   value,
   cursor,
+  copiedCharacters,
   suggestionRows,
   selectedRow,
   columns,
@@ -2381,6 +2434,7 @@ function Editor({
 }: {
   value: string;
   cursor: number;
+  copiedCharacters?: number;
   /** Готовые строки подсказок (подсвеченная уже с префиксом, остальные — имена). */
   suggestionRows: string[];
   /** Индекс подсвеченной строки в suggestionRows. */
@@ -2432,7 +2486,13 @@ function Editor({
           </Text>
         )}
       </Box>
-      <HotkeysHint />
+      {copiedCharacters === undefined ? (
+        <HotkeysHint />
+      ) : (
+        <Text color="green" wrap="truncate-end">
+          {copiedCharactersNotice(copiedCharacters)}
+        </Text>
+      )}
     </Box>
   );
 }

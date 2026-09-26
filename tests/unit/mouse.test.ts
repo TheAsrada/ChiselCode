@@ -62,8 +62,17 @@ describe("sgr mouse", () => {
   });
 
   test("mouse capture has a keyboard-only escape hatch", () => {
-    expect(shouldEnableMouse({})).toBe(true);
-    expect(shouldEnableMouse({ CHISEL_NO_MOUSE: "1" })).toBe(false);
-    expect(shouldEnableMouse({ CHISEL_DISABLE_MOUSE: "1" })).toBe(false);
+    expect(shouldEnableMouse({}, "linux")).toBe(true);
+    expect(shouldEnableMouse({}, "win32")).toBe(false);
+    expect(shouldEnableMouse({ CHISEL_MOUSE_CAPTURE: "1" }, "win32")).toBe(
+      true,
+    );
+    expect(
+      shouldEnableMouse(
+        { CHISEL_MOUSE_CAPTURE: "1", CHISEL_DISABLE_MOUSE: "1" },
+        "win32",
+      ),
+    ).toBe(false);
+    expect(shouldEnableMouse({ CHISEL_NO_MOUSE: "1" }, "linux")).toBe(false);
   });
 });
