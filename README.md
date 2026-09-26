@@ -1,7 +1,6 @@
 <p align="center">
-  <img src="installer/assets/logo.png" alt="ChiselCode — стамеска между скобками кода" width="160" />
+  <img src="docs/assets/readme-banner.png" alt="ChiselCode — стамеска между скобками кода на сине-фиолетовом фоне" width="100%" />
 </p>
-<h1 align="center">ChiselCode</h1>
 <p align="center"><strong>От вопроса о коде до проверяемого изменения — прямо в терминале.</strong></p>
 <p align="center">Помощник для разработки с несколькими API-провайдерами, историей проектов и просмотром изменений перед подтверждением.</p>
 <p align="center">
