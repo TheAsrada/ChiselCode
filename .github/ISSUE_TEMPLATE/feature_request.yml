@@ -1,20 +1,20 @@
-name: Feature request
-description: Suggest an improvement to ChiselCode.
-title: "[Feature]: "
+name: Предложить улучшение
+description: Расскажите, как улучшить ChiselCode.
+title: "[Улучшение]: "
 labels:
   - enhancement
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem to solve
-      description: Describe the workflow or limitation this feature would address.
+      label: Какую задачу нужно решить?
+      description: Опишите сценарий работы или ограничение, которое мешает.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: Explain the desired behavior and any alternatives considered.
+      label: Предлагаемое решение
+      description: Опишите желаемое поведение и рассмотренные альтернативы.
     validations:
       required: true

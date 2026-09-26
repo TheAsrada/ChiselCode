@@ -1,21 +1,34 @@
-# Contributing to ChiselCode
+# Участие в ChiselCode
 
-Thanks for improving ChiselCode.
+Помочь проекту можно исправлением ошибки, улучшением интерфейса, тестов или документации. Полное руководство по окружению и сборке находится в [docs/development.md](docs/development.md).
 
-## Development setup
+## Первый pull request
 
-1. Install Bun 1.2 or newer and ripgrep.
-2. Fork the repository and create a branch from `main`.
-3. Install exact dependency versions with `bun install --frozen-lockfile`.
-4. Run `bun run typecheck`, `bun test`, and `bun run lint` before opening a pull request.
+1. Создайте fork и ветку от `main`.
+2. Подготовьте [окружение разработки](docs/development.md).
+3. Внесите законченное изменение с понятной целью. Для изменения поведения добавьте подходящую проверку.
+4. Обновите соответствующую страницу в `docs`; при необходимости — README и CHANGELOG.
+5. Выполните проверки и опишите результат в PR:
 
-## Pull requests
+```bash
+bun run typecheck
+bun test
+bun run lint
+bun run build
+```
 
-- Keep each pull request focused and describe its user-visible impact.
-- Include tests for behavior changes and update `README.md` or `CHANGELOG.md` when appropriate.
-- Do not commit API keys, generated binaries, `node_modules`, session data, or `.env` files.
-- Preserve the deny-by-default approval model and project-root path restrictions.
+Для правки только текста проверьте ссылки, команды и отображение Markdown. Укажите, какие проверки действительно выполнялись и какие ограничения остались.
 
-## Reporting issues
+## Что важно при ревью
 
-Use GitHub Issues for bugs and feature requests. Security-sensitive reports must follow [SECURITY.md](SECURITY.md), not a public issue.
+- Объясните проблему, внесённое изменение и результат для пользователя.
+- Сохраните модель подтверждений по умолчанию и проверки путей проекта.
+- Не добавляйте API-ключи, `.env`, сессии, `node_modules` и сгенерированные бинарники.
+- Пишите пользовательскую документацию по-русски; названия команд и идентификаторы сохраняйте как в коде.
+- Не смешивайте обновление зависимостей с несвязанными исправлениями.
+
+## Ошибки и предложения
+
+Используйте [формы GitHub Issues](https://github.com/TheAsrada/ChiselCode/issues/new/choose). Для воспроизводимого бага приложите версию, ОС, шаги и ожидаемый результат. Перед публикацией удалите секреты и приватные данные.
+
+О предполагаемых уязвимостях сообщайте согласно [SECURITY.md](SECURITY.md), а не в публичном issue.

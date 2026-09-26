@@ -1,34 +1,34 @@
-name: Bug report
-description: Report reproducible unexpected behavior.
-title: "[Bug]: "
+name: Сообщить об ошибке
+description: Опишите ошибку, которую можно воспроизвести.
+title: "[Ошибка]: "
 labels:
   - bug
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. Do not include API keys, credentials, or other secrets.
+        Не добавляйте API-ключи, учётные данные и другие секреты. Для уязвимостей используйте приватный канал из SECURITY.md.
   - type: textarea
     id: description
     attributes:
-      label: What happened?
-      description: Describe the observed behavior and the expected behavior.
+      label: Что произошло?
+      description: Опишите фактическое и ожидаемое поведение.
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
-      label: Steps to reproduce
+      label: Шаги воспроизведения
       placeholder: |
-        1. Run ...
-        2. Configure ...
-        3. Observe ...
+        1. Запустите ...
+        2. Настройте ...
+        3. Проверьте ...
     validations:
       required: true
   - type: textarea
     id: environment
     attributes:
-      label: Environment
-      placeholder: OS, Bun version, ChiselCode version, provider and model (without credentials).
+      label: Окружение
+      placeholder: ОС, терминал, версия ChiselCode, способ установки, провайдер и модель (без ключей); Bun — при запуске из исходников.
     validations:
       required: true

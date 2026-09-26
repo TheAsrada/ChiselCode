@@ -1,66 +1,47 @@
-# Reviewable file changes
+# Отображение изменений файлов
 
-`edit_file`, `write_file`, and `delete_file` now produce a structured `FileDiff`:
-relative path, create/edit/delete kind, complete unified patch, additions, and
-deletions. `src/tools/file-diff.ts` builds it with `diffLines` and `createPatch`.
-Counts describe changed source lines, including a final-newline change, rather
-than counting the patch's headers. Missing and empty files remain distinct.
+[Документация](README.md) · [Главная](../README.md)
 
-The registry constructs the proposed diff before approval and returns it only
-after a successful write. These tools write the supplied content directly;
-there is no formatter or post-processing step to change the applied diff.
-Existing read-before-write, unique-match, path/ignore checks, approvals, and
-undo records remain in place. Identical-content updates do not write or add an
-undo entry. Literal replacement text such as `$&` is no longer interpreted as
-a JavaScript replacement pattern.
+## От инструмента к diff
 
-## UI pipeline
+`edit_file`, `write_file` и `delete_file` формируют структуру `FileDiff`: относительный путь, вид изменения (`create`, `edit`, `delete`), полный unified patch, число добавлений и удалений. [`src/tools/file-diff.ts`](../src/tools/file-diff.ts) использует `diffLines` и `createPatch`.
 
-`ApprovalRequest.fileDiff` and `ToolExecutionResult.fileDiff` carry the same
-structured representation. `TuiTranscriptLine.fileDiff` is a dedicated UI field,
-not an ANSI string or serialized JSON to parse later. The entry's short text
-remains useful for search and existing transcript utilities.
+Счётчики отражают изменённые строки исходника, включая изменение завершающего переноса строки, а не заголовки патча. Отсутствующий и пустой файл различаются.
 
-`src/ui/file-diff.tsx` uses the installed diff library's `parsePatch` to build a
-bounded render model with independent old/new line numbers. `FileDiffView` is
-shared by approval and transcript rendering. Added/removed rows use the theme's
-green/red colors plus `+`/`-`; `NO_COLOR` retains all structural information.
-Narrow terminals use compact `+N -M` statistics. File content is displayed as
-text, with terminal control sequences removed from the display only.
+Реестр инструментов строит предлагаемый diff **до разрешения**, а возвращает его как результат только после успешной записи. Содержимое записывается напрямую, без форматтера или постобработки. Сохраняются проверки чтения перед записью, единственного совпадения, путей, исключений и разрешений, а также записи для отмены. Обновление идентичным содержимым не записывает файл и не добавляет запись отмены. Текст замены вроде `$&` трактуется буквально.
 
-Approvals have a scroll viewport with pinned decision controls. Arrows, mouse
-wheel, Page Up/Down, and Home/End navigate it. The live activity row is temporary
-and becomes one result entry after execution, including in classic terminal
-mode. Errors still produce error entries.
+## Передача в интерфейс
 
-## Persistence
+`ApprovalRequest.fileDiff` и `ToolExecutionResult.fileDiff` содержат одну структурированную модель. `TuiTranscriptLine.fileDiff` — отдельное поле UI, а не ANSI-строка или JSON для последующего разбора. Короткое текстовое описание остаётся доступным для поиска по транскрипту.
 
-`Session.fileDiffs` is an optional map keyed by tool-use id. The agent loop saves
-only applied results here. Existing JSON session storage preserves the complete
-patch. `replaySessionIntoTranscript` restores the result at its original tool
-result position and suppresses the redundant tool-start entry. This metadata is
-outside `ChatMessage`, so Anthropic/OpenAI-compatible payloads are unchanged.
-Sessions written before this feature continue to replay their ordinary text.
+[`src/ui/file-diff.tsx`](../src/ui/file-diff.tsx) использует `parsePatch` из установленной библиотеки diff и строит ограниченную модель отображения с отдельными номерами старых и новых строк. `FileDiffView` используется и при подтверждении, и в истории. Добавленные и удалённые строки выделяются цветом и знаками `+`/`-`; при `NO_COLOR` структура сохраняется. Узкие терминалы показывают компактные счётчики `+N -M`. Управляющие последовательности удаляются только из отображения содержимого файла.
 
-## Deliberate limits
+Область подтверждения прокручивается, а кнопки решения остаются закреплёнными. Доступны стрелки, колесо, Page Up/Down и Home/End. Временная строка выполнения после операции заменяется одной записью результата, включая классический режим терминала. Ошибки отображаются отдельными записями.
 
-- Unified/stacked layout only; side-by-side layout and a style selector are not
-  implemented. Parsing and rendering are separated for a future layout.
-- Each view renders at most 200 diff rows, including hunk headers and newline
-  notes. The footer reports the exact number of omitted rows. Complete patches
-  remain in metadata and saved sessions.
-- Source rows are clipped to terminal width with an ellipsis; each row is also
-  bounded to 1,000 characters before rendering. A footer reports rows shortened
-  by the character limit. Horizontal scrolling and an expanded full-patch viewer
-  are not included.
-- Old sessions cannot recover diffs that were never stored. Replay retains its
-  existing last-30-messages limit.
+## Сохранение и восстановление
 
-## Validation
+`Session.fileDiffs` — необязательная карта по ID вызова инструмента. Агентный цикл сохраняет здесь только применённые изменения. JSON сессии содержит полный patch. `replaySessionIntoTranscript` восстанавливает результат на месте соответствующего ответа инструмента и убирает дублирующую запись его запуска.
 
-Tests cover line counts, newline handling, multiple hunks, old/new numbering,
-large and long diffs, literal replacements, empty files, write/overwrite/edit,
-proposed approvals, denied writes, undo preservation, live transcript results,
-approval scrolling, narrow rendering, `NO_COLOR`, session storage/replay, and
-absence of UI metadata in provider requests. Run `bun run typecheck`, `bun test`,
-and `bun run lint`.
+Эти метаданные находятся вне `ChatMessage`, поэтому не меняют payload провайдера. Старые сессии без diff продолжают воспроизводить обычный текст.
+
+## Текущие ограничения
+
+| Ограничение | Поведение |
+| --- | --- |
+| Раскладка | Unified/stacked; режима двух колонок и переключателя стиля нет |
+| Объём | До 200 строк diff, включая заголовки блоков и отметки переноса; число пропущенных строк указано внизу |
+| Длинные строки | Обрезаются по ширине терминала; перед рендерингом также действует предел 1000 символов |
+| Полный patch | Сохраняется в метаданных и сессии; отдельного развёрнутого просмотрщика и горизонтальной прокрутки нет |
+| Старые сессии | Несохранённые diff восстановить нельзя; воспроизведение ограничено последними 30 сообщениями |
+
+## Проверки
+
+Тесты покрывают счётчики строк, переносы, несколько блоков, нумерацию, большие diff, буквальные замены, пустые файлы, запись/перезапись/редактирование, отказ в разрешении, данные отмены, прокрутку, узкий терминал, `NO_COLOR`, сохранение и восстановление сессий, отсутствие UI-метаданных в запросах провайдера.
+
+```bash
+bun run typecheck
+bun test
+bun run lint
+```
+
+См. также: [архитектура](architecture.md), [разработка](development.md).

@@ -1,16 +1,21 @@
-# Security Policy
+# Сообщение об уязвимости
 
-## Supported versions
+## Версия и область проблемы
 
-| Version | Supported |
-| --- | --- |
-| 0.1.x | Yes |
-| < 0.1.0 | No |
+Укажите точную версию (`chisel --version`) или SHA коммита. Если это возможно без риска для данных, проверьте воспроизведение на [последнем релизе](https://github.com/TheAsrada/ChiselCode/releases/latest). Наличие старой версии в истории релизов само по себе не означает, что она получает исправления безопасности.
 
-## Reporting a vulnerability
+Технические ограничения и работа с данными описаны в [модели безопасности](docs/security.md).
 
-Do not open a public GitHub issue for a suspected vulnerability. Use the repository's private security advisory reporting channel, or contact the repository owner through GitHub with a concise report including reproduction steps and impact.
+## Приватный отчёт
 
-Please do not include provider API keys, credentials, private source code, or exploit payloads beyond the minimum needed to reproduce the issue.
+Не открывайте публичный GitHub issue для предполагаемой уязвимости. Используйте приватный канал Security Advisory репозитория, если он доступен, или свяжитесь с владельцем через GitHub, чтобы согласовать приватную передачу деталей.
 
-We will acknowledge a report, assess its impact, and coordinate a fix and disclosure timeline where appropriate.
+Включите в отчёт:
+
+- Версию, платформу и необходимые условия.
+- Минимальные шаги воспроизведения.
+- Ожидаемое и фактическое поведение, возможное влияние.
+
+Не включайте ключи провайдеров, учётные данные, приватные исходники и избыточные эксплуатационные материалы. Достаточно минимального примера, показывающего проблему.
+
+После получения отчёта мы оценим влияние и согласуем исправление и раскрытие информации, когда это применимо.

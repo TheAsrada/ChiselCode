@@ -1,23 +1,20 @@
-# Installer artwork
+# Графика установщика
 
-The welcome and finish pages use a generated studio photograph instead of
-procedurally drawn decorations. Intermediate pages use plain native headings.
+Страницы приветствия и завершения используют сгенерированную студийную фотографию. Промежуточные страницы сохраняют стандартные заголовки установщика.
 
-- `welcome-source.png`: original artwork from the built-in ImageGen tool.
-- `welcome.bmp`: the same artwork resized to 656 × 1256 and encoded as a
-  24-bit RGB BMP for NSIS. The 4× asset stays sharp at higher display scales.
-- `logo-source.png`, `logo.png`, `icon.ico`: existing application identity.
-  `make-logo.ps1` only prepares the existing logo and icon; it is not used to
-  generate installer decorations or run by the release build.
+| Файл | Назначение |
+| --- | --- |
+| `welcome-source.png` | Исходное изображение, созданное ImageGen |
+| `welcome.bmp` | Версия 656 × 1256 в формате 24-битного RGB BMP для NSIS; четырёхкратный размер сохраняет чёткость при масштабировании |
+| `logo-source.png`, `logo.png`, `icon.ico` | Логотип и значок приложения |
+| `make-logo.ps1` | Подготовка существующего логотипа и значка; не создаёт оформление установщика и не запускается при сборке релиза |
 
-These are checked-in assets. Packaging does not generate or draw artwork.
-The old `generate-assets.ps1` and diamond `header.bmp` have been removed.
+Материалы хранятся в репозитории. При упаковке изображения не генерируются. Старые `generate-assets.ps1` и `header.bmp` с ромбами удалены.
 
-## Generation prompt
+## Замысел изображения
 
-Generated with the built-in ImageGen tool on 2026-09-23:
+Изображение создано ImageGen 23 сентября 2026 года. Содержание исходного задания: фотографическое оформление бренда для Windows-установщика ChiselCode, без макета интерфейса. Вертикальная композиция примерно 164:314; полированная стальная стамеска с направленной вниз режущей кромкой стоит по диагонали у тёмного графитового монолита. Тёмно-синий фон, сдержанный синий контровой свет и голубой отблеск на металле, различимые следы обработки и фактура камня. Верхняя четверть свободна под возможный брендинг. Силуэт должен читаться в размере 164 × 314. Без текста, букв, интерфейса, водяных знаков, ромбов, неоновых сеток, схем и людей.
 
-> Use case: ads-marketing. Create an actual photographic brand artwork for the ChiselCode Windows software installer, NOT a mockup or screenshot of an installer. Portrait aspect ratio approximately 164:314, ideally 1024x1960. A premium studio macro photograph of one precision polished steel sculpting chisel, its clean beveled cutting edge pointing downward, standing diagonally against a sculpted dark graphite monolith. This is the physical metaphor for carefully shaping code. Deep midnight navy background, restrained electric-blue rim light and a subtle cyan reflection on brushed metal, realistic machining lines, tactile stone surface, fine shallow depth of field. Spacious elegant composition: subject centered around the middle-lower area, top quarter nearly empty dark navy for optional branding, no objects cropped awkwardly. A calm, professional developer-tool identity. Photorealistic luxury product photography with crisp silhouette that stays readable at 164x314 pixels. No text, no letters, no UI, no watermark, no drawn diamond decorations, no neon grids, no circuit diagrams, no people.
+Для BMP использовались только масштабирование и преобразование формата. Текст, фигуры и украшения программно не добавлялись.
 
-Only format conversion and resizing were used to prepare the BMP. No text,
-shapes, or decoration were added by code.
+[Документация проекта](../../docs/README.md) · [Разработка](../../docs/development.md)
