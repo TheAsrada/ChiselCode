@@ -195,18 +195,14 @@ export function clampHideNewest(hideNewest: number, total: number): number {
 }
 
 /**
- * Высота кадра: на строку МЕНЬШЕ окна. На win32 Ink делает полный clear
- * терминала перед каждым кадром высотой >= высоты окна
- * (shouldClearTerminalForFrame: wasFullscreen || isFullscreen) — иначе
- * каждое нажатие клавиши мигало бы всем экраном. Кадр ниже окна идёт
- * дешёвым инкрементальным стиранием eraseLines, а запись в нижнюю правую
- * клетку (она скроллит буфер conhost, рассинхрон #969) не происходит вовсе.
- * Чистая функция для тестов.
+ * Кадр занимает всё окно. Патч Ink разрешает инкрементальное обновление
+ * ровно полноэкранного Windows-кадра; на Windows содержимое на одну колонку
+ * уже окна, поэтому нижняя правая клетка conhost никогда не записывается.
  */
 export function frameRows(viewportRows: number): number {
   const rows = Math.floor(viewportRows);
   const safe = Number.isFinite(rows) ? rows : TUI_FALLBACK_ROWS;
-  return Math.max(TUI_MIN_ROWS - 1, safe - 1);
+  return Math.max(TUI_MIN_ROWS, safe);
 }
 
 /**
@@ -988,10 +984,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     columns: inkColumns,
     rows: inkRows,
   });
-  const columns = viewportSize.columns;
-  const rows = viewportSize.rows;
   // Classic scrollback is only used when explicitly requested.
   const classic = props.classic ?? false;
+  const columns =
+    process.platform === "win32" && !classic
+      ? Math.max(1, viewportSize.columns - 1)
+      : viewportSize.columns;
+  const rows = viewportSize.rows;
   const [editor, setEditor] = useState(createEditorState);
   const [copiedCharacters, setCopiedCharacters] = useState<number>();
   useEffect(() => {

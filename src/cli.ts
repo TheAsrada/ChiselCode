@@ -769,7 +769,10 @@ async function startTui(options: RunOptions): Promise<void> {
       // Fullscreen alt-screen как у Claude: выход восстанавливает
       // primary screen, история alt-буфера не сыплется в scrollback.
       // В классике флага нет — обычный буфер, история остаётся в окне.
-      { alternateScreen: useAltScreen },
+      {
+        alternateScreen: useAltScreen,
+        incrementalRendering: useAltScreen,
+      },
     );
     // Ink hides the VT cursor. In legacy Windows consoles also hide the
     // native cursor, which otherwise blinks below the pinned input.

@@ -264,14 +264,11 @@ describe("alt-screen header", () => {
     expect(computeFillRows(30, Number.NaN, 7)).toBe(23);
   });
 
-  test("frame stays one row below fullscreen to dodge win32 clear", () => {
-    // Ink на win32 чистит весь терминал перед каждым кадром высотой >= окна:
-    // кадр ровно в окно мигал бы на каждое нажатие. Минус строка — дешёвое
-    // eraseLines, а нижняя правая клетка (скролл conhost #969) не трогается.
-    expect(frameRows(30)).toBe(29);
-    expect(frameRows(24)).toBe(23);
-    expect(frameRows(10)).toBe(9);
-    expect(frameRows(Number.NaN)).toBe(23);
+  test("fullscreen frame reaches the terminal bottom", () => {
+    expect(frameRows(30)).toBe(30);
+    expect(frameRows(24)).toBe(24);
+    expect(frameRows(10)).toBe(10);
+    expect(frameRows(Number.NaN)).toBe(24);
   });
 
   test("fullscreen is the default even without terminal environment markers", () => {

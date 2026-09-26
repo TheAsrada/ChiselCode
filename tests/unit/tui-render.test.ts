@@ -102,6 +102,7 @@ interface Harness {
   stdout: MockStdout;
   transcript?: TuiTranscript;
   chunks(): string;
+  raw(): string;
   frame(): string;
   unmount(): void;
 }
@@ -112,6 +113,7 @@ async function startApp(
   hooks?: {
     cwd?: string;
     classic?: boolean;
+    debug?: boolean;
     onSubmit?: (prompt: string, display?: string) => Promise<void>;
   },
 ): Promise<Harness> {
@@ -152,7 +154,10 @@ async function startApp(
       // debug: Ink пишет каждый кадр статичным текстом без кодов
       // перерисовки — одинаково локально и в CI, где интерактивный
       // режим отключён и кадры иначе не прочитать из потока.
-      debug: true,
+      debug: hooks?.debug ?? true,
+      interactive: hooks?.debug === false ? true : undefined,
+      alternateScreen: hooks?.debug === false && !hooks?.classic,
+      incrementalRendering: hooks?.debug === false && !hooks?.classic,
     },
   );
   await tick();
@@ -163,12 +168,26 @@ async function startApp(
       return transcript;
     },
     chunks: () => stripAnsi(output),
+    raw: () => output,
     frame: () => frame,
     unmount: () => instance.unmount(),
   };
 }
 
 describe("tui render", () => {
+  test("full-height Windows frame updates without clearing the whole screen", async () => {
+    const app = await startApp(80, 24, { debug: false });
+    try {
+      await tick(250);
+      const before = app.raw().length;
+      app.stdin.write("x");
+      await tick(250);
+      expect(app.raw().slice(before)).not.toContain("\x1b[2J");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("Windows shortcut defaults to pinned input with no scrolling beyond content", async () => {
     const app = await startApp(80, 24, {
       classic: !shouldUseAltScreen({}, "win32"),
@@ -181,8 +200,16 @@ describe("tui render", () => {
     try {
       const initial = app.frame();
       const row = inputRow();
-      expect(row).toBe(20);
+      expect(row).toBe(21);
       expect(app.frame().trimEnd().split("\n").at(-1)).toContain("Tab/");
+      expect(app.frame().trimEnd().split("\n")).toHaveLength(24);
+      expect(app.frame().trimEnd().split("\n").at(-1)?.length).toBeLessThan(80);
+      const writtenBeforeTyping = app.raw().length;
+      app.stdin.write("x");
+      await tick(100);
+      expect(app.raw().slice(writtenBeforeTyping)).not.toContain("\x1b[2J");
+      app.stdin.write("\x7f");
+      await tick(100);
       for (const key of [
         "\x1b[<65;1;1M",
         "\x1b[6~",
@@ -253,7 +280,7 @@ describe("tui render", () => {
       await tick(200);
       expect(app.frame()).toContain("STREAM-NEXT");
       expect(app.frame()).toContain("Спросите что-нибудь");
-      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(19);
+      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(20);
     } finally {
       app.unmount();
     }
@@ -301,12 +328,12 @@ describe("tui render", () => {
       app.stdout.rows = 16;
       app.stdout.emit("resize");
       await tick(250);
-      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(15);
+      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(16);
       expect(app.frame()).not.toContain("test-model");
       expect(app.frame()).toContain("Спросите что-нибудь");
       app.stdin.write("x".repeat(3000));
       await tick(200);
-      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(15);
+      expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(16);
       expect(app.frame().trimEnd().split("\n").at(-1)).toContain("Tab/");
       expect(app.frame()).toContain("█");
     } finally {
