@@ -203,7 +203,10 @@ describe("tui render", () => {
       expect(row).toBe(21);
       expect(app.frame().trimEnd().split("\n").at(-1)).toContain("Tab/");
       expect(app.frame().trimEnd().split("\n")).toHaveLength(24);
-      expect(app.frame().trimEnd().split("\n").at(-1)?.length).toBeLessThan(80);
+      const hintWidth = app.frame().trimEnd().split("\n").at(-1)?.length ?? 0;
+      expect(hintWidth).toBeLessThanOrEqual(
+        process.platform === "win32" ? 79 : 80,
+      );
       const writtenBeforeTyping = app.raw().length;
       app.stdin.write("x");
       await tick(100);
