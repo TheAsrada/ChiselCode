@@ -60,6 +60,11 @@ async function loadNativeConsoleCursor(): Promise<{
     GetStdHandle: { args: ["i32"], returns: "ptr" },
     GetConsoleCursorInfo: { args: ["ptr", "ptr"], returns: "i32" },
     SetConsoleCursorInfo: { args: ["ptr", "ptr"], returns: "i32" },
+    CreateFileW: {
+      args: ["ptr", "u32", "u32", "ptr", "u32", "u32", "ptr"],
+      returns: "ptr",
+    },
+    CloseHandle: { args: ["ptr"], returns: "i32" },
   });
   const original = new Uint32Array(2);
   const handle = kernel.symbols.GetStdHandle(-11);
@@ -68,14 +73,39 @@ async function loadNativeConsoleCursor(): Promise<{
     throw new Error("No native console cursor");
   }
   let closed = false;
+  const activeConsoleName = new Uint16Array(
+    [..."CONOUT$"].map((character) => character.charCodeAt(0)).concat(0),
+  );
+  const hideOn = (target: typeof handle | null): void => {
+    if (!target) return;
+    const info = new Uint32Array(2);
+    if (!kernel.symbols.GetConsoleCursorInfo(target, info)) return;
+    if (info[1] === 0) return;
+    info[1] = 0;
+    kernel.symbols.SetConsoleCursorInfo(target, info);
+  };
   return {
     hide() {
-      const active = kernel.symbols.GetStdHandle(-11);
-      if (!active) return;
-      const info = new Uint32Array(2);
-      if (!kernel.symbols.GetConsoleCursorInfo(active, info)) return;
-      info[1] = 0;
-      kernel.symbols.SetConsoleCursorInfo(active, info);
+      if (closed) return;
+      // CONOUT$ points to the active screen buffer; GetStdHandle can still
+      // refer to the original one after a VT alternate-screen switch.
+      hideOn(kernel.symbols.GetStdHandle(-11));
+      const active = kernel.symbols.CreateFileW(
+        activeConsoleName,
+        0xc0000000,
+        3,
+        null,
+        3,
+        0,
+        null,
+      );
+      if (active) {
+        try {
+          hideOn(active);
+        } finally {
+          kernel.symbols.CloseHandle(active);
+        }
+      }
     },
     restore() {
       if (closed) return;

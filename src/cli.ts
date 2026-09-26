@@ -786,7 +786,10 @@ async function startTui(options: RunOptions): Promise<void> {
   // Bun on Windows can miss resize events; keep Ink's own dimensions current.
   const sizeSync =
     process.platform === "win32" && process.stdout.isTTY
-      ? setInterval(() => syncTerminalSizeToStdout(), 250)
+      ? setInterval(() => {
+          syncTerminalSizeToStdout();
+          if (useAltScreen) terminalCursor.hide();
+        }, 250)
       : undefined;
   sizeSync?.unref();
   let failed = false;
