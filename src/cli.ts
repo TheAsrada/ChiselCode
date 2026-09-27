@@ -475,14 +475,12 @@ async function startTui(options: RunOptions): Promise<void> {
   let selectionGuard:
     | Awaited<ReturnType<typeof createWindowsConsoleSelectionGuard>>
     | undefined;
-  if (
-    useAltScreen &&
-    process.platform === "win32" &&
-    !shouldEnableMouse(process.env)
-  ) {
+  if (useAltScreen && process.platform === "win32") {
     try {
       // Capture the shell's input mode before Ink switches stdin to raw mode.
-      selectionGuard = await createWindowsConsoleSelectionGuard();
+      selectionGuard = await createWindowsConsoleSelectionGuard(
+        shouldEnableMouse(process.env),
+      );
     } catch {
       // Modern terminal hosts can still own selection without the legacy flag.
     }
@@ -786,6 +784,7 @@ async function startTui(options: RunOptions): Promise<void> {
       shouldEnableMouse(process.env);
     if (mouseOn) {
       try {
+        selectionGuard?.ensure();
         process.stdout.write(SGR_ENABLE);
       } catch {
         // Не-TTY/pipe: трекинг просто не включится, скролл клавиатурой жив.

@@ -175,6 +175,73 @@ async function startApp(
 }
 
 describe("tui render", () => {
+  test("tiny windows recover without losing the draft", async () => {
+    const app = await startApp(80, 24);
+    try {
+      app.stdin.write("keep-draft");
+      await tick();
+      for (const [columns, rows] of [
+        [15, 5],
+        [25, 8],
+        [40, 9],
+        [100, 30],
+      ]) {
+        app.stdout.columns = columns ?? 80;
+        app.stdout.rows = rows ?? 24;
+        app.stdout.emit("resize");
+        await tick(150);
+        expect(app.frame().trimEnd().split("\n").length).toBeLessThanOrEqual(
+          rows ?? 24,
+        );
+      }
+      expect(app.frame()).toContain("keep-draft");
+    } finally {
+      app.unmount();
+    }
+  });
+  test("interactive resize resets the cursor origin on both axes", async () => {
+    const app = await startApp(80, 24, { debug: false });
+    try {
+      for (const [columns, rows] of [
+        [80, 12],
+        [80, 40],
+        [45, 40],
+        [100, 24],
+      ]) {
+        const before = app.raw().length;
+        app.stdout.columns = columns ?? 80;
+        app.stdout.rows = rows ?? 24;
+        app.stdout.emit("resize");
+        await tick(150);
+        expect(app.raw().slice(before)).toContain("\x1b[2J\x1b[H");
+      }
+      const before = app.raw().length;
+      app.stdin.write("draft");
+      await tick(150);
+      expect(app.raw().slice(before)).not.toContain("\x1b[2J");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("rapid stream flush and clear do not resurrect delayed text", async () => {
+    const app = await startApp(80, 24);
+    try {
+      for (let i = 0; i < 100; i++) app.transcript?.appendToLast(`token${i} `);
+      app.transcript?.append("FINAL", "info");
+      await tick(150);
+      expect(app.frame()).toContain("token99");
+      expect(app.frame()).toContain("FINAL");
+      app.transcript?.appendToLast("STALE");
+      app.transcript?.clear();
+      await tick(150);
+      expect(app.frame()).not.toContain("STALE");
+      expect(app.frame()).not.toContain("FINAL");
+    } finally {
+      app.unmount();
+    }
+  });
+
   test("full-height Windows frame updates without clearing the whole screen", async () => {
     const app = await startApp(80, 24, { debug: false });
     try {

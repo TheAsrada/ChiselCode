@@ -216,7 +216,7 @@ for (const columns of [80, 24]) {
       const diff = buildFileDiff(
         "test.ts",
         null,
-        `${Array.from({ length: 60 }, (_, i) => `line-${i + 1}`).join("\n")}\n`,
+        `${Array.from({ length: 600 }, (_, i) => `line-${i + 1}`).join("\n")}\n`,
       );
       const handlers = toolTranscriptHandlers(() => view);
       handlers.onToolStart?.("write_file", { path: "test.ts" });
@@ -228,14 +228,14 @@ for (const columns of [80, 24]) {
       await tick();
       await tick();
       expect(latest).toContain("Create(test.ts)");
-      expect(latest).toContain("Added 60 lines");
+      expect(latest).toContain("+600");
       expect(latest).toContain(columns < 40 ? "[y] Да" : "[y] разрешить");
       expect(latest).toContain(columns < 40 ? "[n] Нет" : "[n/Esc]");
-      expect(latest).not.toContain("line-60");
+      expect(latest).not.toContain("line-600");
       stdin.write("\u001b[F");
       await tick();
       await tick();
-      expect(latest).toContain("line-60");
+      expect(latest).toContain("line-600");
       expect(latest).toContain(columns < 40 ? "[y] Да" : "[y] разрешить");
       expect(latest).toContain(columns < 40 ? "[n] Нет" : "[n/Esc]");
       stdin.write("y");
@@ -246,9 +246,17 @@ for (const columns of [80, 24]) {
       });
       await tick();
       await tick();
-      expect(latest).toContain("line-60");
+      expect(latest).toContain("line-5");
+      expect(latest).not.toContain("line-600");
+      expect(latest).toContain("Ctrl+O");
       expect(latest).toContain("Спросите");
       expect(latest).not.toContain("Wrote test.ts.");
+      stdin.write("\u000f");
+      await tick();
+      expect(latest).toContain("line-600");
+      stdin.write("q");
+      await tick();
+      expect(latest).not.toContain("line-600");
       stdin.write("\u001b[H");
       await tick();
       await tick();

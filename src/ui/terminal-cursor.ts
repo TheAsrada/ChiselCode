@@ -23,7 +23,7 @@ export async function createTerminalCursorGuard(
     hide() {
       if (restored) return;
       try {
-        process.stdout.write("\x1b[?25l");
+        if (!hidden) process.stdout.write("\x1b[?25l");
       } catch {
         // The output stream may have closed during startup.
       }
@@ -84,13 +84,14 @@ async function loadNativeConsoleCursor(): Promise<{
     info[1] = 0;
     kernel.symbols.SetConsoleCursorInfo(target, info);
   };
+  let active: typeof handle | null = null;
   return {
     hide() {
       if (closed) return;
       // CONOUT$ points to the active screen buffer; GetStdHandle can still
       // refer to the original one after a VT alternate-screen switch.
       hideOn(kernel.symbols.GetStdHandle(-11));
-      const active = kernel.symbols.CreateFileW(
+      active ??= kernel.symbols.CreateFileW(
         activeConsoleName,
         0xc0000000,
         3,
@@ -99,19 +100,15 @@ async function loadNativeConsoleCursor(): Promise<{
         0,
         null,
       );
-      if (active) {
-        try {
-          hideOn(active);
-        } finally {
-          kernel.symbols.CloseHandle(active);
-        }
-      }
+      hideOn(active);
     },
     restore() {
       if (closed) return;
       closed = true;
-      const active = kernel.symbols.GetStdHandle(-11);
-      if (active) kernel.symbols.SetConsoleCursorInfo(active, original);
+      if (active) kernel.symbols.CloseHandle(active);
+      const restoredHandle = kernel.symbols.GetStdHandle(-11);
+      if (restoredHandle)
+        kernel.symbols.SetConsoleCursorInfo(restoredHandle, original);
       kernel.close();
     },
   };

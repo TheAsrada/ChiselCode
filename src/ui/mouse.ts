@@ -20,7 +20,7 @@ export const SGR_DISABLE = "\x1b[?1006l\x1b[?1000l";
 export const DEFAULT_SCROLL_SPEED = 3;
 export const MAX_SCROLL_SPEED = 20;
 
-export type MouseKind = "wheel-up" | "wheel-down" | "other";
+export type MouseKind = "wheel-up" | "wheel-down" | "paste" | "other";
 
 export interface MouseAction {
   kind: MouseKind;
@@ -42,6 +42,7 @@ export function parseSGRMouse(input: string): MouseAction | undefined {
   const base = button & ~28;
   if (base === 64) return { kind: "wheel-up", shift };
   if (base === 65) return { kind: "wheel-down", shift };
+  if (base === 2 && match[4] === "M") return { kind: "paste", shift };
   return { kind: "other", shift };
 }
 
@@ -57,19 +58,15 @@ export function resolveScrollSpeed(env: string | undefined): number {
 }
 
 /**
- * В Windows нативное выделение и вставка важнее захвата кликов; захват
- * включается явно через `CHISEL_MOUSE_CAPTURE=1`. Остальные платформы
- * сохраняют скролл мышью. `CHISEL_NO_MOUSE=1` и
+ * Fullscreen requires captured wheel events, including on Windows.
+ * Hold Shift for terminal-owned selection. `CHISEL_NO_MOUSE=1` and
  * `CHISEL_DISABLE_MOUSE=1` всегда отключают захват.
  */
 export function shouldEnableMouse(
   env: NodeJS.ProcessEnv,
-  platform: string = process.platform,
+  _platform: string = process.platform,
 ): boolean {
   if (env.CHISEL_NO_MOUSE === "1" || env.CHISEL_DISABLE_MOUSE === "1")
     return false;
-  // Windows Terminal and conhost own drag-selection and right-click
-  // copy/paste. SGR 1000 consumes those clicks before the host sees them.
-  // Keep capture available for users who prefer wheel scrolling in the app.
-  return platform !== "win32" || env.CHISEL_MOUSE_CAPTURE === "1";
+  return env.CHISEL_MOUSE_CAPTURE !== "0";
 }

@@ -1,3 +1,28 @@
+import { execFile } from "node:child_process";
+
+/** Read only on an explicit paste gesture; never route clipboard text to a shell. */
+export function readWindowsClipboard(): Promise<string> {
+  if (process.platform !== "win32") return Promise.resolve("");
+  return new Promise((resolve, reject) => {
+    execFile(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $text = Get-Clipboard -Raw; if ($null -ne $text) { [Console]::Write($text) }",
+      ],
+      {
+        windowsHide: true,
+        encoding: "utf8",
+        timeout: 5000,
+        maxBuffer: 20_000_000,
+      },
+      (error, stdout) => (error ? reject(error) : resolve(stdout)),
+    );
+  });
+}
+
 /** Native Windows clipboard observation for terminal-owned mouse selection. */
 export function copiedCharactersNotice(count: number): string {
   const tens = count % 100;
@@ -78,7 +103,9 @@ export async function watchWindowsClipboard(
 }
 
 /** Bun raw mode disables QuickEdit in classic conhost; restore mouse selection. */
-export async function createWindowsConsoleSelectionGuard(): Promise<{
+export async function createWindowsConsoleSelectionGuard(
+  captureMouse = false,
+): Promise<{
   ensure(): void;
   close(): void;
 }> {
@@ -102,9 +129,13 @@ export async function createWindowsConsoleSelectionGuard(): Promise<{
       const handle = kernel.symbols.GetStdHandle(-10);
       const mode = new Uint32Array(1);
       if (handle && kernel.symbols.GetConsoleMode(handle, mode)) {
-        // ENABLE_EXTENDED_FLAGS | ENABLE_QUICK_EDIT_MODE. Preserve raw/VT bits.
-        if (((mode[0] ?? 0) & 0xc0) !== 0xc0)
-          kernel.symbols.SetConsoleMode(handle, (mode[0] ?? 0) | 0x80 | 0x40);
+        // QuickEdit consumes wheel events and can freeze rendering. Captured
+        // mode needs VT input + mouse events; native mode restores selection.
+        const current = mode[0] ?? 0;
+        const next = captureMouse
+          ? (current | 0x200 | 0x10 | 0x80) & ~0x40
+          : current | 0xc0;
+        if (next !== current) kernel.symbols.SetConsoleMode(handle, next);
       }
     },
     close() {

@@ -63,7 +63,12 @@ describe("sgr mouse", () => {
 
   test("mouse capture has a keyboard-only escape hatch", () => {
     expect(shouldEnableMouse({}, "linux")).toBe(true);
-    expect(shouldEnableMouse({}, "win32")).toBe(false);
+    expect(shouldEnableMouse({}, "win32")).toBe(true);
+    expect(shouldEnableMouse({ CHISEL_MOUSE_CAPTURE: "0" }, "win32")).toBe(
+      false,
+    );
+    expect(parseSGRMouse("[<2;10;20M")?.kind).toBe("paste");
+    expect(parseSGRMouse("[<2;10;20m")?.kind).toBe("other");
     expect(shouldEnableMouse({ CHISEL_MOUSE_CAPTURE: "1" }, "win32")).toBe(
       true,
     );

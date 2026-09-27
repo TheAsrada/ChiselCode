@@ -10,7 +10,7 @@ import {
   useWindowSize,
 } from "ink";
 import type React from "react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DownloadedAsset, SelfUpdatePlan } from "../commands/update.js";
 import type {
   ApprovalDecision,
@@ -46,7 +46,13 @@ import {
   moveEditorCursor,
   navigateEditorHistory,
 } from "./editor.js";
-import { FileDiffView, fileDiffRows } from "./file-diff.js";
+import {
+  CompactFileDiff,
+  compactFileDiffRows,
+  expandedDiffRows,
+  FileDiffView,
+  fileDiffRows,
+} from "./file-diff.js";
 import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import {
   estimateMarkdownRows,
@@ -75,6 +81,7 @@ import { Thinking } from "./thinking.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
 import {
   copiedCharactersNotice,
+  readWindowsClipboard,
   watchWindowsClipboard,
 } from "./windows-clipboard.js";
 
@@ -202,7 +209,7 @@ export function clampHideNewest(hideNewest: number, total: number): number {
 export function frameRows(viewportRows: number): number {
   const rows = Math.floor(viewportRows);
   const safe = Number.isFinite(rows) ? rows : TUI_FALLBACK_ROWS;
-  return Math.max(TUI_MIN_ROWS, safe);
+  return Math.max(1, safe);
 }
 
 /**
@@ -318,6 +325,7 @@ export function estimateLineRows(
   const tone = line.tone ?? "assistant";
   // Арт — ровно по строке, truncate-end, без отступов.
   if (tone === "logo") return 1;
+  if (tone === "dim" && /^─+$/.test(line.text)) return 1;
   // Ответ ассистента: marginTop + markdown внутри gutter-рамки (−1).
   if (tone === "assistant")
     return 1 + estimateMarkdownRows(line.text, cols - 1);
@@ -984,6 +992,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     columns: inkColumns,
     rows: inkRows,
   });
+  // Real small windows must never be replaced with a larger fictional frame.
+  if (inkColumns > 0) viewportSize.columns = inkColumns;
+  if (inkRows > 0) viewportSize.rows = inkRows;
   // Classic scrollback is only used when explicitly requested.
   const classic = props.classic ?? false;
   const columns =
@@ -1064,6 +1075,9 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   // по завершении коммитится в ленту одной записью (см. wasBusy ниже).
   const [streaming, setStreaming] = useState<TuiTranscriptLine | null>(null);
   const streamingRef = useRef<TuiTranscriptLine | null>(null);
+  const streamTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const [toolActivity, setActivity] = useState<TuiTranscriptLine>();
   // Очередь follow-up запросов как в Claude Code: Enter во время работы
   // не теряется. Состояние — для показа, ref — для логики в эффектах.
@@ -1101,7 +1115,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   useEffect(() => {
     if (request) setTranscriptOpen(false);
   }, [request]);
-  const skills = loadSkills(projectCwd);
+  // Refresh at command entry/panel open, not on every token or keystroke.
+  const skillCommandActive = editor.value.startsWith("/");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refresh filesystem data at these interaction boundaries.
+  const skills = useMemo(
+    () => loadSkills(projectCwd),
+    [projectCwd, skillCommandActive, skillsOpen, busy],
+  );
   // Как /команды вызываются только invocable-скиллы; скрытые
   // (`user-invocable: false`) живут только в каталоге и /skills.
   const slashSkills = invocableSkills(skills);
@@ -1207,7 +1227,6 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     if (current) {
       const next = { ...current, text: current.text + text };
       streamingRef.current = next;
-      setStreaming(next);
     } else {
       const line: TuiTranscriptLine = {
         id: nextTranscriptId.current++,
@@ -1215,9 +1234,19 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         tone: "assistant",
       };
       streamingRef.current = line;
-      setStreaming(line);
     }
     // Коммит накопленного — в pushLine/wasBusy ниже.
+    if (!streamTimer.current)
+      streamTimer.current = setTimeout(() => {
+        streamTimer.current = undefined;
+        setStreaming(streamingRef.current);
+      }, 50);
+  }, []);
+
+  // Coalesce token bursts. The ref is always complete; flush/clear operations
+  // commit it synchronously and the timer cannot resurrect a stale response.
+  useEffect(() => {
+    return () => clearTimeout(streamTimer.current);
   }, []);
 
   const setToolActivity = useCallback((text?: string): void => {
@@ -1741,6 +1770,22 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     const mouse = parseSGRMouse(character);
     if (mouse) {
       if (request) return; // Approval owns its scroll viewport.
+      if (
+        mouse.kind === "paste" &&
+        !settings &&
+        !skillsOpen &&
+        !restartingSetup &&
+        !transcriptOpen
+      ) {
+        void readWindowsClipboard()
+          .then((text) => {
+            if (text)
+              setEditor((state) =>
+                insertEditorText(state, text.replace(/\r\n?/g, "\n")),
+              );
+          })
+          .catch(() => {});
+      }
       if (mouse.kind === "wheel-up" || mouse.kind === "wheel-down") {
         const step =
           (mouse.shift ? scrollPageStep(rows) : scrollSpeed) *
@@ -1980,6 +2025,60 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   });
 
   // Панели занимают место футера под лентой (как модалки Claude):
+  const itemCache = useRef(
+    new WeakMap<
+      TuiTranscriptLine,
+      {
+        key: string;
+        items: { id: number; content: React.ReactNode; height: number }[];
+      }
+    >(),
+  );
+  const itemId = useRef(0);
+  const items = useMemo(() => {
+    const feed = [
+      ...transcript,
+      ...(streaming ? [streaming] : []),
+      ...(toolActivity ? [toolActivity] : []),
+    ];
+    const key = `${columns}:${transcriptOpen}`;
+    return feed.flatMap((line, groupIndex) => {
+      let cached = itemCache.current.get(line);
+      if (cached?.key !== key) {
+        const rows =
+          line.fileDiff && transcriptOpen
+            ? expandedDiffRows(line.fileDiff)
+            : undefined;
+        cached = {
+          key,
+          items: rows
+            ? rows.map((content) => ({
+                id: itemId.current++,
+                content,
+                height: 1,
+              }))
+            : [
+                {
+                  id: itemId.current++,
+                  content: (
+                    <MemoTranscriptLineView
+                      line={line}
+                      columns={columns}
+                      compactDiff
+                    />
+                  ),
+                  height: line.fileDiff
+                    ? compactFileDiffRows(line.fileDiff)
+                    : estimateLineRows(line, columns),
+                },
+              ],
+        };
+        itemCache.current.set(line, cached);
+      }
+      return cached.items.map((item) => ({ ...item, groupIndex }));
+    });
+  }, [transcript, streaming, toolActivity, columns, transcriptOpen]);
+
   // лента выше остаётся смонтированной, вместо ввода рисуется панель.
   const panel = restartingSetup ? (
     <SetupApp
@@ -2128,15 +2227,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     );
   }
 
-  const feed = [
-    ...transcript,
-    ...(streaming ? [streaming] : []),
-    ...(toolActivity ? [toolActivity] : []),
-  ];
-  const items = feed.map((line) => ({
-    id: line.id,
-    content: <MemoTranscriptLineView line={line} columns={columns} />,
-  }));
+  if (rows < 8 || columns < 20) {
+    return (
+      <Box width={columns} height={rows} overflow="hidden">
+        <Text wrap="truncate-end">Увеличьте окно</Text>
+      </Box>
+    );
+  }
   if (transcriptOpen) {
     const matches = tQuery.trim() ? searchMatchIndices(transcript, tQuery) : [];
     const overlayFrame = frameRows(rows);
@@ -2147,7 +2244,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
             Транскрипт · {transcript.length} строк · Ctrl+O/q — назад
           </Text>
         </Box>
-        <ScrollViewport items={items} top={tTop} metrics={pagerMetrics} />
+        <ScrollViewport
+          items={items}
+          top={tTop}
+          metrics={pagerMetrics}
+          layoutKey={columns}
+        />
         <Box flexDirection="column" width="100%" flexShrink={0}>
           {tSearching ? (
             <Text wrap="truncate-end">/{tQuery}█</Text>
@@ -2171,7 +2273,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
   }
   return (
     <Box flexDirection="column" width={columns} height={frameRows(rows)}>
-      <ScrollViewport items={items} top={scrollTop} metrics={chatMetrics} />
+      <ScrollViewport
+        items={items}
+        top={scrollTop}
+        metrics={chatMetrics}
+        layoutKey={columns}
+      />
       <Box
         flexDirection="column"
         width="100%"
@@ -2208,10 +2315,14 @@ export function shortenHome(path: string): string {
 export function TranscriptLineView({
   line,
   columns,
+  compactDiff = false,
 }: {
   line: TuiTranscriptLine;
   columns: number;
+  compactDiff?: boolean;
 }): React.JSX.Element {
+  if (line.fileDiff && compactDiff)
+    return <CompactFileDiff fileDiff={line.fileDiff} columns={columns} />;
   if (line.fileDiff)
     return <FileDiffView fileDiff={line.fileDiff} columns={columns} />;
   const tone = line.tone ?? "assistant";
@@ -2229,7 +2340,7 @@ export function TranscriptLineView({
     return (
       <Box width="100%" flexShrink={0}>
         <Text dimColor wrap="wrap">
-          {line.text}
+          {/^─+$/.test(line.text) ? "─".repeat(columns) : line.text}
         </Text>
       </Box>
     );
@@ -2381,6 +2492,17 @@ export function Approval({
     .map((line) => truncate(line, 1000))
     .join("\n");
   const color = process.env.NO_COLOR === undefined;
+  const diffItems = useMemo(
+    () =>
+      request.fileDiff
+        ? expandedDiffRows(request.fileDiff).map((content, id) => ({
+            id,
+            content,
+            height: 1,
+          }))
+        : undefined,
+    [request.fileDiff],
+  );
   return (
     <Box
       flexDirection="column"
@@ -2397,21 +2519,23 @@ export function Approval({
       <ScrollViewport
         metrics={metrics}
         top={top}
-        items={[
-          {
-            id: 0,
-            content: request.fileDiff ? (
-              <FileDiffView fileDiff={request.fileDiff} columns={width} />
-            ) : (
-              <Box flexDirection="column" width={width} flexShrink={0}>
-                <Text>{preview}</Text>
-                {rawLines.length > 200 ? (
-                  <Text>… {rawLines.length - 200} more preview lines</Text>
-                ) : null}
-              </Box>
-            ),
-          },
-        ]}
+        items={
+          diffItems ?? [
+            {
+              id: 0,
+              content: request.fileDiff ? (
+                <FileDiffView fileDiff={request.fileDiff} columns={width} />
+              ) : (
+                <Box flexDirection="column" width={width} flexShrink={0}>
+                  <Text>{preview}</Text>
+                  {rawLines.length > 200 ? (
+                    <Text>… {rawLines.length - 200} more preview lines</Text>
+                  ) : null}
+                </Box>
+              ),
+            },
+          ]
+        }
       />
       <Text dimColor={color} wrap="truncate-end">
         ↑/↓ · PgUp/PgDn · Home/End — просмотр

@@ -21,8 +21,10 @@ export interface DiffRenderModel {
 
 /** Only the display is bounded; FileDiff.patch remains complete for storage. */
 const models = new WeakMap<FileDiff, DiffRenderModel>();
-export function diffRenderModel(diff: FileDiff): DiffRenderModel {
-  const cached = models.get(diff);
+const fullModels = new WeakMap<FileDiff, DiffRenderModel>();
+export function diffRenderModel(diff: FileDiff, full = false): DiffRenderModel {
+  const cache = full ? fullModels : models;
+  const cached = cache.get(diff);
   if (cached) return cached;
   const model: DiffRenderModel = {
     lines: [],
@@ -30,7 +32,7 @@ export function diffRenderModel(diff: FileDiff): DiffRenderModel {
     shortenedLines: 0,
   };
   const add = (line: DiffLine) => {
-    if (model.lines.length >= MAX_DIFF_LINES) {
+    if (!full && model.lines.length >= MAX_DIFF_LINES) {
       model.hiddenLines++;
       return;
     }
@@ -69,8 +71,101 @@ export function diffRenderModel(diff: FileDiff): DiffRenderModel {
   } catch {
     model.error = "Diff preview unavailable.";
   }
-  models.set(diff, model);
+  cache.set(diff, model);
   return model;
+}
+
+export const DIFF_PREVIEW_ROWS = 5;
+
+/** Quiet summary in the conversation; full details live in Ctrl+O. */
+export function CompactFileDiff({
+  fileDiff,
+  columns,
+}: {
+  fileDiff: FileDiff;
+  columns: number;
+}) {
+  const model = diffRenderModel(fileDiff);
+  const changed = model.lines.filter(
+    (line) => line.kind === "add" || line.kind === "remove",
+  );
+  const preview = changed.slice(0, DIFF_PREVIEW_ROWS);
+  const hidden = Math.max(
+    0,
+    fileDiff.additions + fileDiff.deletions - preview.length,
+  );
+  return (
+    <Box
+      width={columns}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="gray"
+      paddingX={1}
+      flexShrink={0}
+    >
+      <Text bold wrap="truncate-end">
+        {fileDiffTitle(fileDiff)}
+      </Text>
+      <Text wrap="truncate-end">
+        <Text color="green">+{fileDiff.additions}</Text>
+        {"  "}
+        <Text color="red">−{fileDiff.deletions}</Text>
+        <Text dimColor> · строки</Text>
+      </Text>
+      {preview.map((line) => (
+        <Text key={line.id} wrap="truncate-end" color={DIFF_COLORS[line.kind]}>
+          {line.kind === "add" ? "+" : "−"} {line.text}
+        </Text>
+      ))}
+      <Text dimColor wrap="truncate-end">
+        {hidden ? `Ещё ${hidden} · ` : ""}Ctrl+O — раскрыть дифф
+      </Text>
+      {model.error ? <Text wrap="truncate-end">{model.error}</Text> : null}
+    </Box>
+  );
+}
+
+export function compactFileDiffRows(diff: FileDiff): number {
+  const model = diffRenderModel(diff);
+  return (
+    5 +
+    Math.min(
+      DIFF_PREVIEW_ROWS,
+      model.lines.filter(
+        (line) => line.kind === "add" || line.kind === "remove",
+      ).length,
+    ) +
+    Number(Boolean(model.error))
+  );
+}
+
+/** Independent one-row items keep even very large expanded patches virtual. */
+export function expandedDiffRows(diff: FileDiff): React.ReactNode[] {
+  const model = diffRenderModel(diff, true);
+  const digits = String(
+    model.lines.reduce(
+      (maximum, line) =>
+        Math.max(maximum, line.oldLine ?? 0, line.newLine ?? 0),
+      1,
+    ),
+  ).length;
+  return [
+    <Text key="title" bold wrap="truncate-end">
+      ● {fileDiffTitle(diff)}
+    </Text>,
+    <Text key="stats" wrap="truncate-end">
+      +{diff.additions} −{diff.deletions} · строки
+    </Text>,
+    ...model.lines.map((line) => (
+      <Text key={line.id} wrap="truncate-end">
+        <Text dimColor>{diffLinePrefix(line, digits)}</Text>
+        <Text color={DIFF_COLORS[line.kind]}>{line.text}</Text>
+      </Text>
+    )),
+    <Text key="end" dimColor wrap="truncate-end">
+      {model.error ?? "Старые / новые строки · Ctrl+O — свернуть"}
+    </Text>,
+  ];
 }
 
 function displayText(text: string): string {
