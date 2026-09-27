@@ -844,6 +844,11 @@ async function startTui(options: RunOptions): Promise<void> {
     }
     // Console-mode changes can make the native block cursor visible again.
     terminalCursor.hide();
+    if (useAltScreen && process.platform === "win32" && process.stdout.isTTY) {
+      // Conhost may scroll the first full-height frame by one row, leaving
+      // Ink's diff cache out of sync. Reset it once before accepting input.
+      process.stdout.emit("resize");
+    }
   } catch {
     disableAlternateScroll();
     selectionGuard?.close();

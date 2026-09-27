@@ -72,6 +72,11 @@ class Screen {
   row(y: number): string {
     return this.lines[y]?.join("").trimEnd() ?? "";
   }
+
+  scrollUp(): void {
+    this.lines.shift();
+    this.lines.push(Array(20).fill(" "));
+  }
 }
 
 test("Windows incremental frame repairs a shifted console cursor without duplicating input", () => {
@@ -93,5 +98,29 @@ test("Windows incremental frame repairs a shifted console cursor without duplica
   render("HEAD\n\nDRAFT\nHINT");
   expect(screen.row(2)).toBe("DRAFT");
   expect(screen.row(3)).toBe("HINT");
+  expect(screen.lines.flat().join("")).not.toContain("INPUT");
+});
+
+test("a scrolled startup buffer needs a full reset before the first edit", () => {
+  if (process.platform !== "win32") return;
+  const stream = new PassThrough() as PassThrough & { isTTY: boolean };
+  stream.isTTY = true;
+  const screen = new Screen();
+  stream.on("data", (chunk: Buffer) => screen.feed(chunk.toString()));
+  const render = logUpdate.create(stream, { incremental: true });
+
+  render("HEAD\n\nINPUT\nHINT");
+  screen.scrollUp(); // The first conhost alternate-screen write can scroll.
+  render("HEAD\n\nDRAFT\nHINT");
+  expect(screen.row(1)).toBe("INPUT");
+  expect(screen.row(2)).toBe("DRAFT");
+
+  // Ink's resize path clears the physical buffer and resets its diff cache.
+  // The one-time startup resize in cli.ts invokes this before user input.
+  screen.feed("\x1b[2J\x1b[H");
+  render.reset();
+  render("HEAD\n\nDRAFT\nHINT");
+  expect(screen.row(1)).toBe("");
+  expect(screen.row(2)).toBe("DRAFT");
   expect(screen.lines.flat().join("")).not.toContain("INPUT");
 });
