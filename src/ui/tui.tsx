@@ -1623,6 +1623,8 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     selfUpdateRunning.current = true;
     setBusy(true);
+    setScrollTop(null);
+    append("Проверяю обновления ChiselCode…", "info");
     try {
       const plan = await props.onPlanUpdate();
       if (plan.error) {
@@ -1637,6 +1639,13 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         return;
       }
       const version = plan.latest ?? plan.current;
+      if (plan.assetReady === false) {
+        append(
+          `Установщик ${plan.asset} для v${version} ещё собирается. Проверьте релиз позже: ${plan.latestUrl ?? plan.url}`,
+          "warn",
+        );
+        return;
+      }
       if (!plan.installedBinary) {
         append(
           [
@@ -1663,7 +1672,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
       }
       // Релиз выходит пустым: установщик для платформы может ещё собираться.
       // Проверяем наличие файла, иначе ловили бы голый 404.
-      if (props.onCheckAssetUpdate) {
+      if (plan.assetReady !== true && props.onCheckAssetUpdate) {
         let assetReady = true;
         try {
           assetReady = await props.onCheckAssetUpdate(plan);
@@ -1699,8 +1708,12 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         );
         return;
       }
+      if (!props.onLaunchInstaller) {
+        append("Запуск установщика недоступен в этом сеансе.", "warn");
+        return;
+      }
       append("Устанавливаю тихо и перезапускаюсь…", "info");
-      await props.onLaunchInstaller?.(downloaded.path, true);
+      await props.onLaunchInstaller(downloaded.path, true);
       // Даём строке отрисоваться: иначе exit() в том же тике не оставит
       // финального сообщения в ленте, и покажется, что приложение
       // «просто исчезло».

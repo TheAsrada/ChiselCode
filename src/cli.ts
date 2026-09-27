@@ -334,6 +334,12 @@ async function runUpdateFallback(rl: ReadlineInterface): Promise<boolean> {
   }
   const plan = planSelfUpdate(check, VERSION);
   const version = plan.latest ?? plan.current;
+  if (plan.assetReady === false) {
+    write(
+      `Установщик ${plan.asset} ещё собирается. Проверьте релиз позже: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
+    );
+    return false;
+  }
   if (!plan.installedBinary) {
     write(
       [
@@ -359,10 +365,12 @@ async function runUpdateFallback(rl: ReadlineInterface): Promise<boolean> {
     return false;
   }
   let assetReady = true;
-  try {
-    assetReady = await checkAssetAvailable(plan.url);
-  } catch {
-    assetReady = true;
+  if (plan.assetReady !== true) {
+    try {
+      assetReady = await checkAssetAvailable(plan.url);
+    } catch {
+      assetReady = true;
+    }
   }
   if (!assetReady) {
     write(
@@ -373,7 +381,10 @@ async function runUpdateFallback(rl: ReadlineInterface): Promise<boolean> {
   write(`Скачиваю ${plan.asset}…`);
   let downloaded: { path: string; bytes: number };
   try {
-    downloaded = await downloadReleaseAsset(plan.url, plan.asset);
+    downloaded = await downloadReleaseAsset(plan.url, plan.asset, {
+      expectedBytes: plan.assetSize,
+      expectedSha256: plan.sha256,
+    });
   } catch (error) {
     write(
       `Ошибка обновления: ${error instanceof Error ? error.message : String(error)}`,
@@ -538,10 +549,16 @@ async function startTui(options: RunOptions): Promise<void> {
         onPlanUpdate: async () =>
           planSelfUpdate(await checkForUpdates(VERSION), VERSION),
         onDownloadUpdate: async (plan) =>
-          downloadReleaseAsset(plan.url, plan.asset),
+          downloadReleaseAsset(plan.url, plan.asset, {
+            expectedBytes: plan.assetSize,
+            expectedSha256: plan.sha256,
+          }),
         onCheckAssetUpdate: async (plan) => checkAssetAvailable(plan.url),
         onLaunchInstaller: async (path, silent) => {
-          launchWindowsInstaller(path, silent ? [...NSIS_SILENT_ARGS] : []);
+          await launchWindowsInstaller(
+            path,
+            silent ? [...NSIS_SILENT_ARGS] : [],
+          );
         },
         onSwitchProject: async (arg: string) => {
           const base = activeOptions.cwd ?? process.cwd();

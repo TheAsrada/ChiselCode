@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -7,6 +8,7 @@ import { render } from "ink";
 import React from "react";
 import {
   checkAssetAvailable,
+  checkForUpdates,
   compareVersions,
   downloadReleaseAsset,
   installerAssetName,
@@ -22,6 +24,69 @@ import {
 import { createTuiApprovalResolver, TuiApp } from "../../src/ui/tui.js";
 
 describe("self update helpers", () => {
+  test("uses the published release asset and its checksum", async () => {
+    const payload = new TextEncoder().encode("installer");
+    const digest = createHash("sha256").update(payload).digest("hex");
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          tag_name: "v0.5.36",
+          html_url:
+            "https://github.com/TheAsrada/ChiselCode/releases/tag/v0.5.36",
+          assets: [
+            {
+              name: "ChiselCode-Setup-0.5.36.exe",
+              browser_download_url: "https://example.test/real-installer.exe",
+              size: payload.byteLength,
+              digest: `sha256:${digest}`,
+            },
+          ],
+        }),
+      )) as unknown as typeof fetch;
+    const check = await checkForUpdates("0.5.35", { fetchImpl });
+    const plan = planSelfUpdate(check, "0.5.35", "win32");
+    expect(plan.assetReady).toBe(true);
+    expect(plan.url).toBe("https://example.test/real-installer.exe");
+    expect(plan.assetSize).toBe(payload.byteLength);
+    expect(plan.sha256).toBe(digest);
+  });
+
+  test("reports a release whose installer is still being uploaded", async () => {
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          tag_name: "v0.5.36",
+          assets: [],
+        }),
+      )) as unknown as typeof fetch;
+    const plan = planSelfUpdate(
+      await checkForUpdates("0.5.35", { fetchImpl }),
+      "0.5.35",
+      "win32",
+    );
+    expect(plan.updateAvailable).toBe(true);
+    expect(plan.assetReady).toBe(false);
+  });
+
+  test("does not auto-install a release asset without a checksum", () => {
+    const plan = planSelfUpdate(
+      {
+        current: "0.5.35",
+        latest: "0.5.36",
+        updateAvailable: true,
+        assets: [
+          {
+            name: "ChiselCode-Setup-0.5.36.exe",
+            url: "https://example.test/installer.exe",
+            size: 100,
+          },
+        ],
+      },
+      "0.5.35",
+      "win32",
+    );
+    expect(plan.error).toContain("SHA-256");
+  });
   test("names installer assets per platform like release.yml", () => {
     expect(installerAssetName("0.2.21", "win32", "x64")).toBe(
       "ChiselCode-Setup-0.2.21.exe",
@@ -152,6 +217,26 @@ describe("self update helpers", () => {
       expect(result.bytes).toBe(256);
       expect(result.path).toBe(join(directory, "ChiselCode-Setup-9.9.9.exe"));
       expect(await Bun.file(result.path).arrayBuffer()).toHaveLength(256);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a damaged installer and removes the partial download", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chiselcode-update-"));
+    try {
+      const fetchImpl = (async () =>
+        new Response("damaged")) as unknown as typeof fetch;
+      const asset = "ChiselCode-Setup-test.exe";
+      await expect(
+        downloadReleaseAsset("https://example.test/a.exe", asset, {
+          fetchImpl,
+          destDir: directory,
+          expectedBytes: 7,
+          expectedSha256: "0".repeat(64),
+        }),
+      ).rejects.toThrow("Контрольная сумма");
+      await expect(readFile(join(directory, asset))).rejects.toThrow();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -323,6 +408,57 @@ function availablePlan(): SelfUpdatePlan {
 }
 
 describe("tui self update flow", () => {
+  test("shows progress immediately while the release check is pending", async () => {
+    const stdout = createMockStdout(100, 30);
+    const stdin = createMockStdin();
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    let finishCheck: (plan: SelfUpdatePlan) => void = () => {};
+    const pendingCheck = new Promise<SelfUpdatePlan>((resolve) => {
+      finishCheck = resolve;
+    });
+    const instance = render(
+      React.createElement(TuiApp, {
+        approvalResolver: createTuiApprovalResolver(),
+        bindTranscript: () => {},
+        onSubmit: async () => {},
+        onStatus: async () => "status",
+        onSwitchProject: async (path: string) => path,
+        onSaveSettings: async () => "saved" as const,
+        onCheckConnection: async () => "ok",
+        onCompleteSetup: async () => {},
+        onPlanUpdate: async () => pendingCheck,
+        provider: "anthropic",
+        providerLabel: "Anthropic",
+        model: "test-model",
+      }),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        exitOnCtrlC: false,
+        patchConsole: false,
+        debug: true,
+      },
+    );
+    try {
+      await tick();
+      for (const ch of "/update") {
+        stdin.write(ch);
+        await tick(20);
+      }
+      stdin.write("\r");
+      await tick(120);
+      expect(stripAnsi(output)).toContain("Проверяю обновления ChiselCode");
+      finishCheck({ ...availablePlan(), updateAvailable: false });
+      await tick(160);
+      expect(stripAnsi(output)).toContain("последняя версия");
+    } finally {
+      instance.unmount();
+    }
+  });
+
   test("reports already being on the latest version", async () => {
     const stdout = createMockStdout(100, 30);
     const stdin = createMockStdin();
@@ -437,6 +573,68 @@ describe("tui self update flow", () => {
         tick(2000),
       ]);
       expect(exited).toBe(true);
+    } finally {
+      instance.unmount();
+    }
+  });
+
+  test("keeps the chat open and shows a launch failure", async () => {
+    const stdout = createMockStdout(100, 30);
+    const stdin = createMockStdin();
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    const instance = render(
+      React.createElement(TuiApp, {
+        approvalResolver: createTuiApprovalResolver(),
+        bindTranscript: () => {},
+        onSubmit: async () => {},
+        onStatus: async () => "status",
+        onSwitchProject: async (path: string) => path,
+        onSaveSettings: async () => "saved" as const,
+        onCheckConnection: async () => "ok",
+        onCompleteSetup: async () => {},
+        onPlanUpdate: async () => availablePlan(),
+        onDownloadUpdate: async () => ({
+          path: "C:\\Temp\\broken.exe",
+          bytes: 10,
+        }),
+        onLaunchInstaller: async () => {
+          await tick(50);
+          throw new Error("Запуск заблокирован");
+        },
+        provider: "anthropic",
+        providerLabel: "Anthropic",
+        model: "test-model",
+      }),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        exitOnCtrlC: false,
+        patchConsole: false,
+        debug: true,
+      },
+    );
+    try {
+      await tick();
+      for (const ch of "/update") {
+        stdin.write(ch);
+        await tick(20);
+      }
+      stdin.write("\r");
+      await tick(300);
+      stdin.write("y");
+      await tick(250);
+      expect(stripAnsi(output)).toContain("Запуск заблокирован");
+      let exited = false;
+      await Promise.race([
+        instance.waitUntilExit().then(() => {
+          exited = true;
+        }),
+        tick(100),
+      ]);
+      expect(exited).toBe(false);
     } finally {
       instance.unmount();
     }

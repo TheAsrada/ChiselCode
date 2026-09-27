@@ -5,11 +5,13 @@ import {
   readdir,
   readFile,
   rm,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionProjectsDir, sessionsRootDir } from "../../src/paths/home.js";
+import { withLock } from "../../src/sessions/lock.js";
 import {
   projectSessionStore,
   SessionProjectRegistry,
@@ -130,6 +132,62 @@ describe("project session storage", () => {
     await a.save(one);
     expect(new Set((await a.list()).map((item) => item.id))).toEqual(
       new Set([one.id, two.id]),
+    );
+  });
+  test("recovers abandoned legacy locks without deleting sessions", async () => {
+    const store = await projectSessionStore(join(root, "work"));
+    const first = store.create("anthropic", "one");
+    await store.save(first);
+    const indexLock = join(store.directory, "index.json.lock");
+    await mkdir(indexLock);
+    const old = new Date(Date.now() - 60_000);
+    await utimes(indexLock, old, old);
+    const second = store.create("anthropic", "two");
+    await store.save(second);
+    expect(new Set((await store.list()).map((item) => item.id))).toEqual(
+      new Set([first.id, second.id]),
+    );
+    expect(await readdir(store.directory)).not.toContain("index.json.lock");
+
+    const registryLock = join(sessionsRootDir(), "projects.json.lock");
+    await mkdir(registryLock);
+    await utimes(registryLock, old, old);
+    await projectSessionStore(join(root, "another"));
+    expect((await new SessionProjectRegistry().list()).length).toBe(2);
+  });
+  test("a second writer waits for an active lock", async () => {
+    const store = await projectSessionStore(join(root, "work"));
+    const indexPath = join(store.directory, "index.json");
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = false;
+    const first = withLock(indexPath, async () => {
+      entered = true;
+      await held;
+    });
+    while (!entered) await new Promise((resolve) => setTimeout(resolve, 1));
+    const session = store.create("anthropic", "test");
+    const second = store.save(session);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readdir(store.directory)).not.toContain(`${session.id}.json`);
+    release();
+    await Promise.all([first, second]);
+    expect((await store.list()).map((item) => item.id)).toContain(session.id);
+  });
+  test("concurrent writers recover one abandoned lock and retain every session", async () => {
+    const store = await projectSessionStore(join(root, "work"));
+    const lock = join(store.directory, "index.json.lock");
+    await mkdir(lock);
+    const old = new Date(Date.now() - 60_000);
+    await utimes(lock, old, old);
+    const sessions = Array.from({ length: 8 }, (_, index) =>
+      store.create("anthropic", `model-${index}`),
+    );
+    await Promise.all(sessions.map((session) => store.save(session)));
+    expect(new Set((await store.list()).map((item) => item.id))).toEqual(
+      new Set(sessions.map((session) => session.id)),
     );
   });
 });

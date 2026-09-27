@@ -6,9 +6,10 @@
  * никогда не висел в плохом сетевом окружении.
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createWriteStream } from "node:fs";
-import { unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,8 +23,16 @@ export interface UpdateCheckResult {
   latest?: string;
   latestUrl?: string;
   updateAvailable?: boolean;
+  assets?: ReleaseAsset[];
   /** Текст ошибки сети/API — показывается как предупреждение, а не фатально. */
   error?: string;
+}
+
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
+  sha256?: string;
 }
 
 export interface UpdateCheckOptions {
@@ -101,6 +110,12 @@ export async function checkForUpdates(
     const data = (await response.json()) as {
       tag_name?: string;
       html_url?: string;
+      assets?: Array<{
+        name?: string;
+        browser_download_url?: string;
+        size?: number;
+        digest?: string | null;
+      }>;
     };
     const latest = (data.tag_name ?? "").trim().replace(/^v/i, "");
     if (!latest)
@@ -110,6 +125,24 @@ export async function checkForUpdates(
       latest,
       latestUrl: data.html_url ?? RELEASES_PAGE_URL,
       updateAvailable: compareVersions(latest, current) > 0,
+      assets: data.assets?.flatMap((asset) => {
+        if (
+          !asset.name ||
+          !asset.browser_download_url ||
+          !Number.isSafeInteger(asset.size) ||
+          (asset.size ?? 0) <= 0
+        )
+          return [];
+        const digest = /^sha256:([0-9a-f]{64})$/i.exec(asset.digest ?? "");
+        return [
+          {
+            name: asset.name,
+            url: asset.browser_download_url,
+            size: asset.size as number,
+            sha256: digest?.[1]?.toLowerCase(),
+          },
+        ];
+      }),
     };
   } catch (error) {
     const aborted = error instanceof Error && error.name === "AbortError";
@@ -205,6 +238,9 @@ export interface SelfUpdatePlan {
   /** Файл установщика и ссылка (заполнены, если обновление есть). */
   asset: string;
   url: string;
+  assetReady?: boolean;
+  assetSize?: number;
+  sha256?: string;
   /** Запуск из установленного бинарника (не из исходников). */
   installedBinary: boolean;
   /** Тихая установка без sudo: установленный бинарник на Windows. */
@@ -221,6 +257,11 @@ export function planSelfUpdate(
 ): SelfUpdatePlan {
   const latest = normalizeVersion(check.latest ?? current);
   const asset = installerAssetName(latest, platform);
+  const publishedAsset = check.assets?.find((item) => item.name === asset);
+  const digestError =
+    check.updateAvailable && publishedAsset && !publishedAsset.sha256
+      ? "GitHub не сообщил SHA-256 установщика. Автоматическое обновление остановлено."
+      : undefined;
   const installedBinary = isInstalledBinary();
   const autoInstall = installedBinary && platform === "win32";
   return {
@@ -228,9 +269,12 @@ export function planSelfUpdate(
     latest: check.latest === undefined ? undefined : latest,
     latestUrl: check.latestUrl,
     updateAvailable: check.updateAvailable ?? false,
-    error: check.error,
+    error: check.error ?? digestError,
     asset,
-    url: releaseDownloadUrl(latest, asset),
+    url: publishedAsset?.url ?? releaseDownloadUrl(latest, asset),
+    assetReady: check.assets ? Boolean(publishedAsset) : undefined,
+    assetSize: publishedAsset?.size,
+    sha256: publishedAsset?.sha256,
     installedBinary,
     autoInstall,
     manualCommand: autoInstall
@@ -254,6 +298,8 @@ export interface DownloadOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   destDir?: string;
+  expectedBytes?: number;
+  expectedSha256?: string;
 }
 
 export interface DownloadedAsset {
@@ -273,8 +319,11 @@ export async function downloadReleaseAsset(
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 300_000;
   const controller = new AbortController();
+  const temporaryDir =
+    options.destDir ?? (await mkdtemp(join(tmpdir(), "chisel-update-")));
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const path = join(options.destDir ?? tmpdir(), asset);
+  const path = join(temporaryDir, asset);
+  let started = false;
   try {
     const response = await fetchImpl(url, { signal: controller.signal });
     if (!response.ok)
@@ -287,13 +336,22 @@ export async function downloadReleaseAsset(
     if (!body || typeof body[Symbol.asyncIterator] !== "function") {
       // Мокнутый/нестандартный ответ без потокового тела — по-старому.
       const bytes = new Uint8Array(await response.arrayBuffer());
+      started = true;
       await writeFile(path, bytes);
+      verifyDownload(
+        bytes.byteLength,
+        createHash("sha256").update(bytes).digest("hex"),
+        options,
+      );
       return { path, bytes: bytes.byteLength };
     }
     let bytes = 0;
+    const hash = createHash("sha256");
+    started = true;
     const file = createWriteStream(path);
     try {
       for await (const chunk of body) {
+        hash.update(chunk);
         bytes +=
           typeof chunk === "string"
             ? Buffer.byteLength(chunk)
@@ -302,23 +360,41 @@ export async function downloadReleaseAsset(
         if (!file.write(chunk)) await once(file, "drain");
       }
     } catch (error) {
-      file.destroy();
+      await new Promise<void>((resolve) => {
+        if (file.closed) resolve();
+        else file.once("close", resolve);
+        file.destroy();
+      });
       throw error;
     }
     await new Promise<void>((resolve, reject) => {
       file.on("error", reject);
       file.end(() => resolve());
     });
+    verifyDownload(bytes, hash.digest("hex"), options);
     return { path, bytes };
   } catch (error) {
+    // Не тащим за собой оборванный файл: следующая попытка качнёт заново.
+    if (started) await unlink(path).catch(() => {});
+    if (!options.destDir)
+      await rm(temporaryDir, { recursive: true, force: true }).catch(() => {});
     if (error instanceof Error && error.name === "AbortError")
       throw new Error("Превышено время ожидания скачивания установщика.");
-    // Не тащим за собой оборванный файл: следующая попытка качнёт заново.
-    await unlink(path).catch(() => {});
     throw error instanceof Error ? error : new Error(String(error));
   } finally {
     clearTimeout(timer);
   }
+}
+
+function verifyDownload(
+  bytes: number,
+  sha256: string,
+  options: DownloadOptions,
+): void {
+  if (options.expectedBytes !== undefined && bytes !== options.expectedBytes)
+    throw new Error("Размер скачанного установщика не совпадает с релизом.");
+  if (options.expectedSha256 && sha256 !== options.expectedSha256)
+    throw new Error("Контрольная сумма установщика не совпадает с релизом.");
 }
 
 /**

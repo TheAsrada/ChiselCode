@@ -13,6 +13,7 @@ import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
 import { ProviderKindSchema, type Session } from "../types/domain.js";
+import { withLock } from "./lock.js";
 
 const idSchema = z
   .string()
@@ -139,24 +140,6 @@ async function atomicJson(path: string, value: unknown): Promise<void> {
     throw error;
   }
 }
-async function withLock<T>(path: string, action: () => Promise<T>): Promise<T> {
-  const lock = `${path}.lock`;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      await mkdir(lock);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (attempt === 99) throw new Error(`Хранилище занято: ${path}`);
-      await new Promise((done) => setTimeout(done, 30 + Math.random() * 20));
-    }
-  }
-  try {
-    return await action();
-  } finally {
-    await rm(lock, { recursive: true, force: true });
-  }
-}
 async function canonicalize(path: string): Promise<string> {
   let canonical: string;
   try {
@@ -198,13 +181,7 @@ export class SessionProjectRegistry {
         await readJson(join(sessionsRootDir(), "projects.json")),
       ).projects;
     } catch {
-      const projects = await recoverProjects();
-      await mkdir(sessionsRootDir(), { recursive: true });
-      await atomicJson(join(sessionsRootDir(), "projects.json"), {
-        schemaVersion: 1,
-        projects,
-      });
-      return projects;
+      return recoverProjects();
     }
   }
   async forPath(path: string): Promise<ProjectSessionStore> {
@@ -331,8 +308,8 @@ export class ProjectSessionStore {
       schemaVersion: 2,
       title: session.title || "Без названия",
     });
-    await atomicJson(this.file(session.id), persisted);
     await withLock(this.indexPath, async () => {
+      await atomicJson(this.file(session.id), persisted);
       let index: z.infer<typeof indexSchema>;
       try {
         index = indexSchema.parse(await readJson(this.indexPath));
@@ -412,8 +389,8 @@ export class ProjectSessionStore {
     await this.save(session);
   }
   async delete(id: string): Promise<void> {
-    await rm(this.file(id));
     await withLock(this.indexPath, async () => {
+      await rm(this.file(id));
       let index: z.infer<typeof indexSchema>;
       try {
         index = indexSchema.parse(await readJson(this.indexPath));
