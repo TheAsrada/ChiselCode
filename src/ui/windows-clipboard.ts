@@ -103,6 +103,16 @@ export async function watchWindowsClipboard(
 }
 
 /** Bun raw mode disables QuickEdit in classic conhost; restore mouse selection. */
+export function windowsConsoleInputMode(
+  current: number,
+  captureMouse: boolean,
+): number {
+  // ENABLE_EXTENDED_FLAGS is required to change ENABLE_QUICK_EDIT_MODE.
+  return captureMouse
+    ? (current | 0x200 | 0x10 | 0x80) & ~0x40
+    : current | 0xc0;
+}
+
 export async function createWindowsConsoleSelectionGuard(
   captureMouse = false,
 ): Promise<{
@@ -132,9 +142,7 @@ export async function createWindowsConsoleSelectionGuard(
         // QuickEdit consumes wheel events and can freeze rendering. Captured
         // mode needs VT input + mouse events; native mode restores selection.
         const current = mode[0] ?? 0;
-        const next = captureMouse
-          ? (current | 0x200 | 0x10 | 0x80) & ~0x40
-          : current | 0xc0;
+        const next = windowsConsoleInputMode(current, captureMouse);
         if (next !== current) kernel.symbols.SetConsoleMode(handle, next);
       }
     },

@@ -23,7 +23,9 @@ export async function createTerminalCursorGuard(
     hide() {
       if (restored) return;
       try {
-        if (!hidden) process.stdout.write("\x1b[?25l");
+        // Conhost can restore the active-buffer cursor after a mode change.
+        // Reassert VT visibility after each console-mode refresh.
+        process.stdout.write("\x1b[?25l");
       } catch {
         // The output stream may have closed during startup.
       }
@@ -84,14 +86,15 @@ async function loadNativeConsoleCursor(): Promise<{
     info[1] = 0;
     kernel.symbols.SetConsoleCursorInfo(target, info);
   };
-  let active: typeof handle | null = null;
   return {
     hide() {
       if (closed) return;
       // CONOUT$ points to the active screen buffer; GetStdHandle can still
       // refer to the original one after a VT alternate-screen switch.
       hideOn(kernel.symbols.GetStdHandle(-11));
-      active ??= kernel.symbols.CreateFileW(
+      // CONOUT$ resolves the current alternate buffer. Do not cache its
+      // handle: the first render or a resize may replace that buffer.
+      const active = kernel.symbols.CreateFileW(
         activeConsoleName,
         0xc0000000,
         3,
@@ -100,12 +103,17 @@ async function loadNativeConsoleCursor(): Promise<{
         0,
         null,
       );
-      hideOn(active);
+      if (active) {
+        try {
+          hideOn(active);
+        } finally {
+          kernel.symbols.CloseHandle(active);
+        }
+      }
     },
     restore() {
       if (closed) return;
       closed = true;
-      if (active) kernel.symbols.CloseHandle(active);
       const restoredHandle = kernel.symbols.GetStdHandle(-11);
       if (restoredHandle)
         kernel.symbols.SetConsoleCursorInfo(restoredHandle, original);

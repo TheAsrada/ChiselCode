@@ -791,7 +791,6 @@ async function startTui(options: RunOptions): Promise<void> {
     );
     // Ink hides the VT cursor. In legacy Windows consoles also hide the
     // native cursor, which otherwise blinks below the pinned input.
-    terminalCursor.hide();
     // SGR-захват мыши ПОСЛЕ входа в alt-screen (Ink включает его синхронно
     // в конструкторе): порядок важен, иначе режимы сбросятся переключением
     // буфера. Выключаем строго наоборот (1006→1000) в finally ниже.
@@ -815,6 +814,8 @@ async function startTui(options: RunOptions): Promise<void> {
         // Windows Terminal can still select without the legacy console flag.
       }
     }
+    // Console-mode changes can make the native block cursor visible again.
+    terminalCursor.hide();
   } catch {
     selectionGuard?.close();
     terminalCursor.restore();
@@ -832,12 +833,12 @@ async function startTui(options: RunOptions): Promise<void> {
     process.platform === "win32" && process.stdout.isTTY
       ? setInterval(() => {
           syncTerminalSizeToStdout();
-          if (useAltScreen) terminalCursor.hide();
           try {
             selectionGuard?.ensure();
           } catch {
             // Console may detach while the application is closing.
           }
+          if (useAltScreen) terminalCursor.hide();
         }, 250)
       : undefined;
   sizeSync?.unref();

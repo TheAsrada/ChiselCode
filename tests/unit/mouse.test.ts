@@ -61,9 +61,9 @@ describe("sgr mouse", () => {
     expect(resolveScrollSpeed("мусор")).toBe(DEFAULT_SCROLL_SPEED);
   });
 
-  test("mouse capture has a keyboard-only escape hatch", () => {
+  test("Windows selection is default and wheel capture is explicit", () => {
     expect(shouldEnableMouse({}, "linux")).toBe(true);
-    expect(shouldEnableMouse({}, "win32")).toBe(true);
+    expect(shouldEnableMouse({}, "win32")).toBe(false);
     expect(shouldEnableMouse({ CHISEL_MOUSE_CAPTURE: "0" }, "win32")).toBe(
       false,
     );

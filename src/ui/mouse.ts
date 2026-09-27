@@ -58,15 +58,17 @@ export function resolveScrollSpeed(env: string | undefined): number {
 }
 
 /**
- * Fullscreen requires captured wheel events, including on Windows.
- * Hold Shift for terminal-owned selection. `CHISEL_NO_MOUSE=1` and
- * `CHISEL_DISABLE_MOUSE=1` всегда отключают захват.
+ * Windows defaults to terminal-owned selection: SGR mouse mode consumes plain
+ * drags in conhost and Windows Terminal. Wheel capture remains opt-in there.
+ * Other platforms keep wheel capture by default. Explicit disable wins.
  */
 export function shouldEnableMouse(
   env: NodeJS.ProcessEnv,
-  _platform: string = process.platform,
+  platform: string = process.platform,
 ): boolean {
   if (env.CHISEL_NO_MOUSE === "1" || env.CHISEL_DISABLE_MOUSE === "1")
     return false;
-  return env.CHISEL_MOUSE_CAPTURE !== "0";
+  if (env.CHISEL_MOUSE_CAPTURE === "1") return true;
+  if (env.CHISEL_MOUSE_CAPTURE === "0") return false;
+  return platform !== "win32";
 }
