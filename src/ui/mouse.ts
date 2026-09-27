@@ -15,6 +15,9 @@
 
 export const SGR_ENABLE = "\x1b[?1000h\x1b[?1006h";
 export const SGR_DISABLE = "\x1b[?1006l\x1b[?1000l";
+/** Wheel becomes Up/Down in the alternate buffer without capturing clicks. */
+export const ALT_SCROLL_ENABLE = "\x1b[?1007h";
+export const ALT_SCROLL_DISABLE = "\x1b[?1007l";
 
 /** Скорость колеса по умолчанию: строк на щелчок (как vim-шаг 3 у Claude). */
 export const DEFAULT_SCROLL_SPEED = 3;
@@ -59,7 +62,8 @@ export function resolveScrollSpeed(env: string | undefined): number {
 
 /**
  * Windows defaults to terminal-owned selection: SGR mouse mode consumes plain
- * drags in conhost and Windows Terminal. Wheel capture remains opt-in there.
+ * drags in conhost and Windows Terminal. Full capture remains opt-in there;
+ * the native-selection path uses alternate scroll for the wheel.
  * Other platforms keep wheel capture by default. Explicit disable wins.
  */
 export function shouldEnableMouse(
@@ -71,4 +75,17 @@ export function shouldEnableMouse(
   if (env.CHISEL_MOUSE_CAPTURE === "1") return true;
   if (env.CHISEL_MOUSE_CAPTURE === "0") return false;
   return platform !== "win32";
+}
+
+/** Native selection and wheel scrolling coexist in Windows alternate screen. */
+export function shouldEnableAlternateScroll(
+  env: NodeJS.ProcessEnv,
+  platform: string = process.platform,
+): boolean {
+  return (
+    platform === "win32" &&
+    !shouldEnableMouse(env, platform) &&
+    env.CHISEL_NO_MOUSE !== "1" &&
+    env.CHISEL_DISABLE_MOUSE !== "1"
+  );
 }

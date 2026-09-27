@@ -19,4 +19,8 @@ test("native selection enables QuickEdit without mouse capture", () => {
   expect(captured & 0x40).toBe(0);
   expect(captured & 0x10).toBe(0x10);
   expect(captured & 0x200).toBe(0x200);
+  const alternate = windowsConsoleInputMode(0x80, false, true);
+  expect(alternate & 0x40).toBe(0x40);
+  expect(alternate & 0x200).toBe(0x200);
+  expect(alternate & 0x10).toBe(0);
 });

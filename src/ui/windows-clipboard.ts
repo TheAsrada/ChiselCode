@@ -106,15 +106,17 @@ export async function watchWindowsClipboard(
 export function windowsConsoleInputMode(
   current: number,
   captureMouse: boolean,
+  alternateScroll = false,
 ): number {
   // ENABLE_EXTENDED_FLAGS is required to change ENABLE_QUICK_EDIT_MODE.
   return captureMouse
     ? (current | 0x200 | 0x10 | 0x80) & ~0x40
-    : current | 0xc0;
+    : current | 0xc0 | (alternateScroll ? 0x200 : 0);
 }
 
 export async function createWindowsConsoleSelectionGuard(
   captureMouse = false,
+  alternateScroll = false,
 ): Promise<{
   ensure(): void;
   close(): void;
@@ -139,10 +141,14 @@ export async function createWindowsConsoleSelectionGuard(
       const handle = kernel.symbols.GetStdHandle(-10);
       const mode = new Uint32Array(1);
       if (handle && kernel.symbols.GetConsoleMode(handle, mode)) {
-        // QuickEdit consumes wheel events and can freeze rendering. Captured
-        // mode needs VT input + mouse events; native mode restores selection.
+        // With ?1007 enabled, VT input translates the wheel before QuickEdit
+        // handles clicks. Native selection remains available without SGR capture.
         const current = mode[0] ?? 0;
-        const next = windowsConsoleInputMode(current, captureMouse);
+        const next = windowsConsoleInputMode(
+          current,
+          captureMouse,
+          alternateScroll,
+        );
         if (next !== current) kernel.symbols.SetConsoleMode(handle, next);
       }
     },

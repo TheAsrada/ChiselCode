@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ALT_SCROLL_DISABLE,
+  ALT_SCROLL_ENABLE,
   DEFAULT_SCROLL_SPEED,
   parseSGRMouse,
   resolveScrollSpeed,
   SGR_DISABLE,
   SGR_ENABLE,
+  shouldEnableAlternateScroll,
   shouldEnableMouse,
 } from "../../src/ui/mouse.js";
 
@@ -49,6 +52,8 @@ describe("sgr mouse", () => {
     // гасим строго наоборот — иначе рваный teardown как у Claude.
     expect(SGR_ENABLE).toBe("\x1b[?1000h\x1b[?1006h");
     expect(SGR_DISABLE).toBe("\x1b[?1006l\x1b[?1000l");
+    expect(ALT_SCROLL_ENABLE).toBe("\x1b[?1007h");
+    expect(ALT_SCROLL_DISABLE).toBe("\x1b[?1007l");
   });
 
   test("scroll speed clamps to 1..20 with default 3", () => {
@@ -64,6 +69,8 @@ describe("sgr mouse", () => {
   test("Windows selection is default and wheel capture is explicit", () => {
     expect(shouldEnableMouse({}, "linux")).toBe(true);
     expect(shouldEnableMouse({}, "win32")).toBe(false);
+    expect(shouldEnableAlternateScroll({}, "win32")).toBe(true);
+    expect(shouldEnableAlternateScroll({}, "linux")).toBe(false);
     expect(shouldEnableMouse({ CHISEL_MOUSE_CAPTURE: "0" }, "win32")).toBe(
       false,
     );
@@ -71,6 +78,15 @@ describe("sgr mouse", () => {
     expect(parseSGRMouse("[<2;10;20m")?.kind).toBe("other");
     expect(shouldEnableMouse({ CHISEL_MOUSE_CAPTURE: "1" }, "win32")).toBe(
       true,
+    );
+    expect(
+      shouldEnableAlternateScroll({ CHISEL_MOUSE_CAPTURE: "1" }, "win32"),
+    ).toBe(false);
+    expect(
+      shouldEnableAlternateScroll({ CHISEL_MOUSE_CAPTURE: "0" }, "win32"),
+    ).toBe(true);
+    expect(shouldEnableAlternateScroll({ CHISEL_NO_MOUSE: "1" }, "win32")).toBe(
+      false,
     );
     expect(
       shouldEnableMouse(

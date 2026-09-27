@@ -796,14 +796,22 @@ export function headerSeparator(columns: number): string {
  */
 export const HOTKEYS_HINT =
   "Tab/↑/↓ — команда · Enter — отправить · Esc — закрыть · Shift+Enter — новая строка · Ctrl+O — транскрипт";
+export const HOTKEYS_HINT_NATIVE_WHEEL =
+  "Колесо/↑/↓ — лента · Ctrl+P/N — история · Tab — команда · Enter — отправить · Shift+Enter — новая строка · Ctrl+O — транскрипт";
 
 /**
  * Подсказка с жирными клавишами как в Codex (ключи — bold, описания — dim).
  * Одна строка truncate-end как футер Claude: перенос менял бы высоту
  * динамики каждый кадр и давал призраки при стирании.
  */
-export function HotkeysHint(): React.JSX.Element {
-  const parts = HOTKEYS_HINT.split(" · ");
+export function HotkeysHint({
+  nativeWheelScroll = false,
+}: {
+  nativeWheelScroll?: boolean;
+}): React.JSX.Element {
+  const parts = (
+    nativeWheelScroll ? HOTKEYS_HINT_NATIVE_WHEEL : HOTKEYS_HINT
+  ).split(" · ");
   return (
     <Text dimColor wrap="truncate-end">
       {parts.map((part, index) => {
@@ -918,6 +926,8 @@ export interface TuiAppProps {
    * фиксируется. По умолчанию — fullscreen с закреплённым вводом.
    */
   classic?: boolean;
+  /** Windows alternate scroll sends arrow keys while preserving native selection. */
+  nativeWheelScroll?: boolean;
 }
 
 export interface WelcomeInput {
@@ -1874,11 +1884,11 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         return;
       }
       if (character === "j" || key.downArrow) {
-        scrollPager(1);
+        scrollPager(key.downArrow && props.nativeWheelScroll ? scrollSpeed : 1);
         return;
       }
       if (character === "k" || key.upArrow) {
-        scrollPager(-1);
+        scrollPager(key.upArrow && props.nativeWheelScroll ? -scrollSpeed : -1);
         return;
       }
       if (key.pageUp) {
@@ -1996,6 +2006,22 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
     }
     if (key.downArrow && hasCommandSelection) {
       setSuggestionIndex((previous) => (previous + 1) % suggestions.length);
+      return;
+    }
+    if (
+      props.nativeWheelScroll &&
+      key.ctrl &&
+      (character.toLowerCase() === "p" || character.toLowerCase() === "n")
+    ) {
+      setEditor((state) =>
+        navigateEditorHistory(state, character.toLowerCase() === "p" ? -1 : 1),
+      );
+      setSuggestionIndex(0);
+      setSuggestionsDismissed(false);
+      return;
+    }
+    if (props.nativeWheelScroll && !classic && (key.upArrow || key.downArrow)) {
+      scrollChat((key.upArrow ? -1 : 1) * scrollSpeed);
       return;
     }
     if (key.upArrow && isFirstEditorLine(editor)) {
@@ -2174,6 +2200,7 @@ export function TuiApp(props: TuiAppProps): React.JSX.Element {
         suggestionRows={suggestionRows}
         selectedRow={selectedVisibleIndex}
         columns={columns}
+        nativeWheelScroll={props.nativeWheelScroll}
       />
     </>
   );
@@ -2567,6 +2594,7 @@ function Editor({
   selectedRow,
   columns,
   maxRows,
+  nativeWheelScroll,
 }: {
   value: string;
   cursor: number;
@@ -2577,6 +2605,7 @@ function Editor({
   selectedRow: number;
   columns: number;
   maxRows: number;
+  nativeWheelScroll?: boolean;
 }): React.JSX.Element {
   void columns;
   return (
@@ -2623,7 +2652,7 @@ function Editor({
         )}
       </Box>
       {copiedCharacters === undefined ? (
-        <HotkeysHint />
+        <HotkeysHint nativeWheelScroll={nativeWheelScroll} />
       ) : (
         <Text color="green" wrap="truncate-end">
           {copiedCharactersNotice(copiedCharacters)}

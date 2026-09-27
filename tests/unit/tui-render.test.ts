@@ -114,6 +114,7 @@ async function startApp(
     cwd?: string;
     classic?: boolean;
     debug?: boolean;
+    nativeWheelScroll?: boolean;
     onSubmit?: (prompt: string, display?: string) => Promise<void>;
   },
 ): Promise<Harness> {
@@ -145,6 +146,7 @@ async function startApp(
       model: "test-model",
       cwd: hooks?.cwd,
       classic: hooks?.classic ?? false,
+      nativeWheelScroll: hooks?.nativeWheelScroll ?? false,
     }),
     {
       stdout: stdout as unknown as NodeJS.WriteStream,
@@ -381,6 +383,48 @@ describe("tui render", () => {
       app.stdin.write("g");
       await tick(200);
       expect(app.frame()).toContain("ChiselCode");
+    } finally {
+      app.unmount();
+    }
+  });
+
+  test("Windows alternate scroll moves the feed while retaining the draft and prompt history", async () => {
+    const app = await startApp(60, 20, { nativeWheelScroll: true });
+    const visibleRows = () => app.frame().match(/LINE-\d{2}/g) ?? [];
+    try {
+      app.transcript?.append(
+        Array.from(
+          { length: 80 },
+          (_, i) => `LINE-${String(i).padStart(2, "0")}`,
+        ).join("\n"),
+        "info",
+      );
+      await tick(200);
+      expect(visibleRows().at(-1)).toBe("LINE-79");
+      app.stdin.write("draft");
+      await tick(100);
+      app.stdin.write("\x1b[A"); // Windows ?1007 wheel-up arrives as Up.
+      await tick(200);
+      expect(visibleRows().at(-1)).toBe("LINE-76");
+      expect(app.frame()).toContain("draft");
+      app.stdin.write("\x1b[B");
+      await tick(200);
+      expect(visibleRows().at(-1)).toBe("LINE-79");
+      expect(app.frame()).toContain("draft");
+
+      app.stdin.write("\x10"); // Ctrl+P: no submitted prompt yet.
+      await tick(100);
+      expect(app.frame()).toContain("draft");
+      app.stdin.write("\r");
+      await tick(200);
+      app.stdin.write("next");
+      await tick(100);
+      app.stdin.write("\x10"); // Ctrl+P recalls the submitted prompt.
+      await tick(100);
+      expect(app.frame()).toContain("draft");
+      app.stdin.write("\x0e"); // Ctrl+N restores the unsent draft.
+      await tick(100);
+      expect(app.frame()).toContain("next");
     } finally {
       app.unmount();
     }
@@ -962,6 +1006,21 @@ describe("tui render", () => {
       app.unmount();
       restore();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("alternate-scroll arrows still navigate open command suggestions", async () => {
+    const app = await startApp(80, 25, { nativeWheelScroll: true });
+    try {
+      app.stdin.write("/s");
+      await tick(300);
+      app.stdin.write("\x1b[B");
+      await tick(150);
+      app.stdin.write("\t");
+      await tick(150);
+      expect(app.frame()).toContain("/skills");
+    } finally {
+      app.unmount();
     }
   });
 

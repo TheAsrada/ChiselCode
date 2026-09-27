@@ -40,7 +40,14 @@ import {
 } from "./sessions/store.js";
 import { expandSkill, invocableSkills, loadSkills } from "./skills/skills.js";
 import type { GlobalConfig, ProviderKind, Session } from "./types/domain.js";
-import { SGR_DISABLE, SGR_ENABLE, shouldEnableMouse } from "./ui/mouse.js";
+import {
+  ALT_SCROLL_DISABLE,
+  ALT_SCROLL_ENABLE,
+  SGR_DISABLE,
+  SGR_ENABLE,
+  shouldEnableAlternateScroll,
+  shouldEnableMouse,
+} from "./ui/mouse.js";
 import type { TuiSettingsValues } from "./ui/settings.js";
 import { defaultModelFor, SetupApp, type SetupValues } from "./ui/setup.js";
 import { createTerminalCursorGuard } from "./ui/terminal-cursor.js";
@@ -479,10 +486,23 @@ async function startTui(options: RunOptions): Promise<void> {
   // native terminal scrollback cannot move the footer or scroll into empty rows.
   // Explicit opt-out: CHISEL_ALT_SCREEN=0 / CHISEL_NO_ALT_SCREEN=1.
   const useAltScreen = shouldUseAltScreen(process.env);
+  const captureMouse = useAltScreen && shouldEnableMouse(process.env);
+  const alternateScroll =
+    useAltScreen && shouldEnableAlternateScroll(process.env);
   const terminalCursor = await createTerminalCursorGuard(useAltScreen);
   // SGR-захват мыши живёт шире render-блока: гасим его в finally
   // у waitUntilExit (иначе шелл после нас получал бы SGR-мусор).
   let mouseOn = false;
+  let alternateScrollOn = false;
+  const disableAlternateScroll = (): void => {
+    if (!alternateScrollOn) return;
+    alternateScrollOn = false;
+    try {
+      process.stdout.write(ALT_SCROLL_DISABLE);
+    } catch {
+      // A closing console may no longer accept VT output.
+    }
+  };
   let selectionGuard:
     | Awaited<ReturnType<typeof createWindowsConsoleSelectionGuard>>
     | undefined;
@@ -490,7 +510,8 @@ async function startTui(options: RunOptions): Promise<void> {
     try {
       // Capture the shell's input mode before Ink switches stdin to raw mode.
       selectionGuard = await createWindowsConsoleSelectionGuard(
-        shouldEnableMouse(process.env),
+        captureMouse,
+        alternateScroll,
       );
     } catch {
       // Modern terminal hosts can still own selection without the legacy flag.
@@ -513,6 +534,7 @@ async function startTui(options: RunOptions): Promise<void> {
         version: VERSION,
         cwd: activeOptions.cwd ?? process.cwd(),
         classic: !useAltScreen,
+        nativeWheelScroll: alternateScroll,
         bindTranscript: (nextTranscript: TuiTranscript) => {
           transcript = nextTranscript;
         },
@@ -794,10 +816,7 @@ async function startTui(options: RunOptions): Promise<void> {
     // SGR-захват мыши ПОСЛЕ входа в alt-screen (Ink включает его синхронно
     // в конструкторе): порядок важен, иначе режимы сбросятся переключением
     // буфера. Выключаем строго наоборот (1006→1000) в finally ниже.
-    mouseOn =
-      useAltScreen &&
-      process.stdout.isTTY === true &&
-      shouldEnableMouse(process.env);
+    mouseOn = captureMouse && process.stdout.isTTY === true;
     if (mouseOn) {
       try {
         selectionGuard?.ensure();
@@ -813,10 +832,20 @@ async function startTui(options: RunOptions): Promise<void> {
       } catch {
         // Windows Terminal can still select without the legacy console flag.
       }
+      if (alternateScroll && process.stdout.isTTY) {
+        try {
+          // Windows Terminal may support ?1007 even if CONIN$ is unavailable.
+          process.stdout.write(ALT_SCROLL_ENABLE);
+          alternateScrollOn = true;
+        } catch {
+          // Keyboard scrolling remains available if VT output fails.
+        }
+      }
     }
     // Console-mode changes can make the native block cursor visible again.
     terminalCursor.hide();
   } catch {
+    disableAlternateScroll();
     selectionGuard?.close();
     terminalCursor.restore();
     // Ink требует raw mode терминала. В урезанных консолях Windows
@@ -849,6 +878,7 @@ async function startTui(options: RunOptions): Promise<void> {
     failed = true;
   } finally {
     if (sizeSync) clearInterval(sizeSync);
+    disableAlternateScroll();
     selectionGuard?.close();
     if (mouseOn) {
       try {
