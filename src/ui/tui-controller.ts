@@ -1,4 +1,11 @@
-import type { FileDiff, Session } from "../types/domain.js";
+import { resolve } from "node:path";
+import type {
+  ContextSnapshot,
+  FileDiff,
+  Session,
+  TokenUsage,
+} from "../types/domain.js";
+import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
 import type { TranscriptTone, TuiTranscript } from "./tui.js";
 
 export interface TranscriptEntry {
@@ -17,6 +24,14 @@ export interface TuiViewState {
   draft: string;
   focus: "composer" | "transcript" | "sidebar" | "modal";
   overlay?: string;
+  gitChanges?: GitWorkingState;
+  usage?: {
+    provider: Session["provider"];
+    model: string;
+    totalTokens: TokenUsage;
+    totalCost: number;
+    contextSnapshot?: ContextSnapshot;
+  };
 }
 
 /** The agent writes to this boundary; either terminal renderer may subscribe. */
@@ -25,6 +40,7 @@ export class TuiController implements TuiTranscript {
   private listeners = new Set<(state: TuiViewState) => void>();
   private serial = 0;
   private generation = 0;
+  private gitSource = new GitChangesSource();
   private state: TuiViewState;
 
   constructor(projectPath: string) {
@@ -134,12 +150,39 @@ export class TuiController implements TuiTranscript {
     this.update({ overlay });
   }
 
+  setSessionUsage(session: Session): void {
+    if (resolve(session.projectPath) !== resolve(this.state.projectPath))
+      return;
+    if (this.state.sessionId && this.state.sessionId !== session.id) return;
+    this.update({
+      sessionId: session.id,
+      usage: {
+        provider: session.provider,
+        model: session.model,
+        totalTokens: { ...session.totalTokens },
+        totalCost: session.totalCost,
+        contextSnapshot:
+          session.contextSnapshot?.model === session.model
+            ? session.contextSnapshot
+            : undefined,
+      },
+    });
+  }
+
+  refreshGitChanges(): void {
+    const generation = this.generation;
+    this.gitSource.refresh(this.state.projectPath, (gitChanges) => {
+      if (this.isCurrent(generation)) this.update({ gitChanges });
+    });
+  }
+
   /** Invalidates responses from the previous project or session immediately. */
   switchSession(
     session?: Pick<Session, "id" | "projectPath">,
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.generation++;
+    this.gitSource.dispose();
     this.state = {
       projectPath,
       sessionId: session?.id,
@@ -150,6 +193,7 @@ export class TuiController implements TuiTranscript {
     };
     this.renderer?.clear();
     this.notify();
+    this.refreshGitChanges();
   }
 
   /** A token for asynchronous sidebar reads; stale results must be discarded. */
@@ -162,6 +206,7 @@ export class TuiController implements TuiTranscript {
 
   dispose(): void {
     this.generation++;
+    this.gitSource.dispose();
     this.renderer = undefined;
     this.listeners.clear();
   }

@@ -474,7 +474,10 @@ async function startTui(options: RunOptions): Promise<void> {
   const resolver = createTuiApprovalResolver();
   let activeOptions: RunOptions = { ...options, resume: initialSession?.id };
   const controller = new TuiController(activeOptions.cwd ?? process.cwd());
-  if (initialSession) controller.switchSession(initialSession);
+  if (initialSession) {
+    controller.switchSession(initialSession);
+    controller.setSessionUsage(initialSession);
+  }
   let transcript: TuiTranscript | undefined;
   let active = false;
   let cachedSessionList: Session[] = [];
@@ -546,6 +549,7 @@ async function startTui(options: RunOptions): Promise<void> {
             replaySessionIntoTranscript(controller, initialSession);
           }
           controller.bind(nextTranscript, false);
+          controller.refreshGitChanges();
           transcript = controller;
         },
         onStatus: async () => {
@@ -748,6 +752,7 @@ async function startTui(options: RunOptions): Promise<void> {
           const found = await store.load((await store.resolve(trimmed)).id);
           activeOptions = { ...activeOptions, resume: found.id };
           controller.switchSession(found);
+          controller.setSessionUsage(found);
           if (transcript) replaySessionIntoTranscript(transcript, found);
           const title = found.title?.trim() || "без названия";
           return (
@@ -766,6 +771,7 @@ async function startTui(options: RunOptions): Promise<void> {
           // следующий текст естественно начинает новую строку.
           let hasAnyText = false;
           const started = Date.now();
+          const toolHandlers = toolTranscriptHandlers(() => transcript);
           try {
             const { result } = await runPrompt(
               prompt,
@@ -777,11 +783,27 @@ async function startTui(options: RunOptions): Promise<void> {
                   transcript?.appendToLast(text);
                   hasAnyText = true;
                 },
-                ...toolTranscriptHandlers(() => transcript),
+                ...toolHandlers,
+                onToolResult: (name, result) => {
+                  toolHandlers.onToolResult?.(name, result);
+                  if (
+                    !result.isError &&
+                    !result.requiresApproval &&
+                    [
+                      "write_file",
+                      "edit_file",
+                      "delete_file",
+                      "run_shell",
+                      "git_commit",
+                    ].includes(name)
+                  )
+                    controller.refreshGitChanges();
+                },
               },
             );
             // Сессия живёт между сообщениями: следующее продолжит эту же.
             activeOptions = { ...activeOptions, resume: result.session.id };
+            controller.setSessionUsage(result.session);
             if (!hasAnyText)
               transcript.append(
                 result.text ||

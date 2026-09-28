@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createSession } from "../../src/sessions/store.js";
 import type { TuiTranscript } from "../../src/ui/tui.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 
@@ -60,6 +61,9 @@ test("switching sessions clears stale data and invalidates asynchronous reads", 
     focus: "composer",
   });
   expect(controller.snapshot.overlay).toBeUndefined();
+  const oldSession = createSession("/old", "anthropic", "model");
+  controller.setSessionUsage(oldSession);
+  expect(controller.snapshot.usage).toBeUndefined();
   expect(observed).toBeGreaterThan(4);
   stop();
   controller.dispose();
