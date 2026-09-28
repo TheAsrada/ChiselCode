@@ -146,6 +146,7 @@ export interface GlobalConfig {
   defaultProvider?: ProviderKind;
   defaultModel?: string;
   providers: Partial<Record<ProviderKind, ProviderConfig>>;
+  ui?: { sidebarMode?: "auto" | "show" | "hide" };
 }
 
 export interface UndoEntry {

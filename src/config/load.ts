@@ -58,6 +58,9 @@ const GlobalConfigSchema = z.object({
         .optional(),
     })
     .default({}),
+  ui: z
+    .object({ sidebarMode: z.enum(["auto", "show", "hide"]).optional() })
+    .optional(),
 });
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {

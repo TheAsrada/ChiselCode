@@ -2,6 +2,14 @@
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useState } from "react";
+import { ContextSidebar } from "./context-sidebar.js";
+import {
+  parseSidebarMode,
+  type SidebarMode,
+  sidebarLayout,
+  toggleSidebarMode,
+} from "./sidebar-layout.js";
+import type { TuiController, TuiViewState } from "./tui-controller.js";
 
 const PATCH = `diff --git a/example.ts b/example.ts
 --- a/example.ts
@@ -12,7 +20,17 @@ const PATCH = `diff --git a/example.ts b/example.ts
 `;
 
 /** Isolated compatibility probe, never selected by the regular CLI. */
-export function OpenTuiSpike({ onExit }: { onExit: () => void }) {
+export function OpenTuiSpike({
+  onExit,
+  controller,
+  initialMode = "auto",
+  onModeChange,
+}: {
+  onExit: () => void;
+  controller?: TuiController;
+  initialMode?: SidebarMode;
+  onModeChange?: (mode: SidebarMode) => void;
+}) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
   const transcript = React.useRef<ScrollBoxRenderable>(null);
@@ -21,12 +39,32 @@ export function OpenTuiSpike({ onExit }: { onExit: () => void }) {
   const [lines, setLines] = useState([
     { id: 0, text: "ChiselCode · OpenTUI compatibility probe" },
   ]);
-  const [sidebar, setSidebar] = useState(false);
+  const [mode, setMode] = useState<SidebarMode>(initialMode);
+  const [overlayDismissed, setOverlayDismissed] = useState(false);
+  const [view, setView] = useState<TuiViewState>(
+    () =>
+      controller?.snapshot ?? {
+        projectPath: process.cwd(),
+        transcript: [],
+        streaming: "",
+        draft: "",
+        focus: "composer",
+      },
+  );
+  useEffect(() => controller?.subscribe(setView), [controller]);
   const [expanded, setExpanded] = useState(false);
   const [focus, setFocus] = useState<"editor" | "transcript">("editor");
-  const showSidebar = width >= 120 || sidebar;
-  const contextOnly = sidebar && width < 120;
-  const textWidth = Math.max(1, width - (showSidebar && !contextOnly ? 41 : 0));
+  const layout = sidebarLayout(width, mode, overlayDismissed);
+  const showSidebar = layout.placement !== "hidden";
+  const contextOnly =
+    layout.placement === "overlay" || layout.placement === "fullscreen";
+  const textWidth = layout.feedWidth;
+
+  const changeMode = (next: SidebarMode) => {
+    setMode(next);
+    setOverlayDismissed(false);
+    onModeChange?.(next);
+  };
 
   useEffect(() => {
     if (!contextOnly && focus === "editor") editor.current?.focus();
@@ -35,11 +73,12 @@ export function OpenTuiSpike({ onExit }: { onExit: () => void }) {
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") return onExit();
     if (key.name === "escape") {
-      if (contextOnly) setSidebar(false);
+      if (contextOnly) setOverlayDismissed(true);
       else if (expanded) setExpanded(false);
       else onExit();
     }
-    if (key.ctrl && key.name === "b") setSidebar((value) => !value);
+    if (key.ctrl && key.name === "b")
+      changeMode(toggleSidebarMode(mode, width));
     if (key.name === "tab" && !contextOnly) {
       setFocus((value) => (value === "editor" ? "transcript" : "editor"));
       if (focus === "editor") transcript.current?.focus();
@@ -50,6 +89,15 @@ export function OpenTuiSpike({ onExit }: { onExit: () => void }) {
   const submit = () => {
     const value = editor.current?.plainText.trim();
     if (!value) return;
+    if (value === "/sidebar" || value.startsWith("/sidebar ")) {
+      const arg = value.slice("/sidebar".length).trim();
+      const next = arg ? parseSidebarMode(arg) : toggleSidebarMode(mode, width);
+      if (next) changeMode(next);
+      editor.current?.setText("");
+      setDraft("");
+      return;
+    }
+    controller?.append(`❯ ${value}`, "user");
     setLines((current) => [
       ...current,
       { id: nextId.current++, text: `❯ ${value}` },
@@ -84,7 +132,7 @@ export function OpenTuiSpike({ onExit }: { onExit: () => void }) {
               stickyStart="bottom"
               viewportCulling
             >
-              {lines.map((line) => (
+              {(controller ? view.transcript : lines).map((line) => (
                 <text key={line.id} fg="#d6dce5">
                   {line.text}
                 </text>
@@ -107,7 +155,11 @@ export function OpenTuiSpike({ onExit }: { onExit: () => void }) {
             ref={editor}
             height={Math.min(4, Math.max(2, height - 3))}
             placeholder="Напишите сообщение…"
-            onContentChange={() => setDraft(editor.current?.plainText ?? "")}
+            onContentChange={() => {
+              const next = editor.current?.plainText ?? "";
+              setDraft(next);
+              controller?.setDraft(next);
+            }}
             onSubmit={submit}
             keyBindings={[
               { name: "return", action: "submit" },
@@ -123,12 +175,11 @@ export function OpenTuiSpike({ onExit }: { onExit: () => void }) {
           flexDirection="row"
         >
           {!contextOnly && <box width={1} backgroundColor="#465264" />}
-          <box width={40} flexDirection="column" paddingLeft={1}>
-            <text fg="#78c8d4">Контекст · Ctrl+B / Esc</text>
-            <text fg="#aab7c7">Последний запрос: —</text>
-            <text fg="#aab7c7">Проект: пробный экран</text>
-            <text fg="#aab7c7">Изменения: пример diff</text>
-          </box>
+          <ContextSidebar
+            state={view}
+            width={contextOnly ? Math.min(width, 40) : 40}
+            height={height}
+          />
         </box>
       )}
     </box>

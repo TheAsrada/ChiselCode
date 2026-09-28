@@ -1,0 +1,93 @@
+/** @jsxImportSource @opentui/react */
+import { basename } from "node:path";
+import { stripVTControlCharacters } from "node:util";
+import React from "react";
+import { contextProgress } from "../core/context-usage.js";
+import type { TuiViewState } from "./tui-controller.js";
+
+const quiet = "#9aa9ba";
+const title = "#83cbd5";
+
+function safeLine(value: string, limit = 35): string {
+  const clean = Array.from(stripVTControlCharacters(value), (character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code < 32 || code === 127 ? " " : character;
+  }).join("");
+  return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
+}
+
+export function ContextSidebar({
+  state,
+  width = 40,
+  height = 24,
+}: {
+  state: TuiViewState;
+  width?: number;
+  height?: number;
+}) {
+  const usage = state.usage;
+  const progress = contextProgress(usage?.contextSnapshot);
+  const files = state.gitChanges?.files ?? [];
+  const totalTokens = usage
+    ? usage.totalTokens.inputTokens + usage.totalTokens.outputTokens
+    : 0;
+  const maxFiles = Math.max(0, Math.min(8, height - 15));
+  return (
+    <box
+      width={width}
+      height={height}
+      flexDirection="column"
+      paddingLeft={1}
+      paddingRight={1}
+    >
+      <text fg={title}>Контекст</text>
+      <text fg={quiet}>
+        {safeLine(`${usage?.provider ?? "—"} / ${usage?.model ?? "—"}`)}
+      </text>
+      <text fg={quiet}>Последний запрос: {progress.label}</text>
+      {progress.barPercent !== undefined && (
+        <text fg={title}>
+          {"█".repeat(Math.round(progress.barPercent / 10))}
+          {"░".repeat(10 - Math.round(progress.barPercent / 10))}
+        </text>
+      )}
+      <text fg={title}>Сессия</text>
+      <text fg={quiet}>{totalTokens.toLocaleString("ru-RU")} токенов</text>
+      {usage && Number.isFinite(usage.totalCost) && usage.totalCost > 0 && (
+        <text fg={quiet}>${usage.totalCost.toFixed(4)}</text>
+      )}
+      <text fg={title}>Проект</text>
+      <text fg={quiet}>{safeLine(state.projectPath)}</text>
+      <text fg={quiet}>
+        {state.gitChanges
+          ? safeLine(state.gitChanges.branch)
+          : "Без репозитория"}
+      </text>
+      {state.gitChanges && (
+        <React.Fragment>
+          <text fg={title}>Изменения · {state.gitChanges.totalFiles}</text>
+          {files.length === 0 && <text fg={quiet}>Нет изменений</text>}
+          {files.slice(0, maxFiles).map((file) => (
+            <text key={file.path} fg={quiet}>
+              {safeLine(basename(file.path), 25)} +{file.additions} −
+              {file.deletions}
+            </text>
+          ))}
+          {state.gitChanges.totalFiles > maxFiles && (
+            <text fg={quiet}>
+              …ещё {state.gitChanges.totalFiles - maxFiles}
+            </text>
+          )}
+        </React.Fragment>
+      )}
+      {(state.toolActivity || state.overlay) && (
+        <React.Fragment>
+          <text fg={title}>Активность</text>
+          <text fg="#e5bc74">
+            {safeLine(state.overlay ?? state.toolActivity ?? "")}
+          </text>
+        </React.Fragment>
+      )}
+    </box>
+  );
+}
