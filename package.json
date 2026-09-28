@@ -18,7 +18,7 @@
   "scripts": {
     "postinstall": "node scripts/patch-ink-fullscreen.mjs",
     "dev": "bun run src/cli.ts",
-    "build": "bun build ./src/cli.ts --outdir ./dist --target bun",
+    "build": "bun build ./src/cli.ts --outdir ./dist --target bun --external '@opentui/core-*'",
     "compile": "bun build ./src/cli.ts --compile --outfile ./dist/chisel",
     "opentui:spike": "bun run scripts/opentui-spike.tsx",
     "opentui:compile": "bun build ./scripts/opentui-spike.tsx --compile --outfile ./dist/opentui-spike",
