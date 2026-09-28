@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
+import { TuiController } from "../../src/ui/tui-controller.js";
 
 for (const [width, height] of [
   [60, 15],
@@ -60,3 +61,33 @@ for (const [width, height] of [
     }
   });
 }
+
+test("large transcript pages backwards and returns to newest messages", async () => {
+  const controller = new TuiController(process.cwd());
+  controller.replace(
+    Array.from({ length: 10_000 }, (_, id) => ({ text: `line ${id}` })),
+  );
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} controller={controller} />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("line 9999");
+    await act(async () => {
+      setup.mockInput.pressKey("\u001b[5~");
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("line 9879");
+    await act(async () => {
+      setup.mockInput.pressKey("END");
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("line 9999");
+  } finally {
+    act(() => {
+      setup.renderer.destroy();
+    });
+    controller.dispose();
+  }
+});

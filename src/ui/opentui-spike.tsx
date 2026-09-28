@@ -4,6 +4,11 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useState } from "react";
 import { ContextSidebar } from "./context-sidebar.js";
 import {
+  OpenTuiTranscript,
+  TRANSCRIPT_WINDOW,
+  terminalSafeText,
+} from "./opentui-transcript.js";
+import {
   parseSidebarMode,
   type SidebarMode,
   sidebarLayout,
@@ -53,12 +58,36 @@ export function OpenTuiSpike({
   );
   useEffect(() => controller?.subscribe(setView), [controller]);
   const [expanded, setExpanded] = useState(false);
+  const [windowEnd, setWindowEnd] = useState<number>();
   const [focus, setFocus] = useState<"editor" | "transcript">("editor");
   const layout = sidebarLayout(width, mode, overlayDismissed);
   const showSidebar = layout.placement !== "hidden";
   const contextOnly =
     layout.placement === "overlay" || layout.placement === "fullscreen";
   const textWidth = layout.feedWidth;
+  const editorHeight = Math.min(4, Math.max(2, height - 3));
+  const feedHeight = Math.max(1, height - editorHeight - 2);
+  let newestDiffId: number | undefined;
+  for (let index = view.transcript.length - 1; index >= 0; index--) {
+    const entry = view.transcript[index];
+    if (entry?.fileDiff) {
+      newestDiffId = entry.id;
+      break;
+    }
+  }
+
+  const shiftWindow = (direction: "up" | "down") => {
+    const total = view.transcript.length;
+    const current = windowEnd ?? total;
+    if (direction === "up" && current > TRANSCRIPT_WINDOW)
+      setWindowEnd(
+        Math.max(TRANSCRIPT_WINDOW, current - TRANSCRIPT_WINDOW / 2),
+      );
+    if (direction === "down" && current < total) {
+      const next = Math.min(total, current + TRANSCRIPT_WINDOW / 2);
+      setWindowEnd(next === total ? undefined : next);
+    }
+  };
 
   const changeMode = (next: SidebarMode) => {
     setMode(next);
@@ -84,6 +113,12 @@ export function OpenTuiSpike({
       if (focus === "editor") transcript.current?.focus();
     }
     if (key.ctrl && key.name === "d") setExpanded((value) => !value);
+    if (key.name === "pageup") shiftWindow("up");
+    if (key.name === "pagedown") shiftWindow("down");
+    if (key.name === "end") {
+      setWindowEnd(undefined);
+      transcript.current?.scrollTo(Number.MAX_SAFE_INTEGER);
+    }
   });
 
   const submit = () => {
@@ -127,23 +162,55 @@ export function OpenTuiSpike({
           {height >= 12 && (
             <scrollbox
               ref={transcript}
-              flexGrow={1}
+              height={feedHeight}
               stickyScroll
               stickyStart="bottom"
               viewportCulling
+              onMouseScroll={(event) => {
+                const box = transcript.current;
+                if (!box) return;
+                if (event.scroll?.direction === "up" && box.scrollTop <= 0)
+                  shiftWindow("up");
+                if (
+                  event.scroll?.direction === "down" &&
+                  box.scrollTop >= box.scrollHeight - box.viewport.height
+                )
+                  shiftWindow("down");
+              }}
             >
-              {(controller ? view.transcript : lines).map((line) => (
-                <text key={line.id} fg="#d6dce5">
-                  {line.text}
-                </text>
-              ))}
-              <text fg="#8090a0">example.ts · +1 −1 · Ctrl+D: diff</text>
-              {expanded && (
-                <diff
-                  diff={PATCH}
-                  view={textWidth >= 100 ? "split" : "unified"}
-                  height={5}
+              {controller ? (
+                <OpenTuiTranscript
+                  entries={view.transcript}
+                  contentWidth={textWidth - 2}
+                  expandedId={expanded ? newestDiffId : undefined}
+                  windowEnd={windowEnd}
                 />
+              ) : (
+                <React.Fragment>
+                  {lines.map((line) => (
+                    <text key={line.id} fg="#d6dce5">
+                      {line.text}
+                    </text>
+                  ))}
+                  <text fg="#8090a0">example.ts · +1 −1 · Ctrl+D: diff</text>
+                  {expanded && (
+                    <diff
+                      diff={PATCH}
+                      view={textWidth - 2 >= 100 ? "split" : "unified"}
+                      height={5}
+                    />
+                  )}
+                </React.Fragment>
+              )}
+              {controller && view.streaming && (
+                <text fg="#d6dce5" selectable>
+                  {terminalSafeText(view.streaming, 20_000)}
+                </text>
+              )}
+              {controller && view.toolActivity && (
+                <text fg="#98a6b6">
+                  {terminalSafeText(view.toolActivity, 2_000)}
+                </text>
               )}
             </scrollbox>
           )}
@@ -153,7 +220,7 @@ export function OpenTuiSpike({
           </text>
           <textarea
             ref={editor}
-            height={Math.min(4, Math.max(2, height - 3))}
+            height={editorHeight}
             placeholder="Напишите сообщение…"
             onContentChange={() => {
               const next = editor.current?.plainText ?? "";
