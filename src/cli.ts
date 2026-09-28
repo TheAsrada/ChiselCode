@@ -70,6 +70,7 @@ import {
   TuiApp,
   type TuiTranscript,
 } from "./ui/tui.js";
+import { TuiController } from "./ui/tui-controller.js";
 import { createWindowsConsoleSelectionGuard } from "./ui/windows-clipboard.js";
 import { resolveProjectDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
@@ -472,6 +473,8 @@ async function startTui(options: RunOptions): Promise<void> {
 
   const resolver = createTuiApprovalResolver();
   let activeOptions: RunOptions = { ...options, resume: initialSession?.id };
+  const controller = new TuiController(activeOptions.cwd ?? process.cwd());
+  if (initialSession) controller.switchSession(initialSession);
   let transcript: TuiTranscript | undefined;
   let active = false;
   let cachedSessionList: Session[] = [];
@@ -536,7 +539,8 @@ async function startTui(options: RunOptions): Promise<void> {
         classic: !useAltScreen,
         nativeWheelScroll: alternateScroll,
         bindTranscript: (nextTranscript: TuiTranscript) => {
-          transcript = nextTranscript;
+          controller.bind(nextTranscript, false);
+          transcript = controller;
         },
         onStatus: async () => {
           const current = await loadGlobalConfig();
@@ -592,6 +596,7 @@ async function startTui(options: RunOptions): Promise<void> {
             cwd: resolved,
             resume: undefined,
           };
+          controller.switchSession(undefined, resolved);
           return `✓ Проект сменён: ${resolved}\nСледующий запрос начнёт новую сессию в этой папке.`;
         },
         onSaveSettings: async (values: TuiSettingsValues) => {
@@ -696,6 +701,10 @@ async function startTui(options: RunOptions): Promise<void> {
               "claude-opus-5",
           );
           activeOptions = { ...activeOptions, resume: id };
+          controller.switchSession({
+            id,
+            projectPath: activeOptions.cwd ?? process.cwd(),
+          });
         },
         onListSessions: async () => {
           cachedSessionList = await listSessions(
@@ -722,7 +731,7 @@ async function startTui(options: RunOptions): Promise<void> {
           ).delete(id);
           if (activeOptions.resume === id) {
             activeOptions = { ...activeOptions, resume: undefined };
-            transcript?.clear();
+            controller.switchSession();
           }
         },
         onResumeSession: async (ref: string) => {
@@ -732,7 +741,7 @@ async function startTui(options: RunOptions): Promise<void> {
           );
           const found = await store.load((await store.resolve(trimmed)).id);
           activeOptions = { ...activeOptions, resume: found.id };
-          transcript?.clear();
+          controller.switchSession(found);
           if (transcript) replaySessionIntoTranscript(transcript, found);
           const title = found.title?.trim() || "без названия";
           return (
@@ -882,6 +891,7 @@ async function startTui(options: RunOptions): Promise<void> {
   } catch {
     failed = true;
   } finally {
+    controller.dispose();
     if (sizeSync) clearInterval(sizeSync);
     disableAlternateScroll();
     selectionGuard?.close();
