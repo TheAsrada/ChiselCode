@@ -539,6 +539,12 @@ async function startTui(options: RunOptions): Promise<void> {
         classic: !useAltScreen,
         nativeWheelScroll: alternateScroll,
         bindTranscript: (nextTranscript: TuiTranscript) => {
+          // Ink replays the initial session itself after binding. Seed the
+          // controller separately so a future renderer can replay it too.
+          if (initialSession && controller.snapshot.transcript.length === 0) {
+            controller.bind(undefined);
+            replaySessionIntoTranscript(controller, initialSession);
+          }
           controller.bind(nextTranscript, false);
           transcript = controller;
         },
