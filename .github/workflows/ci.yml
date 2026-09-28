@@ -39,3 +39,22 @@ jobs:
         run: bun run lint
       - name: Build package
         run: bun run build
+      - name: Compile and smoke OpenTUI native binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          binary=dist/opentui-spike
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build ./scripts/opentui-spike.tsx --compile --outfile="$binary"
+          "$binary" --version
+          "$binary" --smoke
+      - name: Smoke compiled CLI commands
+        shell: bash
+        run: |
+          binary=dist/chisel
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build ./src/cli.ts --compile --outfile="$binary"
+          "$binary" --version
+          "$binary" doctor > doctor-output.txt || status=$?
+          test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
+          grep -q 'ChiselCode' doctor-output.txt
