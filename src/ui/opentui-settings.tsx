@@ -52,7 +52,7 @@ export function OpenTuiSettings({
   actions: OpenTuiSettingsActions;
   width: number;
   height: number;
-  onClose: () => void;
+  onClose: (outcome?: "saved") => void;
   initialSelection?: number;
 }) {
   const [values, setValues] = useState<TuiSettingsValues>({
@@ -154,7 +154,7 @@ export function OpenTuiSettings({
       }
       const result = await actions.save(next);
       if (!mounted.current) return;
-      if (result === "saved") onClose();
+      if (result === "saved") onClose("saved");
       else setNotice("Добавьте API-ключ для выбранного провайдера");
     });
 

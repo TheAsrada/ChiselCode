@@ -210,3 +210,97 @@ test("model list selects a discovered model and saves it", async () => {
     });
   }
 });
+
+test("first-run settings require a saved key before showing the composer", async () => {
+  let exited = 0;
+  const saved: TuiSettingsValues[] = [];
+  const actions: OpenTuiSettingsActions = {
+    load: async () => ({
+      values: { provider: "anthropic", model: "claude-opus-5" },
+      hasKey: false,
+    }),
+    hasKey: async () => false,
+    save: async (values) => {
+      saved.push(values);
+      return values.apiKey ? "saved" : "setup_required";
+    },
+    check: async () => "ok",
+    models: async () => ({ ok: true, models: [] }),
+  };
+  const setup = await testRender(
+    <OpenTuiSpike
+      onExit={() => {
+        exited++;
+      }}
+      onSubmit={async () => {}}
+      settingsActions={actions}
+      initialSettingsOpen
+    />,
+    { width: 60, height: 15 },
+  );
+  try {
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Настройки ChiselCode");
+    expect(setup.captureCharFrame()).not.toContain("Напишите сообщение");
+    await act(async () => {
+      setup.mockInput.pressEscape();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+    expect(exited).toBe(1);
+  } finally {
+    act(() => {
+      setup.renderer.destroy();
+    });
+  }
+  expect(saved).toEqual([]);
+
+  const configured = await testRender(
+    <OpenTuiSpike
+      onExit={() => {
+        exited++;
+      }}
+      onSubmit={async () => {}}
+      settingsActions={actions}
+      initialSettingsOpen
+    />,
+    { width: 60, height: 15 },
+  );
+  try {
+    await configured.renderOnce();
+    await act(async () => {
+      configured.mockInput.pressArrow("down");
+    });
+    await act(async () => {
+      configured.mockInput.pressArrow("down");
+    });
+    await act(async () => {
+      configured.mockInput.pressEnter();
+    });
+    await act(async () => {
+      await configured.mockInput.pasteBracketedText("new-private-key");
+    });
+    await configured.renderOnce();
+    expect(configured.captureCharFrame()).not.toContain("new-private-key");
+    await act(async () => {
+      configured.mockInput.pressEnter();
+    });
+    await act(async () => {
+      configured.mockInput.pressArrow("down");
+    });
+    await act(async () => {
+      configured.mockInput.pressArrow("down");
+    });
+    await act(async () => {
+      configured.mockInput.pressEnter();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await configured.renderOnce();
+    expect(saved[0]?.apiKey).toBe("new-private-key");
+    expect(configured.captureCharFrame()).toContain("Напишите сообщение");
+    expect(exited).toBe(1);
+  } finally {
+    act(() => {
+      configured.renderer.destroy();
+    });
+  }
+});

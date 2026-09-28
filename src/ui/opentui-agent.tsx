@@ -30,6 +30,7 @@ import { TuiController } from "./tui-controller.js";
 export async function runOpenTuiAgent(
   options: RunOptions,
   initialSession?: Session,
+  setupRequired = false,
 ): Promise<void> {
   let activeOptions = { ...options, resume: initialSession?.id };
   const controller = new TuiController(options.cwd ?? process.cwd());
@@ -297,6 +298,7 @@ export async function runOpenTuiAgent(
         approvalResolver,
         sessionPicker,
         settingsActions,
+        initialSettingsOpen: setupRequired,
         onSubmit: submit,
         initialMode: config.ui?.sidebarMode ?? "auto",
         onModeChange: (mode) => {

@@ -45,6 +45,7 @@ export function OpenTuiSpike({
   onSubmit,
   sessionPicker,
   settingsActions,
+  initialSettingsOpen = false,
 }: {
   onExit: () => void;
   controller?: TuiController;
@@ -54,6 +55,7 @@ export function OpenTuiSpike({
   onSubmit?: (prompt: string) => Promise<void>;
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
+  initialSettingsOpen?: boolean;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -67,7 +69,8 @@ export function OpenTuiSpike({
   const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [approval, setApproval] = useState<ApprovalRequest>();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
+  const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const [settingsSelection, setSettingsSelection] = useState(0);
   useEffect(() => {
     approvalResolver?.bind(setApproval);
@@ -226,7 +229,9 @@ export function OpenTuiSpike({
         width={width}
         height={height}
         initialSelection={settingsSelection}
-        onClose={() => {
+        onClose={(outcome) => {
+          if (setupPending && outcome !== "saved") return onExit();
+          setSetupPending(false);
           setSettingsOpen(false);
           controller?.setOverlay();
           controller?.setFocus(focus === "editor" ? "composer" : "transcript");

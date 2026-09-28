@@ -462,18 +462,18 @@ async function startTui(options: RunOptions): Promise<void> {
     options.provider ?? initialSession?.provider ?? config.defaultProvider;
   const provider = configuredProvider ?? "anthropic";
   const providerConfig = config.providers[provider];
-  if (!(await hasApiKey(provider, providerConfig?.apiKeyRef))) {
+  const keyReady = await hasApiKey(provider, providerConfig?.apiKeyRef);
+  if (process.env.CHISEL_OPENTUI_DEV === "1") {
+    const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
+    await runOpenTuiAgent(options, initialSession, !keyReady);
+    return;
+  }
+  if (!keyReady) {
     process.stdout.write(
       "Добро пожаловать в ChiselCode. Сначала настроим доступ к выбранному сервису.\n",
     );
     const configured = await startSetup(configuredProvider);
     if (configured) await startTui(options);
-    return;
-  }
-
-  if (process.env.CHISEL_OPENTUI_DEV === "1") {
-    const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
-    await runOpenTuiAgent(options, initialSession);
     return;
   }
 
