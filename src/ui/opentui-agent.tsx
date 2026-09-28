@@ -2,13 +2,23 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import React from "react";
-import { type RunOptions, runPrompt } from "../commands/run.js";
+import {
+  checkProviderConnection,
+  hasApiKey,
+  listProviderModels,
+  type RunOptions,
+  runPrompt,
+} from "../commands/run.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
+import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
+import { CredentialStore } from "../security/credentials.js";
 import { projectSessionStore } from "../sessions/project-store.js";
-import type { Session } from "../types/domain.js";
+import type { GlobalConfig, Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
+import type { OpenTuiSettingsActions } from "./opentui-settings.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
+import { defaultModelFor } from "./setup.js";
 import {
   replaySessionIntoTranscript,
   toolTranscriptHandlers,
@@ -81,6 +91,86 @@ export async function runOpenTuiAgent(
       }
     },
     activeId: () => activeOptions.resume,
+  };
+  const settingsActions: OpenTuiSettingsActions = {
+    load: async () => {
+      const current = await loadGlobalConfig();
+      const provider =
+        activeOptions.provider ?? current.defaultProvider ?? "anthropic";
+      const selected = current.providers[provider];
+      return {
+        values: {
+          provider,
+          model:
+            activeOptions.model ??
+            selected?.defaultModel ??
+            current.defaultModel ??
+            defaultModelFor(provider),
+          baseUrl: activeOptions.baseUrl ?? selected?.baseUrl,
+        },
+        hasKey: await hasApiKey(provider, selected?.apiKeyRef),
+      };
+    },
+    hasKey: async (provider) => {
+      const current = await loadGlobalConfig();
+      return hasApiKey(provider, current.providers[provider]?.apiKeyRef);
+    },
+    save: async (values) => {
+      const current = await loadGlobalConfig();
+      const previous = current.providers[values.provider];
+      const typedKey = values.apiKey?.trim();
+      const keyRef = typedKey
+        ? (previous?.apiKeyRef ?? `${values.provider}-default`)
+        : previous?.apiKeyRef;
+      if (typedKey && keyRef) await new CredentialStore().set(keyRef, typedKey);
+      const baseUrl =
+        values.provider === "anthropic-compatible" ||
+        values.provider === "openai-compatible" ||
+        values.provider === "agentrouter"
+          ? normalizeBaseUrlForProvider(values.provider, values.baseUrl)
+          : undefined;
+      const next: GlobalConfig = {
+        ...current,
+        defaultProvider: values.provider,
+        defaultModel: values.model,
+        providers: {
+          ...current.providers,
+          [values.provider]: {
+            provider: values.provider,
+            apiKeyRef: keyRef,
+            defaultModel: values.model,
+            baseUrl,
+          },
+        },
+      };
+      await saveGlobalConfig(next);
+      activeOptions = {
+        ...activeOptions,
+        provider: values.provider,
+        model: values.model,
+        baseUrl,
+      };
+      controller.setActiveModel(values.provider, values.model);
+      return (await hasApiKey(values.provider, keyRef))
+        ? "saved"
+        : "setup_required";
+    },
+    check: async (values) => {
+      const result = await checkProviderConnection(values);
+      return `${result.ok ? "✓" : "✗"} ${result.message}`;
+    },
+    models: async (values) => {
+      const result = await listProviderModels(values);
+      return result.ok
+        ? {
+            ok: true,
+            models: result.models.map(({ id, displayName }) => ({
+              id,
+              hint: displayName,
+            })),
+          }
+        : { ok: false, error: result.error };
+    },
   };
   const submit = async (input: string): Promise<void> => {
     if (abort.signal.aborted) return;
@@ -206,6 +296,7 @@ export async function runOpenTuiAgent(
         controller,
         approvalResolver,
         sessionPicker,
+        settingsActions,
         onSubmit: submit,
         initialMode: config.ui?.sidebarMode ?? "auto",
         onModeChange: (mode) => {

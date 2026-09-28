@@ -171,6 +171,23 @@ export class TuiController implements TuiTranscript {
     });
   }
 
+  /** A selected model takes effect on the next request; invalidate old context usage now. */
+  setActiveModel(provider: Session["provider"], model: string): void {
+    const usage = this.state.usage;
+    if (!usage) return;
+    this.update({
+      usage: {
+        ...usage,
+        provider,
+        model,
+        contextSnapshot:
+          usage.provider === provider && usage.model === model
+            ? usage.contextSnapshot
+            : undefined,
+      },
+    });
+  }
+
   refreshGitChanges(): void {
     const generation = this.generation;
     this.gitSource.refresh(this.state.projectPath, (gitChanges) => {
