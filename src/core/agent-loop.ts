@@ -9,6 +9,7 @@ import type {
   TokenUsage,
   ToolExecutionResult,
 } from "../types/domain.js";
+import { observedContextSnapshot } from "./context-usage.js";
 import { compactMessages } from "./prompt.js";
 
 export interface AgentEventHandlers {
@@ -99,6 +100,11 @@ export class AgentLoop {
       }
 
       session.messages.push(completed.message);
+      session.contextSnapshot = observedContextSnapshot(
+        session.provider,
+        session.model,
+        completed.usage,
+      );
       addUsage(session, completed.usage);
       const toolCalls = completed.message.content.filter(
         (content) => content.type === "tool_use",

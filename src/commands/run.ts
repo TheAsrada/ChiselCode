@@ -261,7 +261,10 @@ export async function runPrompt(
         resolveProvider(options, global.defaultProvider),
         resolveModel(options, global.defaultModel),
       );
-  if (options.resume && options.model) session.model = options.model;
+  if (options.resume && options.model) {
+    if (session.model !== options.model) session.contextSnapshot = undefined;
+    session.model = options.model;
+  }
   if (options.resume && options.provider) session.provider = options.provider;
   if (
     session.messages.length === 0 &&

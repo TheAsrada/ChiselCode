@@ -33,6 +33,29 @@ afterEach(async () => {
 });
 
 describe("project session storage", () => {
+  test("old sessions load without a snapshot; a new snapshot persists and is invalidated on model switch", async () => {
+    const store = await projectSessionStore(join(root, "work"));
+    const old = store.create("anthropic", "model-one");
+    await store.save(old);
+    expect((await store.load(old.id)).contextSnapshot).toBeUndefined();
+    old.contextSnapshot = {
+      model: "model-one",
+      observedInputTokens: 80,
+      observedAt: new Date().toISOString(),
+      source: "provider_usage",
+      status: "observed",
+    };
+    await store.save(old);
+    expect(
+      (await store.load(old.id)).contextSnapshot?.observedInputTokens,
+    ).toBe(80);
+    await store.startNew(
+      old.id,
+      { provider: "anthropic", model: "model-one" },
+      { model: "model-two" },
+    );
+    expect((await store.load(old.id)).contextSnapshot).toBeUndefined();
+  });
   test("startNew saves the old conversation and creates a separate empty session", async () => {
     const store = await projectSessionStore(join(root, "work"));
     const old = store.create("anthropic", "old-model");

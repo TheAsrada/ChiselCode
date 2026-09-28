@@ -88,6 +88,16 @@ export interface TokenUsage {
   cacheCreationTokens?: number;
 }
 
+/** Provider-observed usage for one request, never a cumulative session total. */
+export interface ContextSnapshot {
+  model: string;
+  observedInputTokens: number;
+  contextWindow?: number;
+  observedAt: string;
+  source: "provider_usage" | "count_tokens";
+  status: "observed" | "estimated";
+}
+
 export interface ProviderRequest {
   model: string;
   system: string;
@@ -152,6 +162,7 @@ export interface Session {
   model: string;
   provider: ProviderKind;
   totalTokens: TokenUsage;
+  contextSnapshot?: ContextSnapshot;
   totalCost: number;
   undoStack: UndoEntry[];
   createdAt: string;
