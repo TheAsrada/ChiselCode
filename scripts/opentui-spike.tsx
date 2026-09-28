@@ -4,6 +4,7 @@ import { createRoot } from "@opentui/react";
 import React from "react";
 import { loadGlobalConfig, saveGlobalConfig } from "../src/config/load.js";
 import type { GlobalConfig } from "../src/types/domain.js";
+import { attachTranscriptScrollback } from "../src/ui/opentui-scrollback.js";
 import { OpenTuiSpike } from "../src/ui/opentui-spike.js";
 import { TuiController } from "../src/ui/tui-controller.js";
 
@@ -19,9 +20,27 @@ if (process.argv.includes("--version")) {
     await act(async () => { setup.resize(120, 30); });
     await setup.renderOnce();
     if (!setup.captureCharFrame().includes("Контекст")) throw new Error("OpenTUI resize failed");
-    process.stdout.write("OpenTUI native smoke: OK\n");
   } finally {
     act(() => { setup.renderer.destroy(); });
+  }
+  const classicController = new TuiController(process.cwd());
+  const classicSetup = await testRender(
+    React.createElement(OpenTuiSpike, { onExit: () => {}, controller: classicController, classic: true }),
+    { width: 80, height: 24, screenMode: "split-footer", externalOutputMode: "capture-stdout", footerHeight: 12 },
+  );
+  const detach = attachTranscriptScrollback(classicController, classicSetup.renderer);
+  try {
+    act(() => classicController.append("Native scrollback ✓", "assistant"));
+    await classicSetup.renderOnce();
+    if (!classicSetup.externalOutput.takeText().includes("Native scrollback ✓"))
+      throw new Error("OpenTUI split-footer scrollback failed");
+    if (classicSetup.captureCharFrame().includes("Native scrollback ✓"))
+      throw new Error("OpenTUI split-footer duplicated transcript in footer");
+    process.stdout.write("OpenTUI native smoke: OK\n");
+  } finally {
+    detach();
+    act(() => classicSetup.renderer.destroy());
+    classicController.dispose();
   }
 } else {
   const controller = new TuiController(process.cwd());
@@ -35,6 +54,7 @@ if (process.argv.includes("--version")) {
     exitSignals: [],
   });
   const root = createRoot(renderer);
+  const detachScrollback = classic ? attachTranscriptScrollback(controller, renderer) : undefined;
   let pendingSave: Promise<void> = Promise.resolve();
   let finish: (() => void) | undefined;
   const finished = new Promise<void>((resolve) => { finish = resolve; });
@@ -45,6 +65,7 @@ if (process.argv.includes("--version")) {
     root.render(React.createElement(OpenTuiSpike, {
       onExit: shutdown,
       controller,
+      classic,
       initialMode: config.ui?.sidebarMode ?? "auto",
       onModeChange: (mode) => {
         pendingSave = pendingSave.then(async () => {
@@ -58,6 +79,7 @@ if (process.argv.includes("--version")) {
     process.off("SIGINT", shutdown);
     process.off("SIGTERM", shutdown);
     root.unmount();
+    detachScrollback?.();
     controller.dispose();
     renderer.destroy();
     await pendingSave;

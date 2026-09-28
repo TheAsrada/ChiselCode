@@ -40,6 +40,7 @@ const PATCH = `diff --git a/example.ts b/example.ts
 export function OpenTuiSpike({
   onExit,
   controller,
+  classic = false,
   initialMode = "auto",
   onModeChange,
   approvalResolver,
@@ -51,6 +52,7 @@ export function OpenTuiSpike({
 }: {
   onExit: () => void;
   controller?: TuiController;
+  classic?: boolean;
   initialMode?: SidebarMode;
   onModeChange?: (mode: SidebarMode) => void;
   approvalResolver?: TuiApprovalResolver;
@@ -311,10 +313,18 @@ export function OpenTuiSpike({
             >
               {controller ? (
                 <OpenTuiTranscript
-                  entries={view.transcript}
+                  entries={
+                    classic
+                      ? expanded
+                        ? view.transcript.filter(
+                            (entry) => entry.id === newestDiffId,
+                          )
+                        : []
+                      : view.transcript
+                  }
                   contentWidth={textWidth - 2}
                   expandedId={expanded ? newestDiffId : undefined}
-                  windowEnd={windowEnd}
+                  windowEnd={classic ? undefined : windowEnd}
                 />
               ) : (
                 <React.Fragment>

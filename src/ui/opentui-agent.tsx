@@ -21,6 +21,7 @@ import {
 } from "../skills/skills.js";
 import type { GlobalConfig, Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
+import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import type { OpenTuiSettingsActions } from "./opentui-settings.js";
 import type { OpenTuiSkillsActions } from "./opentui-skills.js";
@@ -57,6 +58,9 @@ export async function runOpenTuiAgent(
     exitOnCtrlC: false,
     exitSignals: [],
   });
+  const detachScrollback = classic
+    ? attachTranscriptScrollback(controller, renderer)
+    : undefined;
   const root = createRoot(renderer);
   const abort = new AbortController();
   let activeRun: Promise<void> | undefined;
@@ -330,6 +334,7 @@ export async function runOpenTuiAgent(
       React.createElement(OpenTuiSpike, {
         onExit: shutdown,
         controller,
+        classic,
         approvalResolver,
         sessionPicker,
         settingsActions,
@@ -358,6 +363,7 @@ export async function runOpenTuiAgent(
     abort.abort();
     approvalResolver.dispose();
     root.unmount();
+    detachScrollback?.();
     controller.dispose();
     renderer.destroy();
     await pendingSave;

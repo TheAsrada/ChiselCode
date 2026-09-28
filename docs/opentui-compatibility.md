@@ -21,12 +21,12 @@ The controller-backed probe now renders a bounded 240-entry transcript window. P
 
 The optional approval resolver now binds to a full-screen decision view. An outstanding action takes keyboard priority, displays a scrollable sanitized preview or native file diff, and accepts `y`/`н`, `n`/`т`, or Esc. The composer returns after a decision. The regular CLI still owns agent approval flow until the OpenTUI shell is wired to the full application.
 
-`--smoke` is an in-memory native renderer test for the **compiled artifact**. CI builds it and runs this smoke on Linux x64 glibc, macOS and Windows x64; it also builds the regular CLI and checks `--version` and `doctor`. These checks verify native dependency loading, frame rendering, resize, and teardown without claiming real-terminal compatibility.
+`--smoke` is an in-memory native renderer test for the **compiled artifact**. CI builds it and runs this smoke on Linux x64 glibc, macOS and Windows x64; it also builds the regular CLI and checks `--version` and `doctor`. These checks verify native dependency loading, frame rendering, resize, split-footer scrollback commits, and teardown without claiming real-terminal compatibility.
 
 ## Remaining release gates
 
 - Exercise an actual TTY, Ctrl+C/Ctrl+D/SIGTERM, paste, mouse selection, and cursor/raw-mode restoration on PowerShell/Windows Terminal, conhost, macOS Terminal/iTerm2, Linux, and SSH. In particular, verify the Windows compiled interactive binary before selecting OpenTUI by default.
-- Implement a scrollback commit policy for `split-footer`. It preserves a real main-screen scrollback surface only for content explicitly committed above the footer. The probe does not yet commit transcript items; it cannot substitute for the old classic mode.
+- Validate the `split-footer` scrollback policy in physical terminals: completed transcript entries are committed above the live footer, and switching sessions resets the visible history. The in-memory native smoke verifies commits but cannot verify terminal scrollback controls or restoration.
 - Migrate the application controller and all modal surfaces, approvals, setup key masking, session history, slash commands, usage snapshots, current Git changes, and diff navigation. Keep the old renderer until parity is measured.
 - Cross-compile release targets with their matching `@opentui/core-*` optional packages installed. The release workflow currently builds Windows x64, macOS x64/arm64, and Linux x64 glibc. It does not publish musl.
 - Measure 10,000 transcript entries on each compiled target and document interactive latency, viewport behavior, and the manual terminal matrix in the migration PR.
