@@ -13,6 +13,8 @@ bun run opentui:compile
 ./dist/opentui-spike --smoke
 ```
 
+For a local end-to-end trial with an already configured provider, run `CHISEL_OPENTUI_DEV=1 bun run src/cli.ts` (PowerShell: `$env:CHISEL_OPENTUI_DEV='1'; bun run src/cli.ts`). This developer path connects the real agent loop, streaming, tool events, approvals, resume, and current Git changes to the OpenTUI shell. Ctrl+C or SIGTERM aborts the active request before terminal teardown. `/help`, `/clear`, `/sessions`, `/resume <id>`, `/cwd <path>`, and `/exit` are available. Other slash commands still require the regular CLI; the developer flag is not a user-facing default.
+
 The probe exercises a React root, a sticky culling scrollbox, a multiline textarea, a single-file diff, resize, sidebar overlay, keyboard focus, and cleanup. Ctrl+B opens the context overlay, Ctrl+D expands the diff, Tab changes focus, Esc closes an overlay or exits, Ctrl+C exits. `CHISEL_ALT_SCREEN=0` or `CHISEL_NO_ALT_SCREEN=1` selects `split-footer` for the probe; default is alternate screen.
 
 The controller-backed probe now renders a bounded 240-entry transcript window. PgUp/PgDn and the mouse wheel at the viewport boundary move by 120 entries; End returns to the latest entries. File changes show up to five changed lines and expand one diff on Ctrl+D, using a split view only when the available diff width reaches 100 columns. Terminal control sequences are removed from rendered transcript text. In a local Node 26/Linux x64 in-memory native render of 10,000 short entries, initial frame preparation took about 60 ms and PgUp about 28 ms. These are development measurements, not compiled Bun or physical-terminal latency benchmarks.

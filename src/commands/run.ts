@@ -249,6 +249,7 @@ export async function runPrompt(
   options: RunOptions,
   resolver: ApprovalResolver,
   events: RunEventHandlers = {},
+  signal?: AbortSignal,
 ): Promise<{ result: AgentResult; exitCode: number }> {
   const projectRoot = options.cwd ?? process.cwd();
   const sessionStore = await projectSessionStore(projectRoot);
@@ -331,6 +332,7 @@ export async function runPrompt(
   });
 
   const result = await loop.run(session, prompt, {
+    signal,
     onCheckpoint: (current) => sessionStore.save(current),
   });
   await sessionStore.save(result.session);

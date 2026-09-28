@@ -134,3 +134,31 @@ test("approval stays keyboard accessible at narrow width and restores the compos
     approvalResolver.dispose();
   }
 });
+
+test("developer agent callback receives one multiline pasted prompt", async () => {
+  const submitted: string[] = [];
+  const setup = await testRender(
+    <OpenTuiSpike
+      onExit={() => {}}
+      onSubmit={async (prompt) => {
+        submitted.push(prompt);
+      }}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    await act(async () => {
+      await setup.mockInput.pasteBracketedText("первая строка\nвторая строка");
+    });
+    expect(submitted).toEqual([]);
+    await act(async () => {
+      setup.mockInput.pressEnter();
+    });
+    expect(submitted).toEqual(["первая строка\nвторая строка"]);
+  } finally {
+    act(() => {
+      setup.renderer.destroy();
+    });
+  }
+});

@@ -471,6 +471,12 @@ async function startTui(options: RunOptions): Promise<void> {
     return;
   }
 
+  if (process.env.CHISEL_OPENTUI_DEV === "1") {
+    const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
+    await runOpenTuiAgent(options, initialSession);
+    return;
+  }
+
   const resolver = createTuiApprovalResolver();
   let activeOptions: RunOptions = { ...options, resume: initialSession?.id };
   const controller = new TuiController(activeOptions.cwd ?? process.cwd());

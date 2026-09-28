@@ -34,12 +34,14 @@ export function OpenTuiSpike({
   initialMode = "auto",
   onModeChange,
   approvalResolver,
+  onSubmit,
 }: {
   onExit: () => void;
   controller?: TuiController;
   initialMode?: SidebarMode;
   onModeChange?: (mode: SidebarMode) => void;
   approvalResolver?: TuiApprovalResolver;
+  onSubmit?: (prompt: string) => Promise<void>;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -152,11 +154,17 @@ export function OpenTuiSpike({
       setDraft("");
       return;
     }
-    controller?.append(`❯ ${value}`, "user");
-    setLines((current) => [
-      ...current,
-      { id: nextId.current++, text: `❯ ${value}` },
-    ]);
+    if (onSubmit)
+      void onSubmit(value).catch((error) =>
+        controller?.append(String(error), "error"),
+      );
+    else {
+      controller?.append(`❯ ${value}`, "user");
+      setLines((current) => [
+        ...current,
+        { id: nextId.current++, text: `❯ ${value}` },
+      ]);
+    }
     editor.current?.setText("");
     setDraft("");
   };
