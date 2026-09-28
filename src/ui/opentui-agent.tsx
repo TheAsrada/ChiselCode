@@ -13,10 +13,17 @@ import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
 import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import { CredentialStore } from "../security/credentials.js";
 import { projectSessionStore } from "../sessions/project-store.js";
+import {
+  buildActiveSkillsPrompt,
+  expandSkill,
+  invocableSkills,
+  loadSkills,
+} from "../skills/skills.js";
 import type { GlobalConfig, Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import type { OpenTuiSettingsActions } from "./opentui-settings.js";
+import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
 import { defaultModelFor } from "./setup.js";
 import {
@@ -54,6 +61,7 @@ export async function runOpenTuiAgent(
   const abort = new AbortController();
   let activeRun: Promise<void> | undefined;
   const pendingPrompts: string[] = [];
+  const activeSkillNames = new Set<string>();
   let pendingSave: Promise<void> = Promise.resolve();
   let finish: (() => void) | undefined;
   const finished = new Promise<void>((resolve) => {
@@ -173,6 +181,18 @@ export async function runOpenTuiAgent(
         : { ok: false, error: result.error };
     },
   };
+  const skillsActions: OpenTuiSkillsActions = {
+    load: () => loadSkills(activeOptions.cwd ?? process.cwd()),
+    activeNames: () => [...activeSkillNames],
+    toggle: (name) => {
+      if (activeSkillNames.has(name)) activeSkillNames.delete(name);
+      else activeSkillNames.add(name);
+      controller.append(
+        `Скилл /${name} ${activeSkillNames.has(name) ? "задействован" : "отключён"}`,
+        "info",
+      );
+    },
+  };
   const submit = async (input: string): Promise<void> => {
     if (abort.signal.aborted) return;
     if (input === "/exit") return shutdown();
@@ -191,7 +211,7 @@ export async function runOpenTuiAgent(
     }
     if (input === "/help") {
       controller.append(
-        "/clear · /sessions · /resume <id> · /cwd <путь> · /sidebar [auto|show|hide] · /exit",
+        "/clear · /sessions · /resume <id> · /settings · /model · /skills · /cwd <путь> · /sidebar [auto|show|hide] · /exit",
         "info",
       );
       return;
@@ -228,7 +248,14 @@ export async function runOpenTuiAgent(
       }
       return;
     }
-    if (input.startsWith("/")) {
+    const availableSkills = skillsActions.load();
+    const command = input.split(/\s/, 1)[0] ?? input;
+    const skill = input.startsWith("/")
+      ? invocableSkills(availableSkills).find(
+          (item) => `/${item.name}` === command,
+        )
+      : undefined;
+    if (input.startsWith("/") && !skill) {
       controller.append(
         `Команда ${input.split(" ")[0]} ещё не перенесена в OpenTUI`,
         "warn",
@@ -236,12 +263,19 @@ export async function runOpenTuiAgent(
       return;
     }
     controller.append(`❯ ${input}`, "user");
+    const expanded = skill
+      ? expandSkill(skill, input.slice(command.length).trim())
+      : input;
+    const prompt = buildActiveSkillsPrompt(
+      availableSkills.filter((item) => activeSkillNames.has(item.name)),
+      expanded,
+    );
     const tools = toolTranscriptHandlers(() => controller);
     const work = (async () => {
       try {
         let hasText = false;
         const { result } = await runPrompt(
-          input,
+          prompt,
           activeOptions,
           approvalResolver,
           {
@@ -298,6 +332,7 @@ export async function runOpenTuiAgent(
         approvalResolver,
         sessionPicker,
         settingsActions,
+        skillsActions,
         initialSettingsOpen: setupRequired,
         onSubmit: submit,
         initialMode: config.ui?.sidebarMode ?? "auto",

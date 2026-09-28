@@ -13,6 +13,7 @@ import {
   OpenTuiSettings,
   type OpenTuiSettingsActions,
 } from "./opentui-settings.js";
+import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
 import {
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
@@ -46,6 +47,7 @@ export function OpenTuiSpike({
   sessionPicker,
   settingsActions,
   initialSettingsOpen = false,
+  skillsActions,
 }: {
   onExit: () => void;
   controller?: TuiController;
@@ -56,6 +58,7 @@ export function OpenTuiSpike({
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
   initialSettingsOpen?: boolean;
+  skillsActions?: OpenTuiSkillsActions;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -70,6 +73,7 @@ export function OpenTuiSpike({
   const [approval, setApproval] = useState<ApprovalRequest>();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const [settingsSelection, setSettingsSelection] = useState(0);
   useEffect(() => {
@@ -126,11 +130,17 @@ export function OpenTuiSpike({
   };
 
   useEffect(() => {
-    if (!approval && !pickerOpen && !settingsOpen && !contextOnly) {
+    if (
+      !approval &&
+      !pickerOpen &&
+      !settingsOpen &&
+      !skillsOpen &&
+      !contextOnly
+    ) {
       if (focus === "editor") editor.current?.focus();
       else transcript.current?.focus();
     }
-  }, [approval, pickerOpen, settingsOpen, contextOnly, focus]);
+  }, [approval, pickerOpen, settingsOpen, skillsOpen, contextOnly, focus]);
 
   useKeyboard((key) => {
     if (approval) {
@@ -141,7 +151,7 @@ export function OpenTuiSpike({
         approvalResolver?.resolve("denied");
       return;
     }
-    if (pickerOpen || settingsOpen) return;
+    if (pickerOpen || settingsOpen || skillsOpen) return;
     if (key.ctrl && key.name === "c") return onExit();
     if (key.name === "escape") {
       if (contextOnly) setOverlayDismissed(true);
@@ -192,6 +202,14 @@ export function OpenTuiSpike({
       setDraft("");
       return;
     }
+    if (skillsActions && value === "/skills") {
+      setSkillsOpen(true);
+      controller?.setOverlay("skills");
+      controller?.setFocus("modal");
+      editor.current?.setText("");
+      setDraft("");
+      return;
+    }
     if (onSubmit)
       void onSubmit(value).catch((error) =>
         controller?.append(String(error), "error"),
@@ -233,6 +251,19 @@ export function OpenTuiSpike({
           if (setupPending && outcome !== "saved") return onExit();
           setSetupPending(false);
           setSettingsOpen(false);
+          controller?.setOverlay();
+          controller?.setFocus(focus === "editor" ? "composer" : "transcript");
+        }}
+      />
+    );
+  if (skillsOpen && skillsActions)
+    return (
+      <OpenTuiSkills
+        actions={skillsActions}
+        width={width}
+        height={height}
+        onClose={() => {
+          setSkillsOpen(false);
           controller?.setOverlay();
           controller?.setFocus(focus === "editor" ? "composer" : "transcript");
         }}
