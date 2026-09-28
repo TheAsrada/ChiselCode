@@ -2,7 +2,9 @@
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useState } from "react";
+import type { ApprovalRequest } from "../security/approval.js";
 import { ContextSidebar } from "./context-sidebar.js";
+import { OpenTuiApproval } from "./opentui-approval.js";
 import {
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
@@ -14,6 +16,7 @@ import {
   sidebarLayout,
   toggleSidebarMode,
 } from "./sidebar-layout.js";
+import type { TuiApprovalResolver } from "./tui.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 
 const PATCH = `diff --git a/example.ts b/example.ts
@@ -30,11 +33,13 @@ export function OpenTuiSpike({
   controller,
   initialMode = "auto",
   onModeChange,
+  approvalResolver,
 }: {
   onExit: () => void;
   controller?: TuiController;
   initialMode?: SidebarMode;
   onModeChange?: (mode: SidebarMode) => void;
+  approvalResolver?: TuiApprovalResolver;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -46,6 +51,11 @@ export function OpenTuiSpike({
   ]);
   const [mode, setMode] = useState<SidebarMode>(initialMode);
   const [overlayDismissed, setOverlayDismissed] = useState(false);
+  const [approval, setApproval] = useState<ApprovalRequest>();
+  useEffect(() => {
+    approvalResolver?.bind(setApproval);
+    return () => approvalResolver?.bind(undefined);
+  }, [approvalResolver]);
   const [view, setView] = useState<TuiViewState>(
     () =>
       controller?.snapshot ?? {
@@ -96,10 +106,19 @@ export function OpenTuiSpike({
   };
 
   useEffect(() => {
-    if (!contextOnly && focus === "editor") editor.current?.focus();
-  }, [contextOnly, focus]);
+    if (!approval && !contextOnly && focus === "editor")
+      editor.current?.focus();
+  }, [approval, contextOnly, focus]);
 
   useKeyboard((key) => {
+    if (approval) {
+      const answer = key.name.toLowerCase();
+      if (answer === "y" || answer === "н")
+        approvalResolver?.resolve("approved");
+      if (answer === "n" || answer === "т" || answer === "escape")
+        approvalResolver?.resolve("denied");
+      return;
+    }
     if (key.ctrl && key.name === "c") return onExit();
     if (key.name === "escape") {
       if (contextOnly) setOverlayDismissed(true);
@@ -122,6 +141,7 @@ export function OpenTuiSpike({
   });
 
   const submit = () => {
+    if (approval) return;
     const value = editor.current?.plainText.trim();
     if (!value) return;
     if (value === "/sidebar" || value.startsWith("/sidebar ")) {
@@ -140,6 +160,9 @@ export function OpenTuiSpike({
     editor.current?.setText("");
     setDraft("");
   };
+
+  if (approval)
+    return <OpenTuiApproval request={approval} width={width} height={height} />;
 
   return (
     <box

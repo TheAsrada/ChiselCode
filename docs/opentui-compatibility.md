@@ -17,6 +17,8 @@ The probe exercises a React root, a sticky culling scrollbox, a multiline textar
 
 The controller-backed probe now renders a bounded 240-entry transcript window. PgUp/PgDn and the mouse wheel at the viewport boundary move by 120 entries; End returns to the latest entries. File changes show up to five changed lines and expand one diff on Ctrl+D, using a split view only when the available diff width reaches 100 columns. Terminal control sequences are removed from rendered transcript text. In a local Node 26/Linux x64 in-memory native render of 10,000 short entries, initial frame preparation took about 60 ms and PgUp about 28 ms. These are development measurements, not compiled Bun or physical-terminal latency benchmarks.
 
+The optional approval resolver now binds to a full-screen decision view. An outstanding action takes keyboard priority, displays a scrollable sanitized preview or native file diff, and accepts `y`/`н`, `n`/`т`, or Esc. The composer returns after a decision. The regular CLI still owns agent approval flow until the OpenTUI shell is wired to the full application.
+
 `--smoke` is an in-memory native renderer test for the **compiled artifact**. CI builds it and runs this smoke on Linux x64 glibc, macOS and Windows x64; it also builds the regular CLI and checks `--version` and `doctor`. These checks verify native dependency loading, frame rendering, resize, and teardown without claiming real-terminal compatibility.
 
 ## Remaining release gates

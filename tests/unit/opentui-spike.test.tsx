@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
+import { createTuiApprovalResolver } from "../../src/ui/tui.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 
 for (const [width, height] of [
@@ -89,5 +90,47 @@ test("large transcript pages backwards and returns to newest messages", async ()
       setup.renderer.destroy();
     });
     controller.dispose();
+  }
+});
+
+test("approval stays keyboard accessible at narrow width and restores the composer", async () => {
+  const approvalResolver = createTuiApprovalResolver();
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} approvalResolver={approvalResolver} />,
+    { width: 60, height: 15 },
+  );
+  try {
+    await setup.renderOnce();
+    let decision: Promise<string> | undefined;
+    await act(async () => {
+      decision = approvalResolver.requestApproval({
+        tool: "run_shell",
+        preview: "Опасная команда\n\u001b[31mподробности",
+      });
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Опасная команда");
+    expect(setup.captureCharFrame()).not.toContain("[31m");
+    await act(async () => {
+      setup.mockInput.pressEscape();
+      expect(await decision).toBe("denied");
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Напишите сообщение");
+    await act(async () => {
+      decision = approvalResolver.requestApproval({
+        tool: "write_file",
+        preview: "new file",
+      });
+    });
+    await act(async () => {
+      setup.mockInput.pressKey("y");
+      expect(await decision).toBe("approved");
+    });
+  } finally {
+    act(() => {
+      setup.renderer.destroy();
+    });
+    approvalResolver.dispose();
   }
 });
