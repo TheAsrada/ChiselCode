@@ -7,6 +7,7 @@ import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
+import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
 import {
   replaySessionIntoTranscript,
@@ -52,6 +53,35 @@ export async function runOpenTuiAgent(
     approvalResolver.dispose();
     finish?.();
   };
+  const sessionStore = () =>
+    projectSessionStore(activeOptions.cwd ?? process.cwd());
+  const resume = async (ref: string): Promise<void> => {
+    const store = await sessionStore();
+    const session = await store.load((await store.resolve(ref)).id);
+    activeOptions = { ...activeOptions, resume: session.id };
+    controller.switchSession(session);
+    replaySessionIntoTranscript(controller, session);
+    controller.setSessionUsage(session);
+  };
+  const sessionPicker: OpenTuiSessionsActions = {
+    load: async () => (await sessionStore()).list(),
+    preview: async (id) => (await sessionStore()).load(id),
+    resume,
+    rename: async (id, title) => {
+      const store = await sessionStore();
+      await store.rename(id, title);
+      if (activeOptions.resume === id)
+        controller.setSessionUsage(await store.load(id));
+    },
+    delete: async (id) => {
+      await (await sessionStore()).delete(id);
+      if (activeOptions.resume === id) {
+        activeOptions = { ...activeOptions, resume: undefined };
+        controller.switchSession();
+      }
+    },
+    activeId: () => activeOptions.resume,
+  };
   const submit = async (input: string): Promise<void> => {
     if (abort.signal.aborted) return;
     if (input === "/exit") return shutdown();
@@ -76,9 +106,7 @@ export async function runOpenTuiAgent(
       return;
     }
     if (input === "/sessions") {
-      const sessions = await (
-        await projectSessionStore(activeOptions.cwd ?? process.cwd())
-      ).list();
+      const sessions = await sessionPicker.load();
       controller.append(
         sessions
           .map((s) => `${s.id} · ${s.title ?? "без названия"}`)
@@ -89,16 +117,7 @@ export async function runOpenTuiAgent(
     }
     if (input.startsWith("/resume ")) {
       try {
-        const store = await projectSessionStore(
-          activeOptions.cwd ?? process.cwd(),
-        );
-        const session = await store.load(
-          (await store.resolve(input.slice(8).trim())).id,
-        );
-        activeOptions = { ...activeOptions, resume: session.id };
-        controller.switchSession(session);
-        replaySessionIntoTranscript(controller, session);
-        controller.setSessionUsage(session);
+        await resume(input.slice(8).trim());
       } catch (error) {
         controller.append(String(error), "error");
       }
@@ -186,6 +205,7 @@ export async function runOpenTuiAgent(
         onExit: shutdown,
         controller,
         approvalResolver,
+        sessionPicker,
         onSubmit: submit,
         initialMode: config.ui?.sidebarMode ?? "auto",
         onModeChange: (mode) => {

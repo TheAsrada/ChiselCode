@@ -17,6 +17,7 @@ export interface TranscriptEntry {
 
 export interface TuiViewState {
   sessionId?: string;
+  sessionTitle?: string;
   projectPath: string;
   transcript: readonly TranscriptEntry[];
   streaming: string;
@@ -156,6 +157,7 @@ export class TuiController implements TuiTranscript {
     if (this.state.sessionId && this.state.sessionId !== session.id) return;
     this.update({
       sessionId: session.id,
+      sessionTitle: session.title,
       usage: {
         provider: session.provider,
         model: session.model,
@@ -178,7 +180,8 @@ export class TuiController implements TuiTranscript {
 
   /** Invalidates responses from the previous project or session immediately. */
   switchSession(
-    session?: Pick<Session, "id" | "projectPath">,
+    session?: Pick<Session, "id" | "projectPath"> &
+      Partial<Pick<Session, "title">>,
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.generation++;
@@ -186,6 +189,7 @@ export class TuiController implements TuiTranscript {
     this.state = {
       projectPath,
       sessionId: session?.id,
+      sessionTitle: session?.title,
       transcript: [],
       streaming: "",
       draft: "",

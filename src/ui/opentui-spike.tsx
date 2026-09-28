@@ -6,6 +6,10 @@ import type { ApprovalRequest } from "../security/approval.js";
 import { ContextSidebar } from "./context-sidebar.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import {
+  OpenTuiSessions,
+  type OpenTuiSessionsActions,
+} from "./opentui-sessions.js";
+import {
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
   terminalSafeText,
@@ -35,6 +39,7 @@ export function OpenTuiSpike({
   onModeChange,
   approvalResolver,
   onSubmit,
+  sessionPicker,
 }: {
   onExit: () => void;
   controller?: TuiController;
@@ -42,6 +47,7 @@ export function OpenTuiSpike({
   onModeChange?: (mode: SidebarMode) => void;
   approvalResolver?: TuiApprovalResolver;
   onSubmit?: (prompt: string) => Promise<void>;
+  sessionPicker?: OpenTuiSessionsActions;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -54,6 +60,7 @@ export function OpenTuiSpike({
   const [mode, setMode] = useState<SidebarMode>(initialMode);
   const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [approval, setApproval] = useState<ApprovalRequest>();
+  const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => {
     approvalResolver?.bind(setApproval);
     return () => approvalResolver?.bind(undefined);
@@ -108,9 +115,11 @@ export function OpenTuiSpike({
   };
 
   useEffect(() => {
-    if (!approval && !contextOnly && focus === "editor")
-      editor.current?.focus();
-  }, [approval, contextOnly, focus]);
+    if (!approval && !pickerOpen && !contextOnly) {
+      if (focus === "editor") editor.current?.focus();
+      else transcript.current?.focus();
+    }
+  }, [approval, pickerOpen, contextOnly, focus]);
 
   useKeyboard((key) => {
     if (approval) {
@@ -121,6 +130,7 @@ export function OpenTuiSpike({
         approvalResolver?.resolve("denied");
       return;
     }
+    if (pickerOpen) return;
     if (key.ctrl && key.name === "c") return onExit();
     if (key.name === "escape") {
       if (contextOnly) setOverlayDismissed(true);
@@ -154,6 +164,14 @@ export function OpenTuiSpike({
       setDraft("");
       return;
     }
+    if (sessionPicker && (value === "/sessions" || value === "/resume")) {
+      setPickerOpen(true);
+      controller?.setOverlay("sessions");
+      controller?.setFocus("modal");
+      editor.current?.setText("");
+      setDraft("");
+      return;
+    }
     if (onSubmit)
       void onSubmit(value).catch((error) =>
         controller?.append(String(error), "error"),
@@ -171,6 +189,19 @@ export function OpenTuiSpike({
 
   if (approval)
     return <OpenTuiApproval request={approval} width={width} height={height} />;
+  if (pickerOpen && sessionPicker)
+    return (
+      <OpenTuiSessions
+        actions={sessionPicker}
+        width={width}
+        height={height}
+        onClose={() => {
+          setPickerOpen(false);
+          controller?.setOverlay();
+          controller?.setFocus(focus === "editor" ? "composer" : "transcript");
+        }}
+      />
+    );
 
   return (
     <box
@@ -188,7 +219,9 @@ export function OpenTuiSpike({
           paddingRight={1}
         >
           <text fg="#78c8d4">
-            ChiselCode · probe · {width}×{height}
+            {onSubmit
+              ? `ChiselCode · ${terminalSafeText(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 16))}`
+              : `ChiselCode · probe · ${width}×${height}`}
           </text>
           {height >= 12 && (
             <scrollbox
