@@ -241,6 +241,7 @@ export async function runOpenTuiAgent(
           activeOptions.cwd ?? process.cwd(),
         );
         activeOptions = { ...activeOptions, cwd, resume: undefined };
+        activeSkillNames.clear();
         controller.switchSession(undefined, cwd);
         controller.append(`Проект: ${cwd}`, "info");
       } catch (error) {
