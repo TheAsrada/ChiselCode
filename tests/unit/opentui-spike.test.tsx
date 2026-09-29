@@ -198,3 +198,48 @@ test("composer history restores the unsent draft after browsing sent prompts", a
     act(() => setup.renderer.destroy());
   }
 });
+
+test("slash completion accepts a prefix before submitting the command", async () => {
+  const submitted: string[] = [];
+  const setup = await testRender(
+    <OpenTuiSpike
+      onExit={() => {}}
+      onSubmit={async (text) => {
+        submitted.push(text);
+      }}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    await act(async () => setup.mockInput.pasteBracketedText("/he"));
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("/help");
+    act(() => setup.mockInput.pressEnter());
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/help");
+    expect(submitted).toEqual([]);
+    act(() => setup.mockInput.pressEnter());
+    expect(submitted).toEqual(["/help"]);
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
+
+test("slash suggestions keep the selected command visible past the first page", async () => {
+  const setup = await testRender(<OpenTuiSpike onExit={() => {}} />, {
+    width: 80,
+    height: 24,
+  });
+  try {
+    await setup.renderOnce();
+    await act(async () => setup.mockInput.pasteBracketedText("/"));
+    act(() => {
+      for (let index = 0; index < 7; index++)
+        setup.mockInput.pressArrow("down");
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("❯ /sessions");
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});

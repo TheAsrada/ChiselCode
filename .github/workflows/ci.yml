@@ -48,6 +48,20 @@ jobs:
           bun build ./scripts/opentui-spike.tsx --compile --outfile="$binary"
           "$binary" --version
           "$binary" --smoke
+      - name: Cross-compile macOS OpenTUI native targets
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          npm install --no-save --package-lock=false --force --ignore-scripts \
+            @opentui/core-darwin-arm64@0.5.12 @opentui/core-darwin-x64@0.5.12
+          test -f node_modules/@opentui/core-darwin-arm64/package.json
+          test -f node_modules/@opentui/core-darwin-x64/package.json
+          for arch in arm64 x64; do
+            bun build ./scripts/opentui-spike.tsx --compile --target="bun-darwin-$arch" --outfile="dist/opentui-spike-$arch"
+          done
+          host_arch=$(uname -m)
+          if [ "$host_arch" = x86_64 ]; then host_arch=x64; fi
+          "dist/opentui-spike-$host_arch" --smoke
       - name: Smoke compiled CLI commands
         shell: bash
         run: |

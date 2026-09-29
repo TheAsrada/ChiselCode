@@ -3,6 +3,13 @@ import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useState } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
+import { invocableSkills } from "../skills/skills.js";
+import {
+  type CommandSuggestion,
+  isSlashInput,
+  MAX_VISIBLE_SUGGESTIONS,
+  matchingCommands,
+} from "./commands.js";
 import { ContextSidebar } from "./context-sidebar.js";
 import {
   addEditorHistory,
@@ -71,6 +78,7 @@ export function OpenTuiSpike({
   const editor = React.useRef<TextareaRenderable>(null);
   const history = React.useRef(createEditorState());
   const applyingHistory = React.useRef(false);
+  const acceptedCompletion = React.useRef<string | undefined>(undefined);
   const transcript = React.useRef<ScrollBoxRenderable>(null);
   const nextId = React.useRef(1);
   const [draft, setDraft] = useState("");
@@ -83,6 +91,9 @@ export function OpenTuiSpike({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const [settingsSelection, setSettingsSelection] = useState(0);
   useEffect(() => {
@@ -100,6 +111,19 @@ export function OpenTuiSpike({
       },
   );
   useEffect(() => controller?.subscribe(setView), [controller]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload available skill commands.
+  useEffect(() => {
+    setSkillCommands(
+      skillsActions
+        ? invocableSkills(skillsActions.load()).map(
+            ({ name, description }) => ({
+              name,
+              description,
+            }),
+          )
+        : [],
+    );
+  }, [skillsActions, view.projectPath, skillsOpen]);
   const [expanded, setExpanded] = useState(false);
   const [windowEnd, setWindowEnd] = useState<number>();
   const [focus, setFocus] = useState<"editor" | "transcript">("editor");
@@ -109,7 +133,33 @@ export function OpenTuiSpike({
     layout.placement === "overlay" || layout.placement === "fullscreen";
   const textWidth = layout.feedWidth;
   const editorHeight = Math.min(4, Math.max(2, height - 3));
-  const feedHeight = Math.max(1, height - editorHeight - 2);
+  const suggestions =
+    height >= 12 &&
+    isSlashInput(draft) &&
+    !draft.includes("\n") &&
+    !draft.trim().includes(" ") &&
+    !suggestionsDismissed
+      ? matchingCommands(draft, skillCommands)
+      : [];
+  const suggestionLimit = Math.min(
+    MAX_VISIBLE_SUGGESTIONS,
+    Math.max(0, height - editorHeight - 5),
+  );
+  const selectedSuggestionIndex = suggestions.length
+    ? suggestionIndex % suggestions.length
+    : 0;
+  const suggestionStart = suggestionLimit
+    ? Math.floor(selectedSuggestionIndex / suggestionLimit) * suggestionLimit
+    : 0;
+  const visibleSuggestions = suggestions.slice(
+    suggestionStart,
+    suggestionStart + suggestionLimit,
+  );
+  const selectedSuggestion = suggestions[selectedSuggestionIndex];
+  const feedHeight = Math.max(
+    1,
+    height - editorHeight - 2 - visibleSuggestions.length,
+  );
   let newestDiffId: number | undefined;
   for (let index = view.transcript.length - 1; index >= 0; index--) {
     const entry = view.transcript[index];
@@ -155,6 +205,25 @@ export function OpenTuiSpike({
     controller?.setDraft(next.value);
   };
 
+  const acceptSuggestion = (): boolean => {
+    if (!selectedSuggestion) return false;
+    const input = editor.current;
+    if (!input) return false;
+    const name = selectedSuggestion.name;
+    const needsArgs =
+      name === "/cwd" ||
+      name === "/resume" ||
+      skillCommands.some((skill) => `/${skill.name}` === name);
+    const filled = needsArgs ? `${name} ` : name;
+    acceptedCompletion.current = filled;
+    input.setText(filled);
+    input.cursorOffset = filled.length;
+    setDraft(filled);
+    controller?.setDraft(filled);
+    setSuggestionsDismissed(true);
+    return true;
+  };
+
   useEffect(() => {
     if (
       !approval &&
@@ -179,6 +248,27 @@ export function OpenTuiSpike({
     }
     if (pickerOpen || settingsOpen || skillsOpen) return;
     if (key.ctrl && key.name === "c") return onExit();
+    if (suggestions.length > 0 && focus === "editor" && !contextOnly) {
+      if (key.name === "escape") {
+        key.preventDefault();
+        setSuggestionsDismissed(true);
+        return;
+      }
+      if (key.name === "up" || key.name === "down") {
+        key.preventDefault();
+        setSuggestionIndex(
+          (current) =>
+            (current + (key.name === "up" ? -1 : 1) + suggestions.length) %
+            suggestions.length,
+        );
+        return;
+      }
+      if (key.name === "tab") {
+        key.preventDefault();
+        acceptSuggestion();
+        return;
+      }
+    }
     if (key.name === "escape") {
       if (contextOnly) setOverlayDismissed(true);
       else if (expanded) setExpanded(false);
@@ -234,6 +324,10 @@ export function OpenTuiSpike({
     if (approval) return;
     const value = editor.current?.plainText.trim();
     if (!value) return;
+    if (selectedSuggestion && value !== selectedSuggestion.name) {
+      acceptSuggestion();
+      return;
+    }
     history.current = addEditorHistory(history.current, value);
     if (value === "/sidebar" || value.startsWith("/sidebar ")) {
       const arg = value.slice("/sidebar".length).trim();
@@ -411,6 +505,21 @@ export function OpenTuiSpike({
               )}
             </scrollbox>
           )}
+          {visibleSuggestions.map((command, index) => (
+            <text
+              key={command.name}
+              fg={
+                index + suggestionStart === selectedSuggestionIndex
+                  ? "#78c8d4"
+                  : "#98a6b6"
+              }
+            >
+              {terminalSafeText(
+                `${index + suggestionStart === selectedSuggestionIndex ? "❯" : " "} ${command.name} · ${command.description}`,
+                Math.max(8, textWidth - 3),
+              )}
+            </text>
+          ))}
           <text fg="#f1c56d">
             {draft ? "Черновик" : "Готово"} · Enter: отправить · Shift+Enter:
             строка · Esc: выход
@@ -427,6 +536,11 @@ export function OpenTuiSpike({
                   next === history.current.value)
               )
                 return;
+              if (next !== acceptedCompletion.current) {
+                setSuggestionIndex(0);
+                setSuggestionsDismissed(false);
+              }
+              acceptedCompletion.current = undefined;
               history.current = {
                 ...history.current,
                 value: next,
