@@ -38,6 +38,7 @@ import {
 } from "./opentui-settings.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
 import {
+  markdownHeight,
   markdownStyleFor,
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
@@ -702,6 +703,7 @@ export function OpenTuiSpike({
                     conceal
                     streaming
                     width={Math.max(12, textWidth - 4)}
+                    height={markdownHeight(view.streaming, textWidth - 4)}
                     marginLeft={2}
                   />
                 </React.Fragment>

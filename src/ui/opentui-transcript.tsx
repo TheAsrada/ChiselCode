@@ -2,6 +2,7 @@
 import { stripVTControlCharacters } from "node:util";
 import { SyntaxStyle } from "@opentui/core";
 import React from "react";
+import stringWidth from "string-width";
 import type { FileDiff } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
 import type { TranscriptEntry } from "./tui-controller.js";
@@ -75,6 +76,24 @@ export function diffViewForWidth(width: number): "split" | "unified" {
   return width >= 100 ? "split" : "unified";
 }
 
+/** MarkdownRenderable needs a measured viewport height inside a scrollbox. */
+export function markdownHeight(content: string, width: number): number {
+  const columns = Math.max(12, width);
+  return Math.min(
+    200,
+    Math.max(
+      1,
+      content
+        .split("\n")
+        .reduce(
+          (rows, line) =>
+            rows + Math.max(1, Math.ceil(stringWidth(line) / columns)),
+          0,
+        ),
+    ),
+  );
+}
+
 export function OpenTuiTranscript({
   entries,
   contentWidth,
@@ -108,6 +127,7 @@ export function OpenTuiTranscript({
                 conceal
                 fg={palette.text}
                 width={Math.max(12, contentWidth - 2)}
+                height={markdownHeight(entry.text, contentWidth - 2)}
                 marginLeft={2}
               />
             </React.Fragment>
