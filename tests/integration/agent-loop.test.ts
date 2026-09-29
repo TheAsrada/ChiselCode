@@ -147,6 +147,8 @@ describe("AgentLoop", () => {
     expect(result.status).toBe("completed");
     expect(result.text).toBe("Done");
     expect(result.session.messages).toHaveLength(4);
+    expect(result.session.totalTokens.inputTokens).toBe(2);
+    expect(result.session.contextSnapshot?.observedInputTokens).toBe(1);
   });
 
   test("asks once more when a provider returns an empty completed turn", async () => {

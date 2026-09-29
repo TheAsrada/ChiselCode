@@ -7,6 +7,7 @@ import type {
   ProviderKind,
   ProviderRequest,
   StreamEvent,
+  TokenUsage,
   ToolDefinition,
 } from "../types/domain.js";
 import { ToolNameSchema } from "../types/domain.js";
@@ -16,6 +17,17 @@ export interface OpenAIAdapterOptions {
   apiKey?: string;
   baseUrl?: string;
   kind?: Extract<ProviderKind, "openai" | "openai-compatible" | "agentrouter">;
+}
+
+/** prompt_tokens already contains cached tokens in OpenAI completions. */
+export function normalizeOpenAIUsage(
+  usage: NonNullable<OpenAI.Chat.Completions.ChatCompletionChunk["usage"]>,
+): TokenUsage {
+  return {
+    inputTokens: usage.prompt_tokens ?? 0,
+    outputTokens: usage.completion_tokens ?? 0,
+    cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? undefined,
+  };
 }
 
 export class OpenAIAdapter implements ProviderAdapter {
@@ -77,8 +89,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         { id: string; name: string; arguments: string }
       >();
       let text = "";
-      let inputTokens = 0;
-      let outputTokens = 0;
+      let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
       let finishReason = "end_turn";
 
       for await (const chunk of stream) {
@@ -106,8 +117,7 @@ export class OpenAIAdapter implements ProviderAdapter {
           toolCalls.set(index, current);
         }
         if (chunk.usage) {
-          inputTokens = chunk.usage.prompt_tokens ?? inputTokens;
-          outputTokens = chunk.usage.completion_tokens ?? outputTokens;
+          usage = normalizeOpenAIUsage(chunk.usage);
         }
       }
 
@@ -147,7 +157,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         type: "turn_complete",
         message: { role: "assistant", content },
         stopReason: finishReason,
-        usage: { inputTokens, outputTokens },
+        usage,
       };
     } catch (error) {
       yield { type: "error", message: formatOpenAIError(error) };

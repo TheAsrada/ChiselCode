@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Verify and publish
+  verify:
+    name: Verify release source
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -32,33 +32,11 @@ jobs:
       - name: Verify tag version
         shell: bash
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
-      - name: Create GitHub Release
-        shell: bash
-        run: |
-          ver=$(node -p "require('./package.json').version")
-          # Вырезаем секцию ## [ver] из CHANGELOG.md до следующего ## [
-          awk -v ver="$ver" '
-            $0 == "## [" ver "]" || $0 ~ "^## \\[" ver "\\] " {flag=1; next}
-            /^## \[/ {if (flag) exit; next}
-            flag {print}
-          ' CHANGELOG.md > /tmp/release-notes.md
-          # Убираем пустые строки по краям, проверяем что осталось непустое
-          sed -i -e :a -e '/./,$!d' -e :b -e '/^\n*$/{$d;N;ba' -e '}' /tmp/release-notes.md
-          if grep -q '[^[:space:]]' /tmp/release-notes.md 2>/dev/null; then
-            # Предыдущий релиз = последний созданный (текущий тег ещё не опубликован)
-            prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
-            if [ -n "$prev" ]; then
-              printf '\n**Полный список изменений**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$GITHUB_REF_NAME" >> /tmp/release-notes.md
-            fi
-            gh release create "$GITHUB_REF_NAME" --title "ChiselCode $GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
-          else
-            gh release create "$GITHUB_REF_NAME" --generate-notes --title "ChiselCode $GITHUB_REF_NAME"
-          fi
 
   installer-windows:
     name: Build Windows installer
     runs-on: windows-latest
-    needs: release
+    needs: verify
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -91,40 +69,18 @@ jobs:
           $num = ($ver -replace '[-+].*$','')
           while (($num.Split('.')).Count -lt 4) { $num += '.0' }
           makensis "/DVERSION=$ver" "/DVERSION_NUMERIC=$num" installer/chiselcode.nsi
-      - name: Upload installer
-        shell: pwsh
-        timeout-minutes: 20
-        run: |
-          $ver = node -p "require('./package.json').version"
-          $asset = "dist/release/ChiselCode-Setup-$ver.exe"
-          # gh release upload иногда виснет на windows-раннере (v0.5.5, v0.5.6):
-          # гоняем в фоновой задаче с таймаутом и ретраями, --clobber добивает
-          # частично загруженный ассет повторной попыткой.
-          $ok = $false
-          for ($attempt = 1; $attempt -le 3 -and -not $ok; $attempt += 1) {
-            Write-Host "Upload attempt $attempt/3: $asset"
-            $job = Start-Job -ScriptBlock {
-              param($tag, $file, $token)
-              $env:GH_TOKEN = $token
-              gh release upload $tag $file --clobber
-              if ($LASTEXITCODE -ne 0) { throw "gh release upload exited $LASTEXITCODE" }
-            } -ArgumentList "$env:GITHUB_REF_NAME", $asset, "$env:GH_TOKEN"
-            if (Wait-Job $job -Timeout 300) {
-              Receive-Job $job
-              if ($job.State -eq "Completed") { $ok = $true }
-              else { Write-Host "Attempt $attempt failed ($($job.State)), retrying…" }
-            } else {
-              Write-Host "Attempt $attempt timed out after 300s, retrying…"
-              Stop-Job $job
-            }
-            Remove-Job $job -Force
-          }
-          if (-not $ok) { throw "Upload failed after 3 attempts: $asset" }
+      - name: Stage Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: dist/release/ChiselCode-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
 
   installer-macos:
     name: Build macOS installers
     runs-on: macos-latest
-    needs: release
+    needs: verify
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -136,6 +92,13 @@ jobs:
           bun-version: "1.4.2"
       - name: Install dependencies
         run: npm ci
+      - name: Install both macOS OpenTUI native targets
+        shell: bash
+        run: |
+          npm install --no-save --package-lock=false --force --ignore-scripts \
+            @opentui/core-darwin-arm64@0.5.12 @opentui/core-darwin-x64@0.5.12
+          test -f node_modules/@opentui/core-darwin-arm64/package.json
+          test -f node_modules/@opentui/core-darwin-x64/package.json
       - name: Build macOS binaries
         shell: bash
         run: |
@@ -153,34 +116,18 @@ jobs:
           ver=$(node -p "require('./package.json').version")
           pkgbuild --root pkg/macos-arm64 --identifier com.chiselcode.cli --version "$ver" --install-location /usr/local/bin "ChiselCode-Setup-$ver-macos-arm64.pkg"
           pkgbuild --root pkg/macos-x64 --identifier com.chiselcode.cli --version "$ver" --install-location /usr/local/bin "ChiselCode-Setup-$ver-macos-x64.pkg"
-      - name: Upload installers
-        shell: bash
-        timeout-minutes: 40
-        run: |
-          # NOTE: без GNU timeout (его нет на macOS): watchdog через sleep+kill.
-          # Грузим по одному файлу: зависший ассет не блокирует остальные,
-          # у каждого — свои попытки.
-          ls -la ChiselCode-Setup-*.pkg
-          upload_one() {
-            file="$1"
-            for i in 1 2 3 4; do
-              echo "Upload $file (attempt $i/4)"
-              gh release upload "$GITHUB_REF_NAME" "$file" --clobber & pid=$!
-              ( sleep 300; kill -9 "$pid" 2>/dev/null ) & watcher=$!
-              if wait "$pid"; then kill "$watcher" 2>/dev/null || true; return 0; fi
-              kill "$watcher" 2>/dev/null || true
-              echo "Attempt $i failed or timed out, retrying…"; sleep 10
-            done
-            return 1
-          }
-          ok=1
-          for f in ChiselCode-Setup-*.pkg; do upload_one "$f" || ok=0; done
-          [ "$ok" = 1 ] || { echo "Upload failed"; exit 1; }
+      - name: Stage macOS installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos
+          path: ChiselCode-Setup-*.pkg
+          if-no-files-found: error
+          retention-days: 7
 
   installer-linux:
     name: Build Linux installer
     runs-on: ubuntu-latest
-    needs: release
+    needs: verify
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -214,18 +161,68 @@ jobs:
            with confirmation.
           EOF
           dpkg-deb --build "$root" "ChiselCode-Setup-${ver}-linux-amd64.deb"
-      - name: Upload installer
+      - name: Stage Linux installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-linux
+          path: ChiselCode-Setup-*-linux-amd64.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish verified installers
+    runs-on: ubuntu-latest
+    needs: [verify, installer-windows, installer-macos, installer-linux]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Download verified installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: dist/release-artifacts
+          merge-multiple: true
+      - name: Create draft, upload assets, then publish
         shell: bash
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
-          # NOTE: без GNU timeout (его нет на macOS): watchdog через sleep+kill.
-          ok=0
-          for i in 1 2 3; do
-            echo "Upload attempt $i/3"
-            gh release upload "$GITHUB_REF_NAME" ChiselCode-Setup-*-linux-amd64.deb --clobber & pid=$!
-            ( sleep 300; kill -9 "$pid" 2>/dev/null ) & watcher=$!
-            if wait "$pid"; then ok=1; kill "$watcher" 2>/dev/null || true; break; fi
-            kill "$watcher" 2>/dev/null || true
-            echo "Attempt $i failed or timed out, retrying…"; sleep 10
+          set -euo pipefail
+          ver=$(node -p "require('./package.json').version")
+          test "v$ver" = "$GITHUB_REF_NAME"
+          files=(dist/release-artifacts/ChiselCode-Setup-*)
+          test "${#files[@]}" -eq 4
+          test -f "dist/release-artifacts/ChiselCode-Setup-$ver.exe"
+          test -f "dist/release-artifacts/ChiselCode-Setup-$ver-macos-arm64.pkg"
+          test -f "dist/release-artifacts/ChiselCode-Setup-$ver-macos-x64.pkg"
+          test -f "dist/release-artifacts/ChiselCode-Setup-$ver-linux-amd64.deb"
+          awk -v ver="$ver" '
+            $0 == "## [" ver "]" || $0 ~ "^## \\[" ver "\\] " {flag=1; next}
+            /^## \[/ {if (flag) exit; next}
+            flag {print}
+          ' CHANGELOG.md > /tmp/release-notes.md
+          sed -i -e :a -e '/./,$!d' -e :b -e '/^\n*$/{$d;N;ba' -e '}' /tmp/release-notes.md
+          if gh release view "$GITHUB_REF_NAME" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')" = true
+          elif grep -q '[^[:space:]]' /tmp/release-notes.md 2>/dev/null; then
+            prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
+            if [ -n "$prev" ]; then
+              printf '\n**Полный список изменений**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$GITHUB_REF_NAME" >> /tmp/release-notes.md
+            fi
+            gh release create "$GITHUB_REF_NAME" --draft --title "ChiselCode $GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "ChiselCode $GITHUB_REF_NAME"
+          fi
+          for file in "${files[@]}"; do
+            for attempt in 1 2; do
+              if timeout 180 gh release upload "$GITHUB_REF_NAME" "$file" --clobber; then
+                break
+              fi
+              if [ "$attempt" -eq 2 ]; then exit 1; fi
+              sleep 5
+            done
           done
-          [ "$ok" = 1 ] || { echo "Upload failed after 3 attempts"; exit 1; }
+          count=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')
+          test "$count" -eq 4
+          gh release edit "$GITHUB_REF_NAME" --draft=false

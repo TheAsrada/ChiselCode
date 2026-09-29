@@ -70,6 +70,7 @@ import {
   TuiApp,
   type TuiTranscript,
 } from "./ui/tui.js";
+import { TuiController } from "./ui/tui-controller.js";
 import { createWindowsConsoleSelectionGuard } from "./ui/windows-clipboard.js";
 import { resolveProjectDir } from "./utils/paths.js";
 import { VERSION } from "./version.js";
@@ -145,7 +146,15 @@ program
       (raw.provider as string | undefined) ?? argvFlagValue("--provider");
     if (provider && !isProvider(provider))
       throw new Error(`Неизвестный сервис: ${provider}`);
-    await startSetup(provider as ProviderKind | undefined);
+    if (process.env.CHISEL_OPENTUI_DEV === "1") {
+      const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
+      await runOpenTuiAgent(
+        { provider: provider as ProviderKind | undefined },
+        undefined,
+        true,
+        true,
+      );
+    } else await startSetup(provider as ProviderKind | undefined);
     await pauseBeforeExit();
   });
 
@@ -461,7 +470,13 @@ async function startTui(options: RunOptions): Promise<void> {
     options.provider ?? initialSession?.provider ?? config.defaultProvider;
   const provider = configuredProvider ?? "anthropic";
   const providerConfig = config.providers[provider];
-  if (!(await hasApiKey(provider, providerConfig?.apiKeyRef))) {
+  const keyReady = await hasApiKey(provider, providerConfig?.apiKeyRef);
+  if (process.env.CHISEL_OPENTUI_DEV === "1") {
+    const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
+    await runOpenTuiAgent(options, initialSession, !keyReady);
+    return;
+  }
+  if (!keyReady) {
     process.stdout.write(
       "Добро пожаловать в ChiselCode. Сначала настроим доступ к выбранному сервису.\n",
     );
@@ -472,6 +487,11 @@ async function startTui(options: RunOptions): Promise<void> {
 
   const resolver = createTuiApprovalResolver();
   let activeOptions: RunOptions = { ...options, resume: initialSession?.id };
+  const controller = new TuiController(activeOptions.cwd ?? process.cwd());
+  if (initialSession) {
+    controller.switchSession(initialSession);
+    controller.setSessionUsage(initialSession);
+  }
   let transcript: TuiTranscript | undefined;
   let active = false;
   let cachedSessionList: Session[] = [];
@@ -536,7 +556,15 @@ async function startTui(options: RunOptions): Promise<void> {
         classic: !useAltScreen,
         nativeWheelScroll: alternateScroll,
         bindTranscript: (nextTranscript: TuiTranscript) => {
-          transcript = nextTranscript;
+          // Ink replays the initial session itself after binding. Seed the
+          // controller separately so a future renderer can replay it too.
+          if (initialSession && controller.snapshot.transcript.length === 0) {
+            controller.bind(undefined);
+            replaySessionIntoTranscript(controller, initialSession);
+          }
+          controller.bind(nextTranscript, false);
+          controller.refreshGitChanges();
+          transcript = controller;
         },
         onStatus: async () => {
           const current = await loadGlobalConfig();
@@ -592,6 +620,7 @@ async function startTui(options: RunOptions): Promise<void> {
             cwd: resolved,
             resume: undefined,
           };
+          controller.switchSession(undefined, resolved);
           return `✓ Проект сменён: ${resolved}\nСледующий запрос начнёт новую сессию в этой папке.`;
         },
         onSaveSettings: async (values: TuiSettingsValues) => {
@@ -696,6 +725,10 @@ async function startTui(options: RunOptions): Promise<void> {
               "claude-opus-5",
           );
           activeOptions = { ...activeOptions, resume: id };
+          controller.switchSession({
+            id,
+            projectPath: activeOptions.cwd ?? process.cwd(),
+          });
         },
         onListSessions: async () => {
           cachedSessionList = await listSessions(
@@ -722,7 +755,7 @@ async function startTui(options: RunOptions): Promise<void> {
           ).delete(id);
           if (activeOptions.resume === id) {
             activeOptions = { ...activeOptions, resume: undefined };
-            transcript?.clear();
+            controller.switchSession();
           }
         },
         onResumeSession: async (ref: string) => {
@@ -732,7 +765,8 @@ async function startTui(options: RunOptions): Promise<void> {
           );
           const found = await store.load((await store.resolve(trimmed)).id);
           activeOptions = { ...activeOptions, resume: found.id };
-          transcript?.clear();
+          controller.switchSession(found);
+          controller.setSessionUsage(found);
           if (transcript) replaySessionIntoTranscript(transcript, found);
           const title = found.title?.trim() || "без названия";
           return (
@@ -751,6 +785,7 @@ async function startTui(options: RunOptions): Promise<void> {
           // следующий текст естественно начинает новую строку.
           let hasAnyText = false;
           const started = Date.now();
+          const toolHandlers = toolTranscriptHandlers(() => transcript);
           try {
             const { result } = await runPrompt(
               prompt,
@@ -762,11 +797,27 @@ async function startTui(options: RunOptions): Promise<void> {
                   transcript?.appendToLast(text);
                   hasAnyText = true;
                 },
-                ...toolTranscriptHandlers(() => transcript),
+                ...toolHandlers,
+                onToolResult: (name, result) => {
+                  toolHandlers.onToolResult?.(name, result);
+                  if (
+                    !result.isError &&
+                    !result.requiresApproval &&
+                    [
+                      "write_file",
+                      "edit_file",
+                      "delete_file",
+                      "run_shell",
+                      "git_commit",
+                    ].includes(name)
+                  )
+                    controller.refreshGitChanges();
+                },
               },
             );
             // Сессия живёт между сообщениями: следующее продолжит эту же.
             activeOptions = { ...activeOptions, resume: result.session.id };
+            controller.setSessionUsage(result.session);
             if (!hasAnyText)
               transcript.append(
                 result.text ||
@@ -882,6 +933,7 @@ async function startTui(options: RunOptions): Promise<void> {
   } catch {
     failed = true;
   } finally {
+    controller.dispose();
     if (sizeSync) clearInterval(sizeSync);
     disableAlternateScroll();
     selectionGuard?.close();

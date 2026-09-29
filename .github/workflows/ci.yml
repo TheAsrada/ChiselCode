@@ -39,3 +39,54 @@ jobs:
         run: bun run lint
       - name: Build package
         run: bun run build
+      - name: Smoke installed npm package
+        shell: bash
+        run: |
+          tarball=$(npm pack --silent --pack-destination dist)
+          npm install --prefix ./dist/install-smoke "./dist/$tarball"
+          bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js --version
+          bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js doctor > installed-doctor.txt || status=$?
+          test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
+          grep -q 'ChiselCode' installed-doctor.txt
+      - name: Compile and smoke OpenTUI native binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          binary=dist/opentui-spike
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build ./scripts/opentui-spike.tsx --compile --outfile="$binary"
+          "$binary" --version
+          "$binary" --smoke
+      - name: Cross-compile macOS OpenTUI native targets
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          npm install --no-save --package-lock=false --force --ignore-scripts \
+            @opentui/core-darwin-arm64@0.5.12 @opentui/core-darwin-x64@0.5.12
+          test -f node_modules/@opentui/core-darwin-arm64/package.json
+          test -f node_modules/@opentui/core-darwin-x64/package.json
+          for arch in arm64 x64; do
+            bun build ./scripts/opentui-spike.tsx --compile --target="bun-darwin-$arch" --outfile="dist/opentui-spike-$arch"
+          done
+          host_arch=$(uname -m)
+          if [ "$host_arch" = x86_64 ]; then host_arch=x64; fi
+          "dist/opentui-spike-$host_arch" --smoke
+      - name: Smoke compiled CLI commands
+        shell: bash
+        run: |
+          binary=dist/chisel
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build ./src/cli.ts --compile --outfile="$binary"
+          "$binary" --version
+          "$binary" doctor > doctor-output.txt || status=$?
+          test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
+          grep -q 'ChiselCode' doctor-output.txt
+      - name: Stage interactive binaries for terminal checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: opentui-terminal-${{ matrix.os }}
+          path: |
+            dist/chisel*
+            dist/opentui-spike*
+          if-no-files-found: error
+          retention-days: 7

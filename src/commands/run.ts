@@ -249,6 +249,7 @@ export async function runPrompt(
   options: RunOptions,
   resolver: ApprovalResolver,
   events: RunEventHandlers = {},
+  signal?: AbortSignal,
 ): Promise<{ result: AgentResult; exitCode: number }> {
   const projectRoot = options.cwd ?? process.cwd();
   const sessionStore = await projectSessionStore(projectRoot);
@@ -261,7 +262,10 @@ export async function runPrompt(
         resolveProvider(options, global.defaultProvider),
         resolveModel(options, global.defaultModel),
       );
-  if (options.resume && options.model) session.model = options.model;
+  if (options.resume && options.model) {
+    if (session.model !== options.model) session.contextSnapshot = undefined;
+    session.model = options.model;
+  }
   if (options.resume && options.provider) session.provider = options.provider;
   if (
     session.messages.length === 0 &&
@@ -328,6 +332,7 @@ export async function runPrompt(
   });
 
   const result = await loop.run(session, prompt, {
+    signal,
     onCheckpoint: (current) => sessionStore.save(current),
   });
   await sessionStore.save(result.session);

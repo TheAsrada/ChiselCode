@@ -2,28 +2,9 @@ import { Box, Text, useInput } from "ink";
 import { useMemo, useState } from "react";
 import type { SessionSummary } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
+import { filterSessions } from "./session-filter.js";
 
-export function filterSessions(
-  sessions: SessionSummary[],
-  query: string,
-): SessionSummary[] {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  return sessions
-    .filter((item) => {
-      const haystack = [
-        item.title,
-        item.lastUserMessage,
-        item.gitBranch,
-        item.model,
-        item.provider,
-        item.id,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return words.every((word) => haystack.includes(word));
-    })
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-}
+export { filterSessions } from "./session-filter.js";
 
 function relativeTime(iso: string): string {
   const delta = Math.max(0, Date.now() - Date.parse(iso));

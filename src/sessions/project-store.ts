@@ -57,6 +57,16 @@ const persistedSessionSchema = z.object({
     }),
   ),
   totalTokens: usageSchema,
+  contextSnapshot: z
+    .object({
+      model: z.string(),
+      observedInputTokens: z.number().nonnegative(),
+      contextWindow: z.number().positive().optional(),
+      observedAt: timestamp,
+      source: z.enum(["provider_usage", "count_tokens"]),
+      status: z.enum(["observed", "estimated"]),
+    })
+    .optional(),
   totalCost: z.number(),
   undoStack: z.array(
     z.object({
@@ -290,6 +300,7 @@ export class ProjectSessionStore {
     const model = overrides.model ?? current?.model ?? defaults.model;
     if (current) {
       current.provider = provider;
+      if (current.model !== model) current.contextSnapshot = undefined;
       current.model = model;
       await this.save(current);
     }
