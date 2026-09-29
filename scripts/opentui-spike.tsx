@@ -42,6 +42,32 @@ if (process.argv.includes("--version")) {
     act(() => classicSetup.renderer.destroy());
     classicController.dispose();
   }
+  const largeController = new TuiController(process.cwd());
+  largeController.replace(
+    Array.from({ length: 10_000 }, (_, index) => ({ text: `line ${index}` })),
+  );
+  const largeSetup = await testRender(null, {
+    width: 80,
+    height: 24,
+    screenMode: "split-footer",
+    externalOutputMode: "capture-stdout",
+    footerHeight: 12,
+  });
+  const startedAt = performance.now();
+  const detachLarge = attachTranscriptScrollback(largeController, largeSetup.renderer);
+  try {
+    await largeSetup.renderOnce();
+    const commits = largeSetup.externalOutput.take();
+    if (commits.length !== 157 || !commits.at(-1)?.text.includes("line 9999"))
+      throw new Error(`OpenTUI large scrollback replay lost entries: ${commits.length} commits`);
+    process.stdout.write(
+      `OpenTUI 10,000-entry native scrollback replay: ${Math.round(performance.now() - startedAt)} ms (${commits.length} commits)\n`,
+    );
+  } finally {
+    detachLarge();
+    act(() => largeSetup.renderer.destroy());
+    largeController.dispose();
+  }
 } else {
   const controller = new TuiController(process.cwd());
   controller.refreshGitChanges();

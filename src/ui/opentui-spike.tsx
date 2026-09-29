@@ -240,6 +240,7 @@ export function OpenTuiSpike({
   }, [approval, pickerOpen, settingsOpen, skillsOpen, contextOnly, focus]);
 
   useKeyboard((key) => {
+    if (key.ctrl && key.name === "c") return onExit();
     if (approval) {
       const answer = key.name.toLowerCase();
       if (answer === "y" || answer === "н")
@@ -249,7 +250,6 @@ export function OpenTuiSpike({
       return;
     }
     if (pickerOpen || settingsOpen || skillsOpen) return;
-    if (key.ctrl && key.name === "c") return onExit();
     if (suggestions.length > 0 && focus === "editor" && !contextOnly) {
       if (key.name === "escape") {
         key.preventDefault();

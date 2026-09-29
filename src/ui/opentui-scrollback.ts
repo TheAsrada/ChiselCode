@@ -1,7 +1,9 @@
-import { type CliRenderer, TextRenderable } from "@opentui/core";
+import { BoxRenderable, type CliRenderer, TextRenderable } from "@opentui/core";
 import stringWidth from "string-width";
 import { changedLinePreview, terminalSafeText } from "./opentui-transcript.js";
 import type { TranscriptEntry, TuiController } from "./tui-controller.js";
+
+const COMMIT_BATCH = 64;
 
 /** Keep completed messages in the terminal's main-screen history, above the live footer. */
 export function attachTranscriptScrollback(
@@ -40,23 +42,38 @@ export function attachTranscriptScrollback(
       if (!entry || entry.id <= lastId) break;
       pending.push(entry);
     }
-    for (const entry of pending.reverse()) {
+    pending.reverse();
+    for (let index = 0; index < pending.length; index += COMMIT_BATCH) {
+      const batch = pending.slice(index, index + COMMIT_BATCH);
       renderer.writeToScrollback(({ width, renderContext }) => {
-        const lines = scrollbackRows(entry, Math.max(1, width - 2));
-        return {
-          root: new TextRenderable(renderContext, {
-            content: lines.join("\n"),
-            width,
-            height: lines.length,
-            fg: scrollbackColor(entry.tone),
-          }),
+        const root = new BoxRenderable(renderContext, {
           width,
-          height: lines.length,
+          flexDirection: "column",
+          shouldFill: false,
+        });
+        let height = 0;
+        for (const entry of batch) {
+          const lines = scrollbackRows(entry, Math.max(1, width - 2));
+          root.add(
+            new TextRenderable(renderContext, {
+              content: lines.join("\n"),
+              width,
+              height: lines.length,
+              fg: scrollbackColor(entry.tone),
+            }),
+          );
+          height += lines.length;
+        }
+        root.height = height;
+        return {
+          root,
+          width,
+          height,
           startOnNewLine: true,
           trailingNewline: true,
         };
       });
-      lastId = entry.id;
+      lastId = batch.at(-1)?.id ?? lastId;
     }
   });
 }

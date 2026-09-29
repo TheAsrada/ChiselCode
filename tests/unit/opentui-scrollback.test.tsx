@@ -81,3 +81,30 @@ test("scrollback wraps wide Unicode and preserves line breaks", () => {
     scrollbackRows({ id: 0, text: "12345", tone: "assistant" }, 4),
   ).toEqual(["1234", "5"]);
 });
+
+test("large session replay batches commits without losing entries", async () => {
+  const controller = new TuiController(process.cwd());
+  controller.replace(
+    Array.from({ length: 130 }, (_, index) => ({ text: `entry ${index}` })),
+  );
+  const setup = await testRender(null, {
+    width: 80,
+    height: 24,
+    screenMode: "split-footer",
+    externalOutputMode: "capture-stdout",
+    footerHeight: 12,
+  });
+  const detach = attachTranscriptScrollback(controller, setup.renderer);
+  try {
+    await setup.renderOnce();
+    const commits = setup.externalOutput.take();
+    expect(commits).toHaveLength(3);
+    expect(commits.map(({ text }) => text).join("\n")).toContain("entry 129");
+    expect(commits[0]?.text).toContain("entry 63");
+    expect(commits[1]?.text).toContain("entry 64");
+  } finally {
+    detach();
+    act(() => setup.renderer.destroy());
+    controller.dispose();
+  }
+});

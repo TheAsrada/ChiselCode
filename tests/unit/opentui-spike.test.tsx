@@ -258,3 +258,22 @@ test("Ctrl+D exits the developer composer when the draft is empty", async () => 
     act(() => setup.renderer.destroy());
   }
 });
+
+test("Ctrl+C remains available while an approval owns keyboard focus", async () => {
+  const resolver = createTuiApprovalResolver();
+  let exits = 0;
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => exits++} approvalResolver={resolver} />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await act(async () => {
+      void resolver.requestApproval({ tool: "run_shell", preview: "command" });
+    });
+    act(() => setup.mockInput.pressCtrlC());
+    expect(exits).toBe(1);
+  } finally {
+    resolver.dispose();
+    act(() => setup.renderer.destroy());
+  }
+});
