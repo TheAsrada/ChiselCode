@@ -1,5 +1,9 @@
 /** @jsxImportSource @opentui/react */
-import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
+import type {
+  BoxRenderable,
+  ScrollBoxRenderable,
+  TextareaRenderable,
+} from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useState } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
@@ -82,6 +86,7 @@ export function OpenTuiSpike({
   const applyingHistory = React.useRef(false);
   const acceptedCompletion = React.useRef<string | undefined>(undefined);
   const transcript = React.useRef<ScrollBoxRenderable>(null);
+  const sidebar = React.useRef<BoxRenderable>(null);
   const nextId = React.useRef(1);
   const [draft, setDraft] = useState("");
   const [lines, setLines] = useState([
@@ -128,7 +133,9 @@ export function OpenTuiSpike({
   }, [skillsActions, view.projectPath, skillsOpen]);
   const [expanded, setExpanded] = useState(false);
   const [windowEnd, setWindowEnd] = useState<number>();
-  const [focus, setFocus] = useState<"editor" | "transcript">("editor");
+  const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
+    "editor",
+  );
   const layout = sidebarLayout(width, mode, overlayDismissed);
   const showSidebar = layout.placement !== "hidden";
   const contextOnly =
@@ -235,9 +242,16 @@ export function OpenTuiSpike({
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
-      else transcript.current?.focus();
+      else if (focus === "transcript") transcript.current?.focus();
+      else sidebar.current?.focus();
     }
   }, [approval, pickerOpen, settingsOpen, skillsOpen, contextOnly, focus]);
+  useEffect(() => {
+    if (focus === "sidebar" && !showSidebar) {
+      setFocus("editor");
+      controller?.setFocus("composer");
+    }
+  }, [focus, showSidebar, controller]);
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") return onExit();
@@ -274,13 +288,25 @@ export function OpenTuiSpike({
     if (key.name === "escape") {
       if (contextOnly) setOverlayDismissed(true);
       else if (expanded) setExpanded(false);
-      else onExit();
+      else if (focus !== "editor") {
+        setFocus("editor");
+        controller?.setFocus("composer");
+      } else onExit();
+      return;
     }
     if (key.ctrl && key.name === "b")
       changeMode(toggleSidebarMode(mode, width));
     if (key.name === "tab" && !contextOnly) {
-      setFocus((value) => (value === "editor" ? "transcript" : "editor"));
-      if (focus === "editor") transcript.current?.focus();
+      key.preventDefault();
+      const next =
+        focus === "editor"
+          ? "transcript"
+          : focus === "transcript" && showSidebar
+            ? "sidebar"
+            : "editor";
+      setFocus(next);
+      controller?.setFocus(next === "editor" ? "composer" : next);
+      return;
     }
     if (key.ctrl && key.name === "d") {
       key.preventDefault();
@@ -395,7 +421,7 @@ export function OpenTuiSpike({
         onClose={() => {
           setPickerOpen(false);
           controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : "transcript");
+          controller?.setFocus(focus === "editor" ? "composer" : focus);
         }}
       />
     );
@@ -412,7 +438,7 @@ export function OpenTuiSpike({
           setSetupPending(false);
           setSettingsOpen(false);
           controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : "transcript");
+          controller?.setFocus(focus === "editor" ? "composer" : focus);
         }}
       />
     );
@@ -425,7 +451,7 @@ export function OpenTuiSpike({
         onClose={() => {
           setSkillsOpen(false);
           controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : "transcript");
+          controller?.setFocus(focus === "editor" ? "composer" : focus);
         }}
       />
     );
@@ -569,15 +595,18 @@ export function OpenTuiSpike({
       )}
       {showSidebar && (
         <box
+          ref={sidebar}
           width={contextOnly ? width : 41}
           height={height}
           flexDirection="row"
+          focusable
         >
           {!contextOnly && <box width={1} backgroundColor="#465264" />}
           <ContextSidebar
             state={view}
             width={contextOnly ? Math.min(width, 40) : 40}
             height={height}
+            focused={focus === "sidebar"}
           />
         </box>
       )}

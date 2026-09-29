@@ -277,3 +277,32 @@ test("Ctrl+C remains available while an approval owns keyboard focus", async () 
     act(() => setup.renderer.destroy());
   }
 });
+
+test("Tab reaches the inline sidebar and Esc restores composer focus", async () => {
+  const controller = new TuiController(process.cwd());
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} controller={controller} />,
+    { width: 120, height: 30 },
+  );
+  try {
+    await setup.renderOnce();
+    await act(async () => setup.mockInput.pasteBracketedText("черновик"));
+    act(() => setup.mockInput.pressTab());
+    expect(controller.snapshot.focus).toBe("transcript");
+    act(() => setup.mockInput.pressTab());
+    await setup.renderOnce();
+    expect(controller.snapshot.focus).toBe("sidebar");
+    expect(setup.captureCharFrame()).toContain("› Контекст");
+    await act(async () => {
+      setup.mockInput.pressEscape();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+    expect(controller.snapshot.focus).toBe("composer");
+    await act(async () => setup.resize(80, 24));
+    await setup.renderOnce();
+    expect(controller.snapshot.draft).toBe("черновик");
+  } finally {
+    act(() => setup.renderer.destroy());
+    controller.dispose();
+  }
+});

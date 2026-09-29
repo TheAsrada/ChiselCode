@@ -20,10 +20,12 @@ export function ContextSidebar({
   state,
   width = 40,
   height = 24,
+  focused = false,
 }: {
   state: TuiViewState;
   width?: number;
   height?: number;
+  focused?: boolean;
 }) {
   const usage = state.usage;
   const progress = contextProgress(usage?.contextSnapshot);
@@ -40,7 +42,7 @@ export function ContextSidebar({
       paddingLeft={1}
       paddingRight={1}
     >
-      <text fg={title}>Контекст</text>
+      <text fg={title}>{focused ? "› Контекст" : "Контекст"}</text>
       <text fg={quiet}>
         {safeLine(`${usage?.provider ?? "—"} / ${usage?.model ?? "—"}`)}
       </text>
