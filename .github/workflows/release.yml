@@ -4,9 +4,18 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag matching package.json (for example v0.5.41)"
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   verify:
@@ -31,7 +40,11 @@ jobs:
         run: bun run lint
       - name: Verify tag version
         shell: bash
-        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+        run: |
+          test "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            test "$GITHUB_REF" = refs/heads/main
+          fi
 
   installer-windows:
     name: Build Windows installer
@@ -190,7 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           ver=$(node -p "require('./package.json').version")
-          test "v$ver" = "$GITHUB_REF_NAME"
+          test "v$ver" = "$RELEASE_TAG"
           files=(dist/release-artifacts/ChiselCode-Setup-*)
           test "${#files[@]}" -eq 4
           test -f "dist/release-artifacts/ChiselCode-Setup-$ver.exe"
@@ -203,26 +216,26 @@ jobs:
             flag {print}
           ' CHANGELOG.md > /tmp/release-notes.md
           sed -i -e :a -e '/./,$!d' -e :b -e '/^\n*$/{$d;N;ba' -e '}' /tmp/release-notes.md
-          if gh release view "$GITHUB_REF_NAME" --json isDraft >/dev/null 2>&1; then
-            test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')" = true
+          if gh release view "$RELEASE_TAG" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
           elif grep -q '[^[:space:]]' /tmp/release-notes.md 2>/dev/null; then
             prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty')
             if [ -n "$prev" ]; then
-              printf '\n**Полный список изменений**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$GITHUB_REF_NAME" >> /tmp/release-notes.md
+              printf '\n**Полный список изменений**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$RELEASE_TAG" >> /tmp/release-notes.md
             fi
-            gh release create "$GITHUB_REF_NAME" --draft --title "ChiselCode $GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --title "ChiselCode $RELEASE_TAG" --notes-file /tmp/release-notes.md
           else
-            gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "ChiselCode $GITHUB_REF_NAME"
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --generate-notes --title "ChiselCode $RELEASE_TAG"
           fi
           for file in "${files[@]}"; do
             for attempt in 1 2; do
-              if timeout 180 gh release upload "$GITHUB_REF_NAME" "$file" --clobber; then
+              if timeout 180 gh release upload "$RELEASE_TAG" "$file" --clobber; then
                 break
               fi
               if [ "$attempt" -eq 2 ]; then exit 1; fi
               sleep 5
             done
           done
-          count=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')
+          count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
           test "$count" -eq 4
-          gh release edit "$GITHUB_REF_NAME" --draft=false
+          gh release edit "$RELEASE_TAG" --draft=false
