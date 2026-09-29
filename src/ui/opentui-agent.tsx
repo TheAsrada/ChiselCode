@@ -259,6 +259,7 @@ export async function runOpenTuiAgent(
     controller.append("Проверяю обновления ChiselCode…", "info");
     try {
       const plan = planSelfUpdate(await checkForUpdates(VERSION), VERSION);
+      if (abort.signal.aborted) return;
       if (plan.error) {
         controller.append(
           `⚠ Не удалось проверить обновление: ${plan.error}\n${RELEASES_PAGE_URL}`,
@@ -292,6 +293,7 @@ export async function runOpenTuiAgent(
         tool: "self_update",
         preview: `Установить ChiselCode v${version}? Сейчас v${plan.current}.\nФайл: ${plan.asset}`,
       });
+      if (abort.signal.aborted) return;
       if (decision !== "approved") {
         controller.append("Обновление отменено.", "info");
         return;
@@ -303,11 +305,13 @@ export async function runOpenTuiAgent(
         );
         return;
       }
+      if (abort.signal.aborted) return;
       controller.append(`Скачиваю ${plan.asset}…`, "info");
       const downloaded = await downloadReleaseAsset(plan.url, plan.asset, {
         expectedBytes: plan.assetSize,
         expectedSha256: plan.sha256,
       });
+      if (abort.signal.aborted) return;
       controller.append(
         `Скачано ${(downloaded.bytes / 1024 / 1024).toFixed(1)} МБ: ${downloaded.path}`,
         "info",
@@ -331,6 +335,10 @@ export async function runOpenTuiAgent(
   const submit = async (input: string): Promise<void> => {
     if (abort.signal.aborted) return;
     if (input === "/exit") return shutdown();
+    if (selfUpdateRunning) {
+      controller.append("Дождитесь завершения обновления.", "warn");
+      return;
+    }
     if (activeRun) {
       pendingPrompts.push(input);
       controller.append(
