@@ -116,6 +116,11 @@ export function OpenTuiSpike({
   const [themeSelection, setThemeSelection] = useState(
     THEME_NAMES.indexOf(initialTheme),
   );
+  const themeSelectionRef = React.useRef(THEME_NAMES.indexOf(initialTheme));
+  const selectThemeIndex = (index: number) => {
+    themeSelectionRef.current = index;
+    setThemeSelection(index);
+  };
   const palette = themePalette(theme, accent);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
@@ -308,13 +313,14 @@ export function OpenTuiSpike({
       if (key.name === "escape" || (key.ctrl && key.name === "t"))
         setThemeOpen(false);
       else if (key.name === "up" || key.name === "down")
-        setThemeSelection(
-          (current) =>
-            (current + (key.name === "up" ? -1 : 1) + THEME_NAMES.length) %
+        selectThemeIndex(
+          (themeSelectionRef.current +
+            (key.name === "up" ? -1 : 1) +
+            THEME_NAMES.length) %
             THEME_NAMES.length,
         );
       else if (key.name === "return" || key.name === "enter") {
-        const selected = THEME_NAMES[themeSelection] ?? "obsidian";
+        const selected = THEME_NAMES[themeSelectionRef.current] ?? "obsidian";
         setTheme(selected);
         onThemeChange?.(selected);
         setThemeOpen(false);
@@ -332,7 +338,7 @@ export function OpenTuiSpike({
     if (pickerOpen || settingsOpen || skillsOpen) return;
     if (key.ctrl && key.name === "t") {
       key.preventDefault();
-      setThemeSelection(THEME_NAMES.indexOf(theme));
+      selectThemeIndex(THEME_NAMES.indexOf(theme));
       setThemeOpen(true);
       return;
     }
@@ -443,7 +449,7 @@ export function OpenTuiSpike({
       return;
     }
     if (value === "/theme") {
-      setThemeSelection(THEME_NAMES.indexOf(theme));
+      selectThemeIndex(THEME_NAMES.indexOf(theme));
       setThemeOpen(true);
       editor.current?.setText("");
       setDraft("");
@@ -625,7 +631,7 @@ export function OpenTuiSpike({
               paddingLeft={1}
               paddingRight={1}
               onMouseUp={() => {
-                setThemeSelection(THEME_NAMES.indexOf(theme));
+                selectThemeIndex(THEME_NAMES.indexOf(theme));
                 setThemeOpen(true);
               }}
             >
@@ -687,15 +693,28 @@ export function OpenTuiSpike({
                 </React.Fragment>
               )}
               {controller && view.streaming && (
-                <box width="100%" flexDirection="row" marginTop={1}>
+                <box
+                  width="100%"
+                  flexDirection="row"
+                  marginTop={1}
+                  shouldFill={false}
+                >
                   <box width={1} backgroundColor={palette.accent} />
-                  <box width="100%" paddingLeft={2} paddingRight={1}>
+                  <box
+                    flexGrow={1}
+                    minWidth={0}
+                    flexDirection="column"
+                    paddingLeft={2}
+                    paddingRight={1}
+                    shouldFill={false}
+                  >
                     <markdown
                       content={terminalSafeText(view.streaming, 20_000)}
                       syntaxStyle={markdownStyleFor(palette)}
                       fg={palette.text}
                       conceal
                       streaming
+                      width="100%"
                     />
                   </box>
                 </box>

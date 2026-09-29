@@ -265,7 +265,7 @@ test("slash suggestions keep the selected command visible past the first page", 
     await setup.renderOnce();
     await act(async () => setup.mockInput.pasteBracketedText("/"));
     act(() => {
-      for (let index = 0; index < 7; index++)
+      for (let index = 0; index < 8; index++)
         setup.mockInput.pressArrow("down");
     });
     await setup.renderOnce();
