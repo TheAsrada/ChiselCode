@@ -39,6 +39,15 @@ jobs:
         run: bun run lint
       - name: Build package
         run: bun run build
+      - name: Smoke installed npm package
+        shell: bash
+        run: |
+          tarball=$(npm pack --silent --pack-destination dist)
+          npm install --prefix ./dist/install-smoke "./dist/$tarball"
+          bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js --version
+          bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js doctor > installed-doctor.txt || status=$?
+          test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
+          grep -q 'ChiselCode' installed-doctor.txt
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |
@@ -72,3 +81,12 @@ jobs:
           "$binary" doctor > doctor-output.txt || status=$?
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' doctor-output.txt
+      - name: Stage interactive binaries for terminal checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: opentui-terminal-${{ matrix.os }}
+          path: |
+            dist/chisel*
+            dist/opentui-spike*
+          if-no-files-found: error
+          retention-days: 7
