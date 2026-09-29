@@ -162,3 +162,39 @@ test("developer agent callback receives one multiline pasted prompt", async () =
     });
   }
 });
+
+test("composer history restores the unsent draft after browsing sent prompts", async () => {
+  const submitted: string[] = [];
+  const setup = await testRender(
+    <OpenTuiSpike
+      onExit={() => {}}
+      onSubmit={async (text) => {
+        submitted.push(text);
+      }}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    for (const prompt of ["первый", "второй"]) {
+      await act(async () => {
+        await setup.mockInput.pasteBracketedText(prompt);
+        setup.mockInput.pressEnter();
+      });
+    }
+    await act(async () => {
+      await setup.mockInput.pasteBracketedText("черновик");
+      setup.mockInput.pressArrow("up");
+    });
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("второй");
+    act(() => setup.mockInput.pressKey("p", { ctrl: true }));
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("первый");
+    act(() => setup.mockInput.pressKey("n", { ctrl: true }));
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("второй");
+    act(() => setup.mockInput.pressArrow("down"));
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("черновик");
+    expect(submitted).toEqual(["первый", "второй"]);
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});

@@ -4,6 +4,11 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useState } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
 import { ContextSidebar } from "./context-sidebar.js";
+import {
+  addEditorHistory,
+  createEditorState,
+  navigateEditorHistory,
+} from "./editor.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import {
   OpenTuiSessions,
@@ -64,6 +69,8 @@ export function OpenTuiSpike({
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
+  const history = React.useRef(createEditorState());
+  const applyingHistory = React.useRef(false);
   const transcript = React.useRef<ScrollBoxRenderable>(null);
   const nextId = React.useRef(1);
   const [draft, setDraft] = useState("");
@@ -131,6 +138,23 @@ export function OpenTuiSpike({
     onModeChange?.(next);
   };
 
+  const browseHistory = (direction: -1 | 1) => {
+    const input = editor.current;
+    if (!input) return;
+    const next = navigateEditorHistory(history.current, direction);
+    if (next === history.current) return;
+    history.current = next;
+    applyingHistory.current = true;
+    try {
+      input.setText(next.value);
+      input.cursorOffset = next.cursor;
+    } finally {
+      applyingHistory.current = false;
+    }
+    setDraft(next.value);
+    controller?.setDraft(next.value);
+  };
+
   useEffect(() => {
     if (
       !approval &&
@@ -167,6 +191,37 @@ export function OpenTuiSpike({
       if (focus === "editor") transcript.current?.focus();
     }
     if (key.ctrl && key.name === "d") setExpanded((value) => !value);
+    if (focus === "editor" && !contextOnly && key.ctrl && key.name === "p") {
+      key.preventDefault();
+      browseHistory(-1);
+      return;
+    }
+    if (focus === "editor" && !contextOnly && key.ctrl && key.name === "n") {
+      key.preventDefault();
+      browseHistory(1);
+      return;
+    }
+    if (
+      focus === "editor" &&
+      !contextOnly &&
+      key.name === "up" &&
+      editor.current?.logicalCursor.row === 0
+    ) {
+      key.preventDefault();
+      browseHistory(-1);
+      return;
+    }
+    if (
+      focus === "editor" &&
+      !contextOnly &&
+      key.name === "down" &&
+      editor.current?.logicalCursor.row ===
+        (editor.current?.plainText.split("\n").length ?? 1) - 1
+    ) {
+      key.preventDefault();
+      browseHistory(1);
+      return;
+    }
     if (key.name === "pageup") shiftWindow("up");
     if (key.name === "pagedown") shiftWindow("down");
     if (key.name === "end") {
@@ -179,6 +234,7 @@ export function OpenTuiSpike({
     if (approval) return;
     const value = editor.current?.plainText.trim();
     if (!value) return;
+    history.current = addEditorHistory(history.current, value);
     if (value === "/sidebar" || value.startsWith("/sidebar ")) {
       const arg = value.slice("/sidebar".length).trim();
       const next = arg ? parseSidebarMode(arg) : toggleSidebarMode(mode, width);
@@ -365,6 +421,19 @@ export function OpenTuiSpike({
             placeholder="Напишите сообщение…"
             onContentChange={() => {
               const next = editor.current?.plainText ?? "";
+              if (
+                applyingHistory.current ||
+                (history.current.historyIndex >= 0 &&
+                  next === history.current.value)
+              )
+                return;
+              history.current = {
+                ...history.current,
+                value: next,
+                cursor: editor.current?.cursorOffset ?? next.length,
+                historyIndex: -1,
+                historyDraft: "",
+              };
               setDraft(next);
               controller?.setDraft(next);
             }}

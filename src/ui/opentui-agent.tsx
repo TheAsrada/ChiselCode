@@ -9,10 +9,20 @@ import {
   type RunOptions,
   runPrompt,
 } from "../commands/run.js";
+import {
+  checkAssetAvailable,
+  checkForUpdates,
+  downloadReleaseAsset,
+  launchWindowsInstaller,
+  NSIS_SILENT_ARGS,
+  planSelfUpdate,
+  RELEASES_PAGE_URL,
+} from "../commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
 import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import { CredentialStore } from "../security/credentials.js";
 import { projectSessionStore } from "../sessions/project-store.js";
+import { shortSessionId } from "../sessions/store.js";
 import {
   buildActiveSkillsPrompt,
   expandSkill,
@@ -21,12 +31,15 @@ import {
 } from "../skills/skills.js";
 import type { GlobalConfig, Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
+import { VERSION } from "../version.js";
+import { commandHelpText, suggestSimilarCommand } from "./commands.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import type { OpenTuiSettingsActions } from "./opentui-settings.js";
 import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
 import { defaultModelFor } from "./setup.js";
+import { formatStatusDashboard } from "./theme.js";
 import {
   replaySessionIntoTranscript,
   toolTranscriptHandlers,
@@ -64,6 +77,7 @@ export async function runOpenTuiAgent(
   const root = createRoot(renderer);
   const abort = new AbortController();
   let activeRun: Promise<void> | undefined;
+  let selfUpdateRunning = false;
   const pendingPrompts: string[] = [];
   const activeSkillNames = new Set<string>();
   let pendingSave: Promise<void> = Promise.resolve();
@@ -197,6 +211,122 @@ export async function runOpenTuiAgent(
       );
     },
   };
+  const statusText = async (diagnostic = false): Promise<string> => {
+    const current = await loadGlobalConfig();
+    const provider = diagnostic
+      ? (current.defaultProvider ?? "anthropic")
+      : (activeOptions.provider ?? current.defaultProvider ?? "anthropic");
+    const selected = current.providers[provider];
+    const usage = diagnostic ? undefined : controller.snapshot.usage;
+    return formatStatusDashboard({
+      providerLabel: {
+        anthropic: "Anthropic (Claude)",
+        "anthropic-compatible": "Anthropic-совместимый API",
+        openai: "OpenAI",
+        "openai-compatible": "OpenAI-совместимый API",
+        agentrouter: "AgentRouter",
+      }[provider],
+      model: diagnostic
+        ? (selected?.defaultModel ?? current.defaultModel ?? "не выбрана")
+        : (activeOptions.model ??
+          selected?.defaultModel ??
+          current.defaultModel ??
+          "не выбрана"),
+      cwd: activeOptions.cwd ?? process.cwd(),
+      keyReady: await hasApiKey(provider, selected?.apiKeyRef),
+      sessionId:
+        diagnostic || !controller.snapshot.sessionId
+          ? undefined
+          : shortSessionId(controller.snapshot.sessionId),
+      sessionTitle: diagnostic ? undefined : controller.snapshot.sessionTitle,
+      totalTokens: diagnostic
+        ? undefined
+        : (usage?.totalTokens.inputTokens ?? 0) +
+          (usage?.totalTokens.outputTokens ?? 0),
+      totalCost: diagnostic ? undefined : usage?.totalCost,
+    });
+  };
+  const selfUpdate = async (): Promise<void> => {
+    if (selfUpdateRunning) {
+      controller.append(
+        "Обновление уже выполняется, дождитесь завершения.",
+        "warn",
+      );
+      return;
+    }
+    selfUpdateRunning = true;
+    controller.append("Проверяю обновления ChiselCode…", "info");
+    try {
+      const plan = planSelfUpdate(await checkForUpdates(VERSION), VERSION);
+      if (plan.error) {
+        controller.append(
+          `⚠ Не удалось проверить обновление: ${plan.error}\n${RELEASES_PAGE_URL}`,
+          "warn",
+        );
+        return;
+      }
+      if (!plan.updateAvailable) {
+        controller.append(
+          `✓ У вас последняя версия ChiselCode v${plan.current}`,
+          "success",
+        );
+        return;
+      }
+      const version = plan.latest ?? plan.current;
+      if (plan.assetReady === false) {
+        controller.append(
+          `Установщик ${plan.asset} ещё собирается: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
+          "warn",
+        );
+        return;
+      }
+      if (!plan.installedBinary) {
+        controller.append(
+          `Доступна версия v${version}. Запущено из исходников; установите вручную: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
+          "info",
+        );
+        return;
+      }
+      const decision = await approvalResolver.requestApproval({
+        tool: "self_update",
+        preview: `Установить ChiselCode v${version}? Сейчас v${plan.current}.\nФайл: ${plan.asset}`,
+      });
+      if (decision !== "approved") {
+        controller.append("Обновление отменено.", "info");
+        return;
+      }
+      if (plan.assetReady !== true && !(await checkAssetAvailable(plan.url))) {
+        controller.append(
+          `Файл ${plan.asset} ещё не опубликован: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
+          "warn",
+        );
+        return;
+      }
+      controller.append(`Скачиваю ${plan.asset}…`, "info");
+      const downloaded = await downloadReleaseAsset(plan.url, plan.asset, {
+        expectedBytes: plan.assetSize,
+        expectedSha256: plan.sha256,
+      });
+      controller.append(
+        `Скачано ${(downloaded.bytes / 1024 / 1024).toFixed(1)} МБ: ${downloaded.path}`,
+        "info",
+      );
+      if (!plan.autoInstall) {
+        controller.append(
+          `Завершите установку вручную: ${plan.manualCommand ?? plan.url}`,
+          "info",
+        );
+        return;
+      }
+      await launchWindowsInstaller(downloaded.path, NSIS_SILENT_ARGS);
+      controller.append("Установщик запущен. Закрываю ChiselCode…", "info");
+      shutdown();
+    } catch (error) {
+      controller.append(`Ошибка обновления: ${String(error)}`, "error");
+    } finally {
+      selfUpdateRunning = false;
+    }
+  };
   const submit = async (input: string): Promise<void> => {
     if (abort.signal.aborted) return;
     if (input === "/exit") return shutdown();
@@ -215,11 +345,20 @@ export async function runOpenTuiAgent(
     }
     if (input === "/help") {
       controller.append(
-        "/clear · /sessions · /resume <id> · /settings · /model · /skills · /cwd <путь> · /sidebar [auto|show|hide] · /exit",
+        `${commandHelpText(invocableSkills(skillsActions.load()))}\n/sidebar [auto|show|hide] · показать или скрыть контекст`,
         "info",
       );
       return;
     }
+    if (input === "/status" || input === "/doctor") {
+      try {
+        controller.append(await statusText(input === "/doctor"), "info");
+      } catch (error) {
+        controller.append(String(error), "error");
+      }
+      return;
+    }
+    if (input === "/update") return selfUpdate();
     if (input === "/sessions") {
       const sessions = await sessionPicker.load();
       controller.append(
@@ -253,6 +392,13 @@ export async function runOpenTuiAgent(
       }
       return;
     }
+    if (input === "/cwd") {
+      controller.append(
+        `Проект: ${activeOptions.cwd ?? process.cwd()}\nЧтобы сменить папку: /cwd <путь>`,
+        "info",
+      );
+      return;
+    }
     const availableSkills = skillsActions.load();
     const command = input.split(/\s/, 1)[0] ?? input;
     const skill = input.startsWith("/")
@@ -261,8 +407,12 @@ export async function runOpenTuiAgent(
         )
       : undefined;
     if (input.startsWith("/") && !skill) {
+      const hint = suggestSimilarCommand(
+        input,
+        invocableSkills(availableSkills),
+      );
       controller.append(
-        `Команда ${input.split(" ")[0]} ещё не перенесена в OpenTUI`,
+        `Неизвестная команда ${command}${hint ? ` · возможно, ${hint}` : ""}`,
         "warn",
       );
       return;
