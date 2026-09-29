@@ -32,6 +32,7 @@ import {
 import type { GlobalConfig, Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
 import { VERSION } from "../version.js";
+import { themePalette } from "./appearance.js";
 import { commandHelpText, suggestSimilarCommand } from "./commands.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
@@ -63,6 +64,7 @@ export async function runOpenTuiAgent(
   } else controller.refreshGitChanges();
   const approvalResolver = createTuiApprovalResolver();
   const config = await loadGlobalConfig();
+  let currentTheme = config.ui?.theme ?? "obsidian";
   const classic =
     process.env.CHISEL_ALT_SCREEN === "0" ||
     process.env.CHISEL_NO_ALT_SCREEN === "1";
@@ -73,7 +75,9 @@ export async function runOpenTuiAgent(
     exitSignals: [],
   });
   const detachScrollback = classic
-    ? attachTranscriptScrollback(controller, renderer)
+    ? attachTranscriptScrollback(controller, renderer, () =>
+        themePalette(currentTheme, config.ui?.accent),
+      )
     : undefined;
   const root = createRoot(renderer);
   const abort = new AbortController();
@@ -502,6 +506,20 @@ export async function runOpenTuiAgent(
         onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
         initialMode: config.ui?.sidebarMode ?? "auto",
+        initialTheme: config.ui?.theme ?? "obsidian",
+        accent: config.ui?.accent,
+        onThemeChange: (theme) => {
+          currentTheme = theme;
+          pendingSave = pendingSave
+            .then(async () => {
+              const current = await loadGlobalConfig();
+              await saveGlobalConfig({
+                ...current,
+                ui: { ...current.ui, theme },
+              });
+            })
+            .catch(() => {});
+        },
         onModeChange: (mode) => {
           pendingSave = pendingSave
             .then(async () => {

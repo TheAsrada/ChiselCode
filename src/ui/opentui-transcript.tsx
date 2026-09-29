@@ -1,20 +1,35 @@
 /** @jsxImportSource @opentui/react */
 import { stripVTControlCharacters } from "node:util";
+import { SyntaxStyle } from "@opentui/core";
 import React from "react";
 import type { FileDiff } from "../types/domain.js";
+import { type Palette, THEMES } from "./appearance.js";
 import type { TranscriptEntry } from "./tui-controller.js";
 
-const colors: Record<TranscriptEntry["tone"], string> = {
-  assistant: "#d6dce5",
-  user: "#f0f3f7",
-  tool: "#98a6b6",
-  info: "#aebbc9",
-  warn: "#e5bf74",
-  error: "#e98484",
-  success: "#88c89b",
-  dim: "#8390a0",
-  logo: "#83cbd5",
-};
+const markdownStyles = new Map<string, SyntaxStyle>();
+
+export function markdownStyleFor(palette: Palette): SyntaxStyle {
+  const key = `${palette.text}:${palette.accent}`;
+  let style = markdownStyles.get(key);
+  if (!style) {
+    style = SyntaxStyle.fromStyles({
+      default: { fg: palette.text },
+      "markup.heading": { fg: palette.accent, bold: true },
+      "markup.strong": { fg: palette.text, bold: true },
+      "markup.italic": { fg: palette.text, italic: true },
+      "markup.raw": { fg: palette.green },
+      "markup.link": { fg: palette.accent, underline: true },
+      "markup.quote": { fg: palette.muted, italic: true },
+      "markup.list": { fg: palette.accent },
+      keyword: { fg: palette.accent, bold: true },
+      string: { fg: palette.green },
+      number: { fg: palette.yellow },
+      comment: { fg: palette.muted, italic: true },
+    });
+    markdownStyles.set(key, style);
+  }
+  return style;
+}
 export const TRANSCRIPT_WINDOW = 240;
 
 export function visibleTranscriptWindow(
@@ -65,25 +80,82 @@ export function OpenTuiTranscript({
   contentWidth,
   expandedId,
   windowEnd,
+  palette = THEMES.obsidian,
 }: {
   entries: readonly TranscriptEntry[];
   contentWidth: number;
   expandedId?: number;
   windowEnd?: number;
+  palette?: Palette;
 }) {
   const visible = visibleTranscriptWindow(entries, windowEnd);
   return (
     <React.Fragment>
       {visible.start > 0 && (
-        <text fg="#8390a0">
+        <text fg={palette.muted}>
           ↑ Ещё {visible.start} сообщений · PgUp / колесо
         </text>
       )}
       {visible.entries.map((entry) => {
         const diff = entry.fileDiff;
+        if (!diff && entry.tone === "assistant")
+          return (
+            <box key={entry.id} width="100%" flexDirection="row" marginTop={1}>
+              <box width={1} backgroundColor={palette.accent} />
+              <box width="100%" paddingLeft={2} paddingRight={1}>
+                <markdown
+                  content={terminalSafeText(entry.text, 20_000)}
+                  syntaxStyle={markdownStyleFor(palette)}
+                  conceal
+                  fg={palette.text}
+                />
+              </box>
+            </box>
+          );
+        if (!diff && entry.tone === "user")
+          return (
+            <box
+              key={entry.id}
+              width="100%"
+              backgroundColor={palette.surface}
+              paddingLeft={1}
+              paddingRight={1}
+              marginTop={1}
+            >
+              <text fg={palette.accent}>
+                ❯{" "}
+                <span fg={palette.text}>
+                  {terminalSafeText(entry.text.replace(/^❯\s*/, ""), 20_000)}
+                </span>
+              </text>
+            </box>
+          );
+        if (!diff && entry.tone === "tool")
+          return (
+            <text key={entry.id} fg={palette.muted}>
+              {" "}
+              ◆{" "}
+              {terminalSafeText(
+                entry.text.replace(/^\[chisel\]\s*/, ""),
+                20_000,
+              )}
+            </text>
+          );
         if (!diff)
           return (
-            <text key={entry.id} fg={colors[entry.tone]} selectable>
+            <text
+              key={entry.id}
+              fg={
+                entry.tone === "error"
+                  ? palette.red
+                  : entry.tone === "warn"
+                    ? palette.yellow
+                    : entry.tone === "success"
+                      ? palette.green
+                      : palette.muted
+              }
+              selectable
+            >
               {terminalSafeText(entry.text, 20_000)}
             </text>
           );
@@ -96,12 +168,15 @@ export function OpenTuiTranscript({
         });
         return (
           <box key={entry.id} width="100%" flexDirection="column">
-            <text fg="#9fb0c0">
+            <text fg={palette.accent}>
               {terminalSafeText(diff.path, 180)} · +{diff.additions} −
               {diff.deletions} · Ctrl+D
             </text>
             {previewItems.map(({ key, line }) => (
-              <text key={key} fg={line.startsWith("+") ? "#88c89b" : "#e98484"}>
+              <text
+                key={key}
+                fg={line.startsWith("+") ? palette.green : palette.red}
+              >
                 {line}
               </text>
             ))}
@@ -120,7 +195,7 @@ export function OpenTuiTranscript({
         );
       })}
       {visible.end < entries.length && (
-        <text fg="#8390a0">
+        <text fg={palette.muted}>
           ↓ Ещё {entries.length - visible.end} сообщений · PgDn / колесо
         </text>
       )}

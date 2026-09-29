@@ -1,7 +1,9 @@
 /** @jsxImportSource @opentui/react */
+
 import { useKeyboard } from "@opentui/react";
 import { useEffect, useState } from "react";
 import type { Skill } from "../skills/skills.js";
+import { type Palette, THEMES } from "./appearance.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 
 export interface OpenTuiSkillsActions {
@@ -14,11 +16,13 @@ export function OpenTuiSkills({
   actions,
   width,
   height,
+  palette = THEMES.obsidian,
   onClose,
 }: {
   actions: OpenTuiSkillsActions;
   width: number;
   height: number;
+  palette?: Palette;
   onClose: () => void;
 }) {
   const [skills, setSkills] = useState<Skill[]>(() => actions.load());
@@ -60,37 +64,45 @@ export function OpenTuiSkills({
       flexDirection="column"
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor="#111827"
+      backgroundColor={palette.bg}
     >
-      <text fg="#78c8d4">
+      <text fg={palette.accent}>
         ◈ Скиллы {detail && current ? `· /${current.name}` : ""}
       </text>
       {detail && current ? (
         <>
-          <text fg="#aebbc9">{terminalSafeText(current.description, 180)}</text>
-          <text fg={active.includes(current.name) ? "#88c89b" : "#8390a0"}>
+          <text fg={palette.muted}>
+            {terminalSafeText(current.description, 180)}
+          </text>
+          <text
+            fg={active.includes(current.name) ? palette.green : palette.muted}
+          >
             {active.includes(current.name)
               ? "● задействован"
               : "○ не задействован"}
           </text>
           <scrollbox height={Math.max(1, height - 5)} viewportCulling>
-            <text selectable fg="#d6dce5">
+            <text selectable fg={palette.text}>
               {detailText}
             </text>
           </scrollbox>
-          <text fg="#8390a0">Enter включить/отключить · Esc к списку</text>
+          <text fg={palette.muted}>
+            Enter включить/отключить · Esc к списку
+          </text>
         </>
       ) : (
         <>
-          <text fg="#8390a0">
+          <text fg={palette.muted}>
             Enter открыть · активные инструкции идут в каждый запрос
           </text>
           <box height={listHeight} flexDirection="column">
-            {skills.length === 0 && <text fg="#8390a0">Скиллов нет</text>}
+            {skills.length === 0 && <text fg={palette.muted}>Скиллов нет</text>}
             {skills.slice(start, start + listHeight).map((skill) => (
               <text
                 key={skill.name}
-                fg={current?.name === skill.name ? "#78c8d4" : "#aebbc9"}
+                fg={
+                  current?.name === skill.name ? palette.accent : palette.muted
+                }
               >
                 {current?.name === skill.name ? "❯ " : "  "}
                 {skill.userInvocable === false ? skill.name : `/${skill.name}`}{" "}
@@ -103,7 +115,9 @@ export function OpenTuiSkills({
               </text>
             ))}
           </box>
-          <text fg="#8390a0">↑/↓ выбрать · Enter открыть · Esc закрыть</text>
+          <text fg={palette.muted}>
+            ↑/↓ выбрать · Enter открыть · Esc закрыть
+          </text>
         </>
       )}
     </box>

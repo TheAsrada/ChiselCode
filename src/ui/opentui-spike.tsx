@@ -9,6 +9,12 @@ import React, { useEffect, useState } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
 import { invocableSkills } from "../skills/skills.js";
 import {
+  THEME_NAMES,
+  THEMES,
+  type ThemeName,
+  themePalette,
+} from "./appearance.js";
+import {
   type CommandSuggestion,
   isSlashInput,
   MAX_VISIBLE_SUGGESTIONS,
@@ -20,6 +26,7 @@ import {
   createEditorState,
   navigateEditorHistory,
 } from "./editor.js";
+import { COMPACT_LOGO } from "./logo.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import {
   OpenTuiSessions,
@@ -31,6 +38,7 @@ import {
 } from "./opentui-settings.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
 import {
+  markdownStyleFor,
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
   terminalSafeText,
@@ -66,6 +74,9 @@ export function OpenTuiSpike({
   initialSettingsOpen = false,
   onSetupComplete,
   skillsActions,
+  initialTheme = "obsidian",
+  accent,
+  onThemeChange,
 }: {
   onExit: () => void;
   controller?: TuiController;
@@ -79,6 +90,9 @@ export function OpenTuiSpike({
   initialSettingsOpen?: boolean;
   onSetupComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
+  initialTheme?: ThemeName;
+  accent?: string;
+  onThemeChange?: (theme: ThemeName) => void;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -97,6 +111,12 @@ export function OpenTuiSpike({
   const [approval, setApproval] = useState<ApprovalRequest>();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
+  const [theme, setTheme] = useState<ThemeName>(initialTheme);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [themeSelection, setThemeSelection] = useState(
+    THEME_NAMES.indexOf(initialTheme),
+  );
+  const palette = themePalette(theme, accent);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -183,9 +203,10 @@ export function OpenTuiSpike({
     suggestionStart + suggestionLimit,
   );
   const selectedSuggestion = suggestions[selectedSuggestionIndex];
+  const showLogo = height >= 22 && textWidth >= 46;
   const feedHeight = Math.max(
     1,
-    height - editorHeight - 2 - visibleSuggestions.length,
+    height - editorHeight - (showLogo ? 6 : 4) - visibleSuggestions.length,
   );
   let newestDiffId: number | undefined;
   for (let index = view.transcript.length - 1; index >= 0; index--) {
@@ -257,13 +278,22 @@ export function OpenTuiSpike({
       !pickerOpen &&
       !settingsOpen &&
       !skillsOpen &&
+      !themeOpen &&
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
       else if (focus === "transcript") transcript.current?.focus();
       else sidebar.current?.focus();
     }
-  }, [approval, pickerOpen, settingsOpen, skillsOpen, contextOnly, focus]);
+  }, [
+    approval,
+    pickerOpen,
+    settingsOpen,
+    skillsOpen,
+    themeOpen,
+    contextOnly,
+    focus,
+  ]);
   useEffect(() => {
     if (focus === "sidebar" && !showSidebar) {
       setFocus("editor");
@@ -273,6 +303,24 @@ export function OpenTuiSpike({
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") return onExit();
+    if (themeOpen) {
+      key.preventDefault();
+      if (key.name === "escape" || (key.ctrl && key.name === "t"))
+        setThemeOpen(false);
+      else if (key.name === "up" || key.name === "down")
+        setThemeSelection(
+          (current) =>
+            (current + (key.name === "up" ? -1 : 1) + THEME_NAMES.length) %
+            THEME_NAMES.length,
+        );
+      else if (key.name === "return" || key.name === "enter") {
+        const selected = THEME_NAMES[themeSelection] ?? "obsidian";
+        setTheme(selected);
+        onThemeChange?.(selected);
+        setThemeOpen(false);
+      }
+      return;
+    }
     if (approval) {
       const answer = key.name.toLowerCase();
       if (answer === "y" || answer === "н")
@@ -282,6 +330,12 @@ export function OpenTuiSpike({
       return;
     }
     if (pickerOpen || settingsOpen || skillsOpen) return;
+    if (key.ctrl && key.name === "t") {
+      key.preventDefault();
+      setThemeSelection(THEME_NAMES.indexOf(theme));
+      setThemeOpen(true);
+      return;
+    }
     if (suggestions.length > 0 && focus === "editor" && !contextOnly) {
       if (key.name === "escape") {
         key.preventDefault();
@@ -388,6 +442,13 @@ export function OpenTuiSpike({
       setDraft("");
       return;
     }
+    if (value === "/theme") {
+      setThemeSelection(THEME_NAMES.indexOf(theme));
+      setThemeOpen(true);
+      editor.current?.setText("");
+      setDraft("");
+      return;
+    }
     if (sessionPicker && (value === "/sessions" || value === "/resume")) {
       setPickerOpen(true);
       controller?.setOverlay("sessions");
@@ -429,13 +490,65 @@ export function OpenTuiSpike({
   };
 
   if (approval)
-    return <OpenTuiApproval request={approval} width={width} height={height} />;
+    return (
+      <OpenTuiApproval
+        request={approval}
+        width={width}
+        height={height}
+        palette={palette}
+      />
+    );
+  if (themeOpen)
+    return (
+      <box
+        width={width}
+        height={height}
+        backgroundColor={palette.bg}
+        flexDirection="column"
+        padding={2}
+      >
+        <text fg={palette.accent}>◈ ОФОРМЛЕНИЕ CHISELCODE</text>
+        <text fg={palette.muted}>↑↓ выбрать · Enter применить · Esc назад</text>
+        <box height={1} />
+        {THEME_NAMES.map((name, index) => {
+          const colors = THEMES[name];
+          return (
+            // biome-ignore lint/a11y/noStaticElementInteractions: Terminal palette has full keyboard control above.
+            <box
+              key={name}
+              backgroundColor={
+                index === themeSelection ? palette.raised : palette.bg
+              }
+              paddingLeft={1}
+              onMouseUp={() => {
+                setTheme(name);
+                onThemeChange?.(name);
+                setThemeOpen(false);
+              }}
+            >
+              <text
+                fg={index === themeSelection ? palette.accent : palette.text}
+              >
+                {index === themeSelection ? "❯" : " "} {colors.label.padEnd(12)}{" "}
+                {colors.description}
+                {theme === name ? "  ✓" : ""}
+              </text>
+            </box>
+          );
+        })}
+        <box height={1} />
+        <text fg={palette.muted}>
+          Свой акцент: поле ui.accent в конфиге (#RRGGBB)
+        </text>
+      </box>
+    );
   if (pickerOpen && sessionPicker)
     return (
       <OpenTuiSessions
         actions={sessionPicker}
         width={width}
         height={height}
+        palette={palette}
         onClose={() => {
           setPickerOpen(false);
           controller?.setOverlay();
@@ -449,6 +562,7 @@ export function OpenTuiSpike({
         actions={settingsActions}
         width={width}
         height={height}
+        palette={palette}
         initialSelection={settingsSelection}
         onClose={(outcome) => {
           if (setupPending && outcome !== "saved") return onExit();
@@ -466,6 +580,7 @@ export function OpenTuiSpike({
         actions={skillsActions}
         width={width}
         height={height}
+        palette={palette}
         onClose={() => {
           setSkillsOpen(false);
           controller?.setOverlay();
@@ -479,7 +594,7 @@ export function OpenTuiSpike({
       width={width}
       height={height}
       flexDirection="row"
-      backgroundColor="#111827"
+      backgroundColor={palette.bg}
     >
       {!contextOnly && (
         <box
@@ -489,11 +604,34 @@ export function OpenTuiSpike({
           paddingLeft={1}
           paddingRight={1}
         >
-          <text fg="#78c8d4">
+          {showLogo &&
+            COMPACT_LOGO.map((row) => (
+              <text key={row} fg={palette.accent}>
+                {row}
+              </text>
+            ))}
+          <text fg={palette.accent}>
             {onSubmit
-              ? `ChiselCode · ${terminalSafeText(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 16))}`
-              : `ChiselCode · probe · ${width}×${height}`}
+              ? `◈ ${showLogo ? "" : "ChiselCode  ·  "}${terminalSafeText(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  ·  ${theme}`
+              : `◈ ChiselCode · probe · ${width}×${height} · ${theme}`}
           </text>
+          <box width="100%" flexDirection="row" justifyContent="space-between">
+            <text fg={palette.muted}>
+              {terminalSafeText(view.projectPath, Math.max(8, textWidth - 23))}
+            </text>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+T and /theme provide keyboard access. */}
+            <box
+              backgroundColor={palette.raised}
+              paddingLeft={1}
+              paddingRight={1}
+              onMouseUp={() => {
+                setThemeSelection(THEME_NAMES.indexOf(theme));
+                setThemeOpen(true);
+              }}
+            >
+              <text fg={palette.accent}>◐ Тема Ctrl+T</text>
+            </box>
+          </box>
           {height >= 12 && (
             <scrollbox
               ref={transcript}
@@ -527,15 +665,18 @@ export function OpenTuiSpike({
                   contentWidth={textWidth - 2}
                   expandedId={expanded ? newestDiffId : undefined}
                   windowEnd={classic ? undefined : windowEnd}
+                  palette={palette}
                 />
               ) : (
                 <React.Fragment>
                   {lines.map((line) => (
-                    <text key={line.id} fg="#d6dce5">
+                    <text key={line.id} fg={palette.text}>
                       {line.text}
                     </text>
                   ))}
-                  <text fg="#8090a0">example.ts · +1 −1 · Ctrl+D: diff</text>
+                  <text fg={palette.muted}>
+                    example.ts · +1 −1 · Ctrl+D: diff
+                  </text>
                   {expanded && (
                     <diff
                       diff={PATCH}
@@ -546,12 +687,21 @@ export function OpenTuiSpike({
                 </React.Fragment>
               )}
               {controller && view.streaming && (
-                <text fg="#d6dce5" selectable>
-                  {terminalSafeText(view.streaming, 20_000)}
-                </text>
+                <box width="100%" flexDirection="row" marginTop={1}>
+                  <box width={1} backgroundColor={palette.accent} />
+                  <box width="100%" paddingLeft={2} paddingRight={1}>
+                    <markdown
+                      content={terminalSafeText(view.streaming, 20_000)}
+                      syntaxStyle={markdownStyleFor(palette)}
+                      fg={palette.text}
+                      conceal
+                      streaming
+                    />
+                  </box>
+                </box>
               )}
               {controller && view.toolActivity && (
-                <text fg="#98a6b6">
+                <text fg={palette.muted}>
                   {terminalSafeText(view.toolActivity, 2_000)}
                 </text>
               )}
@@ -562,8 +712,8 @@ export function OpenTuiSpike({
               key={command.name}
               fg={
                 index + suggestionStart === selectedSuggestionIndex
-                  ? "#78c8d4"
-                  : "#98a6b6"
+                  ? palette.accent
+                  : palette.muted
               }
             >
               {terminalSafeText(
@@ -572,13 +722,20 @@ export function OpenTuiSpike({
               )}
             </text>
           ))}
-          <text fg="#f1c56d">
-            {draft ? "Черновик" : "Готово"} · Enter: отправить · Shift+Enter:
-            строка · Esc: выход
+          <text fg={palette.muted}>
+            ╭─{" "}
+            <span fg={palette.accent}>{draft ? "Черновик" : "Сообщение"}</span>{" "}
+            ─ {view.usage?.model ?? "ChiselCode"}
           </text>
           <textarea
             ref={editor}
             height={editorHeight}
+            initialValue={draft}
+            backgroundColor={palette.surface}
+            focusedBackgroundColor={palette.surface}
+            textColor={palette.text}
+            focusedTextColor={palette.text}
+            placeholderColor={palette.muted}
             placeholder="Напишите сообщение…"
             onContentChange={() => {
               const next = editor.current?.plainText ?? "";
@@ -609,6 +766,10 @@ export function OpenTuiSpike({
               { name: "return", shift: true, action: "newline" },
             ]}
           />
+          <text fg={palette.muted}>
+            ╰─ <span fg={palette.accent}>↵ Enter</span> отправить · Shift+Enter
+            строка · Ctrl+T тема · Esc выход
+          </text>
         </box>
       )}
       {showSidebar && (
@@ -619,12 +780,13 @@ export function OpenTuiSpike({
           flexDirection="row"
           focusable
         >
-          {!contextOnly && <box width={1} backgroundColor="#465264" />}
+          {!contextOnly && <box width={1} backgroundColor={palette.border} />}
           <ContextSidebar
             state={view}
             width={contextOnly ? Math.min(width, 40) : 40}
             height={height}
             focused={focus === "sidebar"}
+            palette={palette}
           />
         </box>
       )}

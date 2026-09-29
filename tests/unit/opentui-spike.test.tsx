@@ -309,6 +309,38 @@ test("Ctrl+C remains available while an approval owns keyboard focus", async () 
   }
 });
 
+test("theme picker changes the palette without losing an unsent draft", async () => {
+  const selected: string[] = [];
+  const setup = await testRender(
+    <OpenTuiSpike
+      onExit={() => {}}
+      onThemeChange={(theme) => selected.push(theme)}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    await act(async () =>
+      setup.mockInput.pasteBracketedText("неотправленный текст"),
+    );
+    act(() => setup.mockInput.pressKey("t", { ctrl: true }));
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("ОФОРМЛЕНИЕ CHISELCODE");
+    act(() => {
+      setup.mockInput.pressArrow("down");
+      setup.mockInput.pressEnter();
+    });
+    await setup.renderOnce();
+    expect(selected).toEqual(["graphite"]);
+    expect(setup.captureCharFrame()).toContain("graphite");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+      "неотправленный текст",
+    );
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
+
 test("Tab reaches the inline sidebar and Esc restores composer focus", async () => {
   const controller = new TuiController(process.cwd());
   const setup = await testRender(
