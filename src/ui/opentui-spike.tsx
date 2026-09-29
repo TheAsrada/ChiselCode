@@ -60,6 +60,7 @@ export function OpenTuiSpike({
   sessionPicker,
   settingsActions,
   initialSettingsOpen = false,
+  onSetupComplete,
   skillsActions,
 }: {
   onExit: () => void;
@@ -72,6 +73,7 @@ export function OpenTuiSpike({
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
   initialSettingsOpen?: boolean;
+  onSetupComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
 }) {
   const { width, height } = useTerminalDimensions();
@@ -280,7 +282,12 @@ export function OpenTuiSpike({
       setFocus((value) => (value === "editor" ? "transcript" : "editor"));
       if (focus === "editor") transcript.current?.focus();
     }
-    if (key.ctrl && key.name === "d") setExpanded((value) => !value);
+    if (key.ctrl && key.name === "d") {
+      key.preventDefault();
+      if (onSubmit && focus === "editor" && !draft) onExit();
+      else setExpanded((value) => !value);
+      return;
+    }
     if (focus === "editor" && !contextOnly && key.ctrl && key.name === "p") {
       key.preventDefault();
       browseHistory(-1);
@@ -401,6 +408,7 @@ export function OpenTuiSpike({
         initialSelection={settingsSelection}
         onClose={(outcome) => {
           if (setupPending && outcome !== "saved") return onExit();
+          if (setupPending && outcome === "saved") onSetupComplete?.();
           setSetupPending(false);
           setSettingsOpen(false);
           controller?.setOverlay();

@@ -213,6 +213,7 @@ test("model list selects a discovered model and saves it", async () => {
 
 test("first-run settings require a saved key before showing the composer", async () => {
   let exited = 0;
+  let completed = 0;
   const saved: TuiSettingsValues[] = [];
   const actions: OpenTuiSettingsActions = {
     load: async () => ({
@@ -247,6 +248,7 @@ test("first-run settings require a saved key before showing the composer", async
       await new Promise((resolve) => setTimeout(resolve, 120));
     });
     expect(exited).toBe(1);
+    expect(completed).toBe(0);
   } finally {
     act(() => {
       setup.renderer.destroy();
@@ -262,6 +264,7 @@ test("first-run settings require a saved key before showing the composer", async
       onSubmit={async () => {}}
       settingsActions={actions}
       initialSettingsOpen
+      onSetupComplete={() => completed++}
     />,
     { width: 60, height: 15 },
   );
@@ -298,6 +301,7 @@ test("first-run settings require a saved key before showing the composer", async
     expect(saved[0]?.apiKey).toBe("new-private-key");
     expect(configured.captureCharFrame()).toContain("Напишите сообщение");
     expect(exited).toBe(1);
+    expect(completed).toBe(1);
   } finally {
     act(() => {
       configured.renderer.destroy();

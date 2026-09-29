@@ -146,7 +146,15 @@ program
       (raw.provider as string | undefined) ?? argvFlagValue("--provider");
     if (provider && !isProvider(provider))
       throw new Error(`Неизвестный сервис: ${provider}`);
-    await startSetup(provider as ProviderKind | undefined);
+    if (process.env.CHISEL_OPENTUI_DEV === "1") {
+      const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
+      await runOpenTuiAgent(
+        { provider: provider as ProviderKind | undefined },
+        undefined,
+        true,
+        true,
+      );
+    } else await startSetup(provider as ProviderKind | undefined);
     await pauseBeforeExit();
   });
 

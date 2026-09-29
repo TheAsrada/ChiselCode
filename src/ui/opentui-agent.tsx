@@ -52,6 +52,7 @@ export async function runOpenTuiAgent(
   options: RunOptions,
   initialSession?: Session,
   setupRequired = false,
+  setupOnly = false,
 ): Promise<void> {
   let activeOptions = { ...options, resume: initialSession?.id };
   const controller = new TuiController(options.cwd ?? process.cwd());
@@ -489,7 +490,8 @@ export async function runOpenTuiAgent(
         sessionPicker,
         settingsActions,
         skillsActions,
-        initialSettingsOpen: setupRequired,
+        initialSettingsOpen: setupRequired || setupOnly,
+        onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
         initialMode: config.ui?.sidebarMode ?? "auto",
         onModeChange: (mode) => {

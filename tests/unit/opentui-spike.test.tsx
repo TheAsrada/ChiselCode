@@ -243,3 +243,18 @@ test("slash suggestions keep the selected command visible past the first page", 
     act(() => setup.renderer.destroy());
   }
 });
+
+test("Ctrl+D exits the developer composer when the draft is empty", async () => {
+  let exits = 0;
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => exits++} onSubmit={async () => {}} />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    act(() => setup.mockInput.pressKey("d", { ctrl: true }));
+    expect(exits).toBe(1);
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
