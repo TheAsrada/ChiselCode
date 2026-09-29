@@ -93,6 +93,37 @@ test("large transcript pages backwards and returns to newest messages", async ()
   }
 });
 
+test("resuming another session resets the transcript window to its latest entry", async () => {
+  const controller = new TuiController(process.cwd());
+  controller.switchSession({ id: "old", projectPath: process.cwd() });
+  controller.replace(
+    Array.from({ length: 10_000 }, (_, index) => ({ text: `old ${index}` })),
+  );
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} controller={controller} />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    act(() => setup.mockInput.pressKey("\u001b[5~"));
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("old 9879");
+    act(() => {
+      controller.switchSession({ id: "new", projectPath: process.cwd() });
+      controller.replace(
+        Array.from({ length: 7_000 }, (_, index) => ({
+          text: `new ${index}`,
+        })),
+      );
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("new 6999");
+  } finally {
+    act(() => setup.renderer.destroy());
+    controller.dispose();
+  }
+});
+
 test("approval stays keyboard accessible at narrow width and restores the composer", async () => {
   const approvalResolver = createTuiApprovalResolver();
   const setup = await testRender(

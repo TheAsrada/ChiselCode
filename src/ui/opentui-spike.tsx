@@ -133,6 +133,24 @@ export function OpenTuiSpike({
   }, [skillsActions, view.projectPath, skillsOpen]);
   const [expanded, setExpanded] = useState(false);
   const [windowEnd, setWindowEnd] = useState<number>();
+  const previousLocation = React.useRef({
+    sessionId: view.sessionId,
+    projectPath: view.projectPath,
+  });
+  useEffect(() => {
+    const prior = previousLocation.current;
+    if (
+      prior.projectPath !== view.projectPath ||
+      (prior.sessionId !== undefined && prior.sessionId !== view.sessionId)
+    ) {
+      setWindowEnd(undefined);
+      setExpanded(false);
+    }
+    previousLocation.current = {
+      sessionId: view.sessionId,
+      projectPath: view.projectPath,
+    };
+  }, [view.sessionId, view.projectPath]);
   const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
     "editor",
   );
