@@ -100,31 +100,17 @@ export function OpenTuiTranscript({
         const diff = entry.fileDiff;
         if (!diff && entry.tone === "assistant")
           return (
-            <box
-              key={entry.id}
-              width="100%"
-              flexDirection="row"
-              marginTop={1}
-              shouldFill={false}
-            >
-              <box width={1} backgroundColor={palette.accent} />
-              <box
-                flexGrow={1}
-                minWidth={0}
-                flexDirection="column"
-                paddingLeft={2}
-                paddingRight={1}
-                shouldFill={false}
-              >
-                <markdown
-                  content={terminalSafeText(entry.text, 20_000)}
-                  syntaxStyle={markdownStyleFor(palette)}
-                  conceal
-                  fg={palette.text}
-                  width="100%"
-                />
-              </box>
-            </box>
+            <React.Fragment key={entry.id}>
+              <text fg={palette.accent}>◆ Chisel</text>
+              <markdown
+                content={terminalSafeText(entry.text, 20_000)}
+                syntaxStyle={markdownStyleFor(palette)}
+                conceal
+                fg={palette.text}
+                width={Math.max(12, contentWidth - 2)}
+                marginLeft={2}
+              />
+            </React.Fragment>
           );
         if (!diff && entry.tone === "user")
           return (

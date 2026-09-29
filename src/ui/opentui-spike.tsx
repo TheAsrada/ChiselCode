@@ -693,31 +693,18 @@ export function OpenTuiSpike({
                 </React.Fragment>
               )}
               {controller && view.streaming && (
-                <box
-                  width="100%"
-                  flexDirection="row"
-                  marginTop={1}
-                  shouldFill={false}
-                >
-                  <box width={1} backgroundColor={palette.accent} />
-                  <box
-                    flexGrow={1}
-                    minWidth={0}
-                    flexDirection="column"
-                    paddingLeft={2}
-                    paddingRight={1}
-                    shouldFill={false}
-                  >
-                    <markdown
-                      content={terminalSafeText(view.streaming, 20_000)}
-                      syntaxStyle={markdownStyleFor(palette)}
-                      fg={palette.text}
-                      conceal
-                      streaming
-                      width="100%"
-                    />
-                  </box>
-                </box>
+                <React.Fragment>
+                  <text fg={palette.accent}>◆ Chisel · отвечает…</text>
+                  <markdown
+                    content={terminalSafeText(view.streaming, 20_000)}
+                    syntaxStyle={markdownStyleFor(palette)}
+                    fg={palette.text}
+                    conceal
+                    streaming
+                    width={Math.max(12, textWidth - 4)}
+                    marginLeft={2}
+                  />
+                </React.Fragment>
               )}
               {controller && view.toolActivity && (
                 <text fg={palette.muted}>
