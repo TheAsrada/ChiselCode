@@ -1,7 +1,7 @@
 /**
  * Премиальная визуальная система ChiselCode.
  *
- * Чистые строковые помощники без зависимости от Ink: используются и в TUI,
+ * Чистые строковые помощники используются и в TUI,
  * и в one-shot режиме, и в `chisel doctor/update`. Все функции возвращают
  * обычный текст без ANSI — раскраской занимается вызывающий слой.
  */
@@ -22,7 +22,7 @@ export const ELLIPSIS = "…";
  *   на тёмном фоне терминала);
  * - ответ ассистента — левая акцентная черта, markdown внутри на клетку уже;
  * - вызов инструмента — gutter «◆ глагол детали», глагол жирным в цвете.
- * Цвета — именами Ink, чтобы читались и в 16-цветных терминалах.
+ * Цвета заданы именами, читаемыми и в 16-цветных терминалах.
  */
 export const USER_BUBBLE_BG = "#1f1f1f";
 export const ASSISTANT_GUTTER = "gray";
@@ -266,7 +266,7 @@ export function formatDoneSummary(input: DoneSummaryInput): string {
   );
 }
 
-/* ── ANSI для не-Ink вывода (one-shot, doctor, update) ── */
+/* ── ANSI для вывода команд без TUI (one-shot, doctor, update) ── */
 
 const ANSI = {
   reset: "\u001b[0m",

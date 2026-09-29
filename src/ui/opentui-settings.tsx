@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultBaseUrlForProvider } from "../providers/agentrouter.js";
 import type { ProviderKind } from "../types/domain.js";
 import { terminalSafeText } from "./opentui-transcript.js";
-import type { ModelListResult, TuiSettingsValues } from "./settings.js";
+import type { ModelListResult, TuiSettingsValues } from "./settings-values.js";
 
 export interface OpenTuiSettingsActions {
   load(): Promise<{ values: TuiSettingsValues; hasKey: boolean }>;

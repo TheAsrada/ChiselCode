@@ -1,6 +1,6 @@
 # OpenTUI compatibility probe
 
-This is the first, isolated stage of the renderer migration. The regular `chisel` command still uses Ink until the interactive parity checks pass. The probe is deliberately not shipped as a replacement for setup, settings, approvals, history, or resume.
+OpenTUI is the sole interactive renderer for `chisel` and `chisel setup`. The probe is a separate diagnostic binary; the regular CLI includes setup, settings, approvals, history and resume.
 
 ## Run
 
@@ -13,7 +13,7 @@ bun run opentui:compile
 ./dist/opentui-spike --smoke
 ```
 
-For a local end-to-end trial, run `CHISEL_OPENTUI_DEV=1 bun run src/cli.ts` (PowerShell: `$env:CHISEL_OPENTUI_DEV='1'; bun run src/cli.ts`). With no configured key, the developer path opens the protected settings screen before showing the composer; Esc cancels the first run. The path connects the real agent loop, streaming, tool events, approvals, resume, and current Git changes to the OpenTUI shell. Ctrl+C or SIGTERM aborts the active request before terminal teardown. `/sessions` and `/resume` open a searchable session picker with preview, rename, delete confirmation and resume; `/settings` and `/model` open a keyboard-operated settings screen with a masked key field, model lookup, connection check and save. `/skills` opens a panel to inspect and activate skills, while `/имя` invokes an available skill once; active skill instructions are attached to subsequent requests. `/resume <id>`, `/help`, `/clear`, `/cwd <path>`, `/status`, `/doctor`, `/update`, and `/exit` also work. The composer keeps sent prompt history with ↑/↓ at line boundaries and Ctrl+P/Ctrl+N, restoring an unsent draft on return. Built-in slash prefixes and invocable skills show keyboard suggestions in the composer; Tab or Enter accepts a prefix. With the same developer flag, `chisel setup` uses the protected OpenTUI settings screen and exits after saving or cancelling. The developer flag is not a user-facing default.
+For a local end-to-end trial, run `bun run src/cli.ts` (or `chisel` from an installer). With no configured key, the developer path opens the protected settings screen before showing the composer; Esc cancels the first run. The path connects the real agent loop, streaming, tool events, approvals, resume, and current Git changes to the OpenTUI shell. Ctrl+C or SIGTERM aborts the active request before terminal teardown. `/sessions` and `/resume` open a searchable session picker with preview, rename, delete confirmation and resume; `/settings` and `/model` open a keyboard-operated settings screen with a masked key field, model lookup, connection check and save. `/skills` opens a panel to inspect and activate skills, while `/имя` invokes an available skill once; active skill instructions are attached to subsequent requests. `/resume <id>`, `/help`, `/clear`, `/cwd <path>`, `/status`, `/doctor`, `/update`, and `/exit` also work. The composer keeps sent prompt history with ↑/↓ at line boundaries and Ctrl+P/Ctrl+N, restoring an unsent draft on return. Built-in slash prefixes and invocable skills show keyboard suggestions in the composer; Tab or Enter accepts a prefix. `chisel setup` uses the protected OpenTUI settings screen and exits after saving or cancelling.
 
 The probe exercises a React root, a sticky culling scrollbox, a multiline textarea, a single-file diff, resize, sidebar overlay, keyboard focus, and cleanup. Ctrl+B opens the context overlay, Ctrl+D expands the diff in the probe, Tab cycles composer/transcript/inline sidebar, Esc restores composer focus or closes an overlay, and Ctrl+C exits. `CHISEL_ALT_SCREEN=0` or `CHISEL_NO_ALT_SCREEN=1` selects `split-footer` for the probe; default is alternate screen.
 
@@ -27,18 +27,10 @@ The controller-backed probe now renders a bounded 240-entry transcript window. P
 
 These measurements do not exercise input latency or terminal scrollback in a physical console.
 
-The optional approval resolver now binds to a full-screen decision view. An outstanding action takes keyboard priority, displays a scrollable sanitized preview or native file diff, and accepts `y`/`н`, `n`/`т`, or Esc. The composer returns after a decision. The regular CLI still owns agent approval flow until the OpenTUI shell is wired to the full application.
+The optional approval resolver now binds to a full-screen decision view. An outstanding action takes keyboard priority, displays a scrollable sanitized preview or native file diff, and accepts `y`/`н`, `n`/`т`, or Esc. The composer returns after a decision. The OpenTUI shell owns the agent approval flow.
 
 `--smoke` is an in-memory native renderer test for the **compiled artifact**. CI builds it and runs this smoke on Linux x64 glibc, macOS and Windows x64; it also installs the packed npm tarball, builds the regular CLI, and checks `--version` and `doctor` for both installed and compiled forms. These checks verify native dependency loading, frame rendering, resize, split-footer scrollback commits, and teardown without claiming real-terminal compatibility.
 
-## Remaining release gates
+## Physical terminal checks
 
-Use [the physical terminal matrix](opentui-terminal-matrix.md) and the compiled CI artifacts for the manual checks below.
-
-- Exercise an actual TTY, Ctrl+C/Ctrl+D/SIGTERM, paste, mouse selection, and cursor/raw-mode restoration on PowerShell/Windows Terminal, conhost, macOS Terminal/iTerm2, Linux, and SSH. In particular, verify the Windows compiled interactive binary before selecting OpenTUI by default.
-- Validate the `split-footer` scrollback policy in physical terminals: completed transcript entries are committed above the live footer, and switching sessions resets the visible history. The in-memory native smoke verifies commits but cannot verify terminal scrollback controls or restoration.
-- Migrate the application controller and all modal surfaces, approvals, setup key masking, session history, slash commands, usage snapshots, current Git changes, and diff navigation. Keep the old renderer until parity is measured.
-- Validate cross-compiled release targets with their matching `@opentui/core-*` optional packages installed. CI and the release workflow now install both macOS x64/arm64 packages explicitly. The release workflow builds Windows x64, macOS x64/arm64, and Linux x64 glibc. It does not publish musl. The release workflow stages all four installers as CI artifacts, creates a draft release only after every build succeeds, and publishes it after all four assets are uploaded.
-- Measure 10,000 transcript entries on each compiled target and document interactive latency, viewport behavior, and the manual terminal matrix in the migration PR.
-
-The `--smoke` check does not exercise `createCliRenderer()` against a physical terminal. Do not tag a user release on the strength of this probe alone.
+Use [the physical terminal matrix](opentui-terminal-matrix.md) and the compiled CI artifacts to check PowerShell/Windows Terminal, conhost, macOS Terminal/iTerm2, Linux and SSH. Confirm Ctrl+C/Ctrl+D/SIGTERM, paste, mouse selection, resize, cursor/raw-mode restoration, scrollback and install paths. In-memory smoke does not prove physical TTY compatibility. The release workflow builds Windows x64, macOS x64/arm64 and Linux x64 glibc, then publishes only when all four assets upload successfully. Musl is not published.

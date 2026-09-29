@@ -38,16 +38,16 @@ import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import type { OpenTuiSettingsActions } from "./opentui-settings.js";
 import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
-import { defaultModelFor } from "./setup.js";
+import { defaultModelFor } from "./setup-values.js";
 import { formatStatusDashboard } from "./theme.js";
 import {
   replaySessionIntoTranscript,
   toolTranscriptHandlers,
 } from "./tool-transcript.js";
-import { createTuiApprovalResolver } from "./tui.js";
+import { createTuiApprovalResolver } from "./tui-contract.js";
 import { TuiController } from "./tui-controller.js";
 
-/** Developer-only agent path; regular CLI continues through the existing renderer. */
+/** The sole interactive terminal renderer. */
 export async function runOpenTuiAgent(
   options: RunOptions,
   initialSession?: Session,

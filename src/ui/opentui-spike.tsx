@@ -41,7 +41,7 @@ import {
   sidebarLayout,
   toggleSidebarMode,
 } from "./sidebar-layout.js";
-import type { TuiApprovalResolver } from "./tui.js";
+import type { TuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 
 const PATCH = `diff --git a/example.ts b/example.ts

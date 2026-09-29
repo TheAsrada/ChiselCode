@@ -1,9 +1,9 @@
 import type { AgentEventHandlers } from "../core/agent-loop.js";
 import { stripActiveSkillsBlock } from "../skills/skills.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
-import { fileDiffStats, fileDiffTitle } from "./file-diff.js";
+import { fileDiffStats, fileDiffTitle } from "./file-diff-model.js";
 import { formatToolSummary } from "./theme.js";
-import type { TuiTranscript } from "./tui.js";
+import type { TuiTranscript } from "./tui-contract.js";
 
 const fileTools = new Set(["edit_file", "write_file", "delete_file"]);
 

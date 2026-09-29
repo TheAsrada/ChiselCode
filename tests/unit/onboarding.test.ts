@@ -10,7 +10,7 @@ import {
   defaultBaseUrlForProvider,
 } from "../../src/providers/agentrouter.js";
 import { ProviderKindSchema } from "../../src/types/domain.js";
-import { defaultModelFor, isValidApiUrl } from "../../src/ui/setup.js";
+import { defaultModelFor, isValidApiUrl } from "../../src/ui/setup-values.js";
 
 describe("onboarding", () => {
   test("saves and loads global configuration without credentials", async () => {

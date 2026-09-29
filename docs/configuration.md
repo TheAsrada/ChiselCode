@@ -57,24 +57,8 @@ Markdown-файл `CHISEL.md` в корне проекта добавляетс�
 
 | Переменная | Действие |
 | --- | --- |
-| `CHISEL_ALT_SCREEN=0` или `CHISEL_NO_ALT_SCREEN=1` | Классический режим с историей прокрутки терминала |
-| `CHISEL_NO_MOUSE=1` или `CHISEL_DISABLE_MOUSE=1` | Отключить захват мыши |
-| `CHISEL_MOUSE_CAPTURE=1` | В Windows включить захват мыши для прокрутки ленты колёсиком; выделение текста — с Shift |
-| `CHISEL_SCROLL_SPEED` | Скорость колеса: 1–20, по умолчанию 3 |
-| `NO_COLOR` | Отключить цвет |
-| `FORCE_COLOR=1` | Включить цвет, если не задан `NO_COLOR` |
+| `CHISEL_ALT_SCREEN=0` или `CHISEL_NO_ALT_SCREEN=1` | Режим split-footer с нативной историей терминала |
 
-Пример для PowerShell:
-
-```powershell
-$env:CHISEL_NO_MOUSE = "1"
-chisel
-```
-
-Пример для bash/zsh:
-
-```bash
-CHISEL_NO_MOUSE=1 chisel
-```
+Например, `CHISEL_NO_ALT_SCREEN=1 chisel` в bash/zsh или `$env:CHISEL_NO_ALT_SCREEN = "1"; chisel` в PowerShell.
 
 Переменные API-ключей перечислены в [справке провайдеров](providers.md). CLI-флаги провайдера и модели переопределяют выбор для запуска; при продолжении сессии без этих флагов сохраняются её провайдер и модель.
