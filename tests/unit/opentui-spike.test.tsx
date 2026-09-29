@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
-import { createTuiApprovalResolver } from "../../src/ui/tui.js";
+import { createTuiApprovalResolver } from "../../src/ui/tui-contract.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 
 for (const [width, height] of [

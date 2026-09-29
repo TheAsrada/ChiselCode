@@ -6,7 +6,7 @@ import type {
   TokenUsage,
 } from "../types/domain.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
-import type { TranscriptTone, TuiTranscript } from "./tui.js";
+import type { TranscriptTone, TuiTranscript } from "./tui-contract.js";
 
 export interface TranscriptEntry {
   id: number;

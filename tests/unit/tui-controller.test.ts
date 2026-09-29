@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createSession } from "../../src/sessions/store.js";
-import type { TuiTranscript } from "../../src/ui/tui.js";
+import type { TuiTranscript } from "../../src/ui/tui-contract.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 
 test("controller delivers agent callbacks to a fake renderer and replays after replacement", () => {

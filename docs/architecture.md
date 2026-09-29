@@ -33,7 +33,7 @@ flowchart TD
 | [`src/config/`](../src/config) | Чтение конфигурации и правил проекта |
 | [`src/sessions/`](../src/sessions) | Разговоры, индексы проектов и миграция |
 | [`src/skills/`](../src/skills) | Обнаружение и загрузка навыков |
-| [`src/ui/`](../src/ui) | React/Ink, настройки, транскрипт, diff и вывод одного запроса |
+| [`src/ui/`](../src/ui) | React/OpenTUI, настройки, транскрипт, diff и вывод одного запроса |
 | [`src/types/domain.ts`](../src/types/domain.ts) | Общие типы провайдеров, инструментов и сессий |
 | [`src/paths/home.ts`](../src/paths/home.ts) | Пути пользовательских данных |
 | [`tests/`](../tests) | Unit- и integration-проверки |

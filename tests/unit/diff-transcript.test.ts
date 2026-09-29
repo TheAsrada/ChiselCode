@@ -2,10 +2,6 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import { stripVTControlCharacters } from "node:util";
-import { render, renderToString } from "ink";
-import React from "react";
 import {
   createSession,
   loadSession,
@@ -13,18 +9,15 @@ import {
 } from "../../src/sessions/store.js";
 import { buildFileDiff } from "../../src/tools/file-diff.js";
 import type { FileDiff } from "../../src/types/domain.js";
-import { FileDiffView, fileDiffRows } from "../../src/ui/file-diff.js";
 import {
   appendToolResult,
   replaySessionIntoTranscript,
   toolTranscriptHandlers,
 } from "../../src/ui/tool-transcript.js";
-import {
-  createTuiApprovalResolver,
-  type TranscriptTone,
-  TuiApp,
-  type TuiTranscript,
-} from "../../src/ui/tui.js";
+import type {
+  TranscriptTone,
+  TuiTranscript,
+} from "../../src/ui/tui-contract.js";
 
 function sink() {
   const entries: {
@@ -132,138 +125,3 @@ test("resume restores separate UI diffs and still replays legacy sessions", () =
   expect(entries[0]?.text).toContain("edit_file a.ts");
   expect(entries.every((entry) => !entry.fileDiff)).toBe(true);
 });
-
-test("NO_COLOR unified rendering stays readable and bounded at narrow widths", () => {
-  const previous = process.env.NO_COLOR;
-  process.env.NO_COLOR = "1";
-  try {
-    const diff = buildFileDiff("a.ts", "old\n", "new\n");
-    const text = renderToString(
-      React.createElement(FileDiffView, { fileDiff: diff, columns: 38 }),
-      { columns: 38 },
-    );
-    expect(text).toContain("Update(a.ts)");
-    expect(text).toContain("- old");
-    expect(text).toContain("+ new");
-    expect(text).not.toContain("\u001b[");
-    expect(text.split("\n").length).toBe(fileDiffRows(diff));
-    expect(text.split("\n").every((line) => line.length <= 38)).toBe(true);
-    const big = buildFileDiff(
-      "big.ts",
-      null,
-      `${"x".repeat(100_000)}\n${"new\n".repeat(400)}`,
-    );
-    const rendered = renderToString(
-      React.createElement(FileDiffView, { fileDiff: big, columns: 38 }),
-      { columns: 38 },
-    );
-    expect(rendered).toContain("202 more diff lines");
-    expect(rendered).toContain("long lines shortened");
-    expect(rendered.length).toBeLessThan(9000);
-  } finally {
-    if (previous === undefined) delete process.env.NO_COLOR;
-    else process.env.NO_COLOR = previous;
-  }
-});
-
-for (const columns of [80, 24]) {
-  test(`approval scrolls and applies diff at ${columns} columns`, async () => {
-    const stdout = Object.assign(new PassThrough(), {
-      columns,
-      rows: 24,
-      isTTY: true,
-    });
-    const stdin = Object.assign(new PassThrough(), {
-      isTTY: true,
-      setRawMode: () => {},
-      ref: () => stdin,
-      unref: () => stdin,
-    });
-    let latest = "";
-    stdout.on("data", (chunk) => {
-      if (chunk.toString().length > 50)
-        latest = stripVTControlCharacters(chunk.toString());
-    });
-    const resolver = createTuiApprovalResolver();
-    let view: TuiTranscript | undefined;
-    const instance = render(
-      React.createElement(TuiApp, {
-        approvalResolver: resolver,
-        bindTranscript: (next) => {
-          view = next;
-        },
-        onSubmit: async () => {},
-        onStatus: async () => "ok",
-        onSwitchProject: async (path) => path,
-        onSaveSettings: async () => "saved" as const,
-        onCheckConnection: async () => "ok",
-        onCompleteSetup: async () => {},
-        provider: "anthropic",
-        providerLabel: "Anthropic",
-        model: "test",
-      }),
-      {
-        stdout: stdout as unknown as NodeJS.WriteStream,
-        stdin: stdin as unknown as NodeJS.ReadStream,
-        debug: true,
-        patchConsole: false,
-        exitOnCtrlC: false,
-      },
-    );
-    const tick = () => new Promise((resolve) => setTimeout(resolve, 150));
-    try {
-      await tick();
-      const diff = buildFileDiff(
-        "test.ts",
-        null,
-        `${Array.from({ length: 600 }, (_, i) => `line-${i + 1}`).join("\n")}\n`,
-      );
-      const handlers = toolTranscriptHandlers(() => view);
-      handlers.onToolStart?.("write_file", { path: "test.ts" });
-      const decision = resolver.requestApproval({
-        tool: "write_file",
-        preview: diff.patch,
-        fileDiff: diff,
-      });
-      await tick();
-      await tick();
-      expect(latest).toContain("Create(test.ts)");
-      expect(latest).toContain("+600");
-      expect(latest).toContain(columns < 40 ? "[y] Да" : "[y] разрешить");
-      expect(latest).toContain(columns < 40 ? "[n] Нет" : "[n/Esc]");
-      expect(latest).not.toContain("line-600");
-      stdin.write("\u001b[F");
-      await tick();
-      await tick();
-      expect(latest).toContain("line-600");
-      expect(latest).toContain(columns < 40 ? "[y] Да" : "[y] разрешить");
-      expect(latest).toContain(columns < 40 ? "[n] Нет" : "[n/Esc]");
-      stdin.write("y");
-      expect(await decision).toBe("approved");
-      handlers.onToolResult?.("write_file", {
-        output: "Wrote test.ts.",
-        fileDiff: diff,
-      });
-      await tick();
-      await tick();
-      expect(latest).toContain("line-5");
-      expect(latest).not.toContain("line-600");
-      expect(latest).toContain("Ctrl+O");
-      expect(latest).toContain("Спросите");
-      expect(latest).not.toContain("Wrote test.ts.");
-      stdin.write("\u000f");
-      await tick();
-      expect(latest).toContain("line-600");
-      stdin.write("q");
-      await tick();
-      expect(latest).not.toContain("line-600");
-      stdin.write("\u001b[H");
-      await tick();
-      await tick();
-      expect(latest).toContain("Create(test.ts)");
-      expect(latest).not.toContain("write_file test.ts");
-    } finally {
-      instance.unmount();
-    }
-  });
-}

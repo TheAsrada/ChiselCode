@@ -6,7 +6,7 @@ import {
   fileDiffStats,
   MAX_DIFF_LINE_CHARS,
   MAX_DIFF_LINES,
-} from "../../src/ui/file-diff.js";
+} from "../../src/ui/file-diff-model.js";
 
 describe("file diff model", () => {
   for (const [name, before, after, added, removed] of [
