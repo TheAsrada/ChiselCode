@@ -1,36 +1,10 @@
 /** @jsxImportSource @opentui/react */
 import { stripVTControlCharacters } from "node:util";
-import { SyntaxStyle } from "@opentui/core";
 import React from "react";
-import stringWidth from "string-width";
 import type { FileDiff } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
 import type { TranscriptEntry } from "./tui-controller.js";
 
-const markdownStyles = new Map<string, SyntaxStyle>();
-
-export function markdownStyleFor(palette: Palette): SyntaxStyle {
-  const key = `${palette.text}:${palette.accent}`;
-  let style = markdownStyles.get(key);
-  if (!style) {
-    style = SyntaxStyle.fromStyles({
-      default: { fg: palette.text },
-      "markup.heading": { fg: palette.accent, bold: true },
-      "markup.strong": { fg: palette.text, bold: true },
-      "markup.italic": { fg: palette.text, italic: true },
-      "markup.raw": { fg: palette.green },
-      "markup.link": { fg: palette.accent, underline: true },
-      "markup.quote": { fg: palette.muted, italic: true },
-      "markup.list": { fg: palette.accent },
-      keyword: { fg: palette.accent, bold: true },
-      string: { fg: palette.green },
-      number: { fg: palette.yellow },
-      comment: { fg: palette.muted, italic: true },
-    });
-    markdownStyles.set(key, style);
-  }
-  return style;
-}
 export const TRANSCRIPT_WINDOW = 240;
 
 export function visibleTranscriptWindow(
@@ -76,21 +50,130 @@ export function diffViewForWidth(width: number): "split" | "unified" {
   return width >= 100 ? "split" : "unified";
 }
 
-/** MarkdownRenderable needs a measured viewport height inside a scrollbox. */
-export function markdownHeight(content: string, width: number): number {
-  const columns = Math.max(12, width);
-  return Math.min(
-    200,
-    Math.max(
-      1,
-      content
+function inlineText(value: string, palette: Palette): React.ReactNode[] {
+  const occurrences = new Map<string, number>();
+  return value
+    .split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*]+\*)/g)
+    .map((part) => {
+      const count = (occurrences.get(part) ?? 0) + 1;
+      occurrences.set(part, count);
+      const key = `${part}:${count}`;
+      if (part.startsWith("**") && part.endsWith("**"))
+        return (
+          <b key={key}>
+            <span fg={palette.text}>{part.slice(2, -2)}</span>
+          </b>
+        );
+      if (part.startsWith("`") && part.endsWith("`"))
+        return (
+          <span key={key} fg={palette.green}>
+            {part.slice(1, -1)}
+          </span>
+        );
+      const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(part);
+      if (link)
+        return (
+          <u key={key}>
+            <span fg={palette.accent}>
+              {link[1]} ({link[2]})
+            </span>
+          </u>
+        );
+      if (part.startsWith("*") && part.endsWith("*"))
+        return <i key={key}>{part.slice(1, -1)}</i>;
+      return part;
+    });
+}
+
+/** Native text cells keep formatted answers visible in the windowed scrollbox. */
+export function FormattedMessage({
+  content,
+  palette,
+}: {
+  content: string;
+  palette: Palette;
+}) {
+  let fenced = false;
+  const occurrences = new Map<string, number>();
+  return (
+    <React.Fragment>
+      {terminalSafeText(content, 20_000)
         .split("\n")
-        .reduce(
-          (rows, line) =>
-            rows + Math.max(1, Math.ceil(stringWidth(line) / columns)),
-          0,
-        ),
-    ),
+        .map((line) => {
+          const count = (occurrences.get(line) ?? 0) + 1;
+          occurrences.set(line, count);
+          const key = `${line}:${count}`;
+          const fence = /^\s*```\s*([^`]*)$/.exec(line);
+          if (fence) {
+            fenced = !fenced;
+            return (
+              <text key={key} fg={palette.muted}>
+                {fenced ? `  ┌─ ${fence[1] || "код"}` : "  └─"}
+              </text>
+            );
+          }
+          if (fenced)
+            return (
+              <text key={key} fg={palette.green} selectable>
+                {" "}
+                │ {line}
+              </text>
+            );
+          const heading = /^\s{0,3}#{1,6}\s+(.+)$/.exec(line);
+          if (heading)
+            return (
+              <text key={key} fg={palette.accent} selectable>
+                {" "}
+                <b>{inlineText(heading[1] ?? "", palette)}</b>
+              </text>
+            );
+          const list = /^(\s*)([-*+]|\d+\.)\s+(.+)$/.exec(line);
+          if (list)
+            return (
+              <text key={key} fg={palette.text} selectable>
+                {list[1]}
+                <span fg={palette.accent}>
+                  {/^\d/.test(list[2] ?? "") ? list[2] : "•"}
+                </span>{" "}
+                {inlineText(list[3] ?? "", palette)}
+              </text>
+            );
+          const quote = /^\s*>\s?(.*)$/.exec(line);
+          if (quote)
+            return (
+              <text key={key} fg={palette.muted} selectable>
+                {" "}
+                <i>│ {inlineText(quote[1] ?? "", palette)}</i>
+              </text>
+            );
+          if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line))
+            return (
+              <text key={key} fg={palette.border}>
+                {" "}
+                ────────────────────
+              </text>
+            );
+          if (/^\s*\|?\s*:?-{3,}/.test(line)) return null;
+          if (line.includes("|") && /^\s*\|/.test(line))
+            return (
+              <text key={key} fg={palette.text} selectable>
+                {" "}
+                {line
+                  .trim()
+                  .replace(/^\||\|$/g, "")
+                  .split("|")
+                  .map((cell) => cell.trim())
+                  .join("  │  ")}
+              </text>
+            );
+          return (
+            <text key={key} fg={palette.text} selectable>
+              {" "}
+              {inlineText(line, palette)}
+            </text>
+          );
+        })}
+    </React.Fragment>
   );
 }
 
@@ -121,15 +204,7 @@ export function OpenTuiTranscript({
           return (
             <React.Fragment key={entry.id}>
               <text fg={palette.accent}>◆ Chisel</text>
-              <markdown
-                content={terminalSafeText(entry.text, 20_000)}
-                syntaxStyle={markdownStyleFor(palette)}
-                conceal
-                fg={palette.text}
-                width={Math.max(12, contentWidth - 2)}
-                height={markdownHeight(entry.text, contentWidth - 2)}
-                marginLeft={2}
-              />
+              <FormattedMessage content={entry.text} palette={palette} />
             </React.Fragment>
           );
         if (!diff && entry.tone === "user")

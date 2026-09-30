@@ -38,8 +38,7 @@ import {
 } from "./opentui-settings.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
 import {
-  markdownHeight,
-  markdownStyleFor,
+  FormattedMessage,
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
   terminalSafeText,
@@ -696,15 +695,9 @@ export function OpenTuiSpike({
               {controller && view.streaming && (
                 <React.Fragment>
                   <text fg={palette.accent}>◆ Chisel · отвечает…</text>
-                  <markdown
-                    content={terminalSafeText(view.streaming, 20_000)}
-                    syntaxStyle={markdownStyleFor(palette)}
-                    fg={palette.text}
-                    conceal
-                    streaming
-                    width={Math.max(12, textWidth - 4)}
-                    height={markdownHeight(view.streaming, textWidth - 4)}
-                    marginLeft={2}
+                  <FormattedMessage
+                    content={view.streaming}
+                    palette={palette}
                   />
                 </React.Fragment>
               )}

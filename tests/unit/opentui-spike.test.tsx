@@ -93,6 +93,26 @@ test("large transcript pages backwards and returns to newest messages", async ()
   }
 });
 
+test("assistant formatting renders visible headings, lists and inline code", async () => {
+  const controller = new TuiController(process.cwd());
+  controller.append("## План\n- **Шаг**: `bun test`", "assistant");
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} controller={controller} />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("План");
+    expect(frame).toContain("Шаг");
+    expect(frame).toContain("bun test");
+    expect(frame).not.toContain("**Шаг**");
+  } finally {
+    act(() => setup.renderer.destroy());
+    controller.dispose();
+  }
+});
+
 test("resuming another session resets the transcript window to its latest entry", async () => {
   const controller = new TuiController(process.cwd());
   controller.switchSession({ id: "old", projectPath: process.cwd() });
