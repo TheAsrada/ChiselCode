@@ -20,7 +20,7 @@ export interface TrialMetrics {
   provider_latency: number;
   tool_time: number;
   wall_time: number;
-  estimated_cost: number;
+  estimated_cost?: number;
 }
 export interface TrialReport {
   task: string;
@@ -68,6 +68,6 @@ export function emptyMetrics(): TrialMetrics {
     provider_latency: 0,
     tool_time: 0,
     wall_time: 0,
-    estimated_cost: 0,
+    estimated_cost: undefined,
   };
 }

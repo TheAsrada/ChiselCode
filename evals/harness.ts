@@ -18,6 +18,7 @@ import type {
 import { scanGlob } from "../src/utils/fs-scan.js";
 import { matchesPattern, resolveProjectPath } from "../src/utils/paths.js";
 import { grade } from "./graders/index.js";
+import { writeTrialProviderConfig } from "./provider-profile.js";
 import type { EvalTask } from "./task-schema.js";
 import { traceRecorder } from "./trace-recorder.js";
 import { emptyMetrics, type TrialReport } from "./trial.js";
@@ -45,6 +46,7 @@ export async function runTrial(
   mode: "mock" | "live" = "mock",
   model = "scripted",
   provider = "anthropic",
+  profileId?: string,
 ): Promise<TrialReport> {
   const root = await mkdtemp(join(tmpdir(), "chisel-eval-"));
   const start = performance.now();
@@ -97,13 +99,17 @@ export async function runTrial(
     let result: AgentResult;
     if (mode === "live") {
       const { runPrompt } = await import("../src/commands/run.js");
+      const configPath = join(root, ".chisel", "eval-config.json");
+      await writeTrialProviderConfig(configPath, provider, model, profileId);
       result = (
         await runPrompt(
           task.prompt,
           {
             cwd: root,
             model,
-            provider: provider as ProviderAdapter["kind"],
+            provider: provider,
+            profile: "eval-trial",
+            configPath,
             yes: true,
           },
           { requestApproval: async () => "approved" },
@@ -121,6 +127,7 @@ export async function runTrial(
       let turn = 0;
       const adapter: ProviderAdapter = {
         kind: "anthropic",
+        providerId: "anthropic",
         listModels: async () => [],
         countTokens: async () => 0,
         async *streamChat(request): AsyncIterable<StreamEvent> {
@@ -197,7 +204,10 @@ export async function runTrial(
     metrics.cache_read_tokens = result.session.totalTokens.cacheReadTokens ?? 0;
     metrics.cache_write_tokens =
       result.session.totalTokens.cacheCreationTokens ?? 0;
-    metrics.estimated_cost = result.session.totalCost;
+    metrics.estimated_cost =
+      result.session.costEstimate?.source === "unknown"
+        ? undefined
+        : (result.session.costEstimate?.usd ?? result.session.totalCost);
     report.status =
       result.status === "completed" &&
       report.tests_after.every((entry) => (entry as { pass: boolean }).pass) &&

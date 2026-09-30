@@ -1,4 +1,5 @@
-import type { ProviderKind } from "../types/domain.js";
+import type { ProviderId } from "../types/domain.js";
+import { builtinDefinitions } from "./definitions/index.js";
 
 /**
  * Нормализация адресов совместимых API.
@@ -42,13 +43,14 @@ export function normalizeAnthropicCompatibleBaseUrl(value: string): string {
 
 /** Нормализация под конкретный сервис; остальные провайдеры — как есть. */
 export function normalizeBaseUrlForProvider(
-  provider: ProviderKind,
+  provider: ProviderId,
   baseUrl: string | undefined,
 ): string | undefined {
   if (!baseUrl) return baseUrl;
-  if (provider === "openai-compatible" || provider === "agentrouter")
-    return normalizeOpenAiCompatibleBaseUrl(baseUrl);
-  if (provider === "anthropic-compatible")
+  const policy = builtinDefinitions.find((d) => d.id === provider)?.endpoint
+    .normalization;
+  if (policy === "openai-v1") return normalizeOpenAiCompatibleBaseUrl(baseUrl);
+  if (policy === "anthropic-root")
     return normalizeAnthropicCompatibleBaseUrl(baseUrl);
   return baseUrl;
 }

@@ -1,9 +1,14 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { InstructionResolver } from "../context/instructions.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
-import { ProviderKindSchema } from "../types/domain.js";
+import {
+  migrateConfig,
+  normalizeConfigForSave,
+  withLegacyAccessors,
+} from "./migrate.js";
 
 const ProjectConfigSchema = z.object({
   context: z
@@ -26,63 +31,6 @@ const ProjectConfigSchema = z.object({
     .array(z.string())
     .default([".git/**", "node_modules/**", ".chisel/**"]),
   autoApprove: z.boolean().default(false),
-});
-
-const GlobalConfigSchema = z.object({
-  defaultProvider: ProviderKindSchema.optional(),
-  defaultModel: z.string().min(1).optional(),
-  providers: z
-    .object({
-      anthropic: z
-        .object({
-          provider: z.literal("anthropic"),
-          apiKeyRef: z.string().optional(),
-          defaultModel: z.string().optional(),
-        })
-        .optional(),
-      "anthropic-compatible": z
-        .object({
-          provider: z.literal("anthropic-compatible"),
-          apiKeyRef: z.string().optional(),
-          baseUrl: z.string().url().optional(),
-          defaultModel: z.string().optional(),
-        })
-        .optional(),
-      openai: z
-        .object({
-          provider: z.literal("openai"),
-          apiKeyRef: z.string().optional(),
-          defaultModel: z.string().optional(),
-        })
-        .optional(),
-      "openai-compatible": z
-        .object({
-          provider: z.literal("openai-compatible"),
-          apiKeyRef: z.string().optional(),
-          baseUrl: z.string().url().optional(),
-          defaultModel: z.string().optional(),
-        })
-        .optional(),
-      agentrouter: z
-        .object({
-          provider: z.literal("agentrouter"),
-          apiKeyRef: z.string().optional(),
-          baseUrl: z.string().url().optional(),
-          defaultModel: z.string().optional(),
-        })
-        .optional(),
-    })
-    .default({}),
-  ui: z
-    .object({
-      sidebarMode: z.enum(["auto", "show", "hide"]).optional(),
-      theme: z.enum(["obsidian", "graphite", "ember", "paper"]).optional(),
-      accent: z
-        .string()
-        .regex(/^#[0-9a-fA-F]{6}$/)
-        .optional(),
-    })
-    .optional(),
 });
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
@@ -129,22 +77,70 @@ export async function loadGlobalConfig(
   path = globalConfigPath(),
 ): Promise<GlobalConfig> {
   const source = await readOptional(path);
-  if (!source) return { providers: {} };
-  return GlobalConfigSchema.parse(JSON.parse(source));
+  try {
+    return withLegacyAccessors(
+      migrateConfig(source ? JSON.parse(source) : { providers: {} }),
+    );
+  } catch {
+    throw new Error(
+      `Invalid ChiselCode config at ${path}; original file was not changed.`,
+    );
+  }
 }
 
 export async function saveGlobalConfig(
-  config: GlobalConfig,
+  config: unknown,
   path = globalConfigPath(),
 ): Promise<void> {
-  const validated = GlobalConfigSchema.parse(config);
+  let validated: ReturnType<typeof normalizeConfigForSave>;
+  try {
+    validated = normalizeConfigForSave(config);
+  } catch {
+    throw new Error(
+      `Invalid ChiselCode config at ${path}; original file was not changed.`,
+    );
+  }
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await rename(temporary, path);
+  const original = await readOptional(path);
+  if (original) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(original);
+      migrateConfig(raw);
+    } catch {
+      throw new Error(
+        `Invalid ChiselCode config at ${path}; original file was not changed.`,
+      );
+    }
+    if ((raw as { schemaVersion?: number }).schemaVersion !== 2) {
+      const backup = join(dirname(path), "config.v1.backup.json");
+      try {
+        const handle = await open(backup, "wx", 0o600);
+        try {
+          await handle.writeFile(original, "utf8");
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
+  }
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  const handle = await open(temporary, "wx", 0o600);
+  try {
+    await handle.writeFile(`${JSON.stringify(validated, null, 2)}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
 }
 
 async function readOptional(path: string): Promise<string | undefined> {

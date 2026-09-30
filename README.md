@@ -24,6 +24,8 @@
 
 Поддерживаются **Anthropic**, **OpenAI**, **AgentRouter**, **OpenAI-compatible** и **Anthropic-compatible** API. Нужен собственный ключ сервиса и доступная в нём модель; ChiselCode не предоставляет модель или API-кредиты.
 
+Можно настроить несколько **profiles** одного сервиса (`openai-work`, `openai-personal`) через `chisel setup --provider openai --profile openai-work`, затем выбрать `chisel --profile openai-work`. Пользовательские OpenAI/Anthropic-compatible gateways добавляются через declarative `provider.json` без пересборки: [руководство custom providers](docs/custom-providers.md).
+
 ## Быстрый старт
 
 1. Скачайте установщик со страницы [последнего релиза](https://github.com/TheAsrada/ChiselCode/releases/latest).
@@ -44,7 +46,7 @@
 | macOS Intel | `ChiselCode-Setup-<версия>-macos-x64.pkg` |
 | Linux Debian/Ubuntu x64 | `ChiselCode-Setup-<версия>-linux-amd64.deb` |
 
-Подробности: [установка и обновление](docs/installation.md) · [провайдеры и ключи](docs/providers.md). Для поиска по содержимому нужен `rg` (ripgrep) в PATH; для Git-инструментов — Git.
+Подробности: [установка и обновление](docs/installation.md) · [провайдеры и ключи](docs/providers.md). `rg` ускоряет поиск; без него используется встроенный fallback. Для Git-инструментов нужен Git.
 
 ## Ваш рабочий цикл
 
@@ -70,7 +72,7 @@
 Для разового запроса:
 
 ```bash
-chisel --cwd ./my-project "Объясни структуру проекта"
+chisel --cwd ./my-project --profile openai-work "Объясни структуру проекта"
 ```
 
 Файловые инструменты проверяют границы проекта. Изменения требуют разрешения по умолчанию. Разрешённый shell работает с правами вашего пользователя; это **не системная песочница**. Подробности — в [модели безопасности](docs/security.md).

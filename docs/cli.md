@@ -27,7 +27,8 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 | Флаг | Назначение |
 | --- | --- |
 | `--cwd <path>` | Корень проекта; по умолчанию текущая папка терминала |
-| `--provider <provider>` | `anthropic`, `anthropic-compatible`, `openai`, `openai-compatible`, `agentrouter` |
+| `--profile <profile-id>` | Конкретный аккаунт/profile |
+| `--provider <provider>` | Compatibility выбор provider ID из `chisel providers list`; нужен единственный profile |
 | `--model <model>` | ID модели выбранного сервиса |
 | `--base-url <url>` | Адрес совместимого API |
 | `--resume <session-id>` | Полный ID или однозначный префикс сессии текущего проекта |
@@ -56,7 +57,8 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 | `text` | Итоговый текст |
 | `sessionId` | ID сохранённой сессии |
 | `totalTokens` | Счётчики `inputTokens`, `outputTokens` и необязательные счётчики кэша |
-| `totalCost` | Накопленное значение стоимости в сессии; не заменяет биллинг провайдера |
+| `totalCost` | Optional известная estimated стоимость; отсутствует при unknown pricing |
+| `costEstimate` | source=provider/estimated/unknown, optional usd; не заменяет billing |
 | `error` | Сообщение ошибки, если есть |
 | `pendingApproval` | Инструмент и предпросмотр, если нужно разрешение |
 
@@ -76,3 +78,18 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 Передавайте ключ через секреты среды CI в [переменную своего провайдера](providers.md). Не включайте его в репозиторий, вывод команд или JSON-артефакты. Учитывайте, что сессии сохраняются локально и могут содержать исходный код.
 
 Низкоуровневые команды `chisel auth set <name> <secret>` и `chisel auth get <name>` сохраняют ключ и проверяют его наличие. `get` не печатает значение; `set` передаёт секрет в аргументах и может оставить его в истории shell. Для обычной настройки используйте `chisel setup`.
+
+## Пользовательский provider catalog
+
+`chisel providers path` создаёт Home layout и печатает абсолютный путь. `chisel providers list` показывает IDs, sources, drivers и diagnostics. `chisel providers validate` проверяет manifests offline; exit 0 — нет errors, 1 — есть errors. Warnings, например remote HTTP, не делают validate failed. Catalog строится при запуске; после изменения manifests перезапустите приложение.
+
+## Provider profiles
+
+```bash
+chisel setup --provider openai --profile openai-work
+chisel --profile openai-work "Объясни проект"
+chisel --provider openai --model gpt-5 "Объясни проект"
+chisel --profile openai-work --resume <session-id> "Продолжи"
+```
+
+`--profile` выбирает точный profile. Старый `--provider` остаётся compatibility interface: один profile — выбрать его; ни одного — controlled not configured; несколько — требуется --profile. Вместе flags должны указывать на один provider. Model precedence: --model → profile.defaultModel → definition.defaults.model → controlled selection error. Resume без overrides сохраняет профиль и модель сессии; explicit profile/provider может их заменить. setup --profile создаёт/редактирует точный profile; «Профиль» и «Новый профиль» доступны в settings. doctor проверяет локальные metadata/key references, не вызывает API.

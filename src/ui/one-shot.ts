@@ -54,7 +54,11 @@ export class OneShotRenderer {
           text: result.text,
           sessionId: result.session.id,
           totalTokens: result.session.totalTokens,
-          totalCost: result.session.totalCost,
+          totalCost:
+            result.session.costEstimate?.source === "unknown"
+              ? undefined
+              : (result.session.costEstimate?.usd ?? result.session.totalCost),
+          costEstimate: result.session.costEstimate,
           error: result.error,
           errorCode: result.errorCode,
           pendingApproval: result.pendingApproval,

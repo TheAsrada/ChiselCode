@@ -223,7 +223,7 @@ export function OpenTuiSessions({
       </box>
       {selected && (
         <text fg={palette.muted}>
-          {terminalSafeText(selected.model, 60)} · {selected.provider} ·{" "}
+          {terminalSafeText(selected.model, 60)} · {selected.providerId} ·{" "}
           {selected.totalTokens.inputTokens + selected.totalTokens.outputTokens}{" "}
           токенов
         </text>

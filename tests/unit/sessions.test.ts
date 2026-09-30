@@ -17,6 +17,8 @@ function makeSession(partial: Partial<Session> & { id: string }): Session {
     messages: [],
     model: "gpt-5.6-sol",
     provider: "openai-compatible",
+    providerId: "openai-compatible",
+    profileId: "openai-compatible-default",
     totalTokens: {
       inputTokens: 0,
       outputTokens: 0,

@@ -12,87 +12,21 @@ import {
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
-import { ProviderKindSchema, type Session } from "../types/domain.js";
+import type { Session } from "../types/domain.js";
 import { withLock } from "./lock.js";
+import {
+  legacyProfileId,
+  migrateSessionRecord,
+  withSessionCompatibility,
+} from "./migrate.js";
 import { initializeSessionState } from "./migrations.js";
-import { SessionContextSchema, SessionRuntimeSchema } from "./schema.js";
+import {
+  SessionIdSchema as idSchema,
+  SessionV3Schema as persistedSessionSchema,
+  SessionTimestampSchema as timestamp,
+  SessionUsageSchema as usageSchema,
+} from "./schema.js";
 
-const idSchema = z
-  .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-const timestamp = z.iso.datetime({ offset: true });
-const usageSchema = z.object({
-  inputTokens: z.number().nonnegative(),
-  outputTokens: z.number().nonnegative(),
-  cacheReadTokens: z.number().nonnegative().optional(),
-  cacheCreationTokens: z.number().nonnegative().optional(),
-});
-const contentSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({
-    type: z.literal("tool_use"),
-    id: z.string(),
-    name: z.string(),
-    input: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    type: z.literal("tool_result"),
-    toolUseId: z.string(),
-    content: z.string(),
-    isError: z.boolean().optional(),
-  }),
-]);
-const persistedSessionSchema = z.object({
-  schemaVersion: z.literal(2),
-  runtime: SessionRuntimeSchema.optional(),
-  context: SessionContextSchema.optional(),
-  id: idSchema,
-  title: z.string(),
-  titleSource: z.enum(["auto", "user"]),
-  createdAt: timestamp,
-  updatedAt: timestamp,
-  provider: ProviderKindSchema,
-  model: z.string(),
-  gitBranch: z.string().optional(),
-  messages: z.array(
-    z.object({
-      role: z.enum(["user", "assistant"]),
-      content: z.array(contentSchema),
-    }),
-  ),
-  totalTokens: usageSchema,
-  contextSnapshot: z
-    .object({
-      model: z.string(),
-      observedInputTokens: z.number().nonnegative(),
-      contextWindow: z.number().positive().optional(),
-      observedAt: timestamp,
-      source: z.enum(["provider_usage", "count_tokens"]),
-      status: z.enum(["observed", "estimated"]),
-    })
-    .optional(),
-  totalCost: z.number(),
-  undoStack: z.array(
-    z.object({
-      path: z.string(),
-      before: z.string().nullable(),
-      after: z.string().nullable(),
-      createdAt: z.string(),
-    }),
-  ),
-  fileDiffs: z
-    .record(
-      z.string(),
-      z.object({
-        path: z.string(),
-        kind: z.enum(["create", "edit", "delete"]),
-        patch: z.string(),
-        additions: z.number(),
-        deletions: z.number(),
-      }),
-    )
-    .optional(),
-});
 const projectSchema = z.object({
   schemaVersion: z.literal(1),
   id: idSchema,
@@ -115,7 +49,8 @@ const summarySchema = z.object({
   titleSource: z.enum(["auto", "user"]),
   createdAt: timestamp,
   updatedAt: timestamp,
-  provider: ProviderKindSchema,
+  providerId: z.string().min(1),
+  profileId: z.string().min(1),
   model: z.string(),
   gitBranch: z.string().optional(),
   messageCount: z.number().int().nonnegative(),
@@ -123,7 +58,7 @@ const summarySchema = z.object({
   lastUserMessage: z.string().optional(),
 });
 const indexSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   sessions: z.array(summarySchema),
 });
 
@@ -246,7 +181,8 @@ function toSummary(session: Session): SessionSummary {
     titleSource: session.titleSource ?? "auto",
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
-    provider: session.provider,
+    providerId: session.providerId,
+    profileId: session.profileId,
     model: session.model,
     gitBranch: session.gitBranch,
     messageCount: session.messages.length,
@@ -271,13 +207,14 @@ export class ProjectSessionStore {
   private get indexPath(): string {
     return join(this.directory, "index.json");
   }
-  create(provider: Session["provider"], model: string): Session {
+  create(provider: Session["providerId"], model: string): Session {
     const now = new Date().toISOString();
-    return {
+    return withSessionCompatibility({
       id: randomUUID(),
       projectPath: this.project.path,
       messages: [],
-      provider,
+      providerId: provider,
+      profileId: legacyProfileId(provider),
       model,
       title: "Без названия",
       titleSource: "auto",
@@ -291,24 +228,28 @@ export class ProjectSessionStore {
       undoStack: [],
       createdAt: now,
       updatedAt: now,
-    };
+    });
   }
   async startNew(
     currentId: string | undefined,
-    defaults: { provider: Session["provider"]; model: string },
-    overrides: { provider?: Session["provider"]; model?: string } = {},
+    defaults: { provider: Session["providerId"]; model: string },
+    overrides: { provider?: Session["providerId"]; model?: string } = {},
   ): Promise<Session> {
     const current = currentId ? await this.load(currentId) : undefined;
     const provider =
-      overrides.provider ?? current?.provider ?? defaults.provider;
+      overrides.provider ?? current?.providerId ?? defaults.provider;
     const model = overrides.model ?? current?.model ?? defaults.model;
     if (current) {
-      current.provider = provider;
+      current.providerId = provider;
+      if (overrides.provider) current.profileId = legacyProfileId(provider);
       if (current.model !== model) current.contextSnapshot = undefined;
       current.model = model;
       await this.save(current);
     }
     const next = this.create(provider, model);
+    next.profileId = overrides.provider
+      ? legacyProfileId(provider)
+      : (current?.profileId ?? legacyProfileId(provider));
     await this.save(next);
     return next;
   }
@@ -320,17 +261,18 @@ export class ProjectSessionStore {
     await mkdir(this.directory, { recursive: true });
     const { projectPath: _projectPath, ...fields } = session;
     const persisted = persistedSessionSchema.parse({
-      ...fields,
-      schemaVersion: 2,
+      ...migrateSessionRecord(fields),
+      schemaVersion: 3,
       title: session.title || "Без названия",
     });
+    await this.list();
     await withLock(this.indexPath, async () => {
       await atomicJson(this.file(session.id), persisted);
       let index: z.infer<typeof indexSchema>;
       try {
         index = indexSchema.parse(await readJson(this.indexPath));
       } catch {
-        index = { schemaVersion: 1, sessions: [] };
+        index = { schemaVersion: 2, sessions: [] };
       }
       index.sessions = [
         toSummary(session),
@@ -341,10 +283,20 @@ export class ProjectSessionStore {
   }
   async load(id: string): Promise<Session> {
     const raw = await readJson(this.file(id));
-    const parsed = persistedSessionSchema.parse(raw);
+    let parsed: z.infer<typeof persistedSessionSchema>;
+    try {
+      parsed = persistedSessionSchema.parse(migrateSessionRecord(raw));
+    } catch {
+      throw new Error(
+        `Invalid session at ${this.file(id)}; original file was not changed.`,
+      );
+    }
     if (parsed.id !== id)
       throw new Error(`ID сессии не совпадает с именем файла: ${id}`);
-    const session = { ...parsed, projectPath: this.project.path } as Session;
+    const session = withSessionCompatibility({
+      ...parsed,
+      projectPath: this.project.path,
+    });
     initializeSessionState(session);
     if (
       session.context?.activeCheckpoint &&
@@ -400,7 +352,7 @@ export class ProjectSessionStore {
         }
       }
       sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      await atomicJson(this.indexPath, { schemaVersion: 1, sessions });
+      await atomicJson(this.indexPath, { schemaVersion: 2, sessions });
       return sessions;
     });
   }
@@ -413,13 +365,14 @@ export class ProjectSessionStore {
     await this.save(session);
   }
   async delete(id: string): Promise<void> {
+    await this.list();
     await withLock(this.indexPath, async () => {
       await rm(this.file(id));
       let index: z.infer<typeof indexSchema>;
       try {
         index = indexSchema.parse(await readJson(this.indexPath));
       } catch {
-        index = { schemaVersion: 1, sessions: [] };
+        index = { schemaVersion: 2, sessions: [] };
       }
       index.sessions = index.sessions.filter((entry) => entry.id !== id);
       await atomicJson(this.indexPath, index);

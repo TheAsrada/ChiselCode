@@ -1,3 +1,11 @@
+import type { ProviderId } from "../providers/contracts.js";
+
+export type {
+  DriverId,
+  ProfileId,
+  ProviderId,
+} from "../providers/contracts.js";
+
 import { z } from "zod";
 import type { ContextCheckpoint } from "../context/types.js";
 import type {
@@ -23,14 +31,9 @@ export interface SessionContextState {
   activeCheckpoint?: ContextCheckpoint;
 }
 
-export const ProviderKindSchema = z.enum([
-  "anthropic",
-  "anthropic-compatible",
-  "openai",
-  "openai-compatible",
-  "agentrouter",
-]);
-export type ProviderKind = z.infer<typeof ProviderKindSchema>;
+/** @deprecated Use ProviderId; persisted identity is an open string. */
+export const ProviderKindSchema = z.string().min(1);
+export type ProviderKind = ProviderId;
 
 export const ToolNameSchema = z.string().regex(/^[a-zA-Z0-9_.:-]{1,128}$/);
 export type ToolName = string;
@@ -92,6 +95,8 @@ export interface ModelInfo {
 }
 
 export interface TokenUsage {
+  /** Full request input, normalized by the protocol driver (cache included exactly once). */
+  contextInputTokens?: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
@@ -130,9 +135,14 @@ export type StreamEvent =
   | { type: "error"; message: string; code?: ProviderErrorCode };
 
 export interface ProviderAdapter {
-  readonly kind: ProviderKind;
+  /** @deprecated Drivers expose this alias for legacy constructors. */
+  readonly kind?: ProviderId;
+  readonly providerId: ProviderId;
   streamChat(request: ProviderRequest): AsyncIterable<StreamEvent>;
-  listModels(): Promise<ModelInfo[]>;
+  listModels?(): Promise<ModelInfo[]>;
+  checkConnection?(): Promise<
+    import("../providers/contracts.js").ProviderHealthResult
+  >;
   getCapabilities?(model: string): Promise<ModelCapabilities>;
   countTokens?(request: TokenCountRequest): Promise<number | undefined>;
 }
@@ -148,16 +158,23 @@ export interface ProjectConfig {
 }
 
 export interface ProviderConfig {
-  provider: ProviderKind;
+  provider: ProviderId;
   apiKeyRef?: string;
   baseUrl?: string;
   defaultModel?: string;
 }
 
 export interface GlobalConfig {
-  defaultProvider?: ProviderKind;
+  schemaVersion: 2;
+  defaultProfileId?: string;
+  profiles: Record<string, import("../providers/contracts.js").ProviderProfile>;
+  [key: string]: unknown;
+  /** @deprecated Non-persisted accessor. Use defaultProfileId. */
+  defaultProvider?: ProviderId;
+  /** @deprecated Non-persisted accessor. Use profiles[id].defaultModel. */
   defaultModel?: string;
-  providers: Partial<Record<ProviderKind, ProviderConfig>>;
+  /** @deprecated Only unambiguous legacy provider configurations are projected. */
+  providers: Partial<Record<ProviderId, ProviderConfig>>;
   ui?: {
     sidebarMode?: "auto" | "show" | "hide";
     theme?: "obsidian" | "graphite" | "ember" | "paper";
@@ -179,10 +196,15 @@ export interface Session {
   runtime?: SessionRuntimeState;
   context?: SessionContextState;
   model: string;
-  provider: ProviderKind;
+  providerId: string;
+  profileId: string;
+  /** @deprecated Non-persisted alias for providerId. */
+  provider: ProviderId;
   totalTokens: TokenUsage;
   contextSnapshot?: ContextSnapshot;
+  /** Compatibility known subtotal; use costEstimate for model-visible total availability. */
   totalCost: number;
+  costEstimate?: import("../providers/contracts.js").CostEstimate;
   undoStack: UndoEntry[];
   createdAt: string;
   updatedAt: string;

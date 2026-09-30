@@ -34,6 +34,7 @@ function adapter(messages: ChatMessage[]): ProviderAdapter {
   let next = 0;
   return {
     kind: "anthropic",
+    providerId: "anthropic",
     listModels: async () => [],
     async *streamChat(): AsyncIterable<StreamEvent> {
       const message = messages[next++];
@@ -200,6 +201,7 @@ test("provider overflow performs exactly one recovery, unknown model window stay
   });
   const provider: ProviderAdapter = {
     kind: "anthropic",
+    providerId: "anthropic",
     listModels: async () => [],
     async *streamChat() {
       requests++;

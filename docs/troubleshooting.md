@@ -42,3 +42,7 @@
 4. Обезличенное сообщение об ошибке; при проблемах UI — размер окна и скриншот.
 
 Проверьте логи и изображения на секреты. Уязвимости отправляйте по [отдельному каналу](../SECURITY.md).
+
+## Profiles и custom providers
+
+Provider unavailable: проверьте `chisel providers list/validate` и восстановите manifest; history/config остаются читаемыми. Multiple profiles: укажите --profile. Invalid config: исходный файл не reset, путь показан в ошибке; перед ручным исправлением сохраните backup. `config.v1.backup.json` создаётся при первом save v2, а credentials.enc не мигрирует. Подробности — [migration notes](provider-migration.md).

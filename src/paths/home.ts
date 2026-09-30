@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Per-user ChiselCode data and installed binary on Windows. */
@@ -24,3 +25,15 @@ export const userSkillsDir = (): string => join(skillsRootDir(), "user");
 export const sessionsRootDir = (): string => join(chiselHomeDir(), "sessions");
 export const sessionProjectsDir = (): string =>
   join(sessionsRootDir(), "projects");
+
+export const providersRootDir = (): string =>
+  join(chiselHomeDir(), "providers");
+export async function ensureChiselHomeLayout(): Promise<void> {
+  for (const dir of [
+    sessionsRootDir(),
+    userSkillsDir(),
+    bundledSkillsDir(),
+    providersRootDir(),
+  ])
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+}

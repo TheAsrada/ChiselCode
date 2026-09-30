@@ -1,0 +1,191 @@
+[
+  {
+    "task": "large-output-artifact",
+    "trial": 1,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "large-output-artifact",
+    "trial": 2,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "large-output-artifact",
+    "trial": 3,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "protocol-boundary-compaction",
+    "trial": 1,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "protocol-boundary-compaction",
+    "trial": 2,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "protocol-boundary-compaction",
+    "trial": 3,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "multi-file-patch",
+    "trial": 1,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "multi-file-patch",
+    "trial": 2,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "multi-file-patch",
+    "trial": 3,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "ordered-read-batch",
+    "trial": 1,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "ordered-read-batch",
+    "trial": 2,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "ordered-read-batch",
+    "trial": 3,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "add-sum-feature",
+    "trial": 1,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "add-sum-feature",
+    "trial": 2,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "add-sum-feature",
+    "trial": 3,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "fix-null-regression",
+    "trial": 1,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "fix-null-regression",
+    "trial": 2,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "fix-null-regression",
+    "trial": 3,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 1,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 2,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 3,
+    "comparable": true,
+    "baseline": "success",
+    "candidate": "success",
+    "regression": false,
+    "token_delta": 0
+  }
+]

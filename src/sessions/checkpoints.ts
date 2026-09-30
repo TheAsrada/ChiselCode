@@ -18,7 +18,7 @@ export function attachSessionRecorder(
       session.messages.push(event.message);
       addUsage(session, event.usage);
       session.contextSnapshot = observedContextSnapshot(
-        session.provider,
+        session.providerId,
         session.model,
         event.usage,
       );
@@ -44,6 +44,10 @@ export function attachSessionRecorder(
   });
 }
 function addUsage(session: Session, usage: TokenUsage) {
+  const hadPriorUsage =
+    session.totalTokens.inputTokens + session.totalTokens.outputTokens > 0 ||
+    session.messages.filter((message) => message.role === "assistant").length >
+      1;
   session.totalTokens.inputTokens += usage.inputTokens;
   session.totalTokens.outputTokens += usage.outputTokens;
   session.totalTokens.cacheReadTokens =
@@ -51,10 +55,17 @@ function addUsage(session: Session, usage: TokenUsage) {
   session.totalTokens.cacheCreationTokens =
     (session.totalTokens.cacheCreationTokens ?? 0) +
     (usage.cacheCreationTokens ?? 0);
-  session.totalCost += estimateCost(
-    session.provider,
+  const estimate = estimateCost(
+    session.providerId,
     session.model,
     usage.inputTokens,
     usage.outputTokens,
   );
+  if (estimate.usd !== undefined) session.totalCost += estimate.usd;
+  const previousUnknown =
+    session.costEstimate?.source === "unknown" && hadPriorUsage;
+  session.costEstimate =
+    estimate.source === "unknown" || previousUnknown
+      ? { source: "unknown" }
+      : { usd: session.totalCost, source: "estimated" };
 }

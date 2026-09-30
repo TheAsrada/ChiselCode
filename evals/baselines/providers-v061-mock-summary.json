@@ -1,0 +1,1724 @@
+[
+  {
+    "task": "large-output-artifact",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {
+        "context": {
+          "maxInlineToolResultTokens": 128
+        }
+      },
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 1
+        },
+        "pass": false,
+        "count": 0
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "large.txt",
+          "contains": "Needle"
+        },
+        "pass": true
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 1
+        },
+        "pass": true,
+        "count": 1
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "large.txt",
+          "contains": "Needle"
+        },
+        "pass": true
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 1,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "large.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 128,
+      "tool_output_offloaded_tokens": 9631,
+      "provider_latency": 0.18249499999998875,
+      "tool_time": 11.726062999999982,
+      "wall_time": 69.90687700000001
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "large-output-artifact",
+    "trial": 2,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {
+        "context": {
+          "maxInlineToolResultTokens": 128
+        }
+      },
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 1
+        },
+        "pass": false,
+        "count": 0
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "large.txt",
+          "contains": "Needle"
+        },
+        "pass": true
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 1
+        },
+        "pass": true,
+        "count": 1
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "large.txt",
+          "contains": "Needle"
+        },
+        "pass": true
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 1,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "large.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 128,
+      "tool_output_offloaded_tokens": 9631,
+      "provider_latency": 0.05066800000003013,
+      "tool_time": 2.3259289999999737,
+      "wall_time": 17.447968999999972
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "large-output-artifact",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {
+        "context": {
+          "maxInlineToolResultTokens": 128
+        }
+      },
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 1
+        },
+        "pass": false,
+        "count": 0
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "large.txt",
+          "contains": "Needle"
+        },
+        "pass": true
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 1
+        },
+        "pass": true,
+        "count": 1
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "large.txt",
+          "contains": "Needle"
+        },
+        "pass": true
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 1,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "large.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 128,
+      "tool_output_offloaded_tokens": 9631,
+      "provider_latency": 0.034604999999942265,
+      "tool_time": 1.6343349999999646,
+      "wall_time": 11.674766000000034
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "protocol-boundary-compaction",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {
+        "context": {
+          "contextWindow": 24000,
+          "keepRecentTokens": 1000
+        }
+      },
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "context_compaction_completed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": false,
+        "count": 0
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "provider_turn_completed",
+          "minimum": 2,
+          "maximum": 2
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "context_compaction_completed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": true,
+        "count": 1
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "provider_turn_completed",
+          "minimum": 2,
+          "maximum": 2
+        },
+        "pass": true,
+        "count": 2
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 1,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 1,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 9,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.06593099999997776,
+      "tool_time": 1.006919000000039,
+      "wall_time": 13.318695000000048
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "protocol-boundary-compaction",
+    "trial": 2,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {
+        "context": {
+          "contextWindow": 24000,
+          "keepRecentTokens": 1000
+        }
+      },
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "context_compaction_completed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": false,
+        "count": 0
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "provider_turn_completed",
+          "minimum": 2,
+          "maximum": 2
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "context_compaction_completed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": true,
+        "count": 1
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "provider_turn_completed",
+          "minimum": 2,
+          "maximum": 2
+        },
+        "pass": true,
+        "count": 2
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 1,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 1,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 9,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.05310000000002901,
+      "tool_time": 1.0625120000000265,
+      "wall_time": 13.843038000000035
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "protocol-boundary-compaction",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {
+        "context": {
+          "contextWindow": 24000,
+          "keepRecentTokens": 1000
+        }
+      },
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "context_compaction_completed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": false,
+        "count": 0
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "provider_turn_completed",
+          "minimum": 2,
+          "maximum": 2
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "context_compaction_completed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": true,
+        "count": 1
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "provider_turn_completed",
+          "minimum": 2,
+          "maximum": 2
+        },
+        "pass": true,
+        "count": 2
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 1,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 1,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 9,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.03216900000001033,
+      "tool_time": 1.2732200000000375,
+      "wall_time": 11.504971000000012
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "multi-file-patch",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "file",
+          "path": "a.txt",
+          "contains": "ONE\nmiddle\nTHREE"
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "old.txt",
+          "absent": true
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "new.txt",
+          "contains": "created"
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "workspace_changed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "file",
+          "path": "a.txt",
+          "contains": "ONE\nmiddle\nTHREE"
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "old.txt",
+          "absent": true
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "new.txt",
+          "contains": "created"
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "workspace_changed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": true,
+        "count": 1
+      }
+    ],
+    "metrics": {
+      "turn_count": 3,
+      "provider_request_count": 3,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt",
+        "old.txt"
+      ],
+      "files_changed": [
+        "old.txt",
+        "a.txt",
+        "new.txt"
+      ],
+      "patch_attempts": 1,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 3,
+      "output_tokens": 3,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 36,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.5092370000000415,
+      "tool_time": 69.36906700000003,
+      "wall_time": 64.541965
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "multi-file-patch",
+    "trial": 2,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "file",
+          "path": "a.txt",
+          "contains": "ONE\nmiddle\nTHREE"
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "old.txt",
+          "absent": true
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "new.txt",
+          "contains": "created"
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "workspace_changed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "file",
+          "path": "a.txt",
+          "contains": "ONE\nmiddle\nTHREE"
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "old.txt",
+          "absent": true
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "new.txt",
+          "contains": "created"
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "workspace_changed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": true,
+        "count": 1
+      }
+    ],
+    "metrics": {
+      "turn_count": 3,
+      "provider_request_count": 3,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt",
+        "old.txt"
+      ],
+      "files_changed": [
+        "old.txt",
+        "a.txt",
+        "new.txt"
+      ],
+      "patch_attempts": 1,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 3,
+      "output_tokens": 3,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 36,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.05566799999996874,
+      "tool_time": 13.328882000000021,
+      "wall_time": 28.415032999999994
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "multi-file-patch",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "file",
+          "path": "a.txt",
+          "contains": "ONE\nmiddle\nTHREE"
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "old.txt",
+          "absent": true
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "new.txt",
+          "contains": "created"
+        },
+        "pass": false
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "workspace_changed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "file",
+          "path": "a.txt",
+          "contains": "ONE\nmiddle\nTHREE"
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "old.txt",
+          "absent": true
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "file",
+          "path": "new.txt",
+          "contains": "created"
+        },
+        "pass": true
+      },
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "workspace_changed",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "pass": true,
+        "count": 1
+      }
+    ],
+    "metrics": {
+      "turn_count": 3,
+      "provider_request_count": 3,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt",
+        "old.txt"
+      ],
+      "files_changed": [
+        "old.txt",
+        "a.txt",
+        "new.txt"
+      ],
+      "patch_attempts": 1,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 3,
+      "output_tokens": 3,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 36,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.06891500000000406,
+      "tool_time": 10.437316999999894,
+      "wall_time": 22.718744000000015
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "ordered-read-batch",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 3,
+          "maximum": 3
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 3,
+          "maximum": 3
+        },
+        "pass": true,
+        "count": 3
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt",
+        "old.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 9644,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.07296700000000556,
+      "tool_time": 40.628876000000105,
+      "wall_time": 25.566253000000017
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "ordered-read-batch",
+    "trial": 2,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 3,
+          "maximum": 3
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 3,
+          "maximum": 3
+        },
+        "pass": true,
+        "count": 3
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt",
+        "old.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 9644,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.0704960000000483,
+      "tool_time": 14.333761999999979,
+      "wall_time": 17.237071000000014
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "ordered-read-batch",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 30,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 3,
+          "maximum": 3
+        },
+        "pass": false,
+        "count": 0
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "trajectory",
+          "event": "tool_completed",
+          "minimum": 3,
+          "maximum": 3
+        },
+        "pass": true,
+        "count": 3
+      }
+    ],
+    "metrics": {
+      "turn_count": 2,
+      "provider_request_count": 2,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "a.txt",
+        "old.txt"
+      ],
+      "files_changed": [],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 2,
+      "output_tokens": 2,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 9644,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.030941999999981817,
+      "tool_time": 12.073023999999975,
+      "wall_time": 15.355135000000018
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "add-sum-feature",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "1f13c2dec7612577770f8a9348cea5b1a1858b0aa3b76bed0a77ba3406594c49",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-nH2ZnR/index.test.ts:3:97)\n(fail) sum feature preserves double [0.24ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.22ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "index.ts"
+      ],
+      "files_changed": [
+        "index.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 95,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.09544099999993705,
+      "tool_time": 27.51787300000001,
+      "wall_time": 68.87498599999998
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "add-sum-feature",
+    "trial": 2,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "1f13c2dec7612577770f8a9348cea5b1a1858b0aa3b76bed0a77ba3406594c49",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-VaTdBn/index.test.ts:3:97)\n(fail) sum feature preserves double [0.30ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [5.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.37ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [7.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "index.ts"
+      ],
+      "files_changed": [
+        "index.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 95,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.07112900000004174,
+      "tool_time": 14.066464999999994,
+      "wall_time": 51.151387
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "add-sum-feature",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "1f13c2dec7612577770f8a9348cea5b1a1858b0aa3b76bed0a77ba3406594c49",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-ya4Fj6/index.test.ts:3:97)\n(fail) sum feature preserves double [0.25ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.17ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "index.ts"
+      ],
+      "files_changed": [
+        "index.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 95,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.07857400000000325,
+      "tool_time": 13.85461100000009,
+      "wall_time": 42.10936300000003
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "fix-null-regression",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-Uphb35/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-Uphb35/value.test.ts:5:10)\n(fail) normalizes strings and null [0.35ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 102,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.1251599999999371,
+      "tool_time": 15.790208000000007,
+      "wall_time": 48.99294400000008
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "fix-null-regression",
+    "trial": 2,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-ALTKKT/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-ALTKKT/value.test.ts:5:10)\n(fail) normalizes strings and null [0.23ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.07ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [7.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 102,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.18323899999984405,
+      "tool_time": 15.552937000000043,
+      "wall_time": 46.95708400000001
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "fix-null-regression",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-bltuIZ/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-bltuIZ/value.test.ts:5:10)\n(fail) normalizes strings and null [0.36ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [5.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [2.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 102,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.05926500000020951,
+      "tool_time": 11.769855000000007,
+      "wall_time": 40.07751099999996
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-lcVV7i/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-lcVV7i/value.test.ts:5:10)\n(fail) normalizes strings and null [0.20ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [6.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 6,
+      "provider_request_count": 6,
+      "tool_call_count": 5,
+      "tool_error_count": 1,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 6,
+      "output_tokens": 6,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 153,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.09007800000017596,
+      "tool_time": 22.995267000000013,
+      "wall_time": 60.599797999999964
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 2,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-v6JDds/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-v6JDds/value.test.ts:5:10)\n(fail) normalizes strings and null [0.24ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 6,
+      "provider_request_count": 6,
+      "tool_call_count": 5,
+      "tool_error_count": 1,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 6,
+      "output_tokens": 6,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 153,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.10352499999987685,
+      "tool_time": 27.323039999999992,
+      "wall_time": 57.87677099999996
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-aA4jaW/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-aA4jaW/value.test.ts:5:10)\n(fail) normalizes strings and null [0.48ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 6,
+      "provider_request_count": 6,
+      "tool_call_count": 5,
+      "tool_error_count": 1,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 6,
+      "output_tokens": 6,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 153,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.10127999999986059,
+      "tool_time": 36.86814100000004,
+      "wall_time": 69.1470569999999
+    },
+    "trace": [],
+    "summaryOnly": true
+  }
+]

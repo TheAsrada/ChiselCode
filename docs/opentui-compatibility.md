@@ -34,3 +34,5 @@ The optional approval resolver now binds to a full-screen decision view. An outs
 ## Physical terminal checks
 
 Use [the physical terminal matrix](opentui-terminal-matrix.md) and the compiled CI artifacts to check PowerShell/Windows Terminal, conhost, macOS Terminal/iTerm2, Linux and SSH. Confirm Ctrl+C/Ctrl+D/SIGTERM, paste, mouse selection, resize, cursor/raw-mode restoration, scrollback and install paths. In-memory smoke does not prove physical TTY compatibility. The release workflow builds Windows x64, macOS x64/arm64 and Linux x64 glibc, then publishes only when all four assets upload successfully. Musl is not published.
+
+Provider settings use the registry catalog, searchable/windowed selectors and independent profiles. /settings can create or switch profiles; historical tabs keep their saved profile unless explicitly edited. Custom manifests are declarative and loaded on startup.

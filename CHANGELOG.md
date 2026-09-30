@@ -6,6 +6,19 @@
 
 ## [Не выпущено]
 
+## [0.6.1] - 2026-09-30
+
+### Provider Architecture
+
+- Provider Definitions, ProviderRegistry и DriverRegistry отделены от пользовательских profiles; SDK находятся только в openai-chat/anthropic-messages drivers. AgentRouter использует generic OpenAI driver.
+- Config v2 с несколькими profiles, --profile и compatibility --provider; безопасная lazy migration v1, backup config.v1.backup.json, сохранение apiKeyRef и unknown fields без миграции credentials.enc.
+- Declarative custom providers в пустом Home/providers, offline discovery и providers path/list/validate. Namespace/size/schema/driver/options/secrets/symlink/collision diagnostics; код не исполняется, credentials/network при discovery не используются.
+- Setup/settings с поиском, windowing и несколькими profiles. Default model выбирается только по выбранному profile/definition.
+- Session v3 providerId/profileId, lazy v2 migration, history unknown provider и rebuildable index v2; project registry не меняется.
+- Optional capabilities/health methods, normalized SDK errors/cache usage и unknown pricing без ложного $0.
+- Актуализированы providers/configuration/CLI/sessions/architecture/security/setup docs; добавлены custom-provider guide и migration notes. Migration, security, scale, driver и UI regression tests.
+- Doctor сохраняет заголовок на чистой установке; architecture checks работают с Windows separators.
+
 ## [0.6.0] - 2026-09-30
 
 ### Добавлено

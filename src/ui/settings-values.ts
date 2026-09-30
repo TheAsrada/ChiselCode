@@ -1,6 +1,7 @@
-import type { ProviderKind } from "../types/domain.js";
+import type { ProviderId } from "../types/domain.js";
 export interface TuiSettingsValues {
-  provider: ProviderKind;
+  provider: ProviderId;
+  profileId?: string;
   model: string;
   baseUrl?: string;
   /**

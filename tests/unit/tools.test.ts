@@ -33,6 +33,8 @@ function session(root: string): Session {
     messages: [],
     model: "test",
     provider: "anthropic",
+    providerId: "anthropic",
+    profileId: "anthropic-default",
     totalTokens: { inputTokens: 0, outputTokens: 0 },
     totalCost: 0,
     undoStack: [],

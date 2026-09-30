@@ -7,11 +7,22 @@ export type ProviderErrorCode =
   | "cancelled"
   | "transport"
   | "refusal"
+  | "invalid_endpoint"
+  | "bad_request"
+  | "unavailable"
+  | "unsupported"
   | "unknown";
 export class ProviderError extends Error {
   constructor(
     readonly code: ProviderErrorCode,
     message: string,
+    readonly status?: number,
+    readonly retryable: boolean = [
+      "rate_limit",
+      "timeout",
+      "unavailable",
+      "transport",
+    ].includes(code),
   ) {
     super(message);
     this.name = "ProviderError";
@@ -46,6 +57,12 @@ export function normalizeProviderError(
                 ? "timeout"
                 : /connection|network|fetch failed/i.test(message)
                   ? "transport"
-                  : "unknown";
-  return new ProviderError(code, message);
+                  : object?.status === 400
+                    ? "bad_request"
+                    : object?.status === 404
+                      ? "invalid_endpoint"
+                      : (object?.status ?? 0) >= 500
+                        ? "unavailable"
+                        : "unknown";
+  return new ProviderError(code, message, object?.status);
 }

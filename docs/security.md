@@ -40,3 +40,7 @@
 ## Сообщить об уязвимости
 
 Следуйте [SECURITY.md](../SECURITY.md). Не публикуйте ключи, приватный код или детали уязвимости в обычном issue.
+
+## Custom Providers
+
+Manifest — данные, а не executable code. Discovery не читает credentials, не создаёт SDK clients, не обращается к сети и не импортирует JS. Secret fields запрещены; используйте env var names и profile.apiKeyRef. Читаются только immediate child directories с regular provider.json до 256 KiB; package/manifest symlinks и junctions отклоняются. Namespaced ID не используется как filesystem path. Duplicate IDs отключают все конфликтующие packages; custom не заменяет built-ins. Remote HTTP может раскрыть ключи и prompts; localhost HTTP разрешён для локальных моделей. Executable custom drivers пока не поддерживаются; в будущем такой driver потребует отдельного trust design и будет trusted user code, даже в child process.
