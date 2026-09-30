@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
@@ -95,12 +95,15 @@ export function fileHandlers(): ToolHandler[] {
         preview: input.path,
         resources: [input.path],
       }),
-      async (context, { data }) => ({
-        output:
-          (await walk(context, data.path, !!data.recursive))
-            .map((file) => relative(context.workspace.root, file))
-            .join("\n") || "(empty directory)",
-      }),
+      async (context, { data }) => {
+        const root = await realpath(context.workspace.root);
+        return {
+          output:
+            (await walk(context, data.path, !!data.recursive))
+              .map((file) => relative(root, file))
+              .join("\n") || "(empty directory)",
+        };
+      },
     ),
     defineTool(
       {
@@ -118,15 +121,18 @@ export function fileHandlers(): ToolHandler[] {
         preview: input.pattern,
         resources: [],
       }),
-      async (context, { data }) => ({
-        output:
-          (await walk(context, data.path, true))
-            .filter((file) =>
-              matchesPattern(relative(data.path, file), data.pattern),
-            )
-            .map((file) => relative(context.workspace.root, file))
-            .join("\n") || "No files matched.",
-      }),
+      async (context, { data }) => {
+        const root = await realpath(context.workspace.root);
+        return {
+          output:
+            (await walk(context, data.path, true))
+              .filter((file) =>
+                matchesPattern(relative(data.path, file), data.pattern),
+              )
+              .map((file) => relative(root, file))
+              .join("\n") || "No files matched.",
+        };
+      },
     ),
     defineTool(
       {
@@ -165,40 +171,45 @@ export function fileHandlers(): ToolHandler[] {
             ),
         );
         if (!selected.length) return { output: "No matches." };
-        try {
-          const result = await execa(
-            "rg",
-            [
-              "--line-number",
-              "--no-heading",
-              "--color",
-              "never",
-              "--",
-              data.pattern,
-              ...selected,
-            ],
-            {
-              cwd: isFile ? dirname(data.path) : data.path,
-              reject: false,
-              all: true,
-              cancelSignal: context.signal,
-              maxBuffer: 16 * 1024 * 1024,
-            },
-          );
-          if (!selected.length) return { output: "No matches." };
-          if (result.exitCode === 0 || result.exitCode === 1)
-            return { output: result.stdout || "No matches." };
-          if (
-            !result.isTerminated &&
-            (result as { code?: string }).code !== "ENOENT"
-          )
-            throw new RuntimeError(
-              "TOOL_EXECUTION_FAILURE",
-              result.all || "Search failed.",
+        const executable = Bun.which("rg", { PATH: process.env.PATH ?? "" });
+        if (executable)
+          try {
+            const result = await execa(
+              executable,
+              [
+                "--line-number",
+                "--no-heading",
+                "--color",
+                "never",
+                "--",
+                data.pattern,
+                ...selected,
+              ],
+              {
+                cwd: isFile ? dirname(data.path) : data.path,
+                reject: false,
+                all: true,
+                cancelSignal: context.signal,
+                maxBuffer: 16 * 1024 * 1024,
+              },
             );
-        } catch (error) {
-          if ((error as { code?: string }).code !== "ENOENT") throw error;
-        }
+            if (!selected.length) return { output: "No matches." };
+            if (
+              (result as { code?: string }).code !== "ENOENT" &&
+              (result.exitCode === 0 || result.exitCode === 1)
+            )
+              return { output: result.stdout || "No matches." };
+            if (
+              !result.isTerminated &&
+              (result as { code?: string }).code !== "ENOENT"
+            )
+              throw new RuntimeError(
+                "TOOL_EXECUTION_FAILURE",
+                result.all || "Search failed.",
+              );
+          } catch (error) {
+            if ((error as { code?: string }).code !== "ENOENT") throw error;
+          }
         let expression: RegExp;
         try {
           expression = new RegExp(data.pattern);
@@ -209,6 +220,7 @@ export function fileHandlers(): ToolHandler[] {
           );
         }
         const matches: string[] = [];
+        const root = await realpath(context.workspace.root);
         for (const file of selected) {
           cancelled(context.signal);
           if ((await stat(file)).size > 512000) continue;
@@ -219,9 +231,7 @@ export function fileHandlers(): ToolHandler[] {
             .split(/\r?\n/)
             .forEach((line, index) => {
               if (matches.length < 2000 && expression.test(line))
-                matches.push(
-                  `${relative(context.workspace.root, file)}:${index + 1}:${line}`,
-                );
+                matches.push(`${relative(root, file)}:${index + 1}:${line}`);
             });
           if (matches.length >= 2000) break;
         }

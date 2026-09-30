@@ -9,7 +9,10 @@ export class WorkspacePolicy {
   async resolve(candidate: string): Promise<string> {
     const path = await resolveProjectPath(this.root, candidate);
     const rel = relative(await realpath(this.root), path);
-    if (isIgnored(rel, this.ignorePatterns))
+    if (
+      isIgnored(rel, this.ignorePatterns) ||
+      isIgnored(`${rel}/`, this.ignorePatterns)
+    )
       throw new Error(`Path is ignored by project policy: ${rel}`);
     return path;
   }

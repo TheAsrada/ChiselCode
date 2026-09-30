@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { relative } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
@@ -6,7 +7,7 @@ import type { ToolContext } from "../types.js";
 
 async function git(context: ToolContext, args: string[]) {
   const result = await execa("git", args, {
-    cwd: context.workspace.root,
+    cwd: await realpath(context.workspace.root),
     reject: false,
     all: true,
     cancelSignal: context.signal,
@@ -47,7 +48,7 @@ export function gitHandlers() {
           throw new Error("Git pathspec magic is not supported.");
         const path = input.path
           ? relative(
-              context.workspace.root,
+              await realpath(context.workspace.root),
               await context.workspace.resolve(input.path),
             )
           : undefined;

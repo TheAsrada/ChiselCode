@@ -102,12 +102,19 @@ export async function exists(path: string): Promise<boolean> {
 export function matchesPattern(path: string, pattern: string): boolean {
   const normalizedPath = path.replaceAll("\\", "/");
   const normalizedPattern = pattern.replaceAll("\\", "/");
-  const expression = normalizedPattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replaceAll("**/", "(?:.*/)?")
-    .replaceAll("**", ".*")
-    .replaceAll("*", "[^/]*")
-    .replaceAll("?", "[^/]");
+  let expression = "";
+  for (let index = 0; index < normalizedPattern.length; index++) {
+    const character = normalizedPattern[index] ?? "";
+    if (character === "*" && normalizedPattern[index + 1] === "*") {
+      index++;
+      if (normalizedPattern[index + 1] === "/") {
+        expression += "(?:.*/)?";
+        index++;
+      } else expression += ".*";
+    } else if (character === "*") expression += "[^/]*";
+    else if (character === "?") expression += "[^/]";
+    else expression += character.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
   return new RegExp(`^${expression}$`).test(normalizedPath);
 }
 

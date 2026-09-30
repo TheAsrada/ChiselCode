@@ -732,3 +732,43 @@ test("patch refuses malformed, ignored and symlink-escape targets without earlie
     code: "ENOENT",
   });
 });
+
+test("Git and file discovery use canonical roots when a workspace is an alias", async () => {
+  const root = await fixture();
+  const linked = await fixture();
+  const { symlink } = await import("node:fs/promises");
+  const { execa } = await import("execa");
+  await writeFile(join(root, "a.txt"), "before\n");
+  await execa("git", ["init"], { cwd: root });
+  await execa("git", ["add", "a.txt"], { cwd: root });
+  await execa(
+    "git",
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.test",
+      "commit",
+      "-m",
+      "fixture",
+    ],
+    { cwd: root },
+  );
+  await writeFile(join(root, "a.txt"), "after\n");
+  const alias = join(linked, "alias");
+  await symlink(root, alias, process.platform === "win32" ? "junction" : "dir");
+  const { tools } = setup(alias);
+  const diff = await tools.executor.execute({
+    id: "alias-git",
+    name: "git_diff",
+    input: { path: "a.txt" },
+  });
+  expect(diff.isError).not.toBe(true);
+  expect(diff.output).toContain("+after");
+  const files = await tools.executor.execute({
+    id: "alias-list",
+    name: "list_dir",
+    input: {},
+  });
+  expect(files.output.trim()).toBe("a.txt");
+});
