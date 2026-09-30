@@ -107,6 +107,7 @@ function OpenTuiScreen({
   onSubmit,
   sessionPicker,
   settingsActions,
+  getDefaultModel,
   initialSettingsOpen = false,
   onSetupComplete,
   onInitialSettingsComplete,
@@ -125,6 +126,7 @@ function OpenTuiScreen({
   onSubmit?: (prompt: string) => Promise<void>;
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
+  getDefaultModel?: () => string;
   initialSettingsOpen?: boolean;
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
@@ -722,7 +724,7 @@ function OpenTuiScreen({
         focused={focus === "editor" && !skillsOpen && !settingsOpen}
         hasDraft={!!draft.trim()}
         busy={view.busy}
-        model={view.usage?.model}
+        model={view.usage?.model ?? getDefaultModel?.()}
         onSubmit={() => submit()}
       >
         <textarea

@@ -67,6 +67,11 @@ export async function runOpenTuiAgent(
   const approvalResolver = createTuiApprovalResolver();
   const config = await loadGlobalConfig();
   const catalog = await getProviderCatalog();
+  let defaultModel = settingsDraft(
+    config,
+    catalog.registry,
+    activeOptions,
+  ).model;
   const profileOverrides = new WeakMap<TuiController, RunOptions>();
   let currentTheme = config.ui?.theme ?? "obsidian";
   const classic =
@@ -203,6 +208,7 @@ export async function runOpenTuiAgent(
     },
     save: async (values) => {
       const outcome = await saveProviderSettings(values, catalog.registry);
+      defaultModel = values.model;
       const profile =
         values.profileId ?? `${values.provider.replaceAll("/", "-")}-default`;
       activeOptions = {
@@ -580,6 +586,7 @@ export async function runOpenTuiAgent(
         approvalResolver,
         sessionPicker,
         settingsActions,
+        getDefaultModel: () => defaultModel,
         skillsActions,
         initialSettingsOpen: setupRequired || setupOnly,
         onSetupComplete: setupOnly ? shutdown : undefined,

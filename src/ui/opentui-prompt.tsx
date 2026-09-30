@@ -50,7 +50,7 @@ export function OpenTuiPrompt({
         <text height={1} fg={palette.muted}>
           <span fg={palette.accent}>Chisel</span>
           {model
-            ? ` · ${terminalSafeText(model, Math.max(1, width - 30))}`
+            ? ` · ${terminalSafeText(model, Math.max(1, width - (width >= 60 ? 30 : 20)))}`
             : ""}
           {busy ? " · отвечает" : ""}
         </text>

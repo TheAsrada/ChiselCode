@@ -96,6 +96,7 @@ try {
   await waitForFrame(() => !!setup.renderer.root.findDescendantById("welcome"));
   await frame();
   expect(setup.captureCharFrame()).toContain("ChiselCode");
+  expect(setup.captureCharFrame()).toContain("Chisel · test-model");
   expect(setup.renderer.root.findDescendantById("session-tabs")).toBeFalsy();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
   await act(async () => {
@@ -135,6 +136,7 @@ try {
   });
   await frame();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
+  expect(setup.captureCharFrame()).toContain("Chisel · test-model");
   expect(
     setup.renderer.root
       .findDescendantById("session-tabs")
