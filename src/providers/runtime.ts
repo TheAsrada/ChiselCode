@@ -1,6 +1,7 @@
 import { CredentialStore } from "../security/credentials.js";
 import type { ProviderAdapter } from "../types/domain.js";
 import { type CredentialsReader, resolveCredential } from "./auth.js";
+import { getProviderCatalog } from "./catalog.js";
 import type { ProviderHealthResult, ProviderProfile } from "./contracts.js";
 import { builtinDefinitions } from "./definitions/index.js";
 import { createDriverRegistry, type DriverRegistry } from "./drivers/index.js";
@@ -33,8 +34,12 @@ export async function resolveProviderRuntime(input: {
   baseUrl?: string;
   environment?: Record<string, string | undefined>;
 }) {
-  const drivers = input.drivers ?? createDriverRegistry();
-  const registry = input.registry ?? createBuiltinProviderRegistry(drivers);
+  const catalog = input.registry ? undefined : await getProviderCatalog();
+  const drivers = input.drivers ?? catalog?.drivers ?? createDriverRegistry();
+  const registry =
+    input.registry ??
+    catalog?.registry ??
+    createBuiltinProviderRegistry(drivers);
   const definition = registry.get(input.profile.providerId);
   if (!definition)
     throw new ProviderError(

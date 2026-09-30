@@ -68,7 +68,11 @@ test("endpoint policies and typed errors", () => {
   expect(e.status).toBe(429);
 });
 test("optional health methods: unsupported is not a failure; explicit check has precedence", async () => {
-  const adapter = { kind: "example", async *streamChat() {} };
+  const adapter = {
+    providerId: "example",
+    kind: "example",
+    async *streamChat() {},
+  };
   expect((await checkAdapterHealth(adapter)).status).toBe("unsupported");
   let listed = false;
   expect(
@@ -86,4 +90,60 @@ test("optional health methods: unsupported is not a failure; explicit check has 
     ).status,
   ).toBe("healthy");
   expect(listed).toBe(false);
+});
+
+test("AgentRouter definition drives generic token-limit fallback with no service-specific adapter", async () => {
+  let requests = 0;
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      const body = (await request.json()) as {
+        max_completion_tokens?: number;
+        max_tokens?: number;
+      };
+      requests++;
+      if (requests === 1) {
+        expect(body.max_completion_tokens).toBe(123);
+        return Response.json(
+          {
+            error: {
+              message: "Unsupported parameter max_completion_tokens",
+              type: "invalid_request_error",
+            },
+          },
+          { status: 400 },
+        );
+      }
+      expect(body.max_tokens).toBe(123);
+      expect(body.max_completion_tokens).toBeUndefined();
+      return new Response(
+        'data: {"id":"answer","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    },
+  });
+  try {
+    const runtime = await resolveProviderRuntime({
+      profile: {
+        providerId: "agentrouter",
+        baseUrl: `http://127.0.0.1:${server.port}`,
+      },
+      apiKey: "fake-key",
+      environment: {},
+    });
+    const events = [];
+    for await (const event of runtime.adapter.streamChat({
+      model: "coder",
+      system: "system",
+      messages: [],
+      tools: [],
+      maxTokens: 123,
+    }))
+      events.push(event);
+    expect(requests).toBe(2);
+    expect(events.at(-1)?.type).toBe("turn_complete");
+  } finally {
+    server.stop(true);
+  }
 });

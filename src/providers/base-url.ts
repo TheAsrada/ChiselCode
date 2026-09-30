@@ -1,4 +1,4 @@
-import type { ProviderKind } from "../types/domain.js";
+import type { ProviderId } from "../types/domain.js";
 import { builtinDefinitions } from "./definitions/index.js";
 
 /**
@@ -43,7 +43,7 @@ export function normalizeAnthropicCompatibleBaseUrl(value: string): string {
 
 /** Нормализация под конкретный сервис; остальные провайдеры — как есть. */
 export function normalizeBaseUrlForProvider(
-  provider: ProviderKind,
+  provider: ProviderId,
   baseUrl: string | undefined,
 ): string | undefined {
   if (!baseUrl) return baseUrl;

@@ -1,8 +1,8 @@
+import { builtinDefinitions } from "./definitions/index.js";
 /** @deprecated Compatibility constructors; protocol implementation lives in drivers. */
 
 import { normalizeAnthropicCompatibleBaseUrl } from "./base-url.js";
 import { anthropic } from "./definitions/anthropic.js";
-import { anthropicCompatible } from "./definitions/anthropic-compatible.js";
 import {
   AnthropicProtocolAdapter,
   type AnthropicAdapterOptions as DriverOptions,
@@ -10,10 +10,13 @@ import {
 export interface AnthropicAdapterOptions extends DriverOptions {
   kind?: "anthropic" | "anthropic-compatible";
 }
-const definitions = { anthropic, "anthropic-compatible": anthropicCompatible };
 export class AnthropicAdapter extends AnthropicProtocolAdapter {
   constructor(options: AnthropicAdapterOptions = {}) {
-    const d = definitions[options.kind ?? "anthropic"];
+    const d = builtinDefinitions.find(
+      (d) => d.id === (options.kind ?? anthropic.id),
+    );
+    if (d?.driverId !== "anthropic-messages")
+      throw new Error("Unknown legacy provider definition for this protocol.");
     super({ ...d.driverOptions, ...options, providerId: d.id });
   }
 }

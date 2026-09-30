@@ -26,9 +26,7 @@ export async function discoverCustomProviders(
         ],
       };
     const entries = await readdir(root, { withFileTypes: true });
-    for (const entry of entries.sort((a, b) =>
-      a.name.localeCompare(b.name, "en"),
-    )) {
+    for (const entry of entries) {
       const directory = join(root, entry.name);
       if (entry.isSymbolicLink()) {
         diagnostics.push({

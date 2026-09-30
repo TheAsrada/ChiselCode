@@ -11,6 +11,7 @@ import type {
 
 class MockProvider implements ProviderAdapter {
   readonly kind = "anthropic" as const;
+  readonly providerId = "anthropic";
   private turn = 0;
 
   async *streamChat(_request: ProviderRequest): AsyncIterable<StreamEvent> {
@@ -79,6 +80,7 @@ describe("AgentLoop", () => {
     const diff = buildFileDiff("new.ts", null, "hello\n");
     const provider: ProviderAdapter = {
       kind: "openai-compatible",
+      providerId: "openai-compatible",
       async *streamChat(request) {
         requests.push(structuredClone(request));
         yield {
@@ -155,6 +157,7 @@ describe("AgentLoop", () => {
     let requests = 0;
     const provider: ProviderAdapter = {
       kind: "openai-compatible",
+      providerId: "openai-compatible",
       async *streamChat() {
         requests += 1;
         if (requests === 1) {

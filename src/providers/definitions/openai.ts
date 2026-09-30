@@ -25,5 +25,6 @@ export const openai: ProviderDefinition = {
   },
   driverOptions: {
     includeUsage: true,
+    tokenLimitFallback: false,
   },
 };

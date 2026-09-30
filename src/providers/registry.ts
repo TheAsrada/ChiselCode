@@ -4,7 +4,8 @@ import type {
   ProviderSource,
   RegisteredProvider,
 } from "./contracts.js";
-import type { DriverRegistry } from "./drivers/index.js";
+import { createDriverRegistry, type DriverRegistry } from "./drivers/index.js";
+import { ProviderError } from "./errors.js";
 export const envVarNameSchema = z.string().regex(/^[A-Z_][A-Z0-9_]*$/);
 export const customProviderIdSchema = z
   .string()
@@ -58,7 +59,7 @@ export const providerDefinitionSchema = z.object({
 });
 export class ProviderRegistry {
   private entries = new Map<string, RegisteredProvider>();
-  constructor(private drivers?: DriverRegistry) {}
+  constructor(private drivers: DriverRegistry = createDriverRegistry()) {}
   register(
     definition: ProviderDefinition,
     source: ProviderSource = { type: "builtin" },
@@ -86,7 +87,11 @@ export class ProviderRegistry {
   }
   require(id: string): ProviderDefinition {
     const value = this.get(id);
-    if (!value) throw new Error(`Provider "${id}" is unavailable.`);
+    if (!value)
+      throw new ProviderError(
+        "unavailable",
+        `Provider "${id}" is unavailable.`,
+      );
     return value;
   }
   has(id: string): boolean {

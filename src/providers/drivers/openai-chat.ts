@@ -335,7 +335,7 @@ function formatOpenAIError(error: unknown): string {
 const optionsSchema = z
   .object({
     includeUsage: z.boolean().optional(),
-    tokenLimitFallback: z.boolean().optional(),
+    tokenLimitFallback: z.boolean().default(true),
   })
   .strict();
 export const openaiChatDriver: ProviderDriver = {
@@ -354,6 +354,11 @@ export const openaiChatDriver: ProviderDriver = {
         ];
   },
   create({ definition, apiKey, baseUrl }) {
+    if (!baseUrl)
+      throw new ProviderError(
+        "invalid_endpoint",
+        "This HTTP protocol requires an effective baseUrl; configure definition endpoint or profile.baseUrl.",
+      );
     const options = optionsSchema.parse(definition.driverOptions ?? {});
     const adapter: ProviderAdapter = new OpenAIProtocolAdapter({
       ...options,

@@ -27,7 +27,8 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 | Флаг | Назначение |
 | --- | --- |
 | `--cwd <path>` | Корень проекта; по умолчанию текущая папка терминала |
-| `--provider <provider>` | `anthropic`, `anthropic-compatible`, `openai`, `openai-compatible`, `agentrouter` |
+| `--profile <profile-id>` | Конкретный аккаунт/profile |
+| `--provider <provider>` | Compatibility выбор provider ID из `chisel providers list`; нужен единственный profile |
 | `--model <model>` | ID модели выбранного сервиса |
 | `--base-url <url>` | Адрес совместимого API |
 | `--resume <session-id>` | Полный ID или однозначный префикс сессии текущего проекта |
@@ -56,7 +57,8 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 | `text` | Итоговый текст |
 | `sessionId` | ID сохранённой сессии |
 | `totalTokens` | Счётчики `inputTokens`, `outputTokens` и необязательные счётчики кэша |
-| `totalCost` | Накопленное значение стоимости в сессии; не заменяет биллинг провайдера |
+| `totalCost` | Optional известная estimated стоимость; отсутствует при unknown pricing |
+| `costEstimate` | source=provider/estimated/unknown, optional usd; не заменяет billing |
 | `error` | Сообщение ошибки, если есть |
 | `pendingApproval` | Инструмент и предпросмотр, если нужно разрешение |
 
@@ -90,4 +92,4 @@ chisel --provider openai --model gpt-5 "Объясни проект"
 chisel --profile openai-work --resume <session-id> "Продолжи"
 ```
 
-`--profile` выбирает точный profile. Старый `--provider` остаётся compatibility interface: один profile — выбрать его; ни одного — controlled not configured; несколько — требуется --profile. Вместе flags должны указывать на один provider. Model precedence: --model → profile.defaultModel → definition.defaults.model → controlled selection error. Resume без overrides сохраняет профиль и модель сессии; explicit profile/provider может их заменить. setup --profile передаёт profile ID экрану настроек (profile UI переносится следующим этапом). doctor проверяет локальные metadata/key references, не вызывает API.
+`--profile` выбирает точный profile. Старый `--provider` остаётся compatibility interface: один profile — выбрать его; ни одного — controlled not configured; несколько — требуется --profile. Вместе flags должны указывать на один provider. Model precedence: --model → profile.defaultModel → definition.defaults.model → controlled selection error. Resume без overrides сохраняет профиль и модель сессии; explicit profile/provider может их заменить. setup --profile создаёт/редактирует точный profile; «Профиль» и «Новый профиль» доступны в settings. doctor проверяет локальные metadata/key references, не вызывает API.

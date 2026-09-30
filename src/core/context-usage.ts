@@ -1,7 +1,7 @@
 import type {
   ContextSnapshot,
   ModelInfo,
-  ProviderKind,
+  ProviderId,
   TokenUsage,
 } from "../types/domain.js";
 
@@ -17,7 +17,7 @@ export function observedInputTokens(
 }
 
 export function observedContextSnapshot(
-  provider: ProviderKind,
+  provider: ProviderId,
   model: string,
   usage: TokenUsage,
   knownModel?: ModelInfo,

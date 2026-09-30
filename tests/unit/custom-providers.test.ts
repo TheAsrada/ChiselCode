@@ -239,3 +239,28 @@ test("remote HTTP warned, local HTTP allowed", async () => {
     expect(c.diagnostics[0]?.code).toBe("insecure_endpoint");
   });
 });
+
+test("manifest symlink is rejected and root symlink cannot escape discovery", async () => {
+  await fixture(async (root) => {
+    await mkdir(join(root, "package"));
+    await writeFile(join(root, "outside.json"), JSON.stringify(manifest));
+    await symlink(
+      join(root, "outside.json"),
+      join(root, "package", "provider.json"),
+      "file",
+    );
+    const c = await createProviderCatalog({ root });
+    expect(c.registry.has(manifest.id)).toBe(false);
+    expect(c.diagnostics.some((d) => d.code === "unsafe_symlink")).toBe(true);
+    await symlink(
+      join(root, "package"),
+      join(root, "root-link"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    expect(
+      (
+        await createProviderCatalog({ root: join(root, "root-link") })
+      ).diagnostics.some((d) => d.code === "unsafe_symlink"),
+    ).toBe(true);
+  });
+});

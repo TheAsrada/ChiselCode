@@ -368,3 +368,60 @@ test("provider search windows 500 custom definitions and selects their default m
     act(() => setup.renderer.destroy());
   }
 });
+
+test("profile selector loads the chosen account rather than selecting an arbitrary one", async () => {
+  const { builtinDefinitions } = await import(
+    "../../src/providers/definitions/index.js"
+  );
+  const actions: OpenTuiSettingsActions = {
+    catalog: async () => ({
+      providers: builtinDefinitions,
+      profiles: {
+        work: { providerId: "anthropic", defaultModel: "work-model" },
+        personal: { providerId: "anthropic", defaultModel: "personal-model" },
+      },
+    }),
+    load: async (profileId) => ({
+      values: {
+        provider: "anthropic",
+        profileId: profileId ?? "work",
+        model: profileId === "personal" ? "personal-model" : "work-model",
+      },
+      hasKey: true,
+    }),
+    hasKey: async () => true,
+    save: async () => "saved",
+    models: async () => ({ ok: true, models: [] }),
+    check: async () => "ok",
+  };
+  const setup = await testRender(
+    <OpenTuiSettings
+      actions={actions}
+      initialSelection={5}
+      width={80}
+      height={20}
+      onClose={() => {}}
+    />,
+    { width: 80, height: 20 },
+  );
+  try {
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      setup.mockInput.pressEnter();
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("personal");
+    await act(async () => {
+      setup.mockInput.pressArrow("down");
+    });
+    await act(async () => {
+      setup.mockInput.pressEnter();
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("personal-model");
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});

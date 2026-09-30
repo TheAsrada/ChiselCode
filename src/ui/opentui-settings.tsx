@@ -7,7 +7,7 @@ import type {
   ProviderProfile,
 } from "../providers/contracts.js";
 import { createBuiltinProviderRegistry } from "../providers/runtime.js";
-import type { ProviderKind } from "../types/domain.js";
+import type { ProviderId } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { selectorWindow } from "./provider-settings.js";
@@ -21,7 +21,7 @@ export interface OpenTuiSettingsActions {
   load(
     profileId?: string,
   ): Promise<{ values: TuiSettingsValues; hasKey: boolean }>;
-  hasKey(provider: ProviderKind, profileId?: string): Promise<boolean>;
+  hasKey(provider: ProviderId, profileId?: string): Promise<boolean>;
   save(values: TuiSettingsValues): Promise<"saved" | "setup_required">;
   check(values: TuiSettingsValues): Promise<string>;
   models(values: TuiSettingsValues): Promise<ModelListResult>;
@@ -64,7 +64,7 @@ export function OpenTuiSettings({
   initialSelection?: number;
 }) {
   const [values, setValues] = useState<TuiSettingsValues>({
-    provider: "anthropic",
+    provider: "",
     model: "",
   });
   const [providers, setProviders] = useState<ProviderDefinition[]>(() =>

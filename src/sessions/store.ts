@@ -12,7 +12,7 @@ export function sessionsDirectory(): string {
 }
 export function createSession(
   projectPath: string,
-  provider: Session["provider"],
+  provider: Session["providerId"],
   model: string,
 ): Session {
   const now = new Date().toISOString();
@@ -65,7 +65,7 @@ export async function deleteSession(
   await (await projectSessionStore(projectPath)).delete(assertSessionId(id));
 }
 export function estimateCost(
-  provider: Session["provider"],
+  provider: Session["providerId"],
   model: string,
   inputTokens: number,
   outputTokens: number,

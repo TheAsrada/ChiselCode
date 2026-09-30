@@ -45,12 +45,15 @@ export function migrateConfig(raw: unknown): ConfigV2 {
 /** Temporary non-persisted accessors while callers migrate to profiles. */
 export function withLegacyAccessors(config: ConfigV2): GlobalConfig {
   const providers: Record<string, ProviderConfig> = {};
-  for (const profile of Object.values(config.profiles)) {
-    providers[profile.providerId] ??= {
-      ...profile,
-      provider: profile.providerId,
-    };
-  }
+  const counts = new Map<string, number>();
+  for (const profile of Object.values(config.profiles))
+    counts.set(profile.providerId, (counts.get(profile.providerId) ?? 0) + 1);
+  for (const profile of Object.values(config.profiles))
+    if (counts.get(profile.providerId) === 1)
+      providers[profile.providerId] = {
+        ...profile,
+        provider: profile.providerId,
+      };
   Object.defineProperties(config, {
     providers: { value: providers, enumerable: false },
     defaultProvider: {

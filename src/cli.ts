@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
+
 import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
 import { stdin as nodeStdin, stdout as nodeStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
@@ -18,6 +20,7 @@ import { loadGlobalConfig } from "./config/load.js";
 import { ensureChiselHomeLayout, providersRootDir } from "./paths/home.js";
 import { getProviderCatalog } from "./providers/catalog.js";
 import { formatProviderDiagnostic } from "./providers/custom/diagnostics.js";
+import { resolveEndpoint } from "./providers/endpoint.js";
 import { selectProfile } from "./providers/profiles.js";
 import { CredentialStore } from "./security/credentials.js";
 import { projectSessionStore } from "./sessions/project-store.js";
@@ -39,7 +42,7 @@ program
   )
   .option("--profile <profile-id>", "профиль провайдера")
   .option("--model <model>", "название модели")
-  .option("--base-url <url>", "адрес OpenAI-compatible API")
+  .option("--base-url <url>", "base URL выбранного API")
   .option("--yes", "разрешить все изменения без подтверждения")
   .option("--allow <tools>", "разрешить конкретные инструменты через запятую")
   .option("--json", "вывести один JSON-объект")
@@ -139,13 +142,29 @@ program
       return;
     }
     const definition = catalog.registry.get(selected.profile.providerId);
-    const ready =
+    const keyReady =
       Boolean(definition) &&
       (await hasApiKey(
         selected.profile.providerId,
         selected.profile.apiKeyRef,
       ));
     const providerConfig = selected.profile;
+    const model =
+      argvFlagValue("--model") ??
+      providerConfig.defaultModel ??
+      definition?.defaults.model;
+    let endpoint: string | undefined;
+    let endpointReady = false;
+    try {
+      if (definition) {
+        endpoint = resolveEndpoint(
+          definition,
+          argvFlagValue("--base-url") ?? providerConfig.baseUrl,
+        );
+        endpointReady = Boolean(endpoint);
+      }
+    } catch {}
+    const ready = keyReady && endpointReady && Boolean(model);
     const mark = (ok: boolean): string =>
       paint(ok ? "✓" : "✗", ok ? "green" : "red", color);
     process.stdout.write(
@@ -155,16 +174,14 @@ program
       `${mark(Boolean(definition))} Сервис: ${definition?.label ?? selected.profile.providerId} · профиль ${selected.profileId}\n`,
     );
     process.stdout.write(
-      `${mark(true)} Модель: ${providerConfig.defaultModel ?? definition?.defaults.model ?? "не выбрана"}\n`,
+      `${mark(Boolean(model))} Модель: ${model ?? "не выбрана"}\n`,
     );
     process.stdout.write(
-      `${mark(ready)} API-ключ: ${ready ? "сохранён" : "не настроен"}\n`,
+      `${mark(keyReady)} API-ключ: ${definition?.auth.required === false ? "не требуется" : keyReady ? "доступен" : "не настроен"}\n`,
     );
-    const endpoint =
-      providerConfig.baseUrl ?? definition?.endpoint.defaultBaseUrl;
-    if (endpoint || definition?.endpoint.required)
+    if (definition)
       process.stdout.write(
-        `${mark(Boolean(endpoint))} Адрес API: ${endpoint ?? "не настроен"}\n`,
+        `${mark(endpointReady)} Адрес API: ${endpoint ?? "не настроен или невалидный baseUrl"}\n`,
       );
     for (const d of catalog.diagnostics)
       process.stderr.write(`${formatProviderDiagnostic(d)}\n`);
@@ -225,7 +242,7 @@ providersCommand
   .description("Путь Home/providers")
   .action(async () => {
     await ensureChiselHomeLayout();
-    process.stdout.write(`${providersRootDir()}\n`);
+    process.stdout.write(`${resolve(providersRootDir())}\n`);
   });
 providersCommand
   .command("list")
@@ -320,6 +337,8 @@ function toOptions(raw: Record<string, unknown>): RunOptions {
  * отдаёт обработчику сабкоманды пустой объект опций.
  */
 function argvFlagValue(flag: string): string | undefined {
+  const equal = process.argv.find((arg) => arg.startsWith(`${flag}=`));
+  if (equal) return equal.slice(flag.length + 1);
   const index = process.argv.indexOf(flag);
   if (index === -1) return undefined;
   const value = process.argv[index + 1];

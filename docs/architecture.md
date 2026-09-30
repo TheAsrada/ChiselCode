@@ -1,4 +1,4 @@
-# ChiselCode Core Runtime v2
+# Архитектура ChiselCode
 
 [Документация](README.md) · [Главная](../README.md)
 
@@ -79,7 +79,7 @@ EditingService возвращает semantic model message, structured diffs, ch
 6. Структурированные файловые mutations проходят EditingService; shell и Git исполняются через собственные process contracts после policy.
 7. Model-visible output может отличаться от raw artifact.
 8. Permission policy не считается sandbox.
-9. Provider protocol quirks локализованы в adapters / TurnRunner.
+9. Provider wire quirks и SDK errors локализованы в drivers; TurnRunner принимает generic stream.
 10. Изменения agent behavior должны сопровождаться conformance tests и измеримыми eval cases.
 
 ## Evaluation
@@ -96,12 +96,58 @@ MCP, LSP, subagents, hooks, worktrees, memory, background processes и полн�
 
 `TuiWorkspace` хранит отдельный `TuiController` для главной и каждой вкладки. Контроллер владеет папкой, черновиком, лентой, потоковым ответом и прокруткой. Очередь связывает запрос с исходной вкладкой независимо от выбранного экрана. «+» создаёт новый разговор; закрытие вкладки не удаляет историю. Core Runtime v2 сохраняет этот UI и его regression tests.
 
-## Provider architecture: contracts
+## Provider architecture
 
-Provider Profile хранит пользовательские параметры и ссылку на credential; Provider Definition хранит metadata сервиса без ключей; Protocol Driver реализует wire protocol. Provider Adapter — объект одного запуска для AgentLoop/AgentRuntime. ProviderRegistry хранит definitions и источник, предоставляет поиск; DriverRegistry проверяет доступность protocol implementations. Один driver обслуживает множество definitions. Contracts и пять встроенных definitions находятся в `src/providers/`; миграция остальных слоёв выполняется поэтапно.
+Provider != Protocol != User Configuration.
 
-Protocol implementations перенесены в `drivers/openai-chat.ts` и `drivers/anthropic-messages.ts`: только эти файлы владеют SDK и wire translation. Stream validation и cancellation v0.6.0 сохранены. `includeUsage`/`tokenLimitFallback` и `authMode`/`adaptiveThinking`/`nativeTokenCounting` задаются definition.driverOptions, а не provider ID. Прежние adapter constructors временно сохранены как compatibility wrappers.
+**Provider Profile → Provider Definition → Protocol Driver → Provider Adapter → AgentLoop/AgentRuntime**. AgentLoop — прежний compatibility API над runtime v2, а не отдельная provider factory.
 
-`resolveProviderRuntime` собирает definition/profile, разрешает credential (transient → env vars → apiKeyRef), нормализует endpoint по policy и создаёт adapter через DriverRegistry. App больше не импортирует SDK. ProviderError включает status/retryable и generic categories; SDK exceptions нормализуются drivers. `listModels`, `countTokens`, `checkConnection` optional.
+```mermaid
+flowchart TD
+  Builtins[Built-in Definitions] --> Catalog[Provider Catalog]
+  Manifests[Home/providers/*/provider.json] --> Discovery[Declarative Discovery]
+  Discovery --> Catalog
+  Catalog --> Registry[ProviderRegistry]
+  Profile[Config v2 Provider Profile] --> Resolver[Runtime Resolver]
+  Registry --> Resolver
+  Resolver --> Credentials[CredentialStore]
+  Resolver --> Drivers[DriverRegistry]
+  Drivers --> Driver[ProviderDriver]
+  Driver --> Adapter[ProviderAdapter]
+  Adapter --> Runtime[AgentRuntime / AgentLoop compatibility]
+```
 
-Protocol drivers нормализуют `TokenUsage.contextInputTokens`: Anthropic cache добавляется один раз, OpenAI prompt_tokens уже содержит cache. Core не проверяет provider ID для этой семантики. CostEstimate хранит optional usd и source(provider/estimated/unknown); отсутствие pricing не считается бесплатным запросом. Необязательные model/health/counting методы допускают manual model selection и unsupported health.
+| Понятие | Ответственность |
+| --- | --- |
+| ProviderDefinition | Metadata сервиса без secret: ID, label, driverId, auth env names, endpoint policy/default, model, capabilities, driverOptions, optional exact-model pricing |
+| Protocol Driver | Wire protocol, SDK, streaming/tools translation, usage/cache normalization и typed errors; driverOptions validation |
+| ProviderProfile | Настройки одного аккаунта: providerId, apiKeyRef, label, baseUrl, defaultModel |
+| ProviderAdapter | Runtime объект выбранного definition/profile/credential; providerId и обязательный streamChat, optional methods |
+| ProviderRegistry | Definitions и source, duplicate/driver validation, lookup/list/search; не сканирует filesystem |
+| DriverRegistry | Implementations по открытому driverId; один driver обслуживает много definitions |
+| Provider Catalog | Built-ins + custom discovery, diagnostics и отключение всех duplicate custom IDs |
+
+Resolver: profile lookup (selectProfile) → definition → transient/env/store credential → endpoint normalization → driver → adapter. App не импортирует SDK, env vars или конкретные constructors. Definition endpoint/default model — source of truth; global model другого provider не применяется.
+
+Protocol drivers нормализуют TokenUsage.contextInputTokens: Anthropic input+cache, OpenAI prompt_tokens уже содержит cache. Core не проверяет provider ID. ProviderError расширен generic status/retryable categories; context_overflow/cancelled/transport/refusal сохранены для существующего Core Runtime v2. CostEstimate имеет optional USD, unknown pricing не free.
+
+### Инварианты provider слоя
+
+- AgentLoop/AgentRuntime знают только ProviderAdapter, ProviderRequest и StreamEvent; не Registry/Definition/Profile storage или SDK.
+- UI/CLI получают каталог через ProviderRegistry; нет закрытой provider validation или отдельного label/default/env каталога.
+- SDK imports и wire semantics находятся только в drivers.
+- Persistent config/session identities — open strings, providerId/profileId; Session читается без установленного provider.
+- Один driver обслуживает множество definitions; новое определение на существующем protocol не меняет generic layers.
+- Profile владеет user config, CredentialStore — secrets, Definition — metadata.
+
+### Manifest trust boundary
+
+Discovery читает только immediate directories/provider.json, ограничивает size 256 KiB, отклоняет symlinks/junctions, namespaces/collisions/unknown drivers/invalid options/secret fields. Folder и manifest ID независимы, ID не filesystem path. Broken package не ломает built-ins. Discovery линейно читает packages; registry list упорядочен детерминированно. Нет credential lookup, SDK client creation, network или JS execution при startup.
+
+Executable custom drivers не реализованы: file exists != trusted code. Будущая поддержка потребует digest/trust approval и typed worker IPC; child process сам по себе не sandbox. Сегодня protocol drivers только bundled source.
+
+### Persistence и compatibility
+
+Config v2 мигрирует v1 в памяти и делает config.v1.backup.json при первом реальном save. Session v3 мигрирует v2 только при чтении/сохранении отдельного файла; index v2 — rebuildable cache. Credentials не мигрируют. [Migration notes](provider-migration.md) описывают записи, backups и старый CLI.
+
+Deprecated constructors в providers/openai.ts, anthropic.ts, agentrouter.ts и URL helpers остаются thin wrappers для старого API. ProviderKind/Schema — deprecated open-string aliases, не enum. Non-enumerable legacy config accessors и session.provider не сохраняются на диск. Runtime использует новые contracts; удаление wrappers не требуется для добавления providers.

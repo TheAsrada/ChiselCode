@@ -88,6 +88,15 @@ export async function saveProviderSettings(
 ): Promise<"saved" | "setup_required"> {
   const current = await loadGlobalConfig(options.configPath);
   const definition = registry.require(values.provider);
+  if (
+    !values.profileId &&
+    Object.values(current.profiles).filter(
+      (profile) => profile.providerId === values.provider,
+    ).length > 1
+  )
+    throw new Error(
+      "Multiple profiles; choose a profile or enter a new profile ID.",
+    );
   const id = ProfileIdSchema.parse(
     values.profileId ?? `${values.provider.replaceAll("/", "-")}-default`,
   );

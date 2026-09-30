@@ -30,7 +30,7 @@ import type {
   AgentResult,
   ModelInfo,
   ProviderAdapter,
-  ProviderKind,
+  ProviderId,
   ToolExecutionResult,
   ToolName,
 } from "../types/domain.js";
@@ -45,7 +45,9 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
-  provider?: ProviderKind;
+  /** Internal harness override; not a CLI flag. */
+  configPath?: string;
+  provider?: ProviderId;
   profile?: string;
   model?: string;
   baseUrl?: string;
@@ -57,7 +59,7 @@ export interface RunOptions {
 }
 
 export async function hasApiKey(
-  provider: ProviderKind,
+  provider: ProviderId,
   keyRef?: string,
 ): Promise<boolean> {
   const { registry } = await getProviderCatalog();
@@ -74,7 +76,7 @@ export async function hasApiKey(
 }
 
 export interface ConnectionCheckInput {
-  provider: ProviderKind;
+  provider: ProviderId;
   profileId?: string;
   baseUrl?: string;
   model?: string;
@@ -115,7 +117,16 @@ export async function checkProviderConnection(
     };
   }
   if (adapter.checkConnection || !adapter.listModels) {
-    const health = await checkAdapterHealth(adapter);
+    let health: Awaited<ReturnType<typeof checkAdapterHealth>>;
+    try {
+      health = await withTimeout(
+        checkAdapterHealth(adapter),
+        CONNECTION_CHECK_TIMEOUT_MS,
+        "Connection check timeout.",
+      );
+    } catch (error) {
+      return { ok: false, message: formatConnectionError(error, baseUrl) };
+    }
     return { ok: health.status !== "unhealthy", message: health.message };
   }
   let models: { id: string }[];
@@ -279,7 +290,7 @@ export async function runPrompt(
   const projectRoot = options.cwd ?? process.cwd();
   const sessionStore = await projectSessionStore(projectRoot);
   const config = await loadProjectConfig(projectRoot);
-  const global = await loadGlobalConfig();
+  const global = await loadGlobalConfig(options.configPath);
   const { registry, drivers } = await getProviderCatalog();
   const previous = options.resume
     ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)

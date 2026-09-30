@@ -39,6 +39,7 @@ for (const selected of category === "all"
           args.includes("--live") ? "live" : "mock",
           value("--model", "scripted"),
           value("--provider", "anthropic"),
+          value("--profile", "") || undefined,
         ),
       );
   }

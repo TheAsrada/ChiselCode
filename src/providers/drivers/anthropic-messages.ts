@@ -15,8 +15,6 @@ import type { ModelCapabilities, TokenCountRequest } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
 
-const DEFAULT_MODEL = "claude-opus-5";
-
 export interface AnthropicAdapterOptions {
   apiKey?: string | null;
   authToken?: string;
@@ -52,7 +50,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
     try {
       const stream = this.client.messages.stream(
         {
-          model: request.model || DEFAULT_MODEL,
+          model: request.model,
           max_tokens: request.maxTokens,
           system: request.system,
           messages: toAnthropicMessages(request.messages),
@@ -161,16 +159,20 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
 
   async countTokens(request: TokenCountRequest): Promise<number | undefined> {
     if (!this.options.nativeTokenCounting) return undefined;
-    const result = await this.client.messages.countTokens(
-      {
-        model: request.model || DEFAULT_MODEL,
-        system: request.system,
-        messages: toAnthropicMessages(request.messages),
-        tools: toAnthropicTools(request.tools),
-      },
-      { signal: request.signal },
-    );
-    return result.input_tokens;
+    try {
+      const result = await this.client.messages.countTokens(
+        {
+          model: request.model,
+          system: request.system,
+          messages: toAnthropicMessages(request.messages),
+          tools: toAnthropicTools(request.tools),
+        },
+        { signal: request.signal },
+      );
+      return result.input_tokens;
+    } catch (error) {
+      throw normalizeProviderError(error, request.signal);
+    }
   }
 }
 
@@ -293,6 +295,11 @@ export const anthropicMessagesDriver: ProviderDriver = {
         ];
   },
   create({ definition, apiKey, baseUrl }) {
+    if (!baseUrl)
+      throw new ProviderError(
+        "invalid_endpoint",
+        "This HTTP protocol requires an effective baseUrl; configure definition endpoint or profile.baseUrl.",
+      );
     const options = optionsSchema.parse(definition.driverOptions ?? {});
     const adapter: ProviderAdapter = new AnthropicProtocolAdapter({
       ...options,

@@ -1,3 +1,11 @@
+import type { ProviderId } from "../providers/contracts.js";
+
+export type {
+  DriverId,
+  ProfileId,
+  ProviderId,
+} from "../providers/contracts.js";
+
 import { z } from "zod";
 import type { ContextCheckpoint } from "../context/types.js";
 import type {
@@ -25,7 +33,7 @@ export interface SessionContextState {
 
 /** @deprecated Use ProviderId; persisted identity is an open string. */
 export const ProviderKindSchema = z.string().min(1);
-export type ProviderKind = string;
+export type ProviderKind = ProviderId;
 
 export const ToolNameSchema = z.string().regex(/^[a-zA-Z0-9_.:-]{1,128}$/);
 export type ToolName = string;
@@ -127,8 +135,9 @@ export type StreamEvent =
   | { type: "error"; message: string; code?: ProviderErrorCode };
 
 export interface ProviderAdapter {
-  readonly kind: ProviderKind;
-  readonly providerId?: string;
+  /** @deprecated Drivers expose this alias for legacy constructors. */
+  readonly kind?: ProviderId;
+  readonly providerId: ProviderId;
   streamChat(request: ProviderRequest): AsyncIterable<StreamEvent>;
   listModels?(): Promise<ModelInfo[]>;
   checkConnection?(): Promise<
@@ -149,7 +158,7 @@ export interface ProjectConfig {
 }
 
 export interface ProviderConfig {
-  provider: ProviderKind;
+  provider: ProviderId;
   apiKeyRef?: string;
   baseUrl?: string;
   defaultModel?: string;
@@ -160,9 +169,12 @@ export interface GlobalConfig {
   defaultProfileId?: string;
   profiles: Record<string, import("../providers/contracts.js").ProviderProfile>;
   [key: string]: unknown;
-  defaultProvider?: ProviderKind;
+  /** @deprecated Non-persisted accessor. Use defaultProfileId. */
+  defaultProvider?: ProviderId;
+  /** @deprecated Non-persisted accessor. Use profiles[id].defaultModel. */
   defaultModel?: string;
-  providers: Partial<Record<ProviderKind, ProviderConfig>>;
+  /** @deprecated Only unambiguous legacy provider configurations are projected. */
+  providers: Partial<Record<ProviderId, ProviderConfig>>;
   ui?: {
     sidebarMode?: "auto" | "show" | "hide";
     theme?: "obsidian" | "graphite" | "ember" | "paper";
@@ -187,7 +199,7 @@ export interface Session {
   providerId: string;
   profileId: string;
   /** @deprecated Non-persisted alias for providerId. */
-  provider: ProviderKind;
+  provider: ProviderId;
   totalTokens: TokenUsage;
   contextSnapshot?: ContextSnapshot;
   /** Compatibility known subtotal; use costEstimate for model-visible total availability. */

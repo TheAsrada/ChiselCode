@@ -44,6 +44,10 @@ export function attachSessionRecorder(
   });
 }
 function addUsage(session: Session, usage: TokenUsage) {
+  const hadPriorUsage =
+    session.totalTokens.inputTokens + session.totalTokens.outputTokens > 0 ||
+    session.messages.filter((message) => message.role === "assistant").length >
+      1;
   session.totalTokens.inputTokens += usage.inputTokens;
   session.totalTokens.outputTokens += usage.outputTokens;
   session.totalTokens.cacheReadTokens =
@@ -59,8 +63,7 @@ function addUsage(session: Session, usage: TokenUsage) {
   );
   if (estimate.usd !== undefined) session.totalCost += estimate.usd;
   const previousUnknown =
-    session.costEstimate?.source === "unknown" &&
-    session.totalTokens.inputTokens > usage.inputTokens;
+    session.costEstimate?.source === "unknown" && hadPriorUsage;
   session.costEstimate =
     estimate.source === "unknown" || previousUnknown
       ? { source: "unknown" }

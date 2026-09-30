@@ -68,7 +68,9 @@ export async function loadCustomProvider(
       }
       if (used > MAX_MANIFEST_BYTES)
         return error("manifest_too_large", "Manifest exceeds 256 KiB.");
-      text = buffer.subarray(0, used).toString("utf8");
+      text = new TextDecoder("utf-8", { fatal: true }).decode(
+        buffer.subarray(0, used),
+      );
     } finally {
       await handle.close();
     }
@@ -87,7 +89,7 @@ export async function loadCustomProvider(
     if (object?.schemaVersion !== 1)
       return error(
         "unsupported_schema",
-        "Unsupported custom provider manifest schemaVersion; expected 1.",
+        `Unsupported custom provider manifest schemaVersion: ${typeof object?.schemaVersion === "number" ? object.schemaVersion : "unknown"}; expected 1.`,
       );
     if (builtinDefinitions.some((d) => d.id === object.id))
       return error(

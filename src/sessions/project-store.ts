@@ -207,7 +207,7 @@ export class ProjectSessionStore {
   private get indexPath(): string {
     return join(this.directory, "index.json");
   }
-  create(provider: Session["provider"], model: string): Session {
+  create(provider: Session["providerId"], model: string): Session {
     const now = new Date().toISOString();
     return withSessionCompatibility({
       id: randomUUID(),
@@ -232,12 +232,12 @@ export class ProjectSessionStore {
   }
   async startNew(
     currentId: string | undefined,
-    defaults: { provider: Session["provider"]; model: string },
-    overrides: { provider?: Session["provider"]; model?: string } = {},
+    defaults: { provider: Session["providerId"]; model: string },
+    overrides: { provider?: Session["providerId"]; model?: string } = {},
   ): Promise<Session> {
     const current = currentId ? await this.load(currentId) : undefined;
     const provider =
-      overrides.provider ?? current?.provider ?? defaults.provider;
+      overrides.provider ?? current?.providerId ?? defaults.provider;
     const model = overrides.model ?? current?.model ?? defaults.model;
     if (current) {
       current.providerId = provider;

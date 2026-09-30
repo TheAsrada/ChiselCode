@@ -29,7 +29,7 @@ export interface TuiViewState {
   busy?: boolean;
   gitChanges?: GitWorkingState;
   usage?: {
-    provider: Session["provider"];
+    provider: Session["providerId"];
     profileId?: string;
     model: string;
     totalTokens: TokenUsage;
@@ -189,7 +189,7 @@ export class TuiController implements TuiTranscript {
 
   /** A selected model takes effect on the next request; invalidate old context usage now. */
   setActiveModel(
-    provider: Session["provider"],
+    provider: Session["providerId"],
     model: string,
     profileId?: string,
   ): void {
