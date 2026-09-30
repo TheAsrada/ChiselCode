@@ -1,4 +1,5 @@
 import type { FileDiff, ProjectConfig, ToolName } from "../types/domain.js";
+import { PermissionPolicy } from "./permission-policy.js";
 
 const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "write_file",
@@ -7,6 +8,7 @@ const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "run_shell",
   "git_commit",
   "create_skill",
+  "apply_patch",
 ]);
 
 export type ApprovalDecision = "approved" | "denied" | "unavailable";
@@ -34,49 +36,29 @@ export interface ApprovalOptions {
 }
 
 export class ApprovalGate {
+  readonly policy: PermissionPolicy;
   constructor(
-    private readonly config: ProjectConfig,
+    config: ProjectConfig,
     private readonly options: ApprovalOptions,
     private readonly resolver: ApprovalResolver,
-  ) {}
-
+  ) {
+    this.policy = new PermissionPolicy(config, options);
+  }
+  async resolve(request: ApprovalRequest): Promise<ApprovalDecision> {
+    if (this.options.nonInteractive) return "unavailable";
+    return this.resolver.requestApproval(request);
+  }
   async decide(request: ApprovalRequest): Promise<ApprovalDecision> {
-    if (!MUTATING_TOOLS.has(request.tool)) return "approved";
-    if (request.tool === "run_shell" && request.command)
-      return this.decideCommand(request);
-    if (
-      this.options.autoApprove ||
-      this.config.autoApprove ||
-      this.options.allowedTools.has(request.tool as ToolName)
-    )
-      return "approved";
-    if (this.options.nonInteractive) return "unavailable";
-    return this.resolver.requestApproval(request);
+    const decision = this.policy.decide(
+      request,
+      MUTATING_TOOLS.has(request.tool) ? "workspace_write" : "read",
+    );
+    return decision === "allow"
+      ? "approved"
+      : decision === "deny"
+        ? "denied"
+        : this.resolve(request);
   }
-
-  private async decideCommand(
-    request: ApprovalRequest,
-  ): Promise<ApprovalDecision> {
-    const command = request.command ?? "";
-    if (matchesAny(command, this.config.deniedCommands)) return "denied";
-    if (matchesAny(command, this.config.allowedCommands)) return "approved";
-    if (
-      this.options.autoApprove ||
-      this.config.autoApprove ||
-      this.options.allowedTools.has("run_shell")
-    )
-      return "approved";
-    if (this.options.nonInteractive) return "unavailable";
-    return this.resolver.requestApproval(request);
-  }
-}
-
-function matchesAny(command: string, rules: string[]): boolean {
-  return rules.some((rule) => {
-    const trimmed = rule.trim();
-    if (!trimmed) return false;
-    return command === trimmed || command.startsWith(`${trimmed} `);
-  });
 }
 
 export function mutatesWorkspace(tool: ToolName): boolean {

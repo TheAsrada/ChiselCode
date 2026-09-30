@@ -14,6 +14,8 @@ import { z } from "zod";
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
 import { ProviderKindSchema, type Session } from "../types/domain.js";
 import { withLock } from "./lock.js";
+import { initializeSessionState } from "./migrations.js";
+import { SessionContextSchema, SessionRuntimeSchema } from "./schema.js";
 
 const idSchema = z
   .string()
@@ -42,6 +44,8 @@ const contentSchema = z.discriminatedUnion("type", [
 ]);
 const persistedSessionSchema = z.object({
   schemaVersion: z.literal(2),
+  runtime: SessionRuntimeSchema.optional(),
+  context: SessionContextSchema.optional(),
   id: idSchema,
   title: z.string(),
   titleSource: z.enum(["auto", "user"]),
@@ -310,6 +314,7 @@ export class ProjectSessionStore {
   }
   async save(session: Session): Promise<void> {
     assertSessionId(session.id);
+    initializeSessionState(session);
     session.updatedAt = new Date().toISOString();
     if (!session.titleSource) session.titleSource = "auto";
     await mkdir(this.directory, { recursive: true });
@@ -339,7 +344,15 @@ export class ProjectSessionStore {
     const parsed = persistedSessionSchema.parse(raw);
     if (parsed.id !== id)
       throw new Error(`ID сессии не совпадает с именем файла: ${id}`);
-    return { ...parsed, projectPath: this.project.path } as Session;
+    const session = { ...parsed, projectPath: this.project.path } as Session;
+    initializeSessionState(session);
+    if (
+      session.context?.activeCheckpoint &&
+      session.context.activeCheckpoint.throughMessageIndex >
+        session.messages.length
+    )
+      throw new Error("Invalid context checkpoint boundary.");
+    return session;
   }
   async list(): Promise<SessionSummary[]> {
     let index: z.infer<typeof indexSchema>;
