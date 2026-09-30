@@ -2,6 +2,8 @@
 
 OpenTUI is the sole interactive renderer for `chisel` and `chisel setup`. The probe is a separate diagnostic binary; the regular CLI includes setup, settings, approvals, history and resume.
 
+The regular CLI starts with the Coder Mini logo and a shared multiline composer directly below it. The first submitted task creates a session tab; the adjacent `+`, Alt+N, or Ctrl+Shift+N returns to a fresh start screen without creating an empty tab. Tabs have individual close controls and retain drafts and background replies. Ctrl+S opens the skills library while preserving the current draft.
+
 ## Run
 
 Requires Bun 1.3.0 or later; Windows arm64 requires Bun 1.4.0 or later. Dependencies are pinned to `@opentui/core@0.5.12` and `@opentui/react@0.5.12` in `package-lock.json`.

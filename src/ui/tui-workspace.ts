@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { Session } from "../types/domain.js";
+import { createEditorState } from "./editor.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
 import { TuiController } from "./tui-controller.js";
 
@@ -31,6 +32,16 @@ export class TuiWorkspace {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** A new conversation starts on the welcome screen, without allocating a tab. */
+  newDraft(projectPath = this.controller.snapshot.projectPath): TuiController {
+    if (this.activeKey || projectPath !== this.home.snapshot.projectPath) {
+      this.home.switchSession(undefined, projectPath);
+      this.home.presentation.history = createEditorState();
+    }
+    this.select();
+    return this.home;
   }
 
   newTab(projectPath = this.controller.snapshot.projectPath): TuiController {
@@ -72,7 +83,12 @@ export class TuiWorkspace {
   }
 
   cycle(direction: -1 | 1): void {
-    const keys = [undefined, ...this.tabs.map((tab) => tab.key)];
+    const keys = this.tabs.map((tab) => tab.key);
+    if (!keys.length) return;
+    if (!this.activeKey) {
+      this.select(direction === 1 ? keys[0] : keys.at(-1));
+      return;
+    }
     this.select(
       keys[
         (keys.indexOf(this.activeKey) + direction + keys.length) % keys.length

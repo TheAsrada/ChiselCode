@@ -8,9 +8,26 @@ import * as config from "../../src/config/load.js";
 import type { AgentEventHandlers } from "../../src/core/agent-loop.js";
 import * as projects from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
+import { stripActiveSkillsBlock } from "../../src/skills/skills.js";
 
 // This fixture runs in a child process so module mocks cannot affect other tests.
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const setup = await createTestRenderer({ width: 80, height: 24 });
+async function frame() {
+  await act(async () => {
+    await setup.renderOnce();
+  });
+}
+async function waitForFrame(ready: () => boolean) {
+  for (let i = 0; i < 200; i++) {
+    await act(async () => {
+      await Bun.sleep(10);
+      await setup.renderOnce();
+    });
+    if (ready()) return;
+  }
+  throw new Error(`Frame did not settle:\n${setup.captureCharFrame()}`);
+}
 mock.module("@opentui/core", () => ({
   ...core,
   createCliRenderer: async () => setup.renderer,
@@ -41,6 +58,7 @@ mock.module("../../src/sessions/project-store.js", () => ({
 }));
 let releaseFirst: (() => void) | undefined;
 let calls = 0;
+const prompts: string[] = [];
 mock.module("../../src/commands/run.js", () => ({
   ...run,
   hasApiKey: async () => true,
@@ -53,57 +71,103 @@ mock.module("../../src/commands/run.js", () => ({
     callbacks: AgentEventHandlers,
   ) => {
     calls++;
+    prompts.push(prompt);
+    const task = stripActiveSkillsBlock(prompt);
     if (calls === 1)
       await new Promise<void>((resolve) => {
         releaseFirst = resolve;
       });
-    callbacks.onText?.(`answer: ${prompt}`);
+    callbacks.onText?.(`answer: ${task}`);
     const session = createSession(
       options.cwd ?? process.cwd(),
       "anthropic",
       "test-model",
     );
-    session.title = prompt;
-    return { result: { session, text: `answer: ${prompt}` } };
+    session.title = task;
+    return { result: { session, text: `answer: ${task}` } };
   },
 }));
 const { runOpenTuiAgent } = await import("../../src/ui/opentui-agent.js");
 let running: Promise<void> | undefined;
 try {
-  await act(async () => {
+  act(() => {
     running = runOpenTuiAgent({ cwd: process.cwd() });
-    await new Promise((resolve) => setTimeout(resolve, 20));
   });
-  await setup.renderOnce();
+  await waitForFrame(() => !!setup.renderer.root.findDescendantById("welcome"));
+  await frame();
   expect(setup.captureCharFrame()).toContain("ChiselCode");
+  expect(setup.renderer.root.findDescendantById("session-tabs")).toBeFalsy();
+  expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
+  await act(async () => {
+    setup.mockInput.pressKey("s", { ctrl: true });
+  });
+  await frame();
+  expect(setup.captureCharFrame()).toContain("/code-review");
+  await act(async () => {
+    setup.mockInput.pressTab();
+  });
+  await frame();
+  await act(async () => {
+    setup.mockInput.pressEnter();
+  });
+  await frame();
+  await act(async () => {
+    setup.mockInput.pressEscape();
+    await Bun.sleep(120);
+  });
   await act(async () => {
     await setup.mockInput.pasteBracketedText("first task");
     setup.mockInput.pressEnter();
   });
   expect(calls).toBe(1);
+  expect(prompts[0]).toContain("code-review");
+  await frame();
+  expect(setup.renderer.root.findDescendantById("welcome")).toBeFalsy();
+  await act(async () => {
+    setup.mockInput.pressKey("p", { ctrl: true });
+  });
+  expect(setup.renderer.currentFocusedEditor?.plainText).toBe("first task");
+  await act(async () => {
+    setup.mockInput.pressKey("n", { ctrl: true });
+  });
   await act(async () => {
     setup.mockInput.pressKey("n", { meta: true });
   });
-  await setup.renderOnce();
+  await frame();
+  expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
+  expect(
+    setup.renderer.root
+      .findDescendantById("session-tabs")
+      ?.getChildren()
+      .filter((item) => item.id.startsWith("session-tab-")).length,
+  ).toBe(1);
   await act(async () => {
     await setup.mockInput.pasteBracketedText("second task");
     setup.mockInput.pressEnter();
   });
   expect(calls).toBe(1);
-  await setup.renderOnce();
+  await waitForFrame(() => setup.captureCharFrame().includes("В очереди: 1"));
+  expect(
+    setup.renderer.root
+      .findDescendantById("session-tabs")
+      ?.getChildren()
+      .filter((item) => item.id.startsWith("session-tab-")).length,
+  ).toBe(2);
   expect(setup.captureCharFrame()).toContain("В очереди: 1");
   await act(async () => {
     releaseFirst?.();
-    await new Promise((resolve) => setTimeout(resolve, 20));
   });
-  await setup.renderOnce();
+  await waitForFrame(() =>
+    setup.captureCharFrame().includes("answer: second task"),
+  );
   expect(calls).toBe(2);
+  expect(prompts[1]).toBe("second task");
   expect(setup.captureCharFrame()).toContain("answer: second task");
   expect(setup.captureCharFrame()).not.toContain("answer: first task");
   await act(async () => {
     setup.mockInput.pressKey("ARROW_LEFT", { meta: true });
   });
-  await setup.renderOnce();
+  await frame();
   expect(setup.captureCharFrame()).toContain("answer: first task");
   expect(setup.captureCharFrame()).not.toContain("answer: second task");
   await act(async () => {

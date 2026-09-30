@@ -23,10 +23,7 @@ import {
 } from "../commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
 import { getProviderCatalog } from "../providers/catalog.js";
-import {
-  projectSessionStore,
-  SessionProjectRegistry,
-} from "../sessions/project-store.js";
+import { projectSessionStore } from "../sessions/project-store.js";
 import { shortSessionId } from "../sessions/store.js";
 import {
   buildActiveSkillsPrompt,
@@ -107,14 +104,20 @@ export async function runOpenTuiAgent(
   let selfUpdateRunning = false;
   const pendingPrompts: Array<{ input: string; controller: TuiController }> =
     [];
-  const skillNames = new WeakMap<TuiController, Set<string>>();
+  const skillNames = new WeakMap<
+    TuiController,
+    { generation: number; names: Set<string> }
+  >();
   const activeSkills = (controller = currentController()) => {
-    let names = skillNames.get(controller);
-    if (!names) {
-      names = new Set<string>();
-      skillNames.set(controller, names);
+    let entry = skillNames.get(controller);
+    if (!entry || entry.generation !== controller.currentGeneration) {
+      entry = {
+        generation: controller.currentGeneration,
+        names: new Set<string>(),
+      };
+      skillNames.set(controller, entry);
     }
-    return names;
+    return entry.names;
   };
   let pendingSave: Promise<void> = Promise.resolve();
   let finish: (() => void) | undefined;
@@ -133,7 +136,6 @@ export async function runOpenTuiAgent(
     const session = await store.load((await store.resolve(ref)).id);
     workspace.openSession(session);
   };
-  const loadProjects = () => new SessionProjectRegistry().list();
   const sessionPicker: OpenTuiSessionsActions = {
     load: async () => (await sessionStore()).list(),
     preview: async (id) => (await sessionStore()).load(id),
@@ -389,7 +391,7 @@ export async function runOpenTuiAgent(
     }
     if (input === "/home") return workspace.select();
     if (input === "/clear" || input === "/new") {
-      workspace.newTab(controller.snapshot.projectPath);
+      workspace.newDraft(controller.snapshot.projectPath);
       return;
     }
     if (input === "/help") {
@@ -476,9 +478,20 @@ export async function runOpenTuiAgent(
       );
       return;
     }
+    if (controller === workspace.home) {
+      const selectedSkills = activeSkills(controller);
+      const inputHistory = controller.presentation.history;
+      controller = workspace.newTab(controller.snapshot.projectPath);
+      controller.setSessionTitle(
+        input.split("\n", 1)[0]?.slice(0, 120) ?? input.slice(0, 120),
+      );
+      controller.presentation.history = inputHistory;
+      skillNames.set(controller, {
+        generation: controller.currentGeneration,
+        names: new Set(selectedSkills),
+      });
+    }
     if (activeRun) {
-      if (controller === workspace.home)
-        controller = workspace.newTab(controller.snapshot.projectPath);
       pendingPrompts.push({ input, controller });
       controller.setBusy(true);
       controller.append(
@@ -486,11 +499,6 @@ export async function runOpenTuiAgent(
         "info",
       );
       return;
-    }
-    if (controller === workspace.home) {
-      const selectedSkills = activeSkills(controller);
-      controller = workspace.newTab(controller.snapshot.projectPath);
-      skillNames.set(controller, new Set(selectedSkills));
     }
     controller.setBusy(true);
     controller.append(`❯ ${input}`, "user");
@@ -571,7 +579,6 @@ export async function runOpenTuiAgent(
         classic,
         approvalResolver,
         sessionPicker,
-        loadProjects,
         settingsActions,
         skillsActions,
         initialSettingsOpen: setupRequired || setupOnly,

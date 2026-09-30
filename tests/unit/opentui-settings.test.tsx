@@ -70,7 +70,7 @@ test("API key paste is masked, saved intact and never appears in the frame", asy
     expect(saved[0]?.apiKey).toBe("sk-очень-секретный-ключ");
     await setup.renderOnce();
     expect(setup.captureCharFrame()).not.toContain("sk-очень-секретный-ключ");
-    expect(setup.captureCharFrame()).toContain("Напишите сообщение");
+    expect(setup.captureCharFrame()).toContain("Опишите задачу");
   } finally {
     act(() => {
       setup.renderer.destroy();
@@ -242,7 +242,7 @@ test("first-run settings require a saved key before showing the composer", async
   try {
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Настройки ChiselCode");
-    expect(setup.captureCharFrame()).not.toContain("Напишите сообщение");
+    expect(setup.captureCharFrame()).not.toContain("Опишите задачу");
     await act(async () => {
       setup.mockInput.pressEscape();
       await new Promise((resolve) => setTimeout(resolve, 120));
@@ -299,7 +299,7 @@ test("first-run settings require a saved key before showing the composer", async
     });
     await configured.renderOnce();
     expect(saved[0]?.apiKey).toBe("new-private-key");
-    expect(configured.captureCharFrame()).toContain("Напишите сообщение");
+    expect(configured.captureCharFrame()).toContain("Опишите задачу");
     expect(exited).toBe(1);
     expect(completed).toBe(1);
   } finally {

@@ -59,7 +59,7 @@ test("opening a saved session reuses its tab without replacing unsent input", ()
   }
 });
 
-test("cycling includes home and closing an inactive tab keeps the current route", () => {
+test("cycling visits only conversation tabs and closing an inactive tab keeps the current route", () => {
   const workspace = new TuiWorkspace("/project");
   try {
     workspace.newTab();
@@ -68,9 +68,42 @@ test("cycling includes home and closing an inactive tab keeps the current route"
     workspace.close(firstKey);
     expect(workspace.controller).toBe(second);
     workspace.cycle(1);
+    expect(workspace.controller).toBe(second);
+    workspace.newDraft();
     expect(workspace.controller).toBe(workspace.home);
     workspace.cycle(-1);
     expect(workspace.controller).toBe(second);
+  } finally {
+    workspace.dispose();
+  }
+});
+
+test("a new draft opens welcome without allocating a tab and keeps existing conversations", () => {
+  const workspace = new TuiWorkspace("/project-a");
+  try {
+    workspace.home.setDraft("pending task");
+    expect(workspace.newDraft()).toBe(workspace.home);
+    expect(workspace.home.snapshot.draft).toBe("pending task");
+    expect(workspace.tabs).toHaveLength(0);
+    const first = workspace.newTab("/project-b");
+    first.setDraft("unsent in conversation");
+    first.setBusy(true);
+    const firstKey = workspace.activeKey;
+    workspace.newDraft();
+    expect(workspace.tabs).toHaveLength(1);
+    expect(workspace.home.snapshot).toMatchObject({
+      projectPath: "/project-b",
+      draft: "",
+    });
+    first.appendToLast("background response");
+    expect(workspace.home.snapshot.streaming).toBe("");
+    workspace.cycle(1);
+    expect(workspace.activeKey).toBe(firstKey);
+    expect(workspace.controller.snapshot).toMatchObject({
+      draft: "unsent in conversation",
+      streaming: "background response",
+      busy: true,
+    });
   } finally {
     workspace.dispose();
   }

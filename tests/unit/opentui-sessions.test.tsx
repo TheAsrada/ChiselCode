@@ -78,7 +78,7 @@ test("session picker searches, previews and resumes without losing the composer"
     });
     await setup.renderOnce();
     expect(resumed).toEqual([base.id]);
-    expect(setup.captureCharFrame()).toContain("Напишите сообщение");
+    expect(setup.captureCharFrame()).toContain("Опишите задачу");
   } finally {
     act(() => {
       setup.renderer.destroy();

@@ -117,7 +117,7 @@ test("choosing a skill prepares one message, keeps the dialog behind it, and nev
   }
 });
 
-test("opening with the mouse and choosing preserve an existing multiline task draft", async () => {
+test("opening the library shortcut and choosing preserve an existing multiline task draft", async () => {
   const workspace = new TuiWorkspace(process.cwd());
   const { api, active } = actions();
   const submitted: string[] = [];
@@ -138,10 +138,7 @@ test("opening with the mouse and choosing preserve an existing multiline task dr
       await setup.mockInput.pasteBracketedText("Проверь API\nи тесты");
     });
     await frame(setup);
-    const at = position(setup, "Скиллы /skills");
-    await act(async () => {
-      await setup.mockMouse.click(at.x, at.y);
-    });
+    await press(setup, "s", { ctrl: true });
     await frame(setup);
     expect(workspace.home.snapshot.overlay).toBe("skills");
     await press(setup, "RETURN");
@@ -330,7 +327,7 @@ test("empty search and discovery errors keep the popup usable", async () => {
     await open(failure);
     expect(failure.captureCharFrame()).toContain("Skill discovery failed");
     await press(failure, "ESCAPE");
-    expect(failure.captureCharFrame()).toContain("Напишите сообщение");
+    expect(failure.captureCharFrame()).toContain("Опишите задачу");
   } finally {
     destroy(failure);
   }

@@ -167,7 +167,7 @@ test("approval stays keyboard accessible at narrow width and restores the compos
       expect(await decision).toBe("denied");
     });
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("Напишите сообщение");
+    expect(setup.captureCharFrame()).toContain("Опишите задачу");
     await act(async () => {
       decision = approvalResolver.requestApproval({
         tool: "write_file",
