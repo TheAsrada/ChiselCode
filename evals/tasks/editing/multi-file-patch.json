@@ -1,0 +1,59 @@
+{
+  "fixture": "runtime/basic",
+  "timeout": 30,
+  "setup": [],
+  "constraints": {
+    "forbidden_paths": ["large.txt"]
+  },
+  "mockOnly": true,
+  "id": "multi-file-patch",
+  "prompt": "Update one and three to uppercase, delete old.txt and create new.txt containing created. Read existing files first.",
+  "mockTurns": [
+    [
+      {
+        "name": "read_file",
+        "input": {
+          "path": "a.txt"
+        }
+      },
+      {
+        "name": "read_file",
+        "input": {
+          "path": "old.txt"
+        }
+      }
+    ],
+    [
+      {
+        "name": "apply_patch",
+        "input": {
+          "patchText": "*** Begin Patch\n*** Update File: a.txt\n@@\n-one\n+ONE\n@@\n-three\n+THREE\n*** Delete File: old.txt\n*** Add File: new.txt\n+created\n*** End Patch"
+        }
+      }
+    ]
+  ],
+  "graders": [
+    {
+      "type": "file",
+      "path": "a.txt",
+      "contains": "ONE\nmiddle\nTHREE"
+    },
+    {
+      "type": "file",
+      "path": "old.txt",
+      "absent": true
+    },
+    {
+      "type": "file",
+      "path": "new.txt",
+      "contains": "created"
+    },
+    {
+      "type": "trajectory",
+      "event": "workspace_changed",
+      "minimum": 1,
+      "maximum": 1
+    }
+  ],
+  "tags": ["patch", "multi-file"]
+}

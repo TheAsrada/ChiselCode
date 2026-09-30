@@ -1,0 +1,51 @@
+{
+  "id": "wrong-approach-recovery",
+  "fixture": "basic-app",
+  "prompt": "Fix null handling in normalize. Keep its public API. Verify with bun test.",
+  "graders": [
+    {
+      "type": "command",
+      "command": "bun test"
+    }
+  ],
+  "constraints": {
+    "forbidden_paths": ["value.test.ts"]
+  },
+  "tags": ["bugfix", "recovery"],
+  "mockCalls": [
+    {
+      "name": "read_file",
+      "input": {
+        "path": "value.ts"
+      }
+    },
+    {
+      "name": "edit_file",
+      "input": {
+        "path": "value.ts",
+        "old_str": "value!.trim()",
+        "new_str": "value?.trim() ?? \"NULL\""
+      }
+    },
+    {
+      "name": "run_shell",
+      "input": {
+        "command": "bun test"
+      }
+    },
+    {
+      "name": "edit_file",
+      "input": {
+        "path": "value.ts",
+        "old_str": "?? \"NULL\"",
+        "new_str": "?? \"\""
+      }
+    },
+    {
+      "name": "run_shell",
+      "input": {
+        "command": "bun test"
+      }
+    }
+  ]
+}

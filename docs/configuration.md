@@ -24,11 +24,32 @@
 
 Указанный `ignorePatterns` **заменяет** стандартный список. Поэтому в примере сохранены стандартные исключения и добавлены `.env`. Секреты не исключаются автоматически одним только наличием `.env` в проекте.
 
-Правило команды сравнивается с полной строкой: точное совпадение либо начало `правило + пробел`. Это не разбор shell-синтаксиса: правило `bun test` также совпадёт с составной строкой, начинающейся на `bun test `. Списки команд не являются песочницей; подробнее — [безопасность](security.md).
+Shell allow rules сопоставляются с нормализованными аргументами простой команды. Операторы, redirection, substitutions и неизвестные expansions требуют отдельного approval, если пользователь явно не включил общее разрешение. Deny rules имеют приоритет. Это permission policy, а не системная песочница.
 
-## Инструкции проекта: `CHISEL.md`
+## Параметры Core Runtime v2
 
-Markdown-файл `CHISEL.md` в корне проекта добавляется к инструкции агента. Например:
+Необязательные настройки `.chiselrc`:
+
+```json
+{
+  "context": {
+    "autoCompact": true,
+    "bufferRatio": 0.1,
+    "keepRecentTokens": 16000,
+    "maxInlineToolResultTokens": 10000,
+    "contextWindow": 128000,
+    "maxOutputTokens": 4096
+  },
+  "tools": { "maxParallelReads": 4 },
+  "editing": { "requireFreshRead": true }
+}
+```
+
+`contextWindow` и `maxOutputTokens` в примере — явные overrides, а не универсальные свойства моделей. Без override runtime использует известную provider capability; неизвестный window остаётся неизвестным. Output reserve и buffer входят в общий budget. Большие tool outputs сохраняются как artifacts и доступны через `read_tool_result`. Отключение `requireFreshRead` снимает обязательность предварительного чтения, но не проверку уже наблюдавшейся revision или проверку между preflight и commit.
+
+## Инструкции проекта
+
+Корневые `CLAUDE.md`, `AGENTS.md` и `CHISEL.md` добавляются к инструкции агента; при конфликте `CHISEL.md` имеет приоритет. Например:
 
 ```markdown
 # Правила проекта

@@ -1,31 +1,22 @@
-import { estimateCost } from "../sessions/store.js";
+import { ContextManager } from "../context/context-manager.js";
+import { AgentRuntime, type RuntimeOptions } from "../runtime/agent-runtime.js";
+import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type {
-  AgentResult,
-  ChatMessage,
   ProviderAdapter,
   Session,
-  StreamEvent,
-  TokenUsage,
   ToolExecutionResult,
 } from "../types/domain.js";
-import { observedContextSnapshot } from "./context-usage.js";
-import { compactMessages } from "./prompt.js";
 
 export interface AgentEventHandlers {
+  onEvent?(event: RuntimeEvent): void;
   onText?(text: string): void;
   onThinking?(text: string): void;
   onToolStart?(name: string, input: Record<string, unknown>): void;
   onToolResult?(name: string, result: ToolExecutionResult): void;
 }
-
-export interface AgentLoopOptions {
-  maxIterations?: number;
-  maxTokens?: number;
-  signal?: AbortSignal;
-  onCheckpoint?: (session: Session) => Promise<void>;
-}
-
+export type AgentLoopOptions = RuntimeOptions;
+/** Legacy API adapter. The application uses AgentRuntime directly. */
 export class AgentLoop {
   constructor(
     private readonly provider: ProviderAdapter,
@@ -33,187 +24,64 @@ export class AgentLoop {
     private readonly system: string,
     private readonly handlers: AgentEventHandlers = {},
   ) {}
-
-  async run(
-    session: Session,
-    prompt: string,
-    options: AgentLoopOptions = {},
-  ): Promise<AgentResult> {
-    const maxIterations = options.maxIterations ?? 100;
-    session.messages.push({
-      role: "user",
-      content: [{ type: "text", text: prompt }],
+  async run(session: Session, prompt: string, options: RuntimeOptions = {}) {
+    const events = new RuntimeEventBus(session.id);
+    const detach = events.subscribe((event) => {
+      this.handlers.onEvent?.(event);
+      if (event.type === "provider_text_delta")
+        this.handlers.onText?.(event.text ?? "");
+      if (event.type === "provider_thinking_delta")
+        this.handlers.onThinking?.(event.text ?? "");
+      if (event.type === "tool_started")
+        this.handlers.onToolStart?.(event.name ?? "", event.input ?? {});
+      if (
+        (event.type === "tool_completed" || event.type === "tool_failed") &&
+        event.result
+      )
+        this.handlers.onToolResult?.(event.name ?? "", event.result);
     });
-    await options.onCheckpoint?.(session);
-    let finalText = "";
-    let emptyResponseRetries = 0;
-
-    for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-      if (options.signal?.aborted) {
-        await options.onCheckpoint?.(session);
-        return { status: "cancelled", text: finalText, session };
-      }
-
-      let completed:
-        | Extract<StreamEvent, { type: "turn_complete" }>
-        | undefined;
-      let providerError: string | undefined;
-      const requestMessages = compactMessages(session.messages);
-
-      for await (const event of this.provider.streamChat({
-        model: session.model,
-        system: this.system,
-        messages: requestMessages,
-        tools: this.tools.getDefinitions(),
-        maxTokens: options.maxTokens ?? 64_000,
-        signal: options.signal,
-      })) {
-        if (event.type === "text_delta") {
-          finalText += event.text;
-          this.handlers.onText?.(event.text);
-        } else if (event.type === "thinking_delta") {
-          this.handlers.onThinking?.(event.text);
-        } else if (event.type === "turn_complete") {
-          completed = event;
-        } else if (event.type === "error") {
-          providerError = event.message;
-        }
-      }
-
-      if (providerError) {
-        await options.onCheckpoint?.(session);
-        return {
-          status: "failed",
-          text: finalText,
-          session,
-          error: providerError,
-        };
-      }
-      if (!completed) {
-        await options.onCheckpoint?.(session);
-        return {
-          status: "failed",
-          text: finalText,
-          session,
-          error: "Provider stream ended without a final message.",
-        };
-      }
-
-      session.messages.push(completed.message);
-      session.contextSnapshot = observedContextSnapshot(
-        session.provider,
-        session.model,
-        completed.usage,
-      );
-      addUsage(session, completed.usage);
-      const toolCalls = completed.message.content.filter(
-        (content) => content.type === "tool_use",
-      );
-
-      if (toolCalls.length === 0 || completed.stopReason === "refusal") {
-        const responseText = finalText || extractText(completed.message);
-        await options.onCheckpoint?.(session);
-        if (completed.stopReason === "refusal") {
-          return {
-            status: "failed",
-            text: responseText,
-            session,
-            error: "The provider refused this request.",
-          };
-        }
-        if (!responseText.trim()) {
-          if (emptyResponseRetries === 0) {
-            emptyResponseRetries += 1;
-            session.messages.push({
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Ответ не был получен. Дайте пользователю короткий текстовый ответ на исходный запрос без вызова инструментов.",
-                },
-              ],
-            });
-            await options.onCheckpoint?.(session);
-            continue;
-          }
-          return {
-            status: "failed",
-            text: "",
-            session,
-            error:
-              "Сервис завершил запрос без текстового ответа. Проверьте адрес API и модель в chisel setup.",
-          };
-        }
-        return { status: "completed", text: responseText, session };
-      }
-
-      const results = [] as ChatMessage["content"];
-      for (const call of toolCalls) {
-        this.handlers.onToolStart?.(call.name, call.input);
-        const result = await this.tools.execute(call.name, call.input);
-        if (!result.isError && !result.requiresApproval && result.fileDiff) {
-          session.fileDiffs ??= {};
-          session.fileDiffs[call.id] = result.fileDiff;
-        }
-        this.handlers.onToolResult?.(call.name, result);
-        if (result.requiresApproval) {
-          // Do not persist an assistant tool call without its matching result.
-          session.messages.pop();
-          await options.onCheckpoint?.(session);
-          return {
-            status: "approval_required",
-            text: finalText || extractText(completed.message),
-            session,
-            pendingApproval: {
-              tool: call.name,
-              preview: result.preview ?? result.output,
-            },
-          };
-        }
-        results.push({
-          type: "tool_result",
-          toolUseId: call.id,
-          content: result.output,
-          isError: result.isError,
-        });
-      }
-      session.messages.push({ role: "user", content: results });
-      await options.onCheckpoint?.(session);
+    const local = this.tools.runtime;
+    if (local) {
+      local.context.events = events;
+      local.context.signal = options.signal;
+      local.context.checkpoint = () =>
+        options.onCheckpoint?.(session) ?? Promise.resolve();
     }
-
-    return {
-      status: "failed",
-      text: finalText,
-      session,
-      error: `Agent stopped after ${maxIterations} tool-use iterations.`,
-    };
+    const runtime = new AgentRuntime(
+      this.provider,
+      new ContextManager({}, events),
+      {
+        selectForTurn: () => this.tools.getDefinitions(),
+        execute: async (calls, signal) => {
+          if (local) return local.scheduler.execute(calls, signal);
+          const results: ToolExecutionResult[] = [];
+          for (const call of calls) {
+            await events.emit({
+              type: "tool_started",
+              name: call.name,
+              input: call.input,
+              invocationId: call.id,
+            });
+            const result = await this.tools.execute(call.name, call.input);
+            results.push(result);
+            await events.emit({
+              type: "tool_completed",
+              name: call.name,
+              result,
+              invocationId: call.id,
+            });
+            if (result.requiresApproval) break;
+          }
+          return results;
+        },
+      },
+      this.system,
+      events,
+    );
+    try {
+      return await runtime.run(session, prompt, options);
+    } finally {
+      detach();
+    }
   }
-}
-
-function addUsage(session: Session, usage: TokenUsage): void {
-  session.totalTokens.inputTokens += usage.inputTokens;
-  session.totalTokens.outputTokens += usage.outputTokens;
-  session.totalTokens.cacheReadTokens =
-    (session.totalTokens.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0);
-  session.totalTokens.cacheCreationTokens =
-    (session.totalTokens.cacheCreationTokens ?? 0) +
-    (usage.cacheCreationTokens ?? 0);
-  session.totalCost += estimateCost(
-    session.provider,
-    session.model,
-    usage.inputTokens,
-    usage.outputTokens,
-  );
-}
-
-function extractText(message: ChatMessage): string {
-  return message.content
-    .filter(
-      (
-        content,
-      ): content is Extract<ChatMessage["content"][number], { type: "text" }> =>
-        content.type === "text",
-    )
-    .map((content) => content.text)
-    .join("\n");
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSystemPrompt, compactMessages } from "../../src/core/prompt.js";
+import { buildSystemPrompt } from "../../src/core/prompt.js";
 import type { Skill } from "../../src/skills/skills.js";
 
 describe("prompt composition", () => {
@@ -48,16 +48,13 @@ describe("prompt composition", () => {
     );
   });
 
-  test("compacts old history while retaining the newest messages", () => {
-    const messages = Array.from({ length: 4 }, (_, index) => ({
-      role: "user" as const,
-      content: [{ type: "text" as const, text: `message-${index}` }],
-    }));
-    const compacted = compactMessages(messages, 2);
-    expect(compacted).toHaveLength(3);
-    expect(compacted[0]?.content[0]).toMatchObject({
-      text: expect.stringContaining("message-0"),
-    });
-    expect(compacted.at(-1)?.content[0]).toMatchObject({ text: "message-3" });
+  test("does not add an arbitrary file tree to system context", () => {
+    const context = {
+      os: "test",
+      cwd: "/project",
+      date: "2026-01-01",
+      fileTree: "SECRET_TREE",
+    };
+    expect(buildSystemPrompt("", context)).not.toContain("SECRET_TREE");
   });
 });

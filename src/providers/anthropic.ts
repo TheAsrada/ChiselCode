@@ -11,6 +11,8 @@ import type {
 } from "../types/domain.js";
 import { ToolNameSchema } from "../types/domain.js";
 import { normalizeAnthropicCompatibleBaseUrl } from "./base-url.js";
+import type { ModelCapabilities, TokenCountRequest } from "./capabilities.js";
+import { normalizeProviderError, ProviderError } from "./errors.js";
 
 const DEFAULT_MODEL = "claude-opus-5";
 
@@ -62,8 +64,16 @@ export class AnthropicAdapter implements ProviderAdapter {
         { signal: request.signal },
       );
 
+      const toolArguments = new Map<number, string>();
+      let terminated = false;
       for await (const event of stream) {
+        if (event.type === "message_stop") terminated = true;
         if (event.type !== "content_block_delta") continue;
+        if (event.delta.type === "input_json_delta")
+          toolArguments.set(
+            event.index,
+            (toolArguments.get(event.index) ?? "") + event.delta.partial_json,
+          );
         if (event.delta.type === "text_delta") {
           yield { type: "text_delta", text: event.delta.text };
         }
@@ -72,6 +82,21 @@ export class AnthropicAdapter implements ProviderAdapter {
         }
       }
 
+      if (!terminated)
+        throw new ProviderError(
+          "transport",
+          "Provider stream ended without a message_stop marker.",
+        );
+      for (const json of toolArguments.values()) {
+        try {
+          JSON.parse(json);
+        } catch {
+          throw new ProviderError(
+            "transport",
+            "Invalid JSON arguments in provider tool call.",
+          );
+        }
+      }
       const message = await stream.finalMessage();
       const normalized = fromAnthropicContent(message.content);
       for (const content of normalized) {
@@ -96,7 +121,12 @@ export class AnthropicAdapter implements ProviderAdapter {
         },
       };
     } catch (error) {
-      yield { type: "error", message: formatAnthropicError(error) };
+      const failure = normalizeProviderError(error, request.signal);
+      yield {
+        type: "error",
+        message: formatAnthropicError(error),
+        code: failure.code,
+      };
     }
   }
 
@@ -106,18 +136,35 @@ export class AnthropicAdapter implements ProviderAdapter {
       id: model.id,
       displayName: model.display_name ?? undefined,
       contextWindow: model.max_input_tokens ?? undefined,
+      maxOutputTokens: model.max_tokens ?? undefined,
     }));
   }
 
-  async countTokens(
-    request: Pick<ProviderRequest, "model" | "system" | "messages" | "tools">,
-  ): Promise<number> {
-    const result = await this.client.messages.countTokens({
-      model: request.model || DEFAULT_MODEL,
-      system: request.system,
-      messages: toAnthropicMessages(request.messages),
-      tools: toAnthropicTools(request.tools),
-    });
+  async getCapabilities(model: string): Promise<ModelCapabilities> {
+    if (this.kind !== "anthropic") return { tokenCounting: "local_estimate" };
+    try {
+      const info = await this.client.models.retrieve(model);
+      return {
+        contextWindow: info.max_input_tokens ?? undefined,
+        maxOutputTokens: info.max_tokens ?? undefined,
+        tokenCounting: "provider",
+      };
+    } catch {
+      return { tokenCounting: "local_estimate" };
+    }
+  }
+
+  async countTokens(request: TokenCountRequest): Promise<number | undefined> {
+    if (this.kind !== "anthropic") return undefined;
+    const result = await this.client.messages.countTokens(
+      {
+        model: request.model || DEFAULT_MODEL,
+        system: request.system,
+        messages: toAnthropicMessages(request.messages),
+        tools: toAnthropicTools(request.tools),
+      },
+      { signal: request.signal },
+    );
     return result.input_tokens;
   }
 }
@@ -185,14 +232,14 @@ function fromAnthropicContent(
     if (block.type !== "tool_use") return [];
 
     const parsedName = ToolNameSchema.safeParse(block.name);
-    if (!parsedName.success) {
-      return [
-        {
-          type: "text",
-          text: `Provider requested unknown tool: ${block.name}`,
-        },
-      ];
-    }
+    if (
+      !parsedName.success ||
+      !block.id ||
+      !block.input ||
+      typeof block.input !== "object" ||
+      Array.isArray(block.input)
+    )
+      throw new ProviderError("transport", "Malformed provider tool call.");
 
     return [
       {

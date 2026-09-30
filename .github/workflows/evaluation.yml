@@ -1,0 +1,45 @@
+name: Agent evaluation
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Exact provider model ID
+        required: true
+        type: string
+      provider:
+        description: Provider
+        required: true
+        default: anthropic
+        type: choice
+        options: [anthropic, openai]
+      trials:
+        description: Trials per task
+        required: true
+        default: '3'
+        type: string
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: npm ci
+      - name: Run live coding trials
+        env:
+          EVAL_MODEL: ${{ inputs.model }}
+          EVAL_PROVIDER: ${{ inputs.provider }}
+          EVAL_TRIALS: ${{ inputs.trials }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: bun run eval --live --category coding --model "$EVAL_MODEL" --provider "$EVAL_PROVIDER" --trials "$EVAL_TRIALS"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-evaluation
+          path: evals/results/
+          if-no-files-found: ignore

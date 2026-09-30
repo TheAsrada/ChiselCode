@@ -1,10 +1,25 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { InstructionResolver } from "../context/instructions.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
 import { ProviderKindSchema } from "../types/domain.js";
 
 const ProjectConfigSchema = z.object({
+  context: z
+    .object({
+      autoCompact: z.boolean().optional(),
+      bufferRatio: z.number().min(0).max(0.5).optional(),
+      keepRecentTokens: z.number().int().nonnegative().optional(),
+      maxInlineToolResultTokens: z.number().int().min(128).optional(),
+      contextWindow: z.number().int().positive().optional(),
+      maxOutputTokens: z.number().int().positive().optional(),
+    })
+    .optional(),
+  tools: z
+    .object({ maxParallelReads: z.number().int().min(1).max(16).optional() })
+    .optional(),
+  editing: z.object({ requireFreshRead: z.boolean().optional() }).optional(),
   allowedCommands: z.array(z.string()).default([]),
   deniedCommands: z.array(z.string()).default([]),
   ignorePatterns: z
@@ -97,7 +112,7 @@ export async function loadProjectConfig(
 export async function loadProjectInstructions(
   projectRoot: string,
 ): Promise<string> {
-  return (await readOptional(join(projectRoot, "CHISEL.md")))?.trim() ?? "";
+  return new InstructionResolver().resolve(projectRoot);
 }
 
 export function globalConfigPath(): string {

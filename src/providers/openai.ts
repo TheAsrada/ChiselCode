@@ -12,8 +12,12 @@ import type {
 } from "../types/domain.js";
 import { ToolNameSchema } from "../types/domain.js";
 import { normalizeOpenAiCompatibleBaseUrl } from "./base-url.js";
+import { normalizeProviderError, ProviderError } from "./errors.js";
 
 export interface OpenAIAdapterOptions {
+  maxRetries?: number;
+  timeoutMs?: number;
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   apiKey?: string;
   baseUrl?: string;
   kind?: Extract<ProviderKind, "openai" | "openai-compatible" | "agentrouter">;
@@ -42,6 +46,9 @@ export class OpenAIAdapter implements ProviderAdapter {
     this.client = new OpenAI({
       apiKey: options.apiKey,
       baseURL: options.baseUrl,
+      maxRetries: options.maxRetries ?? 2,
+      timeout: options.timeoutMs ?? 600_000,
+      fetch: options.fetch,
     });
   }
 
@@ -63,12 +70,17 @@ export class OpenAIAdapter implements ProviderAdapter {
         stream: true,
         messages: toOpenAIMessages(request.system, request.messages),
         tools: toOpenAITools(request.tools),
+        ...(this.kind === "openai"
+          ? { stream_options: { include_usage: true } }
+          : {}),
         ...(useLegacyMaxTokens
           ? { max_tokens: request.maxTokens }
           : { max_completion_tokens: request.maxTokens }),
       };
     try {
-      return await this.client.chat.completions.create(params);
+      return await this.client.chat.completions.create(params, {
+        signal: request.signal,
+      });
     } catch (error) {
       if (
         !useLegacyMaxTokens &&
@@ -91,12 +103,24 @@ export class OpenAIAdapter implements ProviderAdapter {
       let text = "";
       let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
       let finishReason = "end_turn";
+      let terminated = false;
+      let refused = false;
 
       for await (const chunk of stream) {
+        if (request.signal?.aborted)
+          throw new ProviderError("cancelled", "Provider request cancelled.");
+        if (chunk.usage) usage = normalizeOpenAIUsage(chunk.usage);
         const choice = chunk.choices[0];
         if (!choice) continue;
-        finishReason =
-          normalizeFinishReason(choice.finish_reason) ?? finishReason;
+        if (choice.finish_reason) terminated = true;
+        if (choice.delta.refusal) {
+          text += choice.delta.refusal;
+          refused = true;
+          finishReason = "refusal";
+        }
+        finishReason = refused
+          ? "refusal"
+          : (normalizeFinishReason(choice.finish_reason) ?? finishReason);
         const reasoning = reasoningText(choice.delta);
         if (reasoning) yield { type: "thinking_delta", text: reasoning };
         if (choice.delta.content) {
@@ -121,29 +145,41 @@ export class OpenAIAdapter implements ProviderAdapter {
         }
       }
 
+      if (!terminated)
+        throw new ProviderError(
+          "transport",
+          "Provider stream ended without a finish marker.",
+        );
       const content: ChatContent[] = text ? [{ type: "text", text }] : [];
-      for (const call of toolCalls.values()) {
+      for (const [, call] of [...toolCalls.entries()].sort(
+        ([a], [b]) => a - b,
+      )) {
         const parsedName = ToolNameSchema.safeParse(call.name);
-        if (!parsedName.success) {
-          content.push({
-            type: "text",
-            text: `Provider requested unknown tool: ${call.name}`,
-          });
-          continue;
-        }
+        if (!parsedName.success || !call.id)
+          throw new ProviderError(
+            "transport",
+            "Malformed provider tool call: missing ID or invalid name.",
+          );
+        let input: unknown;
         try {
-          content.push({
-            type: "tool_use",
-            id: call.id,
-            name: parsedName.data,
-            input: JSON.parse(call.arguments) as Record<string, unknown>,
-          });
+          input = JSON.parse(call.arguments);
         } catch {
-          content.push({
-            type: "text",
-            text: `Provider sent invalid JSON for ${call.name}.`,
-          });
+          throw new ProviderError(
+            "transport",
+            `Invalid JSON arguments for ${call.name}.`,
+          );
         }
+        if (!input || typeof input !== "object" || Array.isArray(input))
+          throw new ProviderError(
+            "transport",
+            `Arguments for ${call.name} must be an object.`,
+          );
+        content.push({
+          type: "tool_use",
+          id: call.id,
+          name: parsedName.data,
+          input: input as Record<string, unknown>,
+        });
       }
 
       for (const item of content) {
@@ -160,7 +196,12 @@ export class OpenAIAdapter implements ProviderAdapter {
         usage,
       };
     } catch (error) {
-      yield { type: "error", message: formatOpenAIError(error) };
+      const failure = normalizeProviderError(error, request.signal);
+      yield {
+        type: "error",
+        message: formatOpenAIError(error),
+        code: failure.code,
+      };
     }
   }
 
@@ -169,10 +210,11 @@ export class OpenAIAdapter implements ProviderAdapter {
     return models.data.map((model) => ({ id: model.id }));
   }
 
-  async countTokens(): Promise<number> {
-    throw new Error(
-      `Token counting is unavailable for ${this.kind}; use provider-reported usage after a request.`,
-    );
+  async getCapabilities() {
+    return { tokenCounting: "local_estimate" as const };
+  }
+  async countTokens(): Promise<undefined> {
+    return undefined;
   }
 }
 
@@ -280,6 +322,7 @@ function reasoningText(delta: unknown): string | undefined {
 function normalizeFinishReason(reason: string | null): string | undefined {
   if (!reason) return undefined;
   if (reason === "tool_calls") return "tool_use";
+  if (reason === "content_filter") return "refusal";
   if (reason === "stop") return "end_turn";
   return reason;
 }

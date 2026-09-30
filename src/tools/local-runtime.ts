@@ -1,0 +1,66 @@
+import { join } from "node:path";
+import { ToolResultStore } from "../context/tool-result-store.js";
+import { sessionsRootDir } from "../paths/home.js";
+import { RuntimeEventBus } from "../runtime/events.js";
+import type { ApprovalGate } from "../security/approval.js";
+import { HostSandboxExecutor } from "../security/sandbox.js";
+import { WorkspacePolicy } from "../security/workspace-policy.js";
+import { initializeSessionState } from "../sessions/migrations.js";
+import type { Skill } from "../skills/skills.js";
+import type { Session } from "../types/domain.js";
+import { ToolCatalog } from "./catalog.js";
+import { EditingService } from "./editing/service.js";
+import { ToolExecutor } from "./executor.js";
+import { LocalToolProvider, SkillsToolProvider } from "./local/provider.js";
+import { ToolScheduler } from "./scheduler.js";
+import type { ToolContext } from "./types.js";
+export function createLocalToolRuntime(
+  root: string,
+  ignorePatterns: string[],
+  gate: ApprovalGate,
+  session: Session,
+  skills: readonly Skill[] = [],
+  options: {
+    events?: RuntimeEventBus;
+    signal?: AbortSignal;
+    checkpoint?: () => Promise<void>;
+    artifactDirectory?: string;
+    maxInlineTokens?: number;
+    maxParallelReads?: number;
+    requireFreshRead?: boolean;
+  } = {},
+) {
+  initializeSessionState(session);
+  const workspace = new WorkspacePolicy(root, ignorePatterns);
+  const catalog = new ToolCatalog();
+  for (const handler of [
+    ...new LocalToolProvider().handlers,
+    ...new SkillsToolProvider(skills).handlers,
+  ])
+    catalog.register(handler);
+  const context: ToolContext = {
+    session,
+    workspace,
+    editing: new EditingService(
+      workspace,
+      session.runtime?.workspaceObservations ?? {},
+      options.requireFreshRead,
+    ),
+    artifacts: new ToolResultStore(
+      options.artifactDirectory ??
+        join(sessionsRootDir(), "artifacts", session.id),
+    ),
+    sandbox: new HostSandboxExecutor(),
+    events: options.events ?? new RuntimeEventBus(session.id),
+    signal: options.signal,
+    checkpoint: options.checkpoint ?? (async () => {}),
+  };
+  const executor = new ToolExecutor(
+    catalog,
+    gate,
+    context,
+    options.maxInlineTokens,
+  );
+  const scheduler = new ToolScheduler(executor, options.maxParallelReads);
+  return { catalog, executor, scheduler, context };
+}

@@ -1,4 +1,27 @@
 import { z } from "zod";
+import type { ContextCheckpoint } from "../context/types.js";
+import type {
+  ModelCapabilities,
+  TokenCountRequest,
+} from "../providers/capabilities.js";
+import type { ProviderErrorCode } from "../providers/errors.js";
+import type { TurnState } from "../runtime/turn-state.js";
+import type { ToolInvocationRecord } from "../tools/invocation.js";
+export interface FileRevision {
+  sha256: string;
+  size: number;
+}
+export interface SessionRuntimeState {
+  turnId?: string;
+  state?: TurnState;
+  invocations: Record<string, ToolInvocationRecord>;
+  workspaceObservations: Record<string, FileRevision>;
+  failedCalls: Record<string, { count: number; workspaceVersion: number }>;
+  workspaceVersion?: number;
+}
+export interface SessionContextState {
+  activeCheckpoint?: ContextCheckpoint;
+}
 
 export const ProviderKindSchema = z.enum([
   "anthropic",
@@ -9,22 +32,8 @@ export const ProviderKindSchema = z.enum([
 ]);
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
-export const ToolNameSchema = z.enum([
-  "read_file",
-  "list_dir",
-  "glob",
-  "grep",
-  "write_file",
-  "edit_file",
-  "delete_file",
-  "run_shell",
-  "git_diff",
-  "git_status",
-  "git_commit",
-  "load_skill",
-  "create_skill",
-]);
-export type ToolName = z.infer<typeof ToolNameSchema>;
+export const ToolNameSchema = z.string().regex(/^[a-zA-Z0-9_.:-]{1,128}$/);
+export type ToolName = string;
 
 export type JsonObject = Record<string, unknown>;
 
@@ -79,6 +88,7 @@ export interface ModelInfo {
   id: string;
   displayName?: string;
   contextWindow?: number;
+  maxOutputTokens?: number;
 }
 
 export interface TokenUsage {
@@ -117,18 +127,20 @@ export type StreamEvent =
       stopReason: string;
       usage: TokenUsage;
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code?: ProviderErrorCode };
 
 export interface ProviderAdapter {
   readonly kind: ProviderKind;
   streamChat(request: ProviderRequest): AsyncIterable<StreamEvent>;
   listModels(): Promise<ModelInfo[]>;
-  countTokens(
-    request: Pick<ProviderRequest, "model" | "system" | "messages" | "tools">,
-  ): Promise<number>;
+  getCapabilities?(model: string): Promise<ModelCapabilities>;
+  countTokens?(request: TokenCountRequest): Promise<number | undefined>;
 }
 
 export interface ProjectConfig {
+  context?: Partial<import("../context/types.js").ContextOptions>;
+  tools?: { maxParallelReads?: number };
+  editing?: { requireFreshRead?: boolean };
   allowedCommands: string[];
   deniedCommands: string[];
   ignorePatterns: string[];
@@ -164,6 +176,8 @@ export interface Session {
   id: string;
   projectPath: string;
   messages: ChatMessage[];
+  runtime?: SessionRuntimeState;
+  context?: SessionContextState;
   model: string;
   provider: ProviderKind;
   totalTokens: TokenUsage;
@@ -194,6 +208,12 @@ export interface ToolExecutionResult {
   requiresApproval?: boolean;
   preview?: string;
   fileDiff?: FileDiff;
+  diffs?: FileDiff[];
+  errorCode?: string;
+  rawOutput?: string;
+  artifact?: { uri: string; tokens: number };
+  details?: Record<string, unknown>;
+  sandboxed?: boolean;
 }
 
 export interface AgentResult {
@@ -201,5 +221,6 @@ export interface AgentResult {
   text: string;
   session: Session;
   error?: string;
+  errorCode?: string;
   pendingApproval?: { tool: ToolName; preview: string };
 }

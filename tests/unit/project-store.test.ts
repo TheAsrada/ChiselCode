@@ -214,3 +214,60 @@ describe("project session storage", () => {
     );
   });
 });
+
+test("runtime observations, pending invocations and context summary survive project storage", async () => {
+  const store = await projectSessionStore(join(root, "work"));
+  const session = store.create("anthropic", "mock");
+  const { initializeSessionState } = await import(
+    "../../src/sessions/migrations.js"
+  );
+  const { emptySummary } = await import("../../src/context/summary.js");
+  initializeSessionState(session);
+  if (!session.runtime) throw new Error("Runtime missing");
+  session.messages = [
+    { role: "user", content: [{ type: "text", text: "Preserve API" }] },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "pending",
+          name: "write_file",
+          input: { path: "a.txt", content: "after" },
+        },
+      ],
+    },
+  ];
+  session.runtime.workspaceObservations["/project/a.txt"] = {
+    sha256: "a".repeat(64),
+    size: 6,
+  };
+  session.runtime.invocations.pending = {
+    id: "pending",
+    name: "write_file",
+    input: { path: "a.txt", content: "after" },
+    fingerprint: "hash",
+    state: "awaiting_approval",
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    approvalPreview: "preview",
+  };
+  session.context = {
+    activeCheckpoint: {
+      id: "checkpoint",
+      summary: {
+        ...emptySummary(),
+        goal: "Preserve API",
+        userConstraints: ["Preserve API"],
+      },
+      throughMessageIndex: 1,
+      createdAt: session.createdAt,
+      estimatedTokens: 100,
+    },
+  };
+  await store.save(session);
+  const resumed = await store.load(session.id);
+  expect(resumed.runtime).toEqual(session.runtime);
+  expect(resumed.context).toEqual(session.context);
+  expect(resumed.messages).toEqual(session.messages);
+});

@@ -7,3 +7,5 @@ coverage/
 .chisel/
 *.log
 .DS_Store
+
+evals/results/

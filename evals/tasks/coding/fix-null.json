@@ -1,0 +1,20 @@
+{
+  "id": "fix-null-regression",
+  "fixture": "basic-app",
+  "prompt": "Fix null handling in normalize. Keep its public API. Verify with bun test.",
+  "graders": [{ "type": "command", "command": "bun test" }],
+  "constraints": { "forbidden_paths": ["value.test.ts"] },
+  "tags": ["bugfix"],
+  "mockCalls": [
+    { "name": "read_file", "input": { "path": "value.ts" } },
+    {
+      "name": "edit_file",
+      "input": {
+        "path": "value.ts",
+        "old_str": "value!.trim()",
+        "new_str": "(value ?? \"\").trim()"
+      }
+    },
+    { "name": "run_shell", "input": { "command": "bun test" } }
+  ]
+}

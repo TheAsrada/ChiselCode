@@ -1,6 +1,6 @@
 {
   "name": "chiselcode",
-  "version": "0.5.43",
+  "version": "0.6.0",
   "description": "A secure multi-provider coding agent CLI",
   "type": "module",
   "bin": {
@@ -22,8 +22,9 @@
     "opentui:compile": "bun build ./scripts/opentui-spike.tsx --compile --outfile ./dist/opentui-spike",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "biome check src tests",
-    "format": "biome format --write src tests"
+    "lint": "biome check src tests evals",
+    "format": "biome format --write src tests",
+    "eval": "bun evals/runner.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.124.0",

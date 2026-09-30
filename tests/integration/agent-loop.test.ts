@@ -56,7 +56,7 @@ class MockProvider implements ProviderAdapter {
 }
 
 describe("AgentLoop", () => {
-  test("checkpoints only complete conversation stages", async () => {
+  test("checkpoints the durable assistant call before executing its tools", async () => {
     const snapshots: number[] = [];
     const tools = {
       getDefinitions: () => [],
@@ -72,7 +72,7 @@ describe("AgentLoop", () => {
       },
     });
     expect(result.status).toBe("completed");
-    expect(snapshots).toEqual([1, 3, 4]);
+    expect([...new Set(snapshots)]).toEqual([1, 2, 3, 4]);
   });
   test("keeps applied UI diffs in the session but never in provider messages", async () => {
     const requests: ProviderRequest[] = [];
