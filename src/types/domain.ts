@@ -154,6 +154,10 @@ export interface ProviderConfig {
 }
 
 export interface GlobalConfig {
+  schemaVersion: 2;
+  defaultProfileId?: string;
+  profiles: Record<string, import("../providers/contracts.js").ProviderProfile>;
+  [key: string]: unknown;
   defaultProvider?: ProviderKind;
   defaultModel?: string;
   providers: Partial<Record<ProviderKind, ProviderConfig>>;

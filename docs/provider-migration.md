@@ -5,3 +5,5 @@
 Аудит обнаружил provider branches в app/run-prompt, CLI, setup-values, settings, opentui-agent, core/context-usage, sessions/store, URL helpers и adapters. SDK imports есть в app/run-prompt и adapters. Эти места переводятся на definitions/drivers по рабочим этапам.
 
 Core Runtime v2 требует context_overflow/cancelled/transport/refusal: эти error categories сохраняются в расширенном generic ProviderError вместо удаления ради сокращённого примера ТЗ. AgentLoop — compatibility API над AgentRuntime; оба получают только adapter.
+
+Config v1→v2 lazy: чтение не пишет диск; следующий save валидирует оба состояния и создаёт `config.v1.backup.json` без перезаписи существующей backup. Затем temp file с fsync заменяет config через rename. Ошибки не reset config и не печатают содержимое. apiKeyRef сохраняются, credentials.enc не читается. Legacy config API временно получает non-enumerable accessors; на диск они не попадают.
