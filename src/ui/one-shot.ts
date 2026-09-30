@@ -56,6 +56,7 @@ export class OneShotRenderer {
           totalTokens: result.session.totalTokens,
           totalCost: result.session.totalCost,
           error: result.error,
+          errorCode: result.errorCode,
           pendingApproval: result.pendingApproval,
         })}\n`,
       );

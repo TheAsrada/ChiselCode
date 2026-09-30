@@ -5,7 +5,12 @@ import { fileDiffStats, fileDiffTitle } from "./file-diff-model.js";
 import { formatToolSummary } from "./theme.js";
 import type { TuiTranscript } from "./tui-contract.js";
 
-const fileTools = new Set(["edit_file", "write_file", "delete_file"]);
+const fileTools = new Set([
+  "edit_file",
+  "write_file",
+  "delete_file",
+  "apply_patch",
+]);
 
 export function appendToolResult(
   view: TuiTranscript,
@@ -14,13 +19,14 @@ export function appendToolResult(
 ): void {
   if (result.isError || result.requiresApproval) {
     view.append(`✗ ${name}: ${result.output}`, "error");
-  } else if (result.fileDiff) {
-    const diff = result.fileDiff;
-    view.append(
-      `${fileDiffTitle(diff)} · ${fileDiffStats(diff)}`,
-      "tool",
-      diff,
-    );
+  } else if (result.diffs?.length || result.fileDiff) {
+    for (const diff of result.diffs ??
+      (result.fileDiff ? [result.fileDiff] : []))
+      view.append(
+        `${fileDiffTitle(diff)} · ${fileDiffStats(diff)}`,
+        "tool",
+        diff,
+      );
   } else if (fileTools.has(name)) {
     view.append(result.output, "info");
   }
@@ -97,6 +103,15 @@ export function replaySessionIntoTranscript(
           output: block.content,
           isError: block.isError,
           fileDiff: session.fileDiffs?.[block.toolUseId],
+          diffs:
+            session.runtime?.invocations[block.toolUseId]?.result?.diffs ??
+            Object.entries(session.fileDiffs ?? {})
+              .filter(
+                ([key]) =>
+                  key === block.toolUseId ||
+                  key.startsWith(`${block.toolUseId}:`),
+              )
+              .map(([, diff]) => diff),
         });
       }
     }

@@ -125,3 +125,41 @@ test("resume restores separate UI diffs and still replays legacy sessions", () =
   expect(entries[0]?.text).toContain("edit_file a.ts");
   expect(entries.every((entry) => !entry.fileDiff)).toBe(true);
 });
+
+test("multi-file patches render every structured diff before and after resume", () => {
+  const diffs = [
+    buildFileDiff("a.ts", "old", "new"),
+    buildFileDiff("b.ts", null, "new"),
+  ];
+  const { view, entries } = sink();
+  appendToolResult(view, "apply_patch", { output: "Updated 2 files", diffs });
+  expect(entries.map((entry) => entry.fileDiff?.path)).toEqual([
+    "a.ts",
+    "b.ts",
+  ]);
+  view.clear();
+  const session = createSession("/project", "anthropic", "test");
+  session.messages = [
+    {
+      role: "assistant",
+      content: [
+        { type: "tool_use", id: "patch", name: "apply_patch", input: {} },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        { type: "tool_result", toolUseId: "patch", content: "Updated 2 files" },
+      ],
+    },
+  ];
+  session.fileDiffs = {
+    patch: diffs[0] as FileDiff,
+    "patch:1": diffs[1] as FileDiff,
+  };
+  replaySessionIntoTranscript(view, session);
+  expect(entries.map((entry) => entry.fileDiff?.path)).toEqual([
+    "a.ts",
+    "b.ts",
+  ]);
+});
