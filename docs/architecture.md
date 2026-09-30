@@ -99,3 +99,5 @@ MCP, LSP, subagents, hooks, worktrees, memory, background processes и полн�
 ## Provider architecture: contracts
 
 Provider Profile хранит пользовательские параметры и ссылку на credential; Provider Definition хранит metadata сервиса без ключей; Protocol Driver реализует wire protocol. Provider Adapter — объект одного запуска для AgentLoop/AgentRuntime. ProviderRegistry хранит definitions и источник, предоставляет поиск; DriverRegistry проверяет доступность protocol implementations. Один driver обслуживает множество definitions. Contracts и пять встроенных definitions находятся в `src/providers/`; миграция остальных слоёв выполняется поэтапно.
+
+Protocol implementations перенесены в `drivers/openai-chat.ts` и `drivers/anthropic-messages.ts`: только эти файлы владеют SDK и wire translation. Stream validation и cancellation v0.6.0 сохранены. `includeUsage`/`tokenLimitFallback` и `authMode`/`adaptiveThinking`/`nativeTokenCounting` задаются definition.driverOptions, а не provider ID. Прежние adapter constructors временно сохранены как compatibility wrappers.

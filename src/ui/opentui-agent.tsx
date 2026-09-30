@@ -257,13 +257,14 @@ export async function runOpenTuiAgent(
     const selected = current.providers[provider];
     const usage = diagnostic ? undefined : controller.snapshot.usage;
     return formatStatusDashboard({
-      providerLabel: {
-        anthropic: "Anthropic (Claude)",
-        "anthropic-compatible": "Anthropic-совместимый API",
-        openai: "OpenAI",
-        "openai-compatible": "OpenAI-совместимый API",
-        agentrouter: "AgentRouter",
-      }[provider],
+      providerLabel:
+        {
+          anthropic: "Anthropic (Claude)",
+          "anthropic-compatible": "Anthropic-совместимый API",
+          openai: "OpenAI",
+          "openai-compatible": "OpenAI-совместимый API",
+          agentrouter: "AgentRouter",
+        }[provider] ?? provider,
       model: diagnostic
         ? (selected?.defaultModel ?? current.defaultModel ?? "не выбрана")
         : (activeOptions.model ??

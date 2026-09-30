@@ -53,3 +53,5 @@ Anthropic-compatible передаёт токен через `Authorization: Bear
 ## Каталог definitions
 
 Metadata встроенных сервисов хранится в `src/providers/definitions/`: labels, env vars, endpoints, default models и capabilities. `ProviderRegistry` поддерживает открытые string IDs и поиск по ID, label и description. Новые protocol drivers регистрируются отдельно в DriverRegistry. До миграции CLI/config прежние команды и формат настроек сохраняются.
+
+AgentRouter использует generic `openai-chat` driver с `tokenLimitFallback=true`; отдельной реализации протокола нет. Официальный OpenAI задаёт includeUsage; официальный Anthropic — adaptiveThinking и nativeTokenCounting. Compatible definitions отключают неподдерживаемые расширения.

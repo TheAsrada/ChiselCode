@@ -23,14 +23,9 @@ export interface SessionContextState {
   activeCheckpoint?: ContextCheckpoint;
 }
 
-export const ProviderKindSchema = z.enum([
-  "anthropic",
-  "anthropic-compatible",
-  "openai",
-  "openai-compatible",
-  "agentrouter",
-]);
-export type ProviderKind = z.infer<typeof ProviderKindSchema>;
+/** @deprecated Use ProviderId; persisted identity is an open string. */
+export const ProviderKindSchema = z.string().min(1);
+export type ProviderKind = string;
 
 export const ToolNameSchema = z.string().regex(/^[a-zA-Z0-9_.:-]{1,128}$/);
 export type ToolName = string;
@@ -131,8 +126,11 @@ export type StreamEvent =
 
 export interface ProviderAdapter {
   readonly kind: ProviderKind;
+  readonly providerId?: string;
   streamChat(request: ProviderRequest): AsyncIterable<StreamEvent>;
   listModels(): Promise<ModelInfo[]>;
+    import("../providers/contracts.js").ProviderHealthResult
+  >;
   getCapabilities?(model: string): Promise<ModelCapabilities>;
   countTokens?(request: TokenCountRequest): Promise<number | undefined>;
 }

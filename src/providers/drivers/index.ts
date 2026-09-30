@@ -1,4 +1,6 @@
 import type { ProviderDriver } from "../contracts.js";
+import { anthropicMessagesDriver } from "./anthropic-messages.js";
+import { openaiChatDriver } from "./openai-chat.js";
 export class DriverRegistry {
   private entries = new Map<string, ProviderDriver>();
   constructor(drivers: ProviderDriver[] = []) {
@@ -21,3 +23,6 @@ export class DriverRegistry {
     return d;
   }
 }
+
+export const createDriverRegistry = (): DriverRegistry =>
+  new DriverRegistry([openaiChatDriver, anthropicMessagesDriver]);
