@@ -26,3 +26,7 @@ chisel setup
 ```
 
 Folder name не является provider identity: profile сохраняет manifest ID. Catalog загружается при startup; после изменений перезапустите приложение. Invalid package не мешает built-ins. Никакой JS из Home/providers не исполняется. Поддерживаются только протоколы openai-chat и anthropic-messages; новый wire protocol требует source driver и регистрации в DriverRegistry. Подробности profiles/UI добавляются в следующих этапах миграции.
+
+## Profiles
+
+После discovery provider доступен в setup и /settings без пересборки. Выберите его поиском, создайте профиль (например corp-ai), введите ключ или настройте EXAMPLE_API_KEY. Config хранит providerId="example/gateway" и apiKeyRef="corp-ai", а CredentialStore хранит секрет. «Новый профиль» создаёт независимый аккаунт; «Профиль» выбирает существующий.

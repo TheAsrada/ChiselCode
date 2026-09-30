@@ -353,11 +353,14 @@ async function startTui(options: RunOptions): Promise<void> {
       selected.profile.apiKeyRef,
     );
   } catch (error) {
-    if (options.profile || options.provider || config.defaultProfileId)
+    if (
+      !initialSession &&
+      (options.profile || options.provider || config.defaultProfileId)
+    )
       throw error;
   }
   const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
-  await runOpenTuiAgent(options, initialSession, !keyReady);
+  await runOpenTuiAgent(options, initialSession, !keyReady && !initialSession);
 }
 
 function isTooManyArgumentsError(error: unknown): boolean {

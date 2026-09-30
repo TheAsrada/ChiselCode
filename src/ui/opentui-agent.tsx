@@ -19,8 +19,7 @@ import {
   RELEASES_PAGE_URL,
 } from "../commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
-import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
-import { CredentialStore } from "../security/credentials.js";
+import { getProviderCatalog } from "../providers/catalog.js";
 import {
   projectSessionStore,
   SessionProjectRegistry,
@@ -32,7 +31,7 @@ import {
   invocableSkills,
   loadSkills,
 } from "../skills/skills.js";
-import type { GlobalConfig, Session } from "../types/domain.js";
+import type { Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
 import { VERSION } from "../version.js";
 import { themePalette } from "./appearance.js";
@@ -42,7 +41,12 @@ import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import type { OpenTuiSettingsActions } from "./opentui-settings.js";
 import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
-import { defaultModelFor } from "./setup-values.js";
+import {
+  saveProviderSettings,
+  settingsDraft,
+  settingsKeyReady,
+} from "./provider-settings.js";
+
 import { formatStatusDashboard } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";
@@ -62,6 +66,8 @@ export async function runOpenTuiAgent(
   const currentController = () => workspace.controller;
   const approvalResolver = createTuiApprovalResolver();
   const config = await loadGlobalConfig();
+  const catalog = await getProviderCatalog();
+  const profileOverrides = new WeakMap<TuiController, RunOptions>();
   let currentTheme = config.ui?.theme ?? "obsidian";
   const classic =
     process.env.CHISEL_ALT_SCREEN === "0" ||
@@ -153,68 +159,61 @@ export async function runOpenTuiAgent(
     activeId: () => currentController().snapshot.sessionId,
   };
   const settingsActions: OpenTuiSettingsActions = {
-    load: async () => {
+    catalog: async () => ({
+      providers: catalog.registry.list(),
+      profiles: (await loadGlobalConfig()).profiles,
+    }),
+    load: async (profileId) => {
       const current = await loadGlobalConfig();
-      const provider =
-        activeOptions.provider ?? current.defaultProvider ?? "anthropic";
-      const selected = current.providers[provider];
+      const selectedController = currentController().snapshot;
+      const selection = profileId
+        ? { profile: profileId }
+        : (profileOverrides.get(currentController()) ??
+          (selectedController.usage?.profileId
+            ? {
+                profile: selectedController.usage.profileId,
+                model: selectedController.usage.model,
+              }
+            : activeOptions));
+      const values = settingsDraft(current, catalog.registry, selection);
+      const profile = values.profileId
+        ? current.profiles[values.profileId]
+        : undefined;
       return {
-        values: {
-          provider,
-          model:
-            activeOptions.model ??
-            selected?.defaultModel ??
-            current.defaultModel ??
-            defaultModelFor(provider),
-          baseUrl: activeOptions.baseUrl ?? selected?.baseUrl,
-        },
-        hasKey: await hasApiKey(provider, selected?.apiKeyRef),
+        values,
+        hasKey: await settingsKeyReady(
+          catalog.registry,
+          profile ?? { providerId: values.provider },
+        ),
       };
     },
-    hasKey: async (provider) => {
+    hasKey: async (provider, profileId) => {
       const current = await loadGlobalConfig();
-      return hasApiKey(provider, current.providers[provider]?.apiKeyRef);
+      return settingsKeyReady(
+        catalog.registry,
+        profileId
+          ? (current.profiles[profileId] ?? { providerId: provider })
+          : { providerId: provider },
+      );
     },
     save: async (values) => {
-      const current = await loadGlobalConfig();
-      const previous = current.providers[values.provider];
-      const typedKey = values.apiKey?.trim();
-      const keyRef = typedKey
-        ? (previous?.apiKeyRef ?? `${values.provider}-default`)
-        : previous?.apiKeyRef;
-      if (typedKey && keyRef) await new CredentialStore().set(keyRef, typedKey);
-      const baseUrl =
-        values.provider === "anthropic-compatible" ||
-        values.provider === "openai-compatible" ||
-        values.provider === "agentrouter"
-          ? normalizeBaseUrlForProvider(values.provider, values.baseUrl)
-          : undefined;
-      const next: GlobalConfig = {
-        ...current,
-        defaultProvider: values.provider,
-        defaultModel: values.model,
-        providers: {
-          ...current.providers,
-          [values.provider]: {
-            provider: values.provider,
-            apiKeyRef: keyRef,
-            defaultModel: values.model,
-            baseUrl,
-          },
-        },
-      };
-      await saveGlobalConfig(next);
+      const outcome = await saveProviderSettings(values, catalog.registry);
+      const profile =
+        values.profileId ?? `${values.provider.replaceAll("/", "-")}-default`;
       activeOptions = {
         ...activeOptions,
-        provider: values.provider,
+        profile,
+        provider: undefined,
         model: values.model,
-        baseUrl,
+        baseUrl: values.baseUrl,
       };
-      for (const tab of workspace.tabs)
-        tab.controller.setActiveModel(values.provider, values.model);
-      return (await hasApiKey(values.provider, keyRef))
-        ? "saved"
-        : "setup_required";
+      profileOverrides.set(currentController(), activeOptions);
+      currentController().setActiveModel(
+        values.provider,
+        values.model,
+        profile,
+      );
+      return outcome;
     },
     check: async (values) => {
       const result = await checkProviderConnection(values);
@@ -251,26 +250,19 @@ export async function runOpenTuiAgent(
     diagnostic = false,
   ): Promise<string> => {
     const current = await loadGlobalConfig();
-    const provider = diagnostic
-      ? (current.defaultProvider ?? "anthropic")
-      : (activeOptions.provider ?? current.defaultProvider ?? "anthropic");
-    const selected = current.providers[provider];
+    const draft = settingsDraft(
+      current,
+      catalog.registry,
+      diagnostic ? {} : (profileOverrides.get(controller) ?? activeOptions),
+    );
+    const provider = draft.provider;
+    const selected = draft.profileId
+      ? current.profiles[draft.profileId]
+      : undefined;
     const usage = diagnostic ? undefined : controller.snapshot.usage;
     return formatStatusDashboard({
-      providerLabel:
-        {
-          anthropic: "Anthropic (Claude)",
-          "anthropic-compatible": "Anthropic-совместимый API",
-          openai: "OpenAI",
-          "openai-compatible": "OpenAI-совместимый API",
-          agentrouter: "AgentRouter",
-        }[provider] ?? provider,
-      model: diagnostic
-        ? (selected?.defaultModel ?? current.defaultModel ?? "не выбрана")
-        : (activeOptions.model ??
-          selected?.defaultModel ??
-          current.defaultModel ??
-          "не выбрана"),
+      providerLabel: catalog.registry.get(provider)?.label ?? provider,
+      model: draft.model || "не выбрана",
       cwd: controller.snapshot.projectPath,
       keyReady: await hasApiKey(provider, selected?.apiKeyRef),
       sessionId:
@@ -502,7 +494,8 @@ export async function runOpenTuiAgent(
         const { result } = await runPrompt(
           prompt,
           {
-            ...activeOptions,
+            ...(controller.snapshot.sessionId ? options : activeOptions),
+            ...profileOverrides.get(controller),
             cwd: controller.snapshot.projectPath,
             resume: controller.snapshot.sessionId,
           },

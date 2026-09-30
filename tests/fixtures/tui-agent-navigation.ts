@@ -18,9 +18,15 @@ mock.module("@opentui/core", () => ({
 mock.module("../../src/config/load.js", () => ({
   ...config,
   loadGlobalConfig: async () => ({
+    schemaVersion: 2,
+    defaultProfileId: "anthropic-default",
+    profiles: {
+      "anthropic-default": {
+        providerId: "anthropic",
+        defaultModel: "test-model",
+      },
+    },
     providers: {},
-    defaultProvider: "anthropic",
-    defaultModel: "test-model",
   }),
   saveGlobalConfig: async () => {},
 }));

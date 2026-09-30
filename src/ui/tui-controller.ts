@@ -30,6 +30,7 @@ export interface TuiViewState {
   gitChanges?: GitWorkingState;
   usage?: {
     provider: Session["provider"];
+    profileId?: string;
     model: string;
     totalTokens: TokenUsage;
     totalCost: number;
@@ -171,6 +172,7 @@ export class TuiController implements TuiTranscript {
       sessionTitle: session.title,
       usage: {
         provider: session.provider,
+        profileId: session.profileId,
         model: session.model,
         totalTokens: { ...session.totalTokens },
         totalCost: session.totalCost,
@@ -183,13 +185,18 @@ export class TuiController implements TuiTranscript {
   }
 
   /** A selected model takes effect on the next request; invalidate old context usage now. */
-  setActiveModel(provider: Session["provider"], model: string): void {
+  setActiveModel(
+    provider: Session["provider"],
+    model: string,
+    profileId?: string,
+  ): void {
     const usage = this.state.usage;
     if (!usage) return;
     this.update({
       usage: {
         ...usage,
         provider,
+        profileId,
         model,
         contextSnapshot:
           usage.provider === provider && usage.model === model

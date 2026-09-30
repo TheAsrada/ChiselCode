@@ -308,3 +308,63 @@ test("first-run settings require a saved key before showing the composer", async
     });
   }
 });
+
+test("provider search windows 500 custom definitions and selects their default model", async () => {
+  const { builtinDefinitions } = await import(
+    "../../src/providers/definitions/index.js"
+  );
+  const original = builtinDefinitions.find((d) => d.id === "openai");
+  if (!original) throw new Error("missing builtin");
+  const definitions = Array.from({ length: 500 }, (_, i) => ({
+    ...original,
+    id: `scale/provider-${i}`,
+    label: `Scale ${i}`,
+    defaults: { model: `coder-${i}` },
+  }));
+  const actions: OpenTuiSettingsActions = {
+    catalog: async () => ({
+      providers: [...builtinDefinitions, ...definitions],
+      profiles: {},
+    }),
+    load: async () => ({
+      values: { provider: "anthropic", model: "claude-opus-5" },
+      hasKey: false,
+    }),
+    hasKey: async () => false,
+    save: async () => "saved",
+    check: async () => "ok",
+    models: async () => ({ ok: true, models: [] }),
+  };
+  const setup = await testRender(
+    <OpenTuiSettings
+      actions={actions}
+      width={80}
+      height={15}
+      onClose={() => {}}
+    />,
+    { width: 80, height: 15 },
+  );
+  try {
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      setup.mockInput.pressEnter();
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).not.toContain("Scale 499");
+    await act(async () => {
+      await setup.mockInput.typeText("scale/provider-499");
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Scale 499");
+    expect(setup.captureCharFrame()).not.toContain("Scale 498");
+    await act(async () => {
+      setup.mockInput.pressEnter();
+    });
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("coder-499");
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
