@@ -1,6 +1,24 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.1.4/schema.json",
-  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2 },
-  "linter": { "enabled": true, "rules": { "recommended": true } },
-  "files": { "includes": ["src/**", "tests/**"] }
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "files": {
+    "includes": [
+      "src/**",
+      "tests/**",
+      "evals/**",
+      "!evals/fixtures/**",
+      "!evals/baselines/**",
+      "!evals/results/**"
+    ]
+  }
 }

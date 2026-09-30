@@ -1,0 +1,1795 @@
+[
+  {
+    "task": "fix-null-regression",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "83cdcd936301c114e698552e1a966d880260bdcf",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-iWkwwv/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-iWkwwv/value.test.ts:5:10)\n(fail) normalizes strings and null [1.02ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [14.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.06ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [6.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 90,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0,
+      "tool_time": 0,
+      "wall_time": 99.810561,
+      "estimated_cost": 0.000024
+    },
+    "trace": [
+      {
+        "type": "provider_request",
+        "request": {
+          "model": "scripted",
+          "system": "Complete the task using evidence.",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Fix null handling in normalize. Keep its public API. Verify with bun test."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-1",
+                  "name": "read_file",
+                  "input": {
+                    "path": "value.ts"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-1",
+                  "content": "1\texport function normalize(value: string | null): string {\n2\t  return value!.trim();\n3\t}\n4\t"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-2",
+                  "name": "edit_file",
+                  "input": {
+                    "path": "value.ts",
+                    "old_str": "value!.trim()",
+                    "new_str": "(value ?? \"\").trim()"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-2",
+                  "content": "Edited value.ts."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-3",
+                  "name": "run_shell",
+                  "input": {
+                    "command": "bun test"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-3",
+                  "content": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.11ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]",
+                  "isError": false
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Done"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read_file",
+              "description": "Read a text file by line range.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "list_dir",
+              "description": "List files and directories under a project path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "default": ".",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "recursive": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "glob",
+              "description": "Find project files matching a glob pattern.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "grep",
+              "description": "Search file contents with ripgrep.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "glob": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "write_file",
+              "description": "Create a file or replace a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "edit_file",
+              "description": "Replace one unique literal string in a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "old_str": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "new_str": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "old_str",
+                  "new_str"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "delete_file",
+              "description": "Delete a project file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "run_shell",
+              "description": "Run a shell command inside the project.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "timeout": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 600000
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_diff",
+              "description": "Show Git changes: unstaged (default), staged, or all tracked changes against HEAD. Use git_status for untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "default": "unstaged",
+                    "type": "string",
+                    "enum": [
+                      "unstaged",
+                      "staged",
+                      "all"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "scope"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "git_status",
+              "description": "Show current short Git status, including staged, unstaged, and untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "load_skill",
+              "description": "Load full instructions for an available skill by its exact registered name; never pass a path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "create_skill",
+              "description": "Create or explicitly update a user skill under ChiselCode Home/skills/user. Supply SKILL.md and optional references/, scripts/, or assets/ files. Bundled names and arbitrary paths are rejected.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+                  },
+                  "files": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "mode": {
+                    "default": "create",
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "files",
+                  "mode"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_commit",
+              "description": "Create a git commit with a message.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            }
+          ],
+          "maxTokens": 64000
+        }
+      },
+      {
+        "type": "tool_started",
+        "name": "read_file",
+        "input": {
+          "path": "value.ts"
+        }
+      },
+      {
+        "type": "tool_completed",
+        "name": "read_file",
+        "outcome": {
+          "output": "1\texport function normalize(value: string | null): string {\n2\t  return value!.trim();\n3\t}\n4\t"
+        }
+      },
+      {
+        "type": "provider_request",
+        "request": {
+          "model": "scripted",
+          "system": "Complete the task using evidence.",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Fix null handling in normalize. Keep its public API. Verify with bun test."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-1",
+                  "name": "read_file",
+                  "input": {
+                    "path": "value.ts"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-1",
+                  "content": "1\texport function normalize(value: string | null): string {\n2\t  return value!.trim();\n3\t}\n4\t"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-2",
+                  "name": "edit_file",
+                  "input": {
+                    "path": "value.ts",
+                    "old_str": "value!.trim()",
+                    "new_str": "(value ?? \"\").trim()"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-2",
+                  "content": "Edited value.ts."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-3",
+                  "name": "run_shell",
+                  "input": {
+                    "command": "bun test"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-3",
+                  "content": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.11ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]",
+                  "isError": false
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Done"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read_file",
+              "description": "Read a text file by line range.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "list_dir",
+              "description": "List files and directories under a project path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "default": ".",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "recursive": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "glob",
+              "description": "Find project files matching a glob pattern.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "grep",
+              "description": "Search file contents with ripgrep.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "glob": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "write_file",
+              "description": "Create a file or replace a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "edit_file",
+              "description": "Replace one unique literal string in a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "old_str": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "new_str": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "old_str",
+                  "new_str"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "delete_file",
+              "description": "Delete a project file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "run_shell",
+              "description": "Run a shell command inside the project.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "timeout": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 600000
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_diff",
+              "description": "Show Git changes: unstaged (default), staged, or all tracked changes against HEAD. Use git_status for untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "default": "unstaged",
+                    "type": "string",
+                    "enum": [
+                      "unstaged",
+                      "staged",
+                      "all"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "scope"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "git_status",
+              "description": "Show current short Git status, including staged, unstaged, and untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "load_skill",
+              "description": "Load full instructions for an available skill by its exact registered name; never pass a path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "create_skill",
+              "description": "Create or explicitly update a user skill under ChiselCode Home/skills/user. Supply SKILL.md and optional references/, scripts/, or assets/ files. Bundled names and arbitrary paths are rejected.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+                  },
+                  "files": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "mode": {
+                    "default": "create",
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "files",
+                  "mode"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_commit",
+              "description": "Create a git commit with a message.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            }
+          ],
+          "maxTokens": 64000
+        }
+      },
+      {
+        "type": "tool_started",
+        "name": "edit_file",
+        "input": {
+          "path": "value.ts",
+          "old_str": "value!.trim()",
+          "new_str": "(value ?? \"\").trim()"
+        }
+      },
+      {
+        "type": "tool_completed",
+        "name": "edit_file",
+        "outcome": {
+          "output": "Edited value.ts.",
+          "preview": "Index: value.ts\n===================================================================\n--- value.ts\tbefore\n+++ value.ts\tafter\n@@ -1,3 +1,3 @@\n export function normalize(value: string | null): string {\n-  return value!.trim();\n+  return (value ?? \"\").trim();\n }\n",
+          "fileDiff": {
+            "path": "value.ts",
+            "kind": "edit",
+            "patch": "Index: value.ts\n===================================================================\n--- value.ts\tbefore\n+++ value.ts\tafter\n@@ -1,3 +1,3 @@\n export function normalize(value: string | null): string {\n-  return value!.trim();\n+  return (value ?? \"\").trim();\n }\n",
+            "additions": 1,
+            "deletions": 1
+          }
+        }
+      },
+      {
+        "type": "provider_request",
+        "request": {
+          "model": "scripted",
+          "system": "Complete the task using evidence.",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Fix null handling in normalize. Keep its public API. Verify with bun test."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-1",
+                  "name": "read_file",
+                  "input": {
+                    "path": "value.ts"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-1",
+                  "content": "1\texport function normalize(value: string | null): string {\n2\t  return value!.trim();\n3\t}\n4\t"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-2",
+                  "name": "edit_file",
+                  "input": {
+                    "path": "value.ts",
+                    "old_str": "value!.trim()",
+                    "new_str": "(value ?? \"\").trim()"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-2",
+                  "content": "Edited value.ts."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-3",
+                  "name": "run_shell",
+                  "input": {
+                    "command": "bun test"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-3",
+                  "content": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.11ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]",
+                  "isError": false
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Done"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read_file",
+              "description": "Read a text file by line range.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "list_dir",
+              "description": "List files and directories under a project path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "default": ".",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "recursive": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "glob",
+              "description": "Find project files matching a glob pattern.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "grep",
+              "description": "Search file contents with ripgrep.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "glob": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "write_file",
+              "description": "Create a file or replace a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "edit_file",
+              "description": "Replace one unique literal string in a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "old_str": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "new_str": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "old_str",
+                  "new_str"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "delete_file",
+              "description": "Delete a project file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "run_shell",
+              "description": "Run a shell command inside the project.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "timeout": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 600000
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_diff",
+              "description": "Show Git changes: unstaged (default), staged, or all tracked changes against HEAD. Use git_status for untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "default": "unstaged",
+                    "type": "string",
+                    "enum": [
+                      "unstaged",
+                      "staged",
+                      "all"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "scope"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "git_status",
+              "description": "Show current short Git status, including staged, unstaged, and untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "load_skill",
+              "description": "Load full instructions for an available skill by its exact registered name; never pass a path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "create_skill",
+              "description": "Create or explicitly update a user skill under ChiselCode Home/skills/user. Supply SKILL.md and optional references/, scripts/, or assets/ files. Bundled names and arbitrary paths are rejected.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+                  },
+                  "files": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "mode": {
+                    "default": "create",
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "files",
+                  "mode"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_commit",
+              "description": "Create a git commit with a message.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            }
+          ],
+          "maxTokens": 64000
+        }
+      },
+      {
+        "type": "tool_started",
+        "name": "run_shell",
+        "input": {
+          "command": "bun test"
+        }
+      },
+      {
+        "type": "tool_completed",
+        "name": "run_shell",
+        "outcome": {
+          "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.11ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]",
+          "isError": false
+        }
+      },
+      {
+        "type": "provider_request",
+        "request": {
+          "model": "scripted",
+          "system": "Complete the task using evidence.",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Fix null handling in normalize. Keep its public API. Verify with bun test."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-1",
+                  "name": "read_file",
+                  "input": {
+                    "path": "value.ts"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-1",
+                  "content": "1\texport function normalize(value: string | null): string {\n2\t  return value!.trim();\n3\t}\n4\t"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-2",
+                  "name": "edit_file",
+                  "input": {
+                    "path": "value.ts",
+                    "old_str": "value!.trim()",
+                    "new_str": "(value ?? \"\").trim()"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-2",
+                  "content": "Edited value.ts."
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "eval-3",
+                  "name": "run_shell",
+                  "input": {
+                    "command": "bun test"
+                  }
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "tool_result",
+                  "toolUseId": "eval-3",
+                  "content": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.11ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]",
+                  "isError": false
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Done"
+                }
+              ]
+            }
+          ],
+          "tools": [
+            {
+              "name": "read_file",
+              "description": "Read a text file by line range.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "list_dir",
+              "description": "List files and directories under a project path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "default": ".",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "recursive": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "glob",
+              "description": "Find project files matching a glob pattern.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "grep",
+              "description": "Search file contents with ripgrep.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "pattern": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "glob": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "pattern"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "write_file",
+              "description": "Create a file or replace a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "edit_file",
+              "description": "Replace one unique literal string in a previously read file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "old_str": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "new_str": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "old_str",
+                  "new_str"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "delete_file",
+              "description": "Delete a project file.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "run_shell",
+              "description": "Run a shell command inside the project.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "timeout": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 600000
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_diff",
+              "description": "Show Git changes: unstaged (default), staged, or all tracked changes against HEAD. Use git_status for untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "default": "unstaged",
+                    "type": "string",
+                    "enum": [
+                      "unstaged",
+                      "staged",
+                      "all"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "scope"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "git_status",
+              "description": "Show current short Git status, including staged, unstaged, and untracked files.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "load_skill",
+              "description": "Load full instructions for an available skill by its exact registered name; never pass a path.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": false
+            },
+            {
+              "name": "create_skill",
+              "description": "Create or explicitly update a user skill under ChiselCode Home/skills/user. Supply SKILL.md and optional references/, scripts/, or assets/ files. Bundled names and arbitrary paths are rejected.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+                  },
+                  "files": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "mode": {
+                    "default": "create",
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "name",
+                  "files",
+                  "mode"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            },
+            {
+              "name": "git_commit",
+              "description": "Create a git commit with a message.",
+              "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              "requiresApproval": true
+            }
+          ],
+          "maxTokens": 64000
+        }
+      }
+    ]
+  }
+]
