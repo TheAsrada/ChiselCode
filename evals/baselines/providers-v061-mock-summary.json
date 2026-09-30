@@ -8,7 +8,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -79,9 +79,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 128,
       "tool_output_offloaded_tokens": 9631,
-      "provider_latency": 0.17895800000002282,
-      "tool_time": 7.817367000000019,
-      "wall_time": 57.98711899999999
+      "provider_latency": 0.18249499999998875,
+      "tool_time": 11.726062999999982,
+      "wall_time": 69.90687700000001
     },
     "trace": [],
     "summaryOnly": true
@@ -95,7 +95,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -166,9 +166,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 128,
       "tool_output_offloaded_tokens": 9631,
-      "provider_latency": 0.05175800000000663,
-      "tool_time": 2.1244959999999935,
-      "wall_time": 17.219051000000007
+      "provider_latency": 0.05066800000003013,
+      "tool_time": 2.3259289999999737,
+      "wall_time": 17.447968999999972
     },
     "trace": [],
     "summaryOnly": true
@@ -182,7 +182,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -253,9 +253,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 128,
       "tool_output_offloaded_tokens": 9631,
-      "provider_latency": 0.03865500000000566,
-      "tool_time": 1.8736450000000104,
-      "wall_time": 14.224407000000014
+      "provider_latency": 0.034604999999942265,
+      "tool_time": 1.6343349999999646,
+      "wall_time": 11.674766000000034
     },
     "trace": [],
     "summaryOnly": true
@@ -269,7 +269,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -347,9 +347,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 9,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.07967399999998293,
-      "tool_time": 1.2077689999999848,
-      "wall_time": 22.233670000000018
+      "provider_latency": 0.06593099999997776,
+      "tool_time": 1.006919000000039,
+      "wall_time": 13.318695000000048
     },
     "trace": [],
     "summaryOnly": true
@@ -363,7 +363,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -441,9 +441,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 9,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.07349399999992556,
-      "tool_time": 1.483867000000032,
-      "wall_time": 24.664733000000012
+      "provider_latency": 0.05310000000002901,
+      "tool_time": 1.0625120000000265,
+      "wall_time": 13.843038000000035
     },
     "trace": [],
     "summaryOnly": true
@@ -457,7 +457,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -535,9 +535,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 9,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.06564900000000762,
-      "tool_time": 0.942574000000036,
-      "wall_time": 23.264395999999977
+      "provider_latency": 0.03216900000001033,
+      "tool_time": 1.2732200000000375,
+      "wall_time": 11.504971000000012
     },
     "trace": [],
     "summaryOnly": true
@@ -551,7 +551,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -657,9 +657,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 36,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.06648199999995086,
-      "tool_time": 18.546242000000063,
-      "wall_time": 34.73314499999998
+      "provider_latency": 0.5092370000000415,
+      "tool_time": 69.36906700000003,
+      "wall_time": 64.541965
     },
     "trace": [],
     "summaryOnly": true
@@ -673,7 +673,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -779,9 +779,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 36,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.07385299999998551,
-      "tool_time": 4.834667999999965,
-      "wall_time": 15.661721999999997
+      "provider_latency": 0.05566799999996874,
+      "tool_time": 13.328882000000021,
+      "wall_time": 28.415032999999994
     },
     "trace": [],
     "summaryOnly": true
@@ -795,7 +795,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -901,9 +901,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 36,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.08347499999996444,
-      "tool_time": 7.17312000000004,
-      "wall_time": 16.606845999999962
+      "provider_latency": 0.06891500000000406,
+      "tool_time": 10.437316999999894,
+      "wall_time": 22.718744000000015
     },
     "trace": [],
     "summaryOnly": true
@@ -917,7 +917,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -971,9 +971,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 9644,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.40265999999996893,
-      "tool_time": 37.32745299999999,
-      "wall_time": 24.412754000000007
+      "provider_latency": 0.07296700000000556,
+      "tool_time": 40.628876000000105,
+      "wall_time": 25.566253000000017
     },
     "trace": [],
     "summaryOnly": true
@@ -987,7 +987,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1041,9 +1041,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 9644,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.03892900000005284,
-      "tool_time": 17.36060299999997,
-      "wall_time": 20.193557
+      "provider_latency": 0.0704960000000483,
+      "tool_time": 14.333761999999979,
+      "wall_time": 17.237071000000014
     },
     "trace": [],
     "summaryOnly": true
@@ -1057,7 +1057,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "f77bd13393c3a1010cdb6ee2f6add7e3859e36681ea9e569f9109950218b6331",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1111,9 +1111,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 9644,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.037746999999967557,
-      "tool_time": 13.377010000000041,
-      "wall_time": 14.94948400000004
+      "provider_latency": 0.030941999999981817,
+      "tool_time": 12.073023999999975,
+      "wall_time": 15.355135000000018
     },
     "trace": [],
     "summaryOnly": true
@@ -1127,7 +1127,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "1f13c2dec7612577770f8a9348cea5b1a1858b0aa3b76bed0a77ba3406594c49",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1142,7 +1142,7 @@
           "command": "bun test"
         },
         "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-pLxO8V/index.test.ts:3:97)\n(fail) sum feature preserves double [0.34ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [6.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-nH2ZnR/index.test.ts:3:97)\n(fail) sum feature preserves double [0.24ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
       }
     ],
     "tests_after": [
@@ -1152,7 +1152,7 @@
           "command": "bun test"
         },
         "pass": true,
-        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.18ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.22ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [4.00ms]"
       }
     ],
     "metrics": {
@@ -1178,9 +1178,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 95,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.07865099999997938,
-      "tool_time": 13.069373999999982,
-      "wall_time": 50.80057999999997
+      "provider_latency": 0.09544099999993705,
+      "tool_time": 27.51787300000001,
+      "wall_time": 68.87498599999998
     },
     "trace": [],
     "summaryOnly": true
@@ -1194,7 +1194,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "1f13c2dec7612577770f8a9348cea5b1a1858b0aa3b76bed0a77ba3406594c49",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1209,7 +1209,7 @@
           "command": "bun test"
         },
         "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-OYFLQn/index.test.ts:3:97)\n(fail) sum feature preserves double [0.29ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-VaTdBn/index.test.ts:3:97)\n(fail) sum feature preserves double [0.30ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [5.00ms]"
       }
     ],
     "tests_after": [
@@ -1219,7 +1219,7 @@
           "command": "bun test"
         },
         "pass": true,
-        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.18ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.37ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [7.00ms]"
       }
     ],
     "metrics": {
@@ -1245,9 +1245,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 95,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.07347900000002028,
-      "tool_time": 12.725783999999976,
-      "wall_time": 43.97784200000001
+      "provider_latency": 0.07112900000004174,
+      "tool_time": 14.066464999999994,
+      "wall_time": 51.151387
     },
     "trace": [],
     "summaryOnly": true
@@ -1261,7 +1261,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "1f13c2dec7612577770f8a9348cea5b1a1858b0aa3b76bed0a77ba3406594c49",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1276,7 +1276,7 @@
           "command": "bun test"
         },
         "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-Ozrnjl/index.test.ts:3:97)\n(fail) sum feature preserves double [0.35ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import * as app from \"./index\";\n3 | test(\"sum feature preserves double\", () => { expect(app.double(3)).toBe(6); expect((app as any).sum([1, 2, 3])).toBe(6); expect((app as any).sum([])).toBe(0); });\n                                                                                                    ^\nTypeError: app.sum is not a function. (In 'app.sum([1, 2, 3])', 'app.sum' is undefined)\n      at <anonymous> (/tmp/chisel-eval-ya4Fj6/index.test.ts:3:97)\n(fail) sum feature preserves double [0.25ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
       }
     ],
     "tests_after": [
@@ -1286,7 +1286,7 @@
           "command": "bun test"
         },
         "pass": true,
-        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.82ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [9.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nindex.test.ts:\n(pass) sum feature preserves double [0.17ms]\n\n 1 pass\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [3.00ms]"
       }
     ],
     "metrics": {
@@ -1312,9 +1312,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 95,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.27211300000010397,
-      "tool_time": 33.503200999999876,
-      "wall_time": 76.66257700000006
+      "provider_latency": 0.07857400000000325,
+      "tool_time": 13.85461100000009,
+      "wall_time": 42.10936300000003
     },
     "trace": [],
     "summaryOnly": true
@@ -1328,7 +1328,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1343,208 +1343,7 @@
           "command": "bun test"
         },
         "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-3wMJDp/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-3wMJDp/value.test.ts:5:10)\n(fail) normalizes strings and null [0.57ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [15.00ms]"
-      }
-    ],
-    "tests_after": [
-      {
-        "grader": {
-          "type": "command",
-          "command": "bun test"
-        },
-        "pass": true,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.07ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]"
-      }
-    ],
-    "metrics": {
-      "turn_count": 4,
-      "provider_request_count": 4,
-      "tool_call_count": 3,
-      "tool_error_count": 0,
-      "repeated_tool_calls": 0,
-      "files_read": [
-        "value.ts"
-      ],
-      "files_changed": [
-        "value.ts"
-      ],
-      "patch_attempts": 0,
-      "patch_failures": 0,
-      "stale_revision_failures": 0,
-      "compaction_count": 0,
-      "overflow_recovery_count": 0,
-      "input_tokens": 4,
-      "output_tokens": 4,
-      "cache_read_tokens": 0,
-      "cache_write_tokens": 0,
-      "tool_output_tokens": 102,
-      "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.580402999999933,
-      "tool_time": 37.79996100000005,
-      "wall_time": 138.54468600000007
-    },
-    "trace": [],
-    "summaryOnly": true
-  },
-  {
-    "task": "fix-null-regression",
-    "trial": 2,
-    "status": "success",
-    "task_success": true,
-    "model": "scripted",
-    "provider": "anthropic",
-    "environment": {
-      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
-      "bun": "1.4.2",
-      "platform": "linux",
-      "network": "no model network",
-      "timeout": 300,
-      "model_parameters": {},
-      "resources": "host (no CPU/RAM limit configured)"
-    },
-    "tests_before": [
-      {
-        "grader": {
-          "type": "command",
-          "command": "bun test"
-        },
-        "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-Nr9USc/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-Nr9USc/value.test.ts:5:10)\n(fail) normalizes strings and null [0.40ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [7.00ms]"
-      }
-    ],
-    "tests_after": [
-      {
-        "grader": {
-          "type": "command",
-          "command": "bun test"
-        },
-        "pass": true,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.06ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [3.00ms]"
-      }
-    ],
-    "metrics": {
-      "turn_count": 4,
-      "provider_request_count": 4,
-      "tool_call_count": 3,
-      "tool_error_count": 0,
-      "repeated_tool_calls": 0,
-      "files_read": [
-        "value.ts"
-      ],
-      "files_changed": [
-        "value.ts"
-      ],
-      "patch_attempts": 0,
-      "patch_failures": 0,
-      "stale_revision_failures": 0,
-      "compaction_count": 0,
-      "overflow_recovery_count": 0,
-      "input_tokens": 4,
-      "output_tokens": 4,
-      "cache_read_tokens": 0,
-      "cache_write_tokens": 0,
-      "tool_output_tokens": 102,
-      "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.3842680000001337,
-      "tool_time": 26.01632200000006,
-      "wall_time": 96.29229899999996
-    },
-    "trace": [],
-    "summaryOnly": true
-  },
-  {
-    "task": "fix-null-regression",
-    "trial": 3,
-    "status": "success",
-    "task_success": true,
-    "model": "scripted",
-    "provider": "anthropic",
-    "environment": {
-      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
-      "bun": "1.4.2",
-      "platform": "linux",
-      "network": "no model network",
-      "timeout": 300,
-      "model_parameters": {},
-      "resources": "host (no CPU/RAM limit configured)"
-    },
-    "tests_before": [
-      {
-        "grader": {
-          "type": "command",
-          "command": "bun test"
-        },
-        "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-s8pcaq/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-s8pcaq/value.test.ts:5:10)\n(fail) normalizes strings and null [0.26ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
-      }
-    ],
-    "tests_after": [
-      {
-        "grader": {
-          "type": "command",
-          "command": "bun test"
-        },
-        "pass": true,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.11ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [3.00ms]"
-      }
-    ],
-    "metrics": {
-      "turn_count": 4,
-      "provider_request_count": 4,
-      "tool_call_count": 3,
-      "tool_error_count": 0,
-      "repeated_tool_calls": 0,
-      "files_read": [
-        "value.ts"
-      ],
-      "files_changed": [
-        "value.ts"
-      ],
-      "patch_attempts": 0,
-      "patch_failures": 0,
-      "stale_revision_failures": 0,
-      "compaction_count": 0,
-      "overflow_recovery_count": 0,
-      "input_tokens": 4,
-      "output_tokens": 4,
-      "cache_read_tokens": 0,
-      "cache_write_tokens": 0,
-      "tool_output_tokens": 102,
-      "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.06904199999996763,
-      "tool_time": 13.758389999999963,
-      "wall_time": 89.72416700000008
-    },
-    "trace": [],
-    "summaryOnly": true
-  },
-  {
-    "task": "wrong-approach-recovery",
-    "trial": 1,
-    "status": "success",
-    "task_success": true,
-    "model": "scripted",
-    "provider": "anthropic",
-    "environment": {
-      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
-      "bun": "1.4.2",
-      "platform": "linux",
-      "network": "no model network",
-      "timeout": 300,
-      "model_parameters": {},
-      "resources": "host (no CPU/RAM limit configured)"
-    },
-    "tests_before": [
-      {
-        "grader": {
-          "type": "command",
-          "command": "bun test"
-        },
-        "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-IZ57XJ/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-IZ57XJ/value.test.ts:5:10)\n(fail) normalizes strings and null [0.22ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-Uphb35/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-Uphb35/value.test.ts:5:10)\n(fail) normalizes strings and null [0.35ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
       }
     ],
     "tests_after": [
@@ -1558,10 +1357,10 @@
       }
     ],
     "metrics": {
-      "turn_count": 6,
-      "provider_request_count": 6,
-      "tool_call_count": 5,
-      "tool_error_count": 1,
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
       "repeated_tool_calls": 0,
       "files_read": [
         "value.ts"
@@ -1574,21 +1373,21 @@
       "stale_revision_failures": 0,
       "compaction_count": 0,
       "overflow_recovery_count": 0,
-      "input_tokens": 6,
-      "output_tokens": 6,
+      "input_tokens": 4,
+      "output_tokens": 4,
       "cache_read_tokens": 0,
       "cache_write_tokens": 0,
-      "tool_output_tokens": 153,
+      "tool_output_tokens": 102,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.089191000000028,
-      "tool_time": 25.046640000000025,
-      "wall_time": 57.684702000000016
+      "provider_latency": 0.1251599999999371,
+      "tool_time": 15.790208000000007,
+      "wall_time": 48.99294400000008
     },
     "trace": [],
     "summaryOnly": true
   },
   {
-    "task": "wrong-approach-recovery",
+    "task": "fix-null-regression",
     "trial": 2,
     "status": "success",
     "task_success": true,
@@ -1596,7 +1395,7 @@
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1611,7 +1410,7 @@
           "command": "bun test"
         },
         "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-qSwGaG/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-qSwGaG/value.test.ts:5:10)\n(fail) normalizes strings and null [0.54ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [6.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-ALTKKT/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-ALTKKT/value.test.ts:5:10)\n(fail) normalizes strings and null [0.23ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
       }
     ],
     "tests_after": [
@@ -1621,7 +1420,141 @@
           "command": "bun test"
         },
         "pass": true,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.08ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.07ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [7.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 102,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.18323899999984405,
+      "tool_time": 15.552937000000043,
+      "wall_time": 46.95708400000001
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "fix-null-regression",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-bltuIZ/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-bltuIZ/value.test.ts:5:10)\n(fail) normalizes strings and null [0.36ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [5.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [2.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 4,
+      "provider_request_count": 4,
+      "tool_call_count": 3,
+      "tool_error_count": 0,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 4,
+      "output_tokens": 4,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 102,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.05926500000020951,
+      "tool_time": 11.769855000000007,
+      "wall_time": 40.07751099999996
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 1,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-lcVV7i/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-lcVV7i/value.test.ts:5:10)\n(fail) normalizes strings and null [0.20ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [6.00ms]"
       }
     ],
     "metrics": {
@@ -1647,23 +1580,23 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 153,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.10853100000008453,
-      "tool_time": 24.209239000000025,
-      "wall_time": 61.92860600000006
+      "provider_latency": 0.09007800000017596,
+      "tool_time": 22.995267000000013,
+      "wall_time": 60.599797999999964
     },
     "trace": [],
     "summaryOnly": true
   },
   {
     "task": "wrong-approach-recovery",
-    "trial": 3,
+    "trial": 2,
     "status": "success",
     "task_success": true,
     "model": "scripted",
     "provider": "anthropic",
     "environment": {
       "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
-      "chisel_commit": "9782db4443f6e2db80d1fa40b7d36f64007adfce",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
       "bun": "1.4.2",
       "platform": "linux",
       "network": "no model network",
@@ -1678,7 +1611,74 @@
           "command": "bun test"
         },
         "pass": false,
-        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-9mo9yr/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-9mo9yr/value.test.ts:5:10)\n(fail) normalizes strings and null [0.24ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-v6JDds/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-v6JDds/value.test.ts:5:10)\n(fail) normalizes strings and null [0.24ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [3.00ms]"
+      }
+    ],
+    "tests_after": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": true,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n(pass) normalizes strings and null [0.05ms]\n\n 1 pass\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [5.00ms]"
+      }
+    ],
+    "metrics": {
+      "turn_count": 6,
+      "provider_request_count": 6,
+      "tool_call_count": 5,
+      "tool_error_count": 1,
+      "repeated_tool_calls": 0,
+      "files_read": [
+        "value.ts"
+      ],
+      "files_changed": [
+        "value.ts"
+      ],
+      "patch_attempts": 0,
+      "patch_failures": 0,
+      "stale_revision_failures": 0,
+      "compaction_count": 0,
+      "overflow_recovery_count": 0,
+      "input_tokens": 6,
+      "output_tokens": 6,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "tool_output_tokens": 153,
+      "tool_output_offloaded_tokens": 0,
+      "provider_latency": 0.10352499999987685,
+      "tool_time": 27.323039999999992,
+      "wall_time": 57.87677099999996
+    },
+    "trace": [],
+    "summaryOnly": true
+  },
+  {
+    "task": "wrong-approach-recovery",
+    "trial": 3,
+    "status": "success",
+    "task_success": true,
+    "model": "scripted",
+    "provider": "anthropic",
+    "environment": {
+      "fixture_hash": "0bcc4f96f20f3d3ac65741a9a36db03f66d6f75b0712eac72aae0845f066a248",
+      "chisel_commit": "2584a939108f59dfac4c908aeab500953454f264",
+      "bun": "1.4.2",
+      "platform": "linux",
+      "network": "no model network",
+      "timeout": 300,
+      "model_parameters": {},
+      "resources": "host (no CPU/RAM limit configured)"
+    },
+    "tests_before": [
+      {
+        "grader": {
+          "type": "command",
+          "command": "bun test"
+        },
+        "pass": false,
+        "output": "bun test v1.4.2 (744846f84)\n\nvalue.test.ts:\n1 | export function normalize(value: string | null): string {\n2 |   return value!.trim();\n             ^\nTypeError: null is not an object (evaluating 'value.trim')\n      at normalize (/tmp/chisel-eval-aA4jaW/value.ts:2:10)\n      at <anonymous> (/tmp/chisel-eval-aA4jaW/value.test.ts:5:10)\n(fail) normalizes strings and null [0.48ms]\n\n 0 pass\n 1 fail\n 1 expect() calls\nRan 1 test across 1 file. [4.00ms]"
       }
     ],
     "tests_after": [
@@ -1714,9 +1714,9 @@
       "cache_write_tokens": 0,
       "tool_output_tokens": 153,
       "tool_output_offloaded_tokens": 0,
-      "provider_latency": 0.09867599999984122,
-      "tool_time": 22.929468000000043,
-      "wall_time": 51.00225799999998
+      "provider_latency": 0.10127999999986059,
+      "tool_time": 36.86814100000004,
+      "wall_time": 69.1470569999999
     },
     "trace": [],
     "summaryOnly": true

@@ -4,7 +4,9 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), версии следуют [семантическому версионированию](https://semver.org/spec/v2.0.0.html).
 
-## 0.6.1 — 2026-09-30
+## [Не выпущено]
+
+## [0.6.1] - 2026-09-30
 
 ### Provider Architecture
 
@@ -15,8 +17,6 @@
 - Session v3 providerId/profileId, lazy v2 migration, history unknown provider и rebuildable index v2; project registry не меняется.
 - Optional capabilities/health methods, normalized SDK errors/cache usage и unknown pricing без ложного $0.
 - Актуализированы providers/configuration/CLI/sessions/architecture/security/setup docs; добавлены custom-provider guide и migration notes. Migration, security, scale, driver и UI regression tests.
-
-## [Не выпущено]
 
 ## [0.6.0] - 2026-09-30
 

@@ -16,9 +16,9 @@
 | Searchable/windowed UI и multiple profiles | f4754c4 | PASS | 266 PASS |
 | Sessions v3 и index rebuild | 95ad9b5 | PASS | 271 PASS |
 | Capabilities/health/cache/pricing | 9782db4 | PASS | 273 PASS |
-| Cleanup/documentation/release preparation | final stage | PASS | 280 PASS |
+| Cleanup/documentation/release preparation | 2584a93 | PASS | 280 PASS |
 
-Исходная точка: 233 tests PASS, typecheck PASS, lint PASS (144 files). Финальные проверки: **280 tests / 0 failures**, typecheck PASS, lint PASS (180 files), build PASS. CLI --version=0.6.1; help/setup/providers flags проверены. 21/21 scripted eval trials успешны; сравнение с runtime-v2-mock: 21 comparable, 0 regressions, input token deltas 0. Live API не запускался: реальных profile credentials для benchmark не настроено. Gateway/AgentRouter integration тесты используют настоящий HTTP/SSE transport к локальному fake server.
+Исходная точка: 233 tests PASS, typecheck PASS, lint PASS (144 files). Финальные проверки: **280 tests / 0 failures**, typecheck PASS, lint PASS (180 files), build PASS. CLI --version=0.6.1; help/setup/providers flags проверены. 21/21 scripted eval trials успешны после commit 2584a93 (source tree clean); сравнение с runtime-v2-mock: 21 comparable, 0 regressions, input token deltas 0. Live API не запускался: реальных profile credentials для benchmark не настроено. Gateway/AgentRouter integration тесты используют настоящий HTTP/SSE transport к локальному fake server.
 
 ## Миграции и compatibility
 
