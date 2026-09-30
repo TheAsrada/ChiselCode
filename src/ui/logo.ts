@@ -2,8 +2,9 @@
  * ASCII-арт логотип `<i>ChiselCode`, шрифт Coder Mini с TAAG
  * (patorjk, figlet.js). Встроен буквально: пробелы значимы.
  *
- * Только пробелы и half-блоки `█▀▄`: монохром в дефолтном цвете терминала,
- * есть в шрифтах conhost, ширина — ровно клетка. Без анимации и ANSI-цветов.
+ * Только пробелы и half-блоки `█▀▄`: есть в шрифтах conhost, ширина —
+ * ровно клетка. Цвет применяет renderer; здесь нет ANSI-последовательностей.
+ * Coder Mini: Loic Cressot, MIT, patorjk/figlet.js/fonts/Coder Mini.flf.
  * Чистый модуль для шапки TUI и тестов.
  */
 const LOGO_ART_LINES: string[] = [

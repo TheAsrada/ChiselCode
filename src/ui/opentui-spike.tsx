@@ -7,7 +7,6 @@ import type {
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
-import type { ProjectMetadata } from "../sessions/project-store.js";
 import { invocableSkills } from "../skills/skills.js";
 import {
   THEME_NAMES,
@@ -27,9 +26,10 @@ import {
   createEditorState,
   navigateEditorHistory,
 } from "./editor.js";
-import { COMPACT_LOGO } from "./logo.js";
+import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
+import { OpenTuiPrompt } from "./opentui-prompt.js";
 import {
   OpenTuiSessions,
   type OpenTuiSessionsActions,
@@ -51,6 +51,7 @@ import {
   sidebarLayout,
   toggleSidebarMode,
 } from "./sidebar-layout.js";
+import { skillCommandDraft, skillEditDraft } from "./skill-draft.js";
 import type { TuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
@@ -79,7 +80,7 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
       key={
         props.workspace
           ? (props.workspace.activeKey ??
-            `home:${controller?.snapshot.projectPath}`)
+            `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
           : "probe"
       }
       {...props}
@@ -110,7 +111,6 @@ function OpenTuiScreen({
   approvalResolver,
   onSubmit,
   sessionPicker,
-  loadProjects,
   settingsActions,
   initialSettingsOpen = false,
   onSetupComplete,
@@ -129,7 +129,6 @@ function OpenTuiScreen({
   approvalResolver?: TuiApprovalResolver;
   onSubmit?: (prompt: string) => Promise<void>;
   sessionPicker?: OpenTuiSessionsActions;
-  loadProjects?: () => Promise<ProjectMetadata[]>;
   settingsActions?: OpenTuiSettingsActions;
   initialSettingsOpen?: boolean;
   onSetupComplete?: () => void;
@@ -192,16 +191,18 @@ function OpenTuiScreen({
   useEffect(() => controller?.subscribe(setView), [controller]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload available skill commands.
   useEffect(() => {
-    setSkillCommands(
-      skillsActions
-        ? invocableSkills(skillsActions.load()).map(
-            ({ name, description }) => ({
-              name,
-              description,
-            }),
-          )
-        : [],
-    );
+    try {
+      setSkillCommands(
+        skillsActions
+          ? invocableSkills(skillsActions.load()).map(
+              ({ name, description }) => ({ name, description }),
+            )
+          : [],
+      );
+    } catch {
+      // The library popup presents discovery failures without breaking the composer.
+      setSkillCommands([]);
+    }
   }, [skillsActions, view.projectPath, skillsOpen]);
   const [expanded, setExpanded] = useState(
     controller?.presentation.expanded ?? false,
@@ -247,6 +248,7 @@ function OpenTuiScreen({
     "editor",
   );
   const home = !!workspace && !workspace.activeKey;
+  const tabRows = workspace?.tabs.length ? 3 : 0;
   useEffect(() => {
     if (home && view.transcript.length > 0)
       transcript.current?.scrollTo(Number.MAX_SAFE_INTEGER);
@@ -260,7 +262,45 @@ function OpenTuiScreen({
   const contextOnly =
     layout.placement === "overlay" || layout.placement === "fullscreen";
   const textWidth = layout.feedWidth;
-  const editorHeight = Math.min(4, Math.max(2, height - 3));
+  const composerWidth = home
+    ? Math.max(1, Math.min(86, textWidth - 4))
+    : Math.max(1, textWidth - 2);
+  const homeHeight = height - tabRows;
+  const fullHomeLogo = home && textWidth >= LOGO_WIDTH + 4 && homeHeight >= 18;
+  const homeCompact = homeHeight < 12;
+  const homeFixedRows =
+    (fullHomeLogo ? 5 : 1) +
+    (homeCompact ? 0 : 2) +
+    (homeHeight >= 10 ? 1 : 0) +
+    4;
+  const editorLimit = Math.max(
+    1,
+    Math.min(
+      6,
+      height -
+        tabRows -
+        (home ? homeFixedRows + (view.transcript.length ? 2 : 0) : 7),
+    ),
+  );
+  const editorHeight = workspace
+    ? Math.min(
+        editorLimit,
+        Math.max(
+          2,
+          draft
+            .split("\n")
+            .reduce(
+              (rows, line) =>
+                rows +
+                Math.max(
+                  1,
+                  Math.ceil([...line].length / Math.max(1, composerWidth - 6)),
+                ),
+              0,
+            ),
+        ),
+      )
+    : Math.min(4, Math.max(2, height - 7));
   const suggestions =
     height >= 12 &&
     isSlashInput(draft) &&
@@ -271,7 +311,7 @@ function OpenTuiScreen({
       : [];
   const suggestionLimit = Math.min(
     MAX_VISIBLE_SUGGESTIONS,
-    Math.max(0, height - editorHeight - 5),
+    Math.max(0, height - tabRows - editorHeight - (home ? homeFixedRows : 6)),
   );
   const selectedSuggestionIndex = suggestions.length
     ? suggestionIndex % suggestions.length
@@ -289,7 +329,8 @@ function OpenTuiScreen({
     1,
     height -
       editorHeight -
-      (workspace ? 4 : showLogo ? 6 : 4) -
+      tabRows -
+      (workspace ? 5 : showLogo ? 9 : 7) -
       visibleSuggestions.length,
   );
   let newestDiffId: number | undefined;
@@ -415,6 +456,11 @@ function OpenTuiScreen({
       return;
     }
     if (pickerOpen || settingsOpen || skillsOpen) return;
+    if (skillsActions && key.ctrl && key.name === "s") {
+      key.preventDefault();
+      submit("/skills");
+      return;
+    }
     if (key.ctrl && key.name === "t") {
       key.preventDefault();
       selectThemeIndex(THEME_NAMES.indexOf(theme));
@@ -427,7 +473,7 @@ function OpenTuiScreen({
       (key.name === "left" || key.name === "right" || key.name === "n")
     ) {
       key.preventDefault();
-      if (key.name === "n") workspace.newTab();
+      if (key.name === "n") workspace.newDraft();
       else workspace.cycle(key.name === "left" ? -1 : 1);
       return;
     }
@@ -449,7 +495,7 @@ function OpenTuiScreen({
       }
       if (key.name === "n" && key.shift) {
         key.preventDefault();
-        workspace.newTab();
+        workspace.newDraft();
         return;
       }
     }
@@ -490,7 +536,11 @@ function OpenTuiScreen({
       key.preventDefault();
       const next =
         focus === "editor"
-          ? "transcript"
+          ? home && view.transcript.length === 0
+            ? showSidebar
+              ? "sidebar"
+              : "editor"
+            : "transcript"
           : focus === "transcript" && showSidebar
             ? "sidebar"
             : "editor";
@@ -544,7 +594,7 @@ function OpenTuiScreen({
   });
 
   const submit = (command?: string) => {
-    if (approval) return;
+    if (approval || skillsOpen) return;
     const value = command ?? editor.current?.plainText.trim();
     if (!value) return;
     if (!command && selectedSuggestion && value !== selectedSuggestion.name) {
@@ -552,6 +602,7 @@ function OpenTuiScreen({
       return;
     }
     history.current = addEditorHistory(history.current, value);
+    if (controller) controller.presentation.history = history.current;
     if (command === "/cwd") {
       editor.current?.setText("/cwd ");
       setDraft("/cwd ");
@@ -594,6 +645,7 @@ function OpenTuiScreen({
       return;
     }
     if (skillsActions && value === "/skills") {
+      editor.current?.blur();
       setSkillsOpen(true);
       controller?.setOverlay("skills");
       controller?.setFocus("modal");
@@ -700,20 +752,106 @@ function OpenTuiScreen({
         }}
       />
     );
-  if (skillsOpen && skillsActions)
-    return (
-      <OpenTuiSkills
-        actions={skillsActions}
-        width={width}
-        height={height}
+  const closeSkills = () => {
+    setSkillsOpen(false);
+    controller?.setOverlay();
+    controller?.setFocus(focus === "editor" ? "composer" : focus);
+  };
+  const prepareSkill = (value: string) => {
+    acceptedCompletion.current = value;
+    editor.current?.setText(value);
+    if (editor.current) editor.current.cursorOffset = value.length;
+    setDraft(value);
+    controller?.setDraft(value);
+    setSuggestionsDismissed(true);
+    closeSkills();
+    setFocus("editor");
+    controller?.setFocus("composer");
+  };
+
+  const composer = (
+    <box width="100%" flexShrink={0} flexDirection="column">
+      {visibleSuggestions.map((command, index) => (
+        <text
+          key={command.name}
+          height={1}
+          fg={
+            index + suggestionStart === selectedSuggestionIndex
+              ? palette.accent
+              : palette.muted
+          }
+        >
+          {terminalSafeText(
+            `${index + suggestionStart === selectedSuggestionIndex ? "❯" : " "} ${command.name} · ${command.description}`,
+            Math.max(8, composerWidth - 3),
+          )}
+        </text>
+      ))}
+      <OpenTuiPrompt
         palette={palette}
-        onClose={() => {
-          setSkillsOpen(false);
-          controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : focus);
-        }}
-      />
-    );
+        width={composerWidth}
+        focused={focus === "editor" && !skillsOpen}
+        hasDraft={!!draft.trim()}
+        busy={view.busy}
+        model={view.usage?.model}
+        onSubmit={() => submit()}
+      >
+        <textarea
+          id="prompt-editor"
+          ref={editor}
+          height={editorHeight}
+          initialValue={draft}
+          backgroundColor={palette.surface}
+          focusedBackgroundColor={palette.surface}
+          textColor={palette.text}
+          focusedTextColor={palette.text}
+          placeholderColor={palette.muted}
+          placeholder="Опишите задачу…"
+          cursorColor={palette.accent}
+          selectionBg={palette.raised}
+          selectionFg={palette.text}
+          onContentChange={() => {
+            const next = editor.current?.plainText ?? "";
+            if (
+              applyingHistory.current ||
+              (history.current.historyIndex >= 0 &&
+                next === history.current.value)
+            )
+              return;
+            if (next !== acceptedCompletion.current) {
+              setSuggestionIndex(0);
+              setSuggestionsDismissed(false);
+            }
+            acceptedCompletion.current = undefined;
+            history.current = {
+              ...history.current,
+              value: next,
+              cursor: editor.current?.cursorOffset ?? next.length,
+              historyIndex: -1,
+              historyDraft: "",
+            };
+            setDraft(next);
+            controller?.setDraft(next);
+          }}
+          onSubmit={() => submit()}
+          keyBindings={[
+            { name: "return", action: "submit" },
+            { name: "return", shift: true, action: "newline" },
+          ]}
+        />
+      </OpenTuiPrompt>
+      {(!home || !homeCompact) && (
+        <text fg={palette.muted} height={1}>
+          {terminalSafeText(
+            workspace
+              ? "Enter отправить · Shift+Enter строка"
+              : "Enter отправить · Shift+Enter строка · Ctrl+T тема · Esc выход",
+            composerWidth,
+          )}
+        </text>
+      )}
+    </box>
+  );
 
   return (
     <box
@@ -725,213 +863,170 @@ function OpenTuiScreen({
       {workspace && (
         <SessionTabs workspace={workspace} width={width} palette={palette} />
       )}
-      <box
-        width={width}
-        height={height - (workspace ? 1 : 0)}
-        flexDirection="row"
-      >
-        {!contextOnly && (
-          <box
-            width={textWidth}
-            height={height - (workspace ? 1 : 0)}
-            flexDirection="column"
-            paddingLeft={1}
-            paddingRight={1}
-          >
-            {!workspace && (
-              <>
-                {showLogo &&
-                  COMPACT_LOGO.map((row) => (
-                    <text key={row} fg={palette.accent}>
-                      {row}
-                    </text>
-                  ))}
-                <text fg={palette.accent}>
-                  {onSubmit
-                    ? `◈ ${showLogo ? "" : "ChiselCode  ·  "}${terminalSafeText(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  ·  ${theme}`
-                    : `◈ ChiselCode · probe · ${width}×${height} · ${theme}`}
-                </text>
-                <box
-                  width="100%"
-                  flexDirection="row"
-                  justifyContent="space-between"
-                >
-                  <text fg={palette.muted}>
-                    {terminalSafeText(
-                      view.projectPath,
-                      Math.max(8, textWidth - 23),
+      <box width={width} height={height - tabRows} flexDirection="row">
+        {!contextOnly &&
+          (home ? (
+            <OpenTuiHome
+              projectPath={view.projectPath}
+              width={textWidth}
+              height={height - tabRows}
+              palette={palette}
+              feedback={
+                view.transcript.length > 0 && !visibleSuggestions.length ? (
+                  <scrollbox
+                    ref={transcript}
+                    height={Math.min(
+                      6,
+                      Math.max(
+                        1,
+                        homeHeight -
+                          homeFixedRows -
+                          editorHeight -
+                          visibleSuggestions.length -
+                          1,
+                      ),
                     )}
-                  </text>
-                  {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+T and /theme provide keyboard access. */}
-                  <box
-                    backgroundColor={palette.raised}
-                    paddingLeft={1}
-                    paddingRight={1}
-                    onMouseUp={() => {
-                      selectThemeIndex(THEME_NAMES.indexOf(theme));
-                      setThemeOpen(true);
-                    }}
+                    marginTop={1}
+                    width="100%"
+                    viewportCulling
+                    scrollbarOptions={{ visible: false }}
                   >
-                    <text fg={palette.accent}>◐ Тема Ctrl+T</text>
-                  </box>
-                </box>
-              </>
-            )}
-            {height >= 12 && (
-              <scrollbox
-                ref={transcript}
-                height={feedHeight}
-                stickyScroll={!home}
-                stickyStart={home ? "top" : "bottom"}
-                viewportCulling
-                onMouseScroll={(event) => {
-                  const box = transcript.current;
-                  if (!box) return;
-                  if (event.scroll?.direction === "up" && box.scrollTop <= 0)
-                    shiftWindow("up");
-                  if (
-                    event.scroll?.direction === "down" &&
-                    box.scrollTop >= box.scrollHeight - box.viewport.height
-                  )
-                    shiftWindow("down");
-                }}
-              >
-                {home && (
-                  <OpenTuiHome
-                    projectPath={view.projectPath}
-                    width={textWidth - 2}
-                    height={height}
-                    palette={palette}
-                    theme={theme}
-                    sessions={sessionPicker}
-                    loadProjects={loadProjects}
-                    onCommand={(command) => submit(command)}
-                  />
-                )}
-                {controller ? (
-                  <OpenTuiTranscript
-                    entries={
-                      classic
-                        ? expanded
-                          ? view.transcript.filter(
-                              (entry) => entry.id === newestDiffId,
-                            )
-                          : []
-                        : view.transcript
-                    }
-                    contentWidth={textWidth - 2}
-                    expandedId={expanded ? newestDiffId : undefined}
-                    windowEnd={classic ? undefined : windowEnd}
-                    palette={palette}
-                  />
-                ) : (
-                  <React.Fragment>
-                    {lines.map((line) => (
-                      <text key={line.id} fg={palette.text}>
-                        {line.text}
-                      </text>
-                    ))}
-                    <text fg={palette.muted}>
-                      example.ts · +1 −1 · Ctrl+D: diff
-                    </text>
-                    {expanded && (
-                      <diff
-                        diff={PATCH}
-                        view={textWidth - 2 >= 100 ? "split" : "unified"}
-                        height={5}
-                      />
-                    )}
-                  </React.Fragment>
-                )}
-                {controller && view.streaming && (
-                  <React.Fragment>
-                    <text fg={palette.accent}>◆ Chisel · отвечает…</text>
-                    <FormattedMessage
-                      content={view.streaming}
+                    <OpenTuiTranscript
+                      entries={view.transcript}
+                      contentWidth={composerWidth - 2}
                       palette={palette}
                     />
-                  </React.Fragment>
-                )}
-                {controller && view.toolActivity && (
-                  <text fg={palette.muted}>
-                    {terminalSafeText(view.toolActivity, 2_000)}
+                  </scrollbox>
+                ) : undefined
+              }
+            >
+              {composer}
+            </OpenTuiHome>
+          ) : (
+            <box
+              width={textWidth}
+              height={height - tabRows}
+              flexDirection="column"
+              paddingLeft={1}
+              paddingRight={1}
+            >
+              {!workspace && (
+                <>
+                  {showLogo &&
+                    COMPACT_LOGO.map((row) => (
+                      <text key={row} fg={palette.accent}>
+                        {row}
+                      </text>
+                    ))}
+                  <text fg={palette.accent}>
+                    {onSubmit
+                      ? `◈ ${showLogo ? "" : "ChiselCode  ·  "}${terminalSafeText(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  ·  ${theme}`
+                      : `◈ ChiselCode · probe · ${width}×${height} · ${theme}`}
                   </text>
-                )}
-              </scrollbox>
-            )}
-            {visibleSuggestions.map((command, index) => (
-              <text
-                key={command.name}
-                fg={
-                  index + suggestionStart === selectedSuggestionIndex
-                    ? palette.accent
-                    : palette.muted
-                }
-              >
-                {terminalSafeText(
-                  `${index + suggestionStart === selectedSuggestionIndex ? "❯" : " "} ${command.name} · ${command.description}`,
-                  Math.max(8, textWidth - 3),
-                )}
-              </text>
-            ))}
-            <text fg={palette.muted}>
-              ╭─{" "}
-              <span fg={palette.accent}>
-                {draft ? "Черновик" : "Сообщение"}
-              </span>{" "}
-              ─ {view.usage?.model ?? "ChiselCode"}
-            </text>
-            <textarea
-              ref={editor}
-              height={editorHeight}
-              initialValue={draft}
-              backgroundColor={palette.surface}
-              focusedBackgroundColor={palette.surface}
-              textColor={palette.text}
-              focusedTextColor={palette.text}
-              placeholderColor={palette.muted}
-              placeholder="Напишите сообщение…"
-              onContentChange={() => {
-                const next = editor.current?.plainText ?? "";
-                if (
-                  applyingHistory.current ||
-                  (history.current.historyIndex >= 0 &&
-                    next === history.current.value)
-                )
-                  return;
-                if (next !== acceptedCompletion.current) {
-                  setSuggestionIndex(0);
-                  setSuggestionsDismissed(false);
-                }
-                acceptedCompletion.current = undefined;
-                history.current = {
-                  ...history.current,
-                  value: next,
-                  cursor: editor.current?.cursorOffset ?? next.length,
-                  historyIndex: -1,
-                  historyDraft: "",
-                };
-                setDraft(next);
-                controller?.setDraft(next);
-              }}
-              onSubmit={() => submit()}
-              keyBindings={[
-                { name: "return", action: "submit" },
-                { name: "return", shift: true, action: "newline" },
-              ]}
-            />
-            <text fg={palette.muted}>
-              {workspace
-                ? "↵ отправить · Alt+←/→ вкладки · Alt+N новая · Ctrl+G главная"
-                : "╰─ ↵ Enter отправить · Shift+Enter строка · Ctrl+T тема · Esc выход"}
-            </text>
-          </box>
-        )}
+                  <box
+                    width="100%"
+                    flexDirection="row"
+                    justifyContent="space-between"
+                  >
+                    <text fg={palette.muted}>
+                      {terminalSafeText(
+                        view.projectPath,
+                        Math.max(8, textWidth - 23),
+                      )}
+                    </text>
+                    {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+T and /theme provide keyboard access. */}
+                    <box
+                      backgroundColor={palette.raised}
+                      paddingLeft={1}
+                      paddingRight={1}
+                      onMouseUp={() => {
+                        selectThemeIndex(THEME_NAMES.indexOf(theme));
+                        setThemeOpen(true);
+                      }}
+                    >
+                      <text fg={palette.accent}>◐ Тема Ctrl+T</text>
+                    </box>
+                  </box>
+                </>
+              )}
+              {height >= 12 && (
+                <scrollbox
+                  ref={transcript}
+                  height={feedHeight}
+                  stickyScroll={!home}
+                  stickyStart={home ? "top" : "bottom"}
+                  viewportCulling
+                  onMouseScroll={(event) => {
+                    const box = transcript.current;
+                    if (!box) return;
+                    if (event.scroll?.direction === "up" && box.scrollTop <= 0)
+                      shiftWindow("up");
+                    if (
+                      event.scroll?.direction === "down" &&
+                      box.scrollTop >= box.scrollHeight - box.viewport.height
+                    )
+                      shiftWindow("down");
+                  }}
+                >
+                  {controller ? (
+                    <OpenTuiTranscript
+                      entries={
+                        classic
+                          ? expanded
+                            ? view.transcript.filter(
+                                (entry) => entry.id === newestDiffId,
+                              )
+                            : []
+                          : view.transcript
+                      }
+                      contentWidth={textWidth - 2}
+                      expandedId={expanded ? newestDiffId : undefined}
+                      windowEnd={classic ? undefined : windowEnd}
+                      palette={palette}
+                    />
+                  ) : (
+                    <React.Fragment>
+                      {lines.map((line) => (
+                        <text key={line.id} fg={palette.text}>
+                          {line.text}
+                        </text>
+                      ))}
+                      <text fg={palette.muted}>
+                        example.ts · +1 −1 · Ctrl+D: diff
+                      </text>
+                      {expanded && (
+                        <diff
+                          diff={PATCH}
+                          view={textWidth - 2 >= 100 ? "split" : "unified"}
+                          height={5}
+                        />
+                      )}
+                    </React.Fragment>
+                  )}
+                  {controller && view.streaming && (
+                    <React.Fragment>
+                      <text fg={palette.accent}>◆ Chisel · отвечает…</text>
+                      <FormattedMessage
+                        content={view.streaming}
+                        palette={palette}
+                      />
+                    </React.Fragment>
+                  )}
+                  {controller && view.toolActivity && (
+                    <text fg={palette.muted}>
+                      {terminalSafeText(view.toolActivity, 2_000)}
+                    </text>
+                  )}
+                </scrollbox>
+              )}
+              {composer}
+            </box>
+          ))}
         {showSidebar && (
           <box
             ref={sidebar}
             width={contextOnly ? width : 41}
-            height={height - (workspace ? 1 : 0)}
+            height={height - tabRows}
             flexDirection="row"
             focusable
           >
@@ -939,13 +1034,44 @@ function OpenTuiScreen({
             <ContextSidebar
               state={view}
               width={contextOnly ? Math.min(width, 40) : 40}
-              height={height - (workspace ? 1 : 0)}
+              height={height - tabRows}
               focused={focus === "sidebar"}
               palette={palette}
             />
           </box>
         )}
       </box>
+      {skillsOpen && skillsActions && (
+        <OpenTuiSkills
+          actions={skillsActions}
+          width={width}
+          height={height}
+          palette={palette}
+          onClose={closeSkills}
+          onChoose={(skill) =>
+            prepareSkill(
+              skillCommandDraft(skill.name, draft, skillsActions.load()),
+            )
+          }
+          onCreate={() =>
+            prepareSkill(
+              skillCommandDraft("skill-creator", draft, skillsActions.load()),
+            )
+          }
+          onEdit={
+            skillsActions.editSource
+              ? (skill) =>
+                  prepareSkill(
+                    skillEditDraft(
+                      skill.name,
+                      skillsActions.editSource?.(skill.name) ?? "",
+                      draft,
+                    ),
+                  )
+              : undefined
+          }
+        />
+      )}
     </box>
   );
 }

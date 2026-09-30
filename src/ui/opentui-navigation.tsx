@@ -1,34 +1,44 @@
 /** @jsxImportSource @opentui/react */
-import { useEffect, useState } from "react";
-import type {
-  ProjectMetadata,
-  SessionSummary,
-} from "../sessions/project-store.js";
+import type { ReactNode } from "react";
+import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
-import { COMPACT_LOGO } from "./logo.js";
-import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
+import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
 
-function Action({
+function TabAction({
+  id,
   label,
-  active = false,
-  onSelect,
+  width,
   palette,
+  onSelect,
 }: {
+  id?: string;
   label: string;
-  active?: boolean;
-  onSelect: () => void;
+  width: number;
   palette: Palette;
+  onSelect: () => void;
 }) {
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: Actions also have keyboard shortcuts or slash commands.
+    // biome-ignore lint/a11y/noStaticElementInteractions: Tab controls have keyboard equivalents.
     <box
-      backgroundColor={active ? palette.raised : palette.bg}
-      onMouseUp={onSelect}
+      id={id}
+      width={width}
+      height={3}
       flexShrink={0}
+      border
+      borderStyle="rounded"
+      borderColor={palette.border}
+      backgroundColor={palette.surface}
+      alignItems="center"
+      onMouseUp={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
     >
-      <text fg={active ? palette.accent : palette.muted}>{label}</text>
+      <text fg={palette.muted} selectable={false}>
+        {label}
+      </text>
     </box>
   );
 }
@@ -42,62 +52,110 @@ export function SessionTabs({
   width: number;
   palette: Palette;
 }) {
-  const capacity = Math.max(1, Math.floor((width - 24) / 20));
+  if (!workspace.tabs.length) return null;
+  const overflow = workspace.tabs.length * 20 + 5 > width;
+  const controls = overflow ? 11 : 5;
+  const capacity = Math.max(1, Math.floor((width - controls) / 20));
   const activeIndex = workspace.tabs.findIndex(
     (tab) => tab.key === workspace.activeKey,
   );
   const start = Math.max(
     0,
-    Math.min(activeIndex, workspace.tabs.length - capacity),
+    Math.min(
+      Math.max(0, activeIndex - capacity + 1),
+      workspace.tabs.length - capacity,
+    ),
   );
   const visible = workspace.tabs.slice(start, start + capacity);
   const tabWidth = Math.max(
-    5,
-    Math.min(20, Math.floor((width - 24) / Math.max(1, visible.length))),
+    6,
+    Math.min(26, Math.floor((width - controls) / Math.max(1, visible.length))),
   );
   return (
     <box
-      height={1}
+      id="session-tabs"
+      height={3}
       width={width}
+      flexShrink={0}
       flexDirection="row"
       backgroundColor={palette.bg}
+      overflow="hidden"
     >
-      <Action
-        label=" ⌂ Главная "
-        active={!workspace.activeKey}
-        onSelect={() => workspace.select()}
-        palette={palette}
-      />
-      <Action
-        label=" ‹ "
-        onSelect={() => workspace.cycle(-1)}
-        palette={palette}
-      />
-      {visible.map((tab) => (
-        <Action
-          key={tab.key}
-          label={` ${terminalSafeText(`${tab.controller.snapshot.busy ? "● " : ""}${tab.controller.snapshot.sessionTitle ?? "Новая сессия"}`, tabWidth - 2).padEnd(tabWidth - 2)} `}
-          active={workspace.activeKey === tab.key}
-          onSelect={() => workspace.select(tab.key)}
+      {overflow && (
+        <TabAction
+          label="‹"
+          width={3}
           palette={palette}
+          onSelect={() => workspace.cycle(-1)}
         />
-      ))}
-      <box flexGrow={1} />
-      <Action
-        label=" › "
-        onSelect={() => workspace.cycle(1)}
+      )}
+      {visible.map((tab) => {
+        const active = workspace.activeKey === tab.key;
+        const busy = !!tab.controller.snapshot.busy;
+        const title = tab.controller.snapshot.sessionTitle ?? "Новая сессия";
+        return (
+          // biome-ignore lint/a11y/noStaticElementInteractions: Alt+Left/Right also selects tabs.
+          <box
+            key={tab.key}
+            id={`session-${tab.key}`}
+            width={tabWidth}
+            height={3}
+            flexShrink={0}
+            border
+            borderStyle="rounded"
+            borderColor={active ? palette.accent : palette.border}
+            backgroundColor={active ? palette.surface : palette.bg}
+            flexDirection="row"
+            gap={1}
+            paddingLeft={1}
+            paddingRight={1}
+            onMouseUp={() => workspace.select(tab.key)}
+          >
+            <text
+              fg={active ? palette.text : palette.muted}
+              width={Math.max(1, tabWidth - 6)}
+              height={1}
+              selectable={false}
+            >
+              {terminalSafeText(
+                `${busy ? "● " : ""}${title}`,
+                Math.max(1, tabWidth - 6),
+              )}
+            </text>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+W also closes the selected tab. */}
+            <box
+              width={1}
+              height={1}
+              onMouseUp={(event) => {
+                event.stopPropagation();
+                if (!busy) workspace.close(tab.key);
+              }}
+            >
+              <text
+                fg={busy ? palette.border : palette.muted}
+                selectable={false}
+              >
+                ×
+              </text>
+            </box>
+          </box>
+        );
+      })}
+      <TabAction
+        id="new-session"
+        label="+"
+        width={5}
         palette={palette}
+        onSelect={() => workspace.newDraft()}
       />
-      <Action
-        label=" + "
-        onSelect={() => workspace.newTab()}
-        palette={palette}
-      />
-      <Action
-        label=" × "
-        onSelect={() => workspace.close()}
-        palette={palette}
-      />
+      {overflow && (
+        <TabAction
+          label="›"
+          width={3}
+          palette={palette}
+          onSelect={() => workspace.cycle(1)}
+        />
+      )}
     </box>
   );
 }
@@ -107,141 +165,82 @@ export function OpenTuiHome({
   width,
   height,
   palette,
-  theme,
-  sessions,
-  loadProjects,
-  onCommand,
+  children,
+  feedback,
 }: {
   projectPath: string;
   width: number;
   height: number;
   palette: Palette;
-  theme: string;
-  sessions?: OpenTuiSessionsActions;
-  loadProjects?: () => Promise<ProjectMetadata[]>;
-  onCommand: (command: string) => void;
+  children: ReactNode;
+  feedback?: ReactNode;
 }) {
-  const [recent, setRecent] = useState<SessionSummary[]>([]);
-  const [error, setError] = useState<string>();
-  const [projects, setProjects] = useState<ProjectMetadata[]>([]);
-  useEffect(() => {
-    let current = true;
-    setRecent([]);
-    setError(undefined);
-    void sessions
-      ?.load()
-      .then((items) => {
-        if (current) setRecent(items.slice(0, 5));
-      })
-      .catch((err) => {
-        if (current) setError(String(err));
-      });
-    return () => {
-      current = false;
-    };
-  }, [sessions]);
-  useEffect(() => {
-    let current = true;
-    void loadProjects?.()
-      .then((items) => {
-        if (current)
-          setProjects(
-            items
-              .sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt))
-              .slice(0, 4),
-          );
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [loadProjects]);
+  const fullLogo = width >= LOGO_WIDTH + 4 && height >= 18;
+  const contentWidth = Math.max(1, Math.min(86, width - (width >= 40 ? 4 : 0)));
   return (
     <box
+      id="welcome"
+      width={width}
+      height={height}
       flexDirection="column"
       alignItems="center"
-      width="100%"
-      paddingTop={height >= 22 ? 2 : 0}
+      paddingLeft={1}
+      paddingRight={1}
     >
-      {height >= 22 &&
-        width >= 46 &&
-        COMPACT_LOGO.map((row) => (
-          <text key={row} fg={palette.accent}>
-            {row}
+      <box flexGrow={1} minHeight={0} />
+      <box
+        width={contentWidth}
+        flexShrink={0}
+        flexDirection="column"
+        alignItems="center"
+      >
+        {fullLogo ? (
+          <box
+            id="welcome-logo"
+            width={LOGO_WIDTH}
+            height={5}
+            flexShrink={0}
+            flexDirection="column"
+          >
+            {renderLogoRows().map((row) => (
+              <text key={row} height={1} selectable={false}>
+                <span fg={palette.accent}>{row.slice(0, 15)}</span>
+                <span fg={palette.text}>{row.slice(15)}</span>
+              </text>
+            ))}
+          </box>
+        ) : (
+          <text
+            id="welcome-logo"
+            fg={palette.text}
+            height={1}
+            selectable={false}
+          >
+            <span fg={palette.accent}>{"<i> "}</span>
+            <strong>ChiselCode</strong>
           </text>
-        ))}
-      <text fg={palette.accent}>ChiselCode</text>
-      <text fg={palette.muted}>От задачи — к изменениям в коде</text>
-      <box height={1} />
-      <text fg={palette.text}>
-        Проект · {terminalSafeText(projectPath, Math.max(8, width - 14))}
-      </text>
-      <box flexDirection="row" flexWrap="wrap" justifyContent="center">
-        <Action
-          label=" + Новая сессия "
-          onSelect={() => onCommand("/new")}
-          palette={palette}
-        />
-        <Action
-          label=" История /sessions "
-          onSelect={() => onCommand("/sessions")}
-          palette={palette}
-        />
-        <Action
-          label={` Тема ${theme} `}
-          onSelect={() => onCommand("/theme")}
-          palette={palette}
-        />
+        )}
+        <box height={height >= 12 ? 1 : 0} flexShrink={0} />
+        {children}
+        {feedback}
       </box>
-      <box flexDirection="row" flexWrap="wrap" justifyContent="center">
-        <Action
-          label=" Настройки /settings "
-          onSelect={() => onCommand("/settings")}
-          palette={palette}
-        />
-        <Action
-          label=" Скиллы /skills "
-          onSelect={() => onCommand("/skills")}
-          palette={palette}
-        />
-        <Action
-          label=" Справка /help "
-          onSelect={() => onCommand("/help")}
-          palette={palette}
-        />
-      </box>
-      <box height={1} />
-      <text fg={palette.muted}>Недавние сессии проекта</text>
-      {error ? (
-        <text fg={palette.muted}>{terminalSafeText(error, width - 4)}</text>
-      ) : recent.length === 0 ? (
-        <text fg={palette.muted}>Напишите задачу, чтобы начать разговор</text>
-      ) : (
-        recent.map((session) => (
-          <Action
-            key={session.id}
-            label={` ${terminalSafeText(session.title ?? "Без названия", width - 4)} `}
-            onSelect={() => onCommand(`/resume ${session.id}`)}
-            palette={palette}
-          />
-        ))
+      <box flexGrow={1.3} minHeight={0} />
+      {height >= 10 && (
+        <box
+          height={1}
+          width="100%"
+          flexShrink={0}
+          flexDirection="row"
+          justifyContent="space-between"
+        >
+          <text fg={palette.muted} height={1}>
+            {terminalSafeText(projectPath, Math.max(1, width - 22))}
+          </text>
+          <text fg={palette.muted} height={1}>
+            ChiselCode {VERSION}
+          </text>
+        </box>
       )}
-      <box height={1} />
-      <Action
-        label=" Выбрать проект /cwd "
-        onSelect={() => onCommand("/cwd")}
-        palette={palette}
-      />
-      {projects
-        .filter((project) => project.path !== projectPath)
-        .map((project) => (
-          <Action
-            key={project.id}
-            label={` ${terminalSafeText(project.name, width - 4)} `}
-            onSelect={() => onCommand(`/cwd ${project.path}`)}
-            palette={palette}
-          />
-        ))}
     </box>
   );
 }

@@ -153,6 +153,9 @@ export class TuiController implements TuiTranscript {
   setDraft(draft: string): void {
     this.update({ draft });
   }
+  setSessionTitle(title: string): void {
+    this.update({ sessionTitle: title });
+  }
   setFocus(focus: TuiViewState["focus"]): void {
     this.update({ focus });
   }
