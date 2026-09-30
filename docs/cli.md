@@ -76,3 +76,7 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 Передавайте ключ через секреты среды CI в [переменную своего провайдера](providers.md). Не включайте его в репозиторий, вывод команд или JSON-артефакты. Учитывайте, что сессии сохраняются локально и могут содержать исходный код.
 
 Низкоуровневые команды `chisel auth set <name> <secret>` и `chisel auth get <name>` сохраняют ключ и проверяют его наличие. `get` не печатает значение; `set` передаёт секрет в аргументах и может оставить его в истории shell. Для обычной настройки используйте `chisel setup`.
+
+## Пользовательский provider catalog
+
+`chisel providers path` создаёт Home layout и печатает абсолютный путь. `chisel providers list` показывает IDs, sources, drivers и diagnostics. `chisel providers validate` проверяет manifests offline; exit 0 — нет errors, 1 — есть errors. Warnings, например remote HTTP, не делают validate failed. Catalog строится при запуске; после изменения manifests перезапустите приложение.

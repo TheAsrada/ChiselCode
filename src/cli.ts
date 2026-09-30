@@ -15,6 +15,9 @@ import {
   RELEASES_PAGE_URL,
 } from "./commands/update.js";
 import { loadGlobalConfig } from "./config/load.js";
+import { ensureChiselHomeLayout, providersRootDir } from "./paths/home.js";
+import { getProviderCatalog } from "./providers/catalog.js";
+import { formatProviderDiagnostic } from "./providers/custom/diagnostics.js";
 import { CredentialStore } from "./security/credentials.js";
 import { projectSessionStore } from "./sessions/project-store.js";
 import type { ProviderKind } from "./types/domain.js";
@@ -182,6 +185,45 @@ program
         `${paint(`✓ У вас последняя версия ChiselCode v${result.current}`, "green", color)}\n`,
       );
     }
+  });
+
+const providersCommand = program
+  .command("providers")
+  .description("Каталог встроенных и пользовательских провайдеров");
+providersCommand
+  .command("path")
+  .description("Путь Home/providers")
+  .action(async () => {
+    await ensureChiselHomeLayout();
+    process.stdout.write(`${providersRootDir()}\n`);
+  });
+providersCommand
+  .command("list")
+  .description("Показать definitions и drivers")
+  .action(async () => {
+    const catalog = await getProviderCatalog();
+    process.stdout.write("ID\tSource\tDriver\tStatus\n");
+    for (const d of catalog.registry.list())
+      process.stdout.write(
+        `${d.id}\t${catalog.registry.source(d.id)?.type === "builtin" ? "builtin" : "custom"}\t${d.driverId}\tready\n`,
+      );
+    for (const d of catalog.diagnostics)
+      process.stderr.write(`${formatProviderDiagnostic(d)}\n`);
+  });
+providersCommand
+  .command("validate")
+  .description("Проверить manifests без API requests")
+  .action(async () => {
+    const catalog = await getProviderCatalog();
+    for (const d of catalog.diagnostics)
+      process.stderr.write(`${formatProviderDiagnostic(d)}\n`);
+    const errors = catalog.diagnostics.filter((d) => d.severity === "error");
+    process.stdout.write(
+      errors.length
+        ? `Provider validation failed: ${errors.length} errors.\n`
+        : "Provider manifests valid.\n",
+    );
+    process.exitCode = errors.length ? 1 : 0;
   });
 
 const auth = program
