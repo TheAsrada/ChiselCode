@@ -126,6 +126,9 @@ program
   .description("Проверить настройку, не раскрывая ключи")
   .action(async () => {
     const color = supportsColor(process.stdout);
+    process.stdout.write(
+      `${paint("◈ ChiselCode", "cyan", color)} ${paint(`v${VERSION}`, "gray", color)} — проверка настройки\n`,
+    );
     const config = await loadGlobalConfig();
     const catalog = await getProviderCatalog();
     let selected: ReturnType<typeof selectProfile>;
@@ -167,9 +170,6 @@ program
     const ready = keyReady && endpointReady && Boolean(model);
     const mark = (ok: boolean): string =>
       paint(ok ? "✓" : "✗", ok ? "green" : "red", color);
-    process.stdout.write(
-      `${paint("◈ ChiselCode", "cyan", color)} ${paint(`v${VERSION}`, "gray", color)} — проверка настройки\n`,
-    );
     process.stdout.write(
       `${mark(Boolean(definition))} Сервис: ${definition?.label ?? selected.profile.providerId} · профиль ${selected.profileId}\n`,
     );

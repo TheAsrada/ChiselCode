@@ -8,8 +8,9 @@ import { builtinDefinitions } from "../../src/providers/definitions/index.js";
 
 test("architecture: SDK imports only in drivers; generic layers have no provider literal dispatch", async () => {
   const sdkFiles: string[] = [];
-  for await (const file of new Bun.Glob("src/**/*.{ts,tsx}").scan(".")) {
-    const source = await readFile(file, "utf8");
+  for await (const path of new Bun.Glob("src/**/*.{ts,tsx}").scan(".")) {
+    const file = path.replaceAll("\\", "/");
+    const source = await readFile(path, "utf8");
     if (/from ["'](?:openai|@anthropic-ai\/sdk)(?:\/[^"']*)?["']/.test(source))
       sdkFiles.push(file);
     if (!file.startsWith("src/providers/"))

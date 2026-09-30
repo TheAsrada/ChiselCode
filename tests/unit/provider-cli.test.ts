@@ -3,6 +3,37 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+test("doctor preserves its application header before setup on a clean installation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-doctor-clean-"));
+  try {
+    const child = Bun.spawn(
+      [process.execPath, resolve("src/cli.ts"), "doctor"],
+      {
+        env: {
+          ...process.env,
+          XDG_DATA_HOME: root,
+          LOCALAPPDATA: root,
+          XDG_CONFIG_HOME: root,
+          APPDATA: root,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [output, error, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(output).toContain("ChiselCode");
+    expect(output).toContain("chisel setup");
+    expect(error).toBe("");
+    expect(code).toBe(2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
+
 test("providers CLI path/list/validate work offline and report invalid packages", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-providers-cli-"));
   try {

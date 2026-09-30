@@ -17,6 +17,7 @@
 - Session v3 providerId/profileId, lazy v2 migration, history unknown provider и rebuildable index v2; project registry не меняется.
 - Optional capabilities/health methods, normalized SDK errors/cache usage и unknown pricing без ложного $0.
 - Актуализированы providers/configuration/CLI/sessions/architecture/security/setup docs; добавлены custom-provider guide и migration notes. Migration, security, scale, driver и UI regression tests.
+- Doctor сохраняет заголовок на чистой установке; architecture checks работают с Windows separators.
 
 ## [0.6.0] - 2026-09-30
 
