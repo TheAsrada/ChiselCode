@@ -21,7 +21,10 @@ import {
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
 import { normalizeBaseUrlForProvider } from "../providers/base-url.js";
 import { CredentialStore } from "../security/credentials.js";
-import { projectSessionStore } from "../sessions/project-store.js";
+import {
+  projectSessionStore,
+  SessionProjectRegistry,
+} from "../sessions/project-store.js";
 import { shortSessionId } from "../sessions/store.js";
 import {
   buildActiveSkillsPrompt,
@@ -41,12 +44,10 @@ import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
 import { defaultModelFor } from "./setup-values.js";
 import { formatStatusDashboard } from "./theme.js";
-import {
-  replaySessionIntoTranscript,
-  toolTranscriptHandlers,
-} from "./tool-transcript.js";
+import { toolTranscriptHandlers } from "./tool-transcript.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";
-import { TuiController } from "./tui-controller.js";
+import type { TuiController } from "./tui-controller.js";
+import { TuiWorkspace } from "./tui-workspace.js";
 
 /** The sole interactive terminal renderer. */
 export async function runOpenTuiAgent(
@@ -55,13 +56,10 @@ export async function runOpenTuiAgent(
   setupRequired = false,
   setupOnly = false,
 ): Promise<void> {
-  let activeOptions = { ...options, resume: initialSession?.id };
-  const controller = new TuiController(options.cwd ?? process.cwd());
-  if (initialSession) {
-    controller.switchSession(initialSession);
-    replaySessionIntoTranscript(controller, initialSession);
-    controller.setSessionUsage(initialSession);
-  } else controller.refreshGitChanges();
+  let activeOptions = { ...options, resume: undefined };
+  const workspace = new TuiWorkspace(options.cwd ?? process.cwd());
+  if (initialSession) workspace.openSession(initialSession);
+  const currentController = () => workspace.controller;
   const approvalResolver = createTuiApprovalResolver();
   const config = await loadGlobalConfig();
   let currentTheme = config.ui?.theme ?? "obsidian";
@@ -74,8 +72,23 @@ export async function runOpenTuiAgent(
     exitOnCtrlC: false,
     exitSignals: [],
   });
+  const scrollbackDetachments = new Map<TuiController, () => void>();
+  const syncScrollback = () => {
+    if (!classic) return;
+    for (const tab of workspace.tabs) {
+      if (!scrollbackDetachments.has(tab.controller))
+        scrollbackDetachments.set(
+          tab.controller,
+          attachTranscriptScrollback(tab.controller, renderer, () =>
+            themePalette(currentTheme, config.ui?.accent),
+          ),
+        );
+    }
+  };
+  const detachWorkspace = workspace.subscribe(syncScrollback);
+  syncScrollback();
   const detachScrollback = classic
-    ? attachTranscriptScrollback(controller, renderer, () =>
+    ? attachTranscriptScrollback(workspace.home, renderer, () =>
         themePalette(currentTheme, config.ui?.accent),
       )
     : undefined;
@@ -83,8 +96,17 @@ export async function runOpenTuiAgent(
   const abort = new AbortController();
   let activeRun: Promise<void> | undefined;
   let selfUpdateRunning = false;
-  const pendingPrompts: string[] = [];
-  const activeSkillNames = new Set<string>();
+  const pendingPrompts: Array<{ input: string; controller: TuiController }> =
+    [];
+  const skillNames = new WeakMap<TuiController, Set<string>>();
+  const activeSkills = (controller = currentController()) => {
+    let names = skillNames.get(controller);
+    if (!names) {
+      names = new Set<string>();
+      skillNames.set(controller, names);
+    }
+    return names;
+  };
   let pendingSave: Promise<void> = Promise.resolve();
   let finish: (() => void) | undefined;
   const finished = new Promise<void>((resolve) => {
@@ -96,15 +118,13 @@ export async function runOpenTuiAgent(
     finish?.();
   };
   const sessionStore = () =>
-    projectSessionStore(activeOptions.cwd ?? process.cwd());
+    projectSessionStore(currentController().snapshot.projectPath);
   const resume = async (ref: string): Promise<void> => {
     const store = await sessionStore();
     const session = await store.load((await store.resolve(ref)).id);
-    activeOptions = { ...activeOptions, resume: session.id };
-    controller.switchSession(session);
-    replaySessionIntoTranscript(controller, session);
-    controller.setSessionUsage(session);
+    workspace.openSession(session);
   };
+  const loadProjects = () => new SessionProjectRegistry().list();
   const sessionPicker: OpenTuiSessionsActions = {
     load: async () => (await sessionStore()).list(),
     preview: async (id) => (await sessionStore()).load(id),
@@ -112,17 +132,25 @@ export async function runOpenTuiAgent(
     rename: async (id, title) => {
       const store = await sessionStore();
       await store.rename(id, title);
-      if (activeOptions.resume === id)
-        controller.setSessionUsage(await store.load(id));
-    },
-    delete: async (id) => {
-      await (await sessionStore()).delete(id);
-      if (activeOptions.resume === id) {
-        activeOptions = { ...activeOptions, resume: undefined };
-        controller.switchSession();
+      const session = await store.load(id);
+      for (const tab of workspace.tabs) {
+        if (tab.controller.snapshot.sessionId === session.id)
+          tab.controller.setSessionUsage(session);
       }
     },
-    activeId: () => activeOptions.resume,
+    delete: async (id) => {
+      const projectPath = currentController().snapshot.projectPath;
+      const tabs = workspace.tabs.filter(
+        ({ controller }) =>
+          controller.snapshot.sessionId === id &&
+          controller.snapshot.projectPath === projectPath,
+      );
+      if (tabs.some(({ controller }) => controller.snapshot.busy))
+        throw new Error("Дождитесь завершения запроса перед удалением сессии.");
+      await (await sessionStore()).delete(id);
+      for (const tab of tabs) workspace.close(tab.key);
+    },
+    activeId: () => currentController().snapshot.sessionId,
   };
   const settingsActions: OpenTuiSettingsActions = {
     load: async () => {
@@ -182,7 +210,8 @@ export async function runOpenTuiAgent(
         model: values.model,
         baseUrl,
       };
-      controller.setActiveModel(values.provider, values.model);
+      for (const tab of workspace.tabs)
+        tab.controller.setActiveModel(values.provider, values.model);
       return (await hasApiKey(values.provider, keyRef))
         ? "saved"
         : "setup_required";
@@ -205,18 +234,22 @@ export async function runOpenTuiAgent(
     },
   };
   const skillsActions: OpenTuiSkillsActions = {
-    load: () => loadSkills(activeOptions.cwd ?? process.cwd()),
-    activeNames: () => [...activeSkillNames],
+    load: () => loadSkills(currentController().snapshot.projectPath),
+    activeNames: () => [...activeSkills()],
     toggle: (name) => {
+      const activeSkillNames = activeSkills();
       if (activeSkillNames.has(name)) activeSkillNames.delete(name);
       else activeSkillNames.add(name);
-      controller.append(
+      currentController().append(
         `Скилл /${name} ${activeSkillNames.has(name) ? "задействован" : "отключён"}`,
         "info",
       );
     },
   };
-  const statusText = async (diagnostic = false): Promise<string> => {
+  const statusText = async (
+    controller: TuiController,
+    diagnostic = false,
+  ): Promise<string> => {
     const current = await loadGlobalConfig();
     const provider = diagnostic
       ? (current.defaultProvider ?? "anthropic")
@@ -237,7 +270,7 @@ export async function runOpenTuiAgent(
           selected?.defaultModel ??
           current.defaultModel ??
           "не выбрана"),
-      cwd: activeOptions.cwd ?? process.cwd(),
+      cwd: controller.snapshot.projectPath,
       keyReady: await hasApiKey(provider, selected?.apiKeyRef),
       sessionId:
         diagnostic || !controller.snapshot.sessionId
@@ -251,7 +284,7 @@ export async function runOpenTuiAgent(
       totalCost: diagnostic ? undefined : usage?.totalCost,
     });
   };
-  const selfUpdate = async (): Promise<void> => {
+  const selfUpdate = async (controller: TuiController): Promise<void> => {
     if (selfUpdateRunning) {
       controller.append(
         "Обновление уже выполняется, дождитесь завершения.",
@@ -336,24 +369,20 @@ export async function runOpenTuiAgent(
       selfUpdateRunning = false;
     }
   };
-  const submit = async (input: string): Promise<void> => {
+  const submit = async (
+    input: string,
+    target = currentController(),
+  ): Promise<void> => {
+    let controller = target;
     if (abort.signal.aborted) return;
     if (input === "/exit") return shutdown();
     if (selfUpdateRunning) {
       controller.append("Дождитесь завершения обновления.", "warn");
       return;
     }
-    if (activeRun) {
-      pendingPrompts.push(input);
-      controller.append(
-        `В очереди: ${pendingPrompts.length} · ${input}`,
-        "info",
-      );
-      return;
-    }
-    if (input === "/clear") {
-      activeOptions = { ...activeOptions, resume: undefined };
-      controller.switchSession();
+    if (input === "/home") return workspace.select();
+    if (input === "/clear" || input === "/new") {
+      workspace.newTab(controller.snapshot.projectPath);
       return;
     }
     if (input === "/help") {
@@ -365,13 +394,25 @@ export async function runOpenTuiAgent(
     }
     if (input === "/status" || input === "/doctor") {
       try {
-        controller.append(await statusText(input === "/doctor"), "info");
+        controller.append(
+          await statusText(controller, input === "/doctor"),
+          "info",
+        );
       } catch (error) {
         controller.append(String(error), "error");
       }
       return;
     }
-    if (input === "/update") return selfUpdate();
+    if (input === "/update") {
+      if (activeRun) {
+        controller.append(
+          "Дождитесь завершения запроса перед обновлением.",
+          "warn",
+        );
+        return;
+      }
+      return selfUpdate(controller);
+    }
     if (input === "/sessions") {
       const sessions = await sessionPicker.load();
       controller.append(
@@ -394,12 +435,10 @@ export async function runOpenTuiAgent(
       try {
         const cwd = await resolveProjectDir(
           input.slice(5).trim(),
-          activeOptions.cwd ?? process.cwd(),
+          controller.snapshot.projectPath,
         );
-        activeOptions = { ...activeOptions, cwd, resume: undefined };
-        activeSkillNames.clear();
-        controller.switchSession(undefined, cwd);
-        controller.append(`Проект: ${cwd}`, "info");
+        workspace.home.switchSession(undefined, cwd);
+        workspace.select();
       } catch (error) {
         controller.append(String(error), "error");
       }
@@ -407,12 +446,12 @@ export async function runOpenTuiAgent(
     }
     if (input === "/cwd") {
       controller.append(
-        `Проект: ${activeOptions.cwd ?? process.cwd()}\nЧтобы сменить папку: /cwd <путь>`,
+        `Проект: ${controller.snapshot.projectPath}\nЧтобы сменить папку: /cwd <путь>`,
         "info",
       );
       return;
     }
-    const availableSkills = skillsActions.load();
+    const availableSkills = loadSkills(controller.snapshot.projectPath);
     const command = input.split(/\s/, 1)[0] ?? input;
     const skill = input.startsWith("/")
       ? invocableSkills(availableSkills).find(
@@ -430,12 +469,29 @@ export async function runOpenTuiAgent(
       );
       return;
     }
+    if (activeRun) {
+      if (controller === workspace.home)
+        controller = workspace.newTab(controller.snapshot.projectPath);
+      pendingPrompts.push({ input, controller });
+      controller.setBusy(true);
+      controller.append(
+        `В очереди: ${pendingPrompts.length} · ${input}`,
+        "info",
+      );
+      return;
+    }
+    if (controller === workspace.home) {
+      const selectedSkills = activeSkills(controller);
+      controller = workspace.newTab(controller.snapshot.projectPath);
+      skillNames.set(controller, new Set(selectedSkills));
+    }
+    controller.setBusy(true);
     controller.append(`❯ ${input}`, "user");
     const expanded = skill
       ? expandSkill(skill, input.slice(command.length).trim())
       : input;
     const prompt = buildActiveSkillsPrompt(
-      availableSkills.filter((item) => activeSkillNames.has(item.name)),
+      availableSkills.filter((item) => activeSkills(controller).has(item.name)),
       expanded,
     );
     const tools = toolTranscriptHandlers(() => controller);
@@ -444,7 +500,11 @@ export async function runOpenTuiAgent(
         let hasText = false;
         const { result } = await runPrompt(
           prompt,
-          activeOptions,
+          {
+            ...activeOptions,
+            cwd: controller.snapshot.projectPath,
+            resume: controller.snapshot.sessionId,
+          },
           approvalResolver,
           {
             onText: (text) => {
@@ -470,7 +530,6 @@ export async function runOpenTuiAgent(
           },
           abort.signal,
         );
-        activeOptions = { ...activeOptions, resume: result.session.id };
         controller.setSessionUsage(result.session);
         controller.setToolActivity();
         if (result.error) controller.append(result.error, "error");
@@ -483,8 +542,12 @@ export async function runOpenTuiAgent(
         if (!abort.signal.aborted) controller.append(String(error), "error");
       } finally {
         activeRun = undefined;
+        controller.setBusy(
+          pendingPrompts.some((item) => item.controller === controller),
+        );
         const next = pendingPrompts.shift();
-        if (next && !abort.signal.aborted) void submit(next);
+        if (next && !abort.signal.aborted)
+          void submit(next.input, next.controller);
       }
     })();
     activeRun = work;
@@ -496,10 +559,11 @@ export async function runOpenTuiAgent(
     root.render(
       React.createElement(OpenTuiSpike, {
         onExit: shutdown,
-        controller,
+        workspace,
         classic,
         approvalResolver,
         sessionPicker,
+        loadProjects,
         settingsActions,
         skillsActions,
         initialSettingsOpen: setupRequired || setupOnly,
@@ -542,7 +606,9 @@ export async function runOpenTuiAgent(
     approvalResolver.dispose();
     root.unmount();
     detachScrollback?.();
-    controller.dispose();
+    detachWorkspace();
+    for (const detach of scrollbackDetachments.values()) detach();
+    workspace.dispose();
     renderer.destroy();
     await pendingSave;
   }

@@ -5,6 +5,7 @@ import type {
   Session,
   TokenUsage,
 } from "../types/domain.js";
+import { createEditorState } from "./editor.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
 import type { TranscriptTone, TuiTranscript } from "./tui-contract.js";
 
@@ -25,6 +26,7 @@ export interface TuiViewState {
   draft: string;
   focus: "composer" | "transcript" | "sidebar" | "modal";
   overlay?: string;
+  busy?: boolean;
   gitChanges?: GitWorkingState;
   usage?: {
     provider: Session["provider"];
@@ -37,6 +39,12 @@ export interface TuiViewState {
 
 /** The agent writes to this boundary; either terminal renderer may subscribe. */
 export class TuiController implements TuiTranscript {
+  readonly presentation = {
+    history: createEditorState(),
+    windowEnd: undefined as number | undefined,
+    expanded: false,
+    scrollTop: undefined as number | undefined,
+  };
   private renderer?: TuiTranscript;
   private listeners = new Set<(state: TuiViewState) => void>();
   private serial = 0;
@@ -150,6 +158,9 @@ export class TuiController implements TuiTranscript {
   setOverlay(overlay?: string): void {
     this.update({ overlay });
   }
+  setBusy(busy: boolean): void {
+    this.update({ busy });
+  }
 
   setSessionUsage(session: Session): void {
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
@@ -202,6 +213,9 @@ export class TuiController implements TuiTranscript {
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.generation++;
+    this.presentation.windowEnd = undefined;
+    this.presentation.expanded = false;
+    this.presentation.scrollTop = undefined;
     this.gitSource.dispose();
     this.state = {
       projectPath,

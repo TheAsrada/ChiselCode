@@ -2,7 +2,7 @@ export const SLASH_COMMANDS = [
   { name: "/help", description: "показать справку по командам" },
   {
     name: "/clear",
-    description: "сохранить сеанс и начать новый, оставив шапку",
+    description: "начать новую вкладку, сохранив текущий разговор",
   },
   { name: "/cwd", description: "сменить папку проекта: <путь>" },
   { name: "/settings", description: "открыть настройки" },
@@ -14,6 +14,8 @@ export const SLASH_COMMANDS = [
   { name: "/resume", description: "открыть выбор сеанса" },
   { name: "/update", description: "проверить и установить обновление" },
   { name: "/doctor", description: "проверить настройку без показа ключей" },
+  { name: "/home", description: "перейти на главную" },
+  { name: "/new", description: "создать вкладку сессии" },
   { name: "/exit", description: "закрыть ChiselCode" },
 ] as const;
 
@@ -115,7 +117,10 @@ function levenshtein(a: string, b: string): number {
 }
 
 const HELP_GROUPS: { title: string; commands: string[] }[] = [
-  { title: "Сессия", commands: ["/clear", "/sessions", "/resume"] },
+  {
+    title: "Сессия",
+    commands: ["/home", "/new", "/clear", "/sessions", "/resume"],
+  },
   { title: "Проект", commands: ["/cwd", "/status", "/doctor"] },
   {
     title: "Приложение",
@@ -161,6 +166,8 @@ export function commandHelpText(skills: CommandSuggestion[] = []): string {
   lines.push(
     "",
     "Обычный текст отправляется помощнику. Shift+Enter — новая строка.",
+    "Alt+N / Ctrl+Shift+N — новая вкладка; Alt+←/→ / Ctrl+Tab — переключить.",
+    "Ctrl+G — главная; Ctrl+W — закрыть вкладку без удаления сохранённой сессии.",
     "Лента листается клавишами PgUp/PgDn (пол-экрана) и Ctrl+U/D (±10 строк),",
     "колесом мыши (скорость CHISEL_SCROLL_SPEED 1..20, дефолт 3; Shift+колесо — рывок),",
     "Home — верх, End — возврат к вводу. Скролл вверх держит вид на месте,",

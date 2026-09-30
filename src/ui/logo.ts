@@ -27,7 +27,7 @@ export const LOGO_WIDTH: number = Math.max(
 /** Высота логотипа в строках терминала. */
 export const LOGO_TERM_ROWS: number = LOGO_ART_LINES.length;
 
-/** Compact three-row signature for the live TUI header. */
+/** Compact signature for the home screen. */
 export const COMPACT_LOGO = [
   "▄▀▀ █▄█ █ ▄▀▀ ██▀ █   ▄▀▀ ▄▀▄ ▄▀▄ ██▀",
   "▀▄▄ █ █ █ ▄██ █▄▄ █▄▄ ▄██ ▀▄▀ █▄▀ █▄▄",
