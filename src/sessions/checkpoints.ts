@@ -51,10 +51,18 @@ function addUsage(session: Session, usage: TokenUsage) {
   session.totalTokens.cacheCreationTokens =
     (session.totalTokens.cacheCreationTokens ?? 0) +
     (usage.cacheCreationTokens ?? 0);
-  session.totalCost += estimateCost(
+  const estimate = estimateCost(
     session.providerId,
     session.model,
     usage.inputTokens,
     usage.outputTokens,
   );
+  if (estimate.usd !== undefined) session.totalCost += estimate.usd;
+  const previousUnknown =
+    session.costEstimate?.source === "unknown" &&
+    session.totalTokens.inputTokens > usage.inputTokens;
+  session.costEstimate =
+    estimate.source === "unknown" || previousUnknown
+      ? { source: "unknown" }
+      : { usd: session.totalCost, source: "estimated" };
 }

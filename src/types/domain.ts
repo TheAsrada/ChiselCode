@@ -87,6 +87,8 @@ export interface ModelInfo {
 }
 
 export interface TokenUsage {
+  /** Full request input, normalized by the protocol driver (cache included exactly once). */
+  contextInputTokens?: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
@@ -188,7 +190,9 @@ export interface Session {
   provider: ProviderKind;
   totalTokens: TokenUsage;
   contextSnapshot?: ContextSnapshot;
+  /** Compatibility known subtotal; use costEstimate for model-visible total availability. */
   totalCost: number;
+  costEstimate?: import("../providers/contracts.js").CostEstimate;
   undoStack: UndoEntry[];
   createdAt: string;
   updatedAt: string;

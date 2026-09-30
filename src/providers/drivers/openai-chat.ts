@@ -31,6 +31,7 @@ export function normalizeOpenAIUsage(
 ): TokenUsage {
   return {
     inputTokens: usage.prompt_tokens ?? 0,
+    contextInputTokens: usage.prompt_tokens ?? 0,
     outputTokens: usage.completion_tokens ?? 0,
     cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? undefined,
   };
@@ -354,11 +355,14 @@ export const openaiChatDriver: ProviderDriver = {
   },
   create({ definition, apiKey, baseUrl }) {
     const options = optionsSchema.parse(definition.driverOptions ?? {});
-    return new OpenAIProtocolAdapter({
+    const adapter: ProviderAdapter = new OpenAIProtocolAdapter({
       ...options,
       providerId: definition.id,
       apiKey: apiKey ?? "chisel-no-auth",
       baseUrl,
     });
+    if (!definition.capabilities.modelListing) adapter.listModels = undefined;
+    adapter.countTokens = undefined;
+    return adapter;
   },
 };

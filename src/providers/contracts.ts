@@ -33,6 +33,7 @@ export interface ProviderDefinition {
   defaults: { model?: string };
   capabilities: ProviderCapabilities;
   driverOptions?: Record<string, unknown>;
+  pricing?: Record<string, { input: number; output: number }>;
 }
 export type ProviderSource =
   | { type: "builtin" }
@@ -71,4 +72,9 @@ export interface ProviderDriver {
 export interface ProviderHealthResult {
   status: "healthy" | "unhealthy" | "unsupported";
   message: string;
+}
+
+export interface CostEstimate {
+  usd?: number;
+  source: "provider" | "estimated" | "unknown";
 }

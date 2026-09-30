@@ -7,6 +7,7 @@ import type {
   ProviderAdapter,
   ProviderRequest,
   StreamEvent,
+  TokenUsage,
   ToolDefinition,
 } from "../../types/domain.js";
 import { ToolNameSchema } from "../../types/domain.js";
@@ -117,13 +118,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         type: "turn_complete",
         message: { role: "assistant", content: normalized },
         stopReason: message.stop_reason ?? "unknown",
-        usage: {
-          inputTokens: message.usage.input_tokens ?? 0,
-          outputTokens: message.usage.output_tokens ?? 0,
-          cacheReadTokens: message.usage.cache_read_input_tokens ?? undefined,
-          cacheCreationTokens:
-            message.usage.cache_creation_input_tokens ?? undefined,
-        },
+        usage: normalizeAnthropicUsage(message.usage),
       };
     } catch (error) {
       const failure = normalizeProviderError(error, request.signal);
@@ -177,6 +172,24 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
     );
     return result.input_tokens;
   }
+}
+
+export function normalizeAnthropicUsage(usage: {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}): TokenUsage {
+  return {
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    cacheReadTokens: usage.cache_read_input_tokens ?? undefined,
+    cacheCreationTokens: usage.cache_creation_input_tokens ?? undefined,
+    contextInputTokens:
+      (usage.input_tokens ?? 0) +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0),
+  };
 }
 
 function toAnthropicTools(tools: ToolDefinition[]): Anthropic.Tool[] {
@@ -281,13 +294,20 @@ export const anthropicMessagesDriver: ProviderDriver = {
   },
   create({ definition, apiKey, baseUrl }) {
     const options = optionsSchema.parse(definition.driverOptions ?? {});
-    return new AnthropicProtocolAdapter({
+    const adapter: ProviderAdapter = new AnthropicProtocolAdapter({
       ...options,
+      nativeTokenCounting:
+        options.nativeTokenCounting ??
+        definition.capabilities.tokenCounting === "native",
       providerId: definition.id,
       baseUrl,
       ...(options.authMode === "bearer"
         ? { apiKey: null, authToken: apiKey ?? "chisel-no-auth" }
         : { apiKey: apiKey ?? "chisel-no-auth" }),
     });
+    if (!definition.capabilities.modelListing) adapter.listModels = undefined;
+    if (definition.capabilities.tokenCounting !== "native")
+      adapter.countTokens = undefined;
+    return adapter;
   },
 };

@@ -197,7 +197,10 @@ export async function runTrial(
     metrics.cache_read_tokens = result.session.totalTokens.cacheReadTokens ?? 0;
     metrics.cache_write_tokens =
       result.session.totalTokens.cacheCreationTokens ?? 0;
-    metrics.estimated_cost = result.session.totalCost;
+    metrics.estimated_cost =
+      result.session.costEstimate?.source === "unknown"
+        ? undefined
+        : (result.session.costEstimate?.usd ?? result.session.totalCost);
     report.status =
       result.status === "completed" &&
       report.tests_after.every((entry) => (entry as { pass: boolean }).pass) &&

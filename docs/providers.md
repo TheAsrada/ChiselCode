@@ -61,3 +61,9 @@ Runtime использует endpoint policies `none`, `openai-v1`, `anthropic-r
 Profile IDs отделены от provider IDs. CLI runtime выбирает --profile или единственный profile по compatibility --provider. Глобальная модель другого provider больше не применяется. Для первоначального запуска настройте профиль через setup; одного env key без profile недостаточно для новой сессии.
 
 Setup/settings получают весь каталог из ProviderRegistry, включая custom definitions. Selector ищет по id/label/description, показывает ограниченное окно, поддерживает ↑/↓, Enter, Escape. Пункт «Профиль» переключает аккаунты; «Новый профиль» запрашивает уникальный ID. `chisel setup --provider openai --profile openai-work` создаёт/редактирует именно этот профиль. Смена провайдера сбрасывает несохранённый ключ и выбирает definition default model. Несколько profiles требуют явного выбора; credentials сохраняются отдельно по apiKeyRef.
+
+## Capabilities и стоимость
+
+Definition описывает modelListing, tokenCounting(native/unsupported), usageReporting(stream/final/unknown), toolCalling и thinking. Model capabilities отдельно сообщают только известный context window/output limit. Отсутствие metadata не создаёт выдуманный window. Custom definitions с modelListing=false не требуют /models; модель вводится вручную. Health: checkConnection → listModels → unsupported, последнее не является failure.
+
+Unknown pricing означает `{source:"unknown"}` без usd. Прежний эвристический расчёт по substring модели удалён. Официальный Anthropic сохраняет ориентировочные rates v0.6.0 только для точных claude-opus-5 (5/25 USD за миллион input/output) и claude-sonnet-5 (2/10); source=estimated, это не billing API. Остальные providers/models unknown. Сессия сохраняет старый known subtotal для совместимости, но UI/JSON/evals не показывают его как полный $0, если total неизвестен.

@@ -152,6 +152,12 @@ export const SessionV3Schema = z.looseObject({
     })
     .optional(),
   totalCost: z.number(),
+  costEstimate: z
+    .object({
+      usd: z.number().nonnegative().optional(),
+      source: z.enum(["provider", "estimated", "unknown"]),
+    })
+    .optional(),
   undoStack: z.array(
     z.object({
       path: z.string(),

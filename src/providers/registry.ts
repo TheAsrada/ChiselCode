@@ -46,6 +46,15 @@ export const providerDefinitionSchema = z.object({
   defaults: z.object({ model: z.string().trim().min(1).optional() }),
   capabilities: providerCapabilitiesSchema,
   driverOptions: z.record(z.string(), z.unknown()).optional(),
+  pricing: z
+    .record(
+      z.string(),
+      z.object({
+        input: z.number().nonnegative(),
+        output: z.number().nonnegative(),
+      }),
+    )
+    .optional(),
 });
 export class ProviderRegistry {
   private entries = new Map<string, RegisteredProvider>();

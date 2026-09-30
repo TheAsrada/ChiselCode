@@ -16,6 +16,11 @@ export function migrateSessionRecord(raw: unknown): Record<string, unknown> {
   const providerId = value.providerId ?? provider ?? "unknown";
   return {
     ...fields,
+    costEstimate:
+      value.costEstimate ??
+      (typeof value.totalCost === "number" && value.totalCost > 0
+        ? { source: "estimated", usd: value.totalCost }
+        : { source: "unknown" }),
     schemaVersion: 3,
     providerId,
     profileId:

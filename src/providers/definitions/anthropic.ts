@@ -23,6 +23,10 @@ export const anthropic: ProviderDefinition = {
     toolCalling: true,
     thinking: true,
   },
+  pricing: {
+    "claude-opus-5": { input: 5, output: 25 },
+    "claude-sonnet-5": { input: 2, output: 10 },
+  },
   driverOptions: {
     authMode: "api-key",
     adaptiveThinking: true,

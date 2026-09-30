@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { sessionsRootDir } from "../paths/home.js";
+import type { CostEstimate } from "../providers/contracts.js";
+import { estimateProviderCost } from "../providers/cost.js";
+import { builtinDefinitions } from "../providers/definitions/index.js";
 import type { Session } from "../types/domain.js";
 import { legacyProfileId, withSessionCompatibility } from "./migrate.js";
 import { assertSessionId, projectSessionStore } from "./project-store.js";
@@ -66,14 +69,13 @@ export function estimateCost(
   model: string,
   inputTokens: number,
   outputTokens: number,
-): number {
-  if (provider !== "anthropic") return 0;
-  const rates = model.includes("opus")
-    ? { input: 5, output: 25 }
-    : model.includes("sonnet")
-      ? { input: 2, output: 10 }
-      : { input: 1, output: 5 };
-  return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
+): CostEstimate {
+  return estimateProviderCost(
+    builtinDefinitions.find((d) => d.id === provider),
+    model,
+    inputTokens,
+    outputTokens,
+  );
 }
 
 export function stableSessionFingerprint(session: Session): string {

@@ -33,7 +33,7 @@ export interface TuiViewState {
     profileId?: string;
     model: string;
     totalTokens: TokenUsage;
-    totalCost: number;
+    totalCost?: number;
     contextSnapshot?: ContextSnapshot;
   };
 }
@@ -175,7 +175,10 @@ export class TuiController implements TuiTranscript {
         profileId: session.profileId,
         model: session.model,
         totalTokens: { ...session.totalTokens },
-        totalCost: session.totalCost,
+        totalCost:
+          session.costEstimate?.source === "unknown"
+            ? undefined
+            : (session.costEstimate?.usd ?? session.totalCost),
         contextSnapshot:
           session.contextSnapshot?.model === session.model
             ? session.contextSnapshot

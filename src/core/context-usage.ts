@@ -5,19 +5,15 @@ import type {
   TokenUsage,
 } from "../types/domain.js";
 
-/** Anthropic reports uncached input separately; OpenAI prompt_tokens already includes cache. */
+/** @deprecated provider argument is retained for callers; drivers normalize protocol semantics. */
 export function observedInputTokens(
-  provider: ProviderKind,
+  _provider: string,
   usage: TokenUsage,
 ): number {
-  const safe = (value?: number): number =>
-    typeof value === "number" && Number.isFinite(value) && value > 0
-      ? value
-      : 0;
-  const uncached = safe(usage.inputTokens);
-  return provider === "anthropic" || provider === "anthropic-compatible"
-    ? uncached + safe(usage.cacheReadTokens) + safe(usage.cacheCreationTokens)
-    : uncached;
+  const value = usage.contextInputTokens ?? usage.inputTokens;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : 0;
 }
 
 export function observedContextSnapshot(

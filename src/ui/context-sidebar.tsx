@@ -58,9 +58,12 @@ export function ContextSidebar({
       )}
       <text fg={title}>Сессия</text>
       <text fg={quiet}>{totalTokens.toLocaleString("ru-RU")} токенов</text>
-      {usage && Number.isFinite(usage.totalCost) && usage.totalCost > 0 && (
-        <text fg={quiet}>${usage.totalCost.toFixed(4)}</text>
-      )}
+      {usage &&
+        usage.totalCost !== undefined &&
+        Number.isFinite(usage.totalCost) &&
+        usage.totalCost > 0 && (
+          <text fg={quiet}>${usage.totalCost.toFixed(4)}</text>
+        )}
       <text fg={title}>Проект</text>
       <text fg={quiet}>{safeLine(state.projectPath)}</text>
       <text fg={quiet}>

@@ -4,6 +4,7 @@ import {
   observedContextSnapshot,
   observedInputTokens,
 } from "../../src/core/context-usage.js";
+import { normalizeAnthropicUsage } from "../../src/providers/drivers/anthropic-messages.js";
 import { normalizeOpenAIUsage } from "../../src/providers/openai.js";
 
 test("OpenAI completion cache detail is reported without adding it twice", () => {
@@ -24,8 +25,28 @@ test("provider cache semantics count Anthropic cache once and OpenAI cache withi
     cacheReadTokens: 800,
     cacheCreationTokens: 200,
   };
-  expect(observedInputTokens("anthropic", usage)).toBe(1100);
-  expect(observedInputTokens("anthropic-compatible", usage)).toBe(1100);
+  expect(
+    observedInputTokens(
+      "anthropic",
+      normalizeAnthropicUsage({
+        input_tokens: 100,
+        output_tokens: 25,
+        cache_read_input_tokens: 800,
+        cache_creation_input_tokens: 200,
+      }),
+    ),
+  ).toBe(1100);
+  expect(
+    observedInputTokens(
+      "anthropic-compatible",
+      normalizeAnthropicUsage({
+        input_tokens: 100,
+        output_tokens: 25,
+        cache_read_input_tokens: 800,
+        cache_creation_input_tokens: 200,
+      }),
+    ),
+  ).toBe(1100);
   expect(observedInputTokens("openai", usage)).toBe(100);
   expect(observedInputTokens("openai-compatible", usage)).toBe(100);
   expect(observedInputTokens("agentrouter", usage)).toBe(100);
