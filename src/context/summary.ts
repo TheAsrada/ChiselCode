@@ -65,6 +65,12 @@ export function summarize(
         if (item.isError) {
           summary.failedAttempts.push(detail);
           summary.openProblems.push(detail);
+          if (command && /test|typecheck|lint|check|build/i.test(command)) {
+            summary.verification = summary.verification.filter(
+              (result) => !result.startsWith(prefix),
+            );
+            summary.verification.push(detail);
+          }
         } else {
           if (
             /^(Updated|Wrote|Edited|Deleted|Created|User skill)/i.test(

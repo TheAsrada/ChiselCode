@@ -354,6 +354,8 @@ test("patch preflight validates all files before mutation; second commit failure
     input: { patchText: patch },
   });
   expect(failed.errorCode).toBe("PATCH_PARTIAL_FAILURE");
+  expect(failed.output).toContain("Rolled back:");
+  expect(failed.output).toContain("a.txt");
   expect(failed.details?.rolledBack).toHaveLength(1);
   expect(failed.details?.rollbackFailed).toEqual([]);
   expect(await readFile(join(root, "a.txt"), "utf8")).toBe("one\n");
@@ -810,7 +812,8 @@ test("summary distinguishes reading tests from running them and resolves verifie
       ],
     },
   ]);
-  expect(failed.verification).toEqual([]);
+  expect(failed.verification).toHaveLength(1);
+  expect(failed.verification[0]).toContain("run_shell [bun test]");
   expect(failed.openProblems).toHaveLength(1);
   const verified = summarize(
     [

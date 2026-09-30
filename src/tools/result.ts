@@ -4,8 +4,12 @@ import { runtimeError } from "../runtime/errors.js";
 import type { ToolExecutionResult } from "../types/domain.js";
 export function failure(error: unknown): ToolExecutionResult {
   const typed = runtimeError(error);
+  const rollback =
+    typed.code === "PATCH_PARTIAL_FAILURE"
+      ? `\nApplied: ${JSON.stringify(typed.details?.applied ?? [])}\nRolled back: ${JSON.stringify(typed.details?.rolledBack ?? [])}\nRollback failed: ${JSON.stringify(typed.details?.rollbackFailed ?? [])}`
+      : "";
   return {
-    output: `${typed.code}: ${typed.message}`,
+    output: `${typed.code}: ${typed.message}${rollback}`,
     isError: true,
     errorCode: typed.code,
     details: typed.details,
