@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { sessionsRootDir } from "../paths/home.js";
 import type { Session } from "../types/domain.js";
+import { legacyProfileId, withSessionCompatibility } from "./migrate.js";
 import { assertSessionId, projectSessionStore } from "./project-store.js";
 
 export function sessionsDirectory(): string {
@@ -12,11 +13,12 @@ export function createSession(
   model: string,
 ): Session {
   const now = new Date().toISOString();
-  return {
+  return withSessionCompatibility({
     id: randomUUID(),
     projectPath,
     messages: [],
-    provider,
+    providerId: provider,
+    profileId: legacyProfileId(provider),
     model,
     title: "Без названия",
     titleSource: "auto",
@@ -30,7 +32,7 @@ export function createSession(
     undoStack: [],
     createdAt: now,
     updatedAt: now,
-  };
+  });
 }
 export async function saveSession(session: Session): Promise<void> {
   await (await projectSessionStore(session.projectPath)).save(session);

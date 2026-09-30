@@ -18,7 +18,7 @@ export function attachSessionRecorder(
       session.messages.push(event.message);
       addUsage(session, event.usage);
       session.contextSnapshot = observedContextSnapshot(
-        session.provider,
+        session.providerId,
         session.model,
         event.usage,
       );
@@ -52,7 +52,7 @@ function addUsage(session: Session, usage: TokenUsage) {
     (session.totalTokens.cacheCreationTokens ?? 0) +
     (usage.cacheCreationTokens ?? 0);
   session.totalCost += estimateCost(
-    session.provider,
+    session.providerId,
     session.model,
     usage.inputTokens,
     usage.outputTokens,

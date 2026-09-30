@@ -182,8 +182,10 @@ export interface Session {
   runtime?: SessionRuntimeState;
   context?: SessionContextState;
   model: string;
+  providerId: string;
+  profileId: string;
+  /** @deprecated Non-persisted alias for providerId. */
   provider: ProviderKind;
-  profileId?: string;
   totalTokens: TokenUsage;
   contextSnapshot?: ContextSnapshot;
   totalCost: number;

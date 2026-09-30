@@ -95,3 +95,81 @@ export const SessionContextSchema = z.object({
     })
     .optional(),
 });
+
+export const SessionIdSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+export const SessionTimestampSchema = z.iso.datetime({ offset: true });
+export const SessionUsageSchema = z.object({
+  inputTokens: z.number().nonnegative(),
+  outputTokens: z.number().nonnegative(),
+  cacheReadTokens: z.number().nonnegative().optional(),
+  cacheCreationTokens: z.number().nonnegative().optional(),
+});
+const contentSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({
+    type: z.literal("tool_use"),
+    id: z.string(),
+    name: z.string(),
+    input: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
+    type: z.literal("tool_result"),
+    toolUseId: z.string(),
+    content: z.string(),
+    isError: z.boolean().optional(),
+  }),
+]);
+export const SessionV3Schema = z.looseObject({
+  schemaVersion: z.literal(3),
+  runtime: SessionRuntimeSchema.optional(),
+  context: SessionContextSchema.optional(),
+  id: SessionIdSchema,
+  title: z.string(),
+  titleSource: z.enum(["auto", "user"]),
+  createdAt: SessionTimestampSchema,
+  updatedAt: SessionTimestampSchema,
+  providerId: z.string().min(1),
+  profileId: z.string().min(1),
+  model: z.string(),
+  gitBranch: z.string().optional(),
+  messages: z.array(
+    z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.array(contentSchema),
+    }),
+  ),
+  totalTokens: SessionUsageSchema,
+  contextSnapshot: z
+    .object({
+      model: z.string(),
+      observedInputTokens: z.number().nonnegative(),
+      contextWindow: z.number().positive().optional(),
+      observedAt: SessionTimestampSchema,
+      source: z.enum(["provider_usage", "count_tokens"]),
+      status: z.enum(["observed", "estimated"]),
+    })
+    .optional(),
+  totalCost: z.number(),
+  undoStack: z.array(
+    z.object({
+      path: z.string(),
+      before: z.string().nullable(),
+      after: z.string().nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+  fileDiffs: z
+    .record(
+      z.string(),
+      z.object({
+        path: z.string(),
+        kind: z.enum(["create", "edit", "delete"]),
+        patch: z.string(),
+        additions: z.number(),
+        deletions: z.number(),
+      }),
+    )
+    .optional(),
+});

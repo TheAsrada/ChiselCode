@@ -171,7 +171,7 @@ export class TuiController implements TuiTranscript {
       sessionId: session.id,
       sessionTitle: session.title,
       usage: {
-        provider: session.provider,
+        provider: session.providerId,
         profileId: session.profileId,
         model: session.model,
         totalTokens: { ...session.totalTokens },

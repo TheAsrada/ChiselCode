@@ -12,7 +12,7 @@ export function filterSessions(
         item.lastUserMessage,
         item.gitBranch,
         item.model,
-        item.provider,
+        item.providerId,
         item.id,
       ]
         .join(" ")

@@ -344,7 +344,7 @@ async function startTui(options: RunOptions): Promise<void> {
           ? {
               profile:
                 initialSession.profileId ??
-                `${initialSession.provider.replaceAll("/", "-")}-default`,
+                `${initialSession.providerId.replaceAll("/", "-")}-default`,
             }
           : {},
     );

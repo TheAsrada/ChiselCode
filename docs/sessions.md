@@ -22,3 +22,9 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи разбор �
 Перед переносом или ручными изменениями остановите ChiselCode и скопируйте каталог `sessions/` целиком, включая индекс проектов. Сессии содержат сообщения и могут содержать код, результаты инструментов и полные diff. Они сохраняются как JSON, а не как зашифрованный архив: не добавляйте их в публичный репозиторий.
 
 Расположение данных — в [конфигурации](configuration.md); технические детали diff — в [file-edit-ux.md](file-edit-ux.md).
+
+## Технический формат v3
+
+Project session сохраняет schemaVersion=3, providerId (open string), profileId и model. Полный transcript, runtime/context, summary/checkpoint, undo и structured UI diffs сохраняются. v2 с provider мигрирует в памяти в providerId и `${provider}-default` (namespace slash заменяется дефисом в legacy profile ID). Файл не переписывается при чтении. Следующий checkpoint/save/rename атомарно сохраняет v3. Отдельный session backup автоматически не создаётся; config backup описан в migration notes.
+
+Unknown/removed provider не мешает чтению history и summary. Запрос блокируется controlled provider unavailable; выберите доступный profile явно. Missing profile также требует явного выбора. Session index schemaVersion=2 — rebuildable cache: старый/повреждённый index восстанавливается из session files без перезаписи самих sessions. Старый project registry schemaVersion=1 не меняется. Non-persisted compatibility alias provider сохраняется для старых callers; durable identity не зависит от enum.

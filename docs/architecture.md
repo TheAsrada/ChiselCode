@@ -35,7 +35,7 @@ flowchart TD
 | `session.context.activeCheckpoint` | Structured summary, индекс границы, время и оценка tokens | Обновляется; модель получает summary и недавний хвост |
 | `session.runtime` | Turn state, invocations, observed file revisions, loop guard | Сохраняется при checkpoint и resume |
 
-Project sessions сохраняют прежний `schemaVersion: 2` с новыми необязательными полями. Миграция дополняет старые сессии пустым runtime/context. При загрузке граница checkpoint проверяется по длине истории, при сборке context — по атомарным protocol units.
+Project sessions используют `schemaVersion: 3`, открытые providerId/profileId. Lazy migration v2 сохраняет transcript и дополняет runtime/context без записи при чтении. При загрузке граница checkpoint проверяется по длине истории, при сборке context — по атомарным protocol units.
 
 ## Контекст
 

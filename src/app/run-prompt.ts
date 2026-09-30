@@ -285,7 +285,7 @@ export async function runPrompt(
     ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)
     : undefined;
   if (previous && !options.provider && !options.profile)
-    registry.require(previous.provider);
+    registry.require(previous.providerId);
   const selected = selectProfile(
     global,
     options.profile || options.provider
@@ -294,7 +294,7 @@ export async function runPrompt(
         ? {
             profile:
               previous.profileId ??
-              `${previous.provider.replaceAll("/", "-")}-default`,
+              `${previous.providerId.replaceAll("/", "-")}-default`,
           }
         : {},
   );
@@ -306,11 +306,11 @@ export async function runPrompt(
     previous ?? createSession(projectRoot, selected.profile.providerId, model);
   if (
     session.model !== model ||
-    session.provider !== selected.profile.providerId
+    session.providerId !== selected.profile.providerId
   )
     session.contextSnapshot = undefined;
   session.model = model;
-  session.provider = selected.profile.providerId;
+  session.providerId = selected.profile.providerId;
   session.profileId = selected.profileId;
   if (
     session.messages.length === 0 &&
