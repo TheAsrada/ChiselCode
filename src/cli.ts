@@ -18,9 +18,9 @@ import { loadGlobalConfig } from "./config/load.js";
 import { ensureChiselHomeLayout, providersRootDir } from "./paths/home.js";
 import { getProviderCatalog } from "./providers/catalog.js";
 import { formatProviderDiagnostic } from "./providers/custom/diagnostics.js";
+import { selectProfile } from "./providers/profiles.js";
 import { CredentialStore } from "./security/credentials.js";
 import { projectSessionStore } from "./sessions/project-store.js";
-import type { ProviderKind } from "./types/domain.js";
 import {
   describeTerminalSize,
   formatTerminalSizeLine,
@@ -35,8 +35,9 @@ program
   .version(VERSION)
   .option(
     "--provider <provider>",
-    "anthropic, anthropic-compatible, openai, openai-compatible или agentrouter",
+    "provider ID из chisel providers list (compatibility selection)",
   )
+  .option("--profile <profile-id>", "профиль провайдера")
   .option("--model <model>", "название модели")
   .option("--base-url <url>", "адрес OpenAI-compatible API")
   .option("--yes", "разрешить все изменения без подтверждения")
@@ -52,7 +53,10 @@ program
     const prompt =
       (Array.isArray(promptParts) ? promptParts.join(" ") : "").trim() ||
       undefined;
-    if (options.provider && !isProvider(options.provider)) {
+    if (
+      options.provider &&
+      !(await getProviderCatalog()).registry.has(options.provider)
+    ) {
       throw new Error(`Неизвестный сервис: ${options.provider}`);
     }
     if (!prompt) {
@@ -92,16 +96,21 @@ program
   .description("Настроить ключ API и сервис через понятный мастер")
   .option(
     "--provider <provider>",
-    "anthropic, anthropic-compatible, openai, openai-compatible или agentrouter",
+    "provider ID из chisel providers list (compatibility selection)",
   )
+  .option("--profile <profile-id>", "создать или настроить профиль")
   .action(async (raw: Record<string, unknown>) => {
     const provider =
       (raw.provider as string | undefined) ?? argvFlagValue("--provider");
-    if (provider && !isProvider(provider))
+    if (provider && !(await getProviderCatalog()).registry.has(provider))
       throw new Error(`Неизвестный сервис: ${provider}`);
     const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
     await runOpenTuiAgent(
-      { provider: provider as ProviderKind | undefined },
+      {
+        provider,
+        profile:
+          (raw.profile as string | undefined) ?? argvFlagValue("--profile"),
+      },
       undefined,
       true,
       true,
@@ -115,29 +124,50 @@ program
   .action(async () => {
     const color = supportsColor(process.stdout);
     const config = await loadGlobalConfig();
-    const provider = config.defaultProvider ?? "anthropic";
-    const providerConfig = config.providers[provider];
-    const ready = await hasApiKey(provider, providerConfig?.apiKeyRef);
+    const catalog = await getProviderCatalog();
+    let selected: ReturnType<typeof selectProfile>;
+    try {
+      selected = selectProfile(config, {
+        profile: argvFlagValue("--profile"),
+        provider: argvFlagValue("--provider"),
+      });
+    } catch (error) {
+      process.stdout.write(
+        `${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      process.exitCode = 2;
+      return;
+    }
+    const definition = catalog.registry.get(selected.profile.providerId);
+    const ready =
+      Boolean(definition) &&
+      (await hasApiKey(
+        selected.profile.providerId,
+        selected.profile.apiKeyRef,
+      ));
+    const providerConfig = selected.profile;
     const mark = (ok: boolean): string =>
       paint(ok ? "✓" : "✗", ok ? "green" : "red", color);
     process.stdout.write(
       `${paint("◈ ChiselCode", "cyan", color)} ${paint(`v${VERSION}`, "gray", color)} — проверка настройки\n`,
     );
-    process.stdout.write(`${mark(true)} Сервис: ${providerLabel(provider)}\n`);
     process.stdout.write(
-      `${mark(true)} Модель: ${providerConfig?.defaultModel ?? config.defaultModel ?? "не выбрана"}\n`,
+      `${mark(Boolean(definition))} Сервис: ${definition?.label ?? selected.profile.providerId} · профиль ${selected.profileId}\n`,
+    );
+    process.stdout.write(
+      `${mark(true)} Модель: ${providerConfig.defaultModel ?? definition?.defaults.model ?? "не выбрана"}\n`,
     );
     process.stdout.write(
       `${mark(ready)} API-ключ: ${ready ? "сохранён" : "не настроен"}\n`,
     );
-    if (
-      provider === "anthropic-compatible" ||
-      provider === "openai-compatible" ||
-      provider === "agentrouter"
-    )
+    const endpoint =
+      providerConfig.baseUrl ?? definition?.endpoint.defaultBaseUrl;
+    if (endpoint || definition?.endpoint.required)
       process.stdout.write(
-        `${mark(Boolean(providerConfig?.baseUrl))} Адрес API: ${providerConfig?.baseUrl ?? "не настроен"}\n`,
+        `${mark(Boolean(endpoint))} Адрес API: ${endpoint ?? "не настроен"}\n`,
       );
+    for (const d of catalog.diagnostics)
+      process.stderr.write(`${formatProviderDiagnostic(d)}\n`);
     process.stdout.write(
       `${mark(true)} ${formatTerminalSizeLine(describeTerminalSize())}\n`,
     );
@@ -272,7 +302,8 @@ try {
 
 function toOptions(raw: Record<string, unknown>): RunOptions {
   return {
-    provider: raw.provider as ProviderKind | undefined,
+    provider: raw.provider as string | undefined,
+    profile: raw.profile as string | undefined,
     model: raw.model as string | undefined,
     baseUrl: raw.baseUrl as string | undefined,
     yes: Boolean(raw.yes),
@@ -281,16 +312,6 @@ function toOptions(raw: Record<string, unknown>): RunOptions {
     resume: raw.resume as string | undefined,
     cwd: raw.cwd as string | undefined,
   };
-}
-
-function isProvider(value: string): value is ProviderKind {
-  return (
-    value === "anthropic" ||
-    value === "anthropic-compatible" ||
-    value === "openai" ||
-    value === "openai-compatible" ||
-    value === "agentrouter"
-  );
 }
 
 /**
@@ -313,25 +334,30 @@ async function startTui(options: RunOptions): Promise<void> {
         return store.load((await store.resolve(options.resume ?? "")).id);
       })()
     : undefined;
-  const provider =
-    options.provider ??
-    initialSession?.provider ??
-    config.defaultProvider ??
-    "anthropic";
-  const keyReady = await hasApiKey(
-    provider,
-    config.providers[provider]?.apiKeyRef,
-  );
+  let keyReady = false;
+  try {
+    const selected = selectProfile(
+      config,
+      options.profile || options.provider
+        ? options
+        : initialSession
+          ? {
+              profile:
+                initialSession.profileId ??
+                `${initialSession.provider.replaceAll("/", "-")}-default`,
+            }
+          : {},
+    );
+    keyReady = await hasApiKey(
+      selected.profile.providerId,
+      selected.profile.apiKeyRef,
+    );
+  } catch (error) {
+    if (options.profile || options.provider || config.defaultProfileId)
+      throw error;
+  }
   const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
   await runOpenTuiAgent(options, initialSession, !keyReady);
-}
-
-function providerLabel(provider: ProviderKind): string {
-  if (provider === "anthropic") return "Anthropic (Claude)";
-  if (provider === "anthropic-compatible") return "Anthropic-совместимый API";
-  if (provider === "openai") return "OpenAI";
-  if (provider === "agentrouter") return "AgentRouter";
-  return "OpenAI-совместимый API";
 }
 
 function isTooManyArgumentsError(error: unknown): boolean {

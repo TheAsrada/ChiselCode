@@ -80,3 +80,14 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 ## Пользовательский provider catalog
 
 `chisel providers path` создаёт Home layout и печатает абсолютный путь. `chisel providers list` показывает IDs, sources, drivers и diagnostics. `chisel providers validate` проверяет manifests offline; exit 0 — нет errors, 1 — есть errors. Warnings, например remote HTTP, не делают validate failed. Catalog строится при запуске; после изменения manifests перезапустите приложение.
+
+## Provider profiles
+
+```bash
+chisel setup --provider openai --profile openai-work
+chisel --profile openai-work "Объясни проект"
+chisel --provider openai --model gpt-5 "Объясни проект"
+chisel --profile openai-work --resume <session-id> "Продолжи"
+```
+
+`--profile` выбирает точный profile. Старый `--provider` остаётся compatibility interface: один profile — выбрать его; ни одного — controlled not configured; несколько — требуется --profile. Вместе flags должны указывать на один provider. Model precedence: --model → profile.defaultModel → definition.defaults.model → controlled selection error. Resume без overrides сохраняет профиль и модель сессии; explicit profile/provider может их заменить. setup --profile передаёт profile ID экрану настроек (profile UI переносится следующим этапом). doctor проверяет локальные metadata/key references, не вызывает API.

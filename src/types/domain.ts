@@ -183,6 +183,7 @@ export interface Session {
   context?: SessionContextState;
   model: string;
   provider: ProviderKind;
+  profileId?: string;
   totalTokens: TokenUsage;
   contextSnapshot?: ContextSnapshot;
   totalCost: number;

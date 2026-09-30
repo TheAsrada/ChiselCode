@@ -57,3 +57,5 @@ Metadata встроенных сервисов хранится в `src/provider
 AgentRouter использует generic `openai-chat` driver с `tokenLimitFallback=true`; отдельной реализации протокола нет. Официальный OpenAI задаёт includeUsage; официальный Anthropic — adaptiveThinking и nativeTokenCounting. Compatible definitions отключают неподдерживаемые расширения.
 
 Runtime использует endpoint policies `none`, `openai-v1`, `anthropic-root`. Profile baseUrl переопределяет definition default. Значение должно быть HTTP(S) без userinfo, query и fragment. Необязательный health API имеет приоритет над model listing; отсутствие обоих означает unsupported, а не failure.
+
+Profile IDs отделены от provider IDs. CLI runtime выбирает --profile или единственный profile по compatibility --provider. Глобальная модель другого provider больше не применяется. Для первоначального запуска настройте профиль через setup; одного env key без profile недостаточно для новой сессии.

@@ -52,6 +52,7 @@ const persistedSessionSchema = z.object({
   createdAt: timestamp,
   updatedAt: timestamp,
   provider: ProviderKindSchema,
+  profileId: z.string().optional(),
   model: z.string(),
   gitBranch: z.string().optional(),
   messages: z.array(
@@ -116,6 +117,7 @@ const summarySchema = z.object({
   createdAt: timestamp,
   updatedAt: timestamp,
   provider: ProviderKindSchema,
+  profileId: z.string().optional(),
   model: z.string(),
   gitBranch: z.string().optional(),
   messageCount: z.number().int().nonnegative(),

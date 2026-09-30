@@ -7,12 +7,14 @@ import {
 import { ContextManager } from "../context/context-manager.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
 import { resolveCredential } from "../providers/auth.js";
+import { getProviderCatalog } from "../providers/catalog.js";
+import type { ProviderProfile } from "../providers/contracts.js";
+import { resolveProfileModel, selectProfile } from "../providers/profiles.js";
 import {
   checkAdapterHealth,
-  createBuiltinProviderRegistry,
-  MissingApiKeyError,
   resolveProviderRuntime,
 } from "../providers/runtime.js";
+import type { GlobalConfig } from "../types/domain.js";
 
 export { MissingApiKeyError } from "../providers/runtime.js";
 
@@ -44,6 +46,7 @@ export interface RunEventHandlers {
 
 export interface RunOptions {
   provider?: ProviderKind;
+  profile?: string;
   model?: string;
   baseUrl?: string;
   yes?: boolean;
@@ -57,11 +60,22 @@ export async function hasApiKey(
   provider: ProviderKind,
   keyRef?: string,
 ): Promise<boolean> {
-  return Boolean(await resolveApiKey(provider, keyRef, new CredentialStore()));
+  const { registry } = await getProviderCatalog();
+  const d = registry.get(provider);
+  if (!d) return false;
+  if (!d.auth.required) return true;
+  return Boolean(
+    await resolveCredential(
+      d,
+      { providerId: provider, apiKeyRef: keyRef },
+      new CredentialStore(),
+    ),
+  );
 }
 
 export interface ConnectionCheckInput {
   provider: ProviderKind;
+  profileId?: string;
   baseUrl?: string;
   model?: string;
   /**
@@ -88,27 +102,12 @@ export async function checkProviderConnection(
   input: ConnectionCheckInput,
   options?: { configPath?: string },
 ): Promise<ConnectionCheckResult> {
-  const global = await loadGlobalConfig(options?.configPath);
-  const providerConfig = global.providers[input.provider];
-  const apiKey =
-    input.apiKey?.trim() ||
-    (await resolveApiKey(
-      input.provider,
-      providerConfig?.apiKeyRef,
-      new CredentialStore(),
-    ));
-  if (
-    !apiKey &&
-    createBuiltinProviderRegistry().get(input.provider)?.auth.required
-  )
-    return {
-      ok: false,
-      message: `Нет API-ключа для ${providerLabel(input.provider)}: пройдите настройку заново и вставьте ключ.`,
-    };
-  const baseUrl = input.baseUrl ?? providerConfig?.baseUrl;
   let adapter: ProviderAdapter;
+  let baseUrl: string | undefined;
   try {
-    adapter = await createProvider(input.provider, apiKey, baseUrl);
+    const runtime = await resolveConnectionRuntime(input, options?.configPath);
+    adapter = runtime.adapter;
+    baseUrl = runtime.profile.baseUrl;
   } catch (error) {
     return {
       ok: false,
@@ -165,27 +164,12 @@ export async function listProviderModels(
   input: ConnectionCheckInput,
   options?: { configPath?: string },
 ): Promise<ModelListOutcome> {
-  const global = await loadGlobalConfig(options?.configPath);
-  const providerConfig = global.providers[input.provider];
-  const apiKey =
-    input.apiKey?.trim() ||
-    (await resolveApiKey(
-      input.provider,
-      providerConfig?.apiKeyRef,
-      new CredentialStore(),
-    ));
-  if (
-    !apiKey &&
-    createBuiltinProviderRegistry().get(input.provider)?.auth.required
-  )
-    return {
-      ok: false,
-      error: `Нет API-ключа для ${providerLabel(input.provider)}: вставьте ключ на экране «API-ключ» и попробуйте снова.`,
-    };
-  const baseUrl = input.baseUrl ?? providerConfig?.baseUrl;
   let adapter: ProviderAdapter;
+  let baseUrl: string | undefined;
   try {
-    adapter = await createProvider(input.provider, apiKey, baseUrl);
+    const runtime = await resolveConnectionRuntime(input, options?.configPath);
+    adapter = runtime.adapter;
+    baseUrl = runtime.profile.baseUrl;
   } catch (error) {
     return {
       ok: false,
@@ -206,6 +190,44 @@ export async function listProviderModels(
   } catch (error) {
     return { ok: false, error: formatConnectionError(error, baseUrl) };
   }
+}
+
+function connectionProfile(
+  global: GlobalConfig,
+  input: ConnectionCheckInput,
+): ProviderProfile {
+  if (input.profileId) {
+    const profile = global.profiles[input.profileId];
+    if (profile && profile.providerId !== input.provider)
+      throw new Error("Profile/provider mismatch.");
+    return profile ?? { providerId: input.provider };
+  }
+  const matches = Object.values(global.profiles).filter(
+    (p) => p.providerId === input.provider,
+  );
+  if (matches.length > 1)
+    throw new Error(
+      "Multiple profiles; choose a profile before checking connection.",
+    );
+  return matches[0] ?? { providerId: input.provider };
+}
+async function resolveConnectionRuntime(
+  input: ConnectionCheckInput,
+  configPath?: string,
+) {
+  const global = await loadGlobalConfig(configPath);
+  const { registry, drivers } = await getProviderCatalog();
+  const profile = {
+    ...connectionProfile(global, input),
+    ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+  };
+  return resolveProviderRuntime({
+    profile,
+    profileId: input.profileId,
+    registry,
+    drivers,
+    apiKey: input.apiKey,
+  });
 }
 
 async function withTimeout<T>(
@@ -258,18 +280,38 @@ export async function runPrompt(
   const sessionStore = await projectSessionStore(projectRoot);
   const config = await loadProjectConfig(projectRoot);
   const global = await loadGlobalConfig();
-  const session = options.resume
+  const { registry, drivers } = await getProviderCatalog();
+  const previous = options.resume
     ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)
-    : createSession(
-        projectRoot,
-        resolveProvider(options, global.defaultProvider),
-        resolveModel(options, global.defaultModel),
-      );
-  if (options.resume && options.model) {
-    if (session.model !== options.model) session.contextSnapshot = undefined;
-    session.model = options.model;
-  }
-  if (options.resume && options.provider) session.provider = options.provider;
+    : undefined;
+  if (previous && !options.provider && !options.profile)
+    registry.require(previous.provider);
+  const selected = selectProfile(
+    global,
+    options.profile || options.provider
+      ? { profile: options.profile, provider: options.provider }
+      : previous
+        ? {
+            profile:
+              previous.profileId ??
+              `${previous.provider.replaceAll("/", "-")}-default`,
+          }
+        : {},
+  );
+  const model =
+    previous && !options.model && !options.provider && !options.profile
+      ? previous.model
+      : resolveProfileModel(selected.profile, registry, options.model);
+  const session =
+    previous ?? createSession(projectRoot, selected.profile.providerId, model);
+  if (
+    session.model !== model ||
+    session.provider !== selected.profile.providerId
+  )
+    session.contextSnapshot = undefined;
+  session.model = model;
+  session.provider = selected.profile.providerId;
+  session.profileId = selected.profileId;
   if (
     session.messages.length === 0 &&
     session.titleSource !== "user" &&
@@ -279,19 +321,12 @@ export async function runPrompt(
     session.titleSource = "auto";
   }
 
-  const providerConfig = global.providers[session.provider];
-  const credentials = new CredentialStore();
-  const apiKey = await resolveApiKey(
-    session.provider,
-    providerConfig?.apiKeyRef,
-    credentials,
-  );
-  if (!apiKey) throw new MissingApiKeyError(session.provider);
-  const provider = await createProvider(
-    session.provider,
-    apiKey,
-    options.baseUrl ?? providerConfig?.baseUrl,
-  );
+  const { adapter: provider } = await resolveProviderRuntime({
+    ...selected,
+    registry,
+    drivers,
+    baseUrl: options.baseUrl,
+  });
   const renderer = new OneShotRenderer({ json: Boolean(options.json) });
   const onText = events.onText ?? ((text: string) => renderer.text(text));
   const onThinking = events.onThinking ?? (() => renderer.thinking());
@@ -378,43 +413,6 @@ export async function runPrompt(
   return { result, exitCode: exitCodeFor(result) };
 }
 
-function resolveProvider(
-  options: RunOptions,
-  fallback?: ProviderKind,
-): ProviderKind {
-  return options.provider ?? fallback ?? "anthropic";
-}
-
-function resolveModel(options: RunOptions, fallback?: string): string {
-  return options.model ?? fallback ?? "claude-opus-5";
-}
-
-async function createProvider(
-  kind: ProviderKind,
-  apiKey: string | undefined,
-  baseUrl: string | undefined,
-): Promise<ProviderAdapter> {
-  return (
-    await resolveProviderRuntime({
-      profile: { providerId: kind, baseUrl },
-      apiKey,
-    })
-  ).adapter;
-}
-async function resolveApiKey(
-  kind: ProviderKind,
-  keyRef: string | undefined,
-  credentials: CredentialStore,
-): Promise<string | undefined> {
-  const definition = createBuiltinProviderRegistry().get(kind);
-  if (!definition) return undefined;
-  return resolveCredential(
-    definition,
-    { providerId: kind, apiKeyRef: keyRef },
-    credentials,
-  );
-}
-
 function parseAllowedTools(value: string | undefined): Set<ToolName> {
   if (!value) return new Set();
   const names = value
@@ -450,10 +448,6 @@ async function runGit(
   } catch {
     return undefined;
   }
-}
-
-function providerLabel(provider: ProviderKind): string {
-  return createBuiltinProviderRegistry().get(provider)?.label ?? provider;
 }
 
 export const nonInteractiveResolver: ApprovalResolver = {
