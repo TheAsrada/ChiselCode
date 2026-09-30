@@ -49,3 +49,7 @@ Anthropic-compatible передаёт токен через `Authorization: Bear
 - Завершите проверку коротким запросом в чате.
 
 При 401 проверьте ключ; при 404 — режим и адрес API; при ошибке модели — её ID. Подробнее — [решение проблем](troubleshooting.md).
+
+## Каталог definitions
+
+Metadata встроенных сервисов хранится в `src/providers/definitions/`: labels, env vars, endpoints, default models и capabilities. `ProviderRegistry` поддерживает открытые string IDs и поиск по ID, label и description. Новые protocol drivers регистрируются отдельно в DriverRegistry. До миграции CLI/config прежние команды и формат настроек сохраняются.

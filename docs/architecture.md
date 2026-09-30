@@ -95,3 +95,7 @@ MCP, LSP, subagents, hooks, worktrees, memory, background processes и полн�
 ## Главная и вкладки терминала
 
 `TuiWorkspace` хранит отдельный `TuiController` для главной и каждой вкладки. Контроллер владеет папкой, черновиком, лентой, потоковым ответом и прокруткой. Очередь связывает запрос с исходной вкладкой независимо от выбранного экрана. «+» создаёт новый разговор; закрытие вкладки не удаляет историю. Core Runtime v2 сохраняет этот UI и его regression tests.
+
+## Provider architecture: contracts
+
+Provider Profile хранит пользовательские параметры и ссылку на credential; Provider Definition хранит metadata сервиса без ключей; Protocol Driver реализует wire protocol. Provider Adapter — объект одного запуска для AgentLoop/AgentRuntime. ProviderRegistry хранит definitions и источник, предоставляет поиск; DriverRegistry проверяет доступность protocol implementations. Один driver обслуживает множество definitions. Contracts и пять встроенных definitions находятся в `src/providers/`; миграция остальных слоёв выполняется поэтапно.
