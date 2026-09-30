@@ -850,3 +850,33 @@ test("summary distinguishes reading tests from running them and resolves verifie
   expect(verified.failedAttempts).toHaveLength(1);
   expect(verified.nextAction).toBe("Next: check type errors.");
 });
+
+test("large tool exceptions are offloaded just like successful outputs", async () => {
+  const root = await fixture();
+  const { tools } = setup(root);
+  tools.catalog.register({
+    spec: {
+      name: "huge_failure",
+      description: "test",
+      inputSchema: {},
+      effect: "read",
+      permission: "read",
+      parallelSafe: true,
+      outputPolicy: { maxInlineTokens: 128 },
+    },
+    parse: (input) => input,
+    prepare: async () => ({ data: {}, preview: "read", resources: [] }),
+    execute: async () => {
+      throw new Error("failure details ".repeat(5000));
+    },
+  });
+  const result = await tools.executor.execute({
+    id: "huge-error",
+    name: "huge_failure",
+    input: {},
+  });
+  expect(result.isError).toBe(true);
+  expect(result.errorCode).toBe("TOOL_EXECUTION_FAILURE");
+  expect(result.artifact?.uri).toMatch(/^tool-result:\/\//);
+  expect(Buffer.byteLength(result.output)).toBeLessThanOrEqual(128 * 3);
+});

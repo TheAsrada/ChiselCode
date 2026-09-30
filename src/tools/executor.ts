@@ -76,6 +76,7 @@ export class ToolExecutor {
     };
     runtime.invocations[call.id] = record;
     const started = performance.now();
+    let outputLimit = this.maxInlineTokens;
     try {
       cancelled(context.signal);
       await context.events.emit({
@@ -86,6 +87,8 @@ export class ToolExecutor {
         state: "queued",
       });
       const handler = this.catalog.get(call.name);
+      outputLimit =
+        handler.spec.outputPolicy?.maxInlineTokens ?? this.maxInlineTokens;
       let input: unknown;
       try {
         input = handler.parse(call.input);
@@ -231,7 +234,15 @@ export class ToolExecutor {
       });
       return result;
     } catch (error) {
-      const result = failure(error);
+      let result = failure(error);
+      try {
+        result = await normalizeResult(result, context.artifacts, outputLimit);
+      } catch {
+        result = {
+          ...result,
+          output: `${result.errorCode}: Error artifact unavailable. ${result.output.slice(0, Math.max(0, outputLimit * 2 - 100))}`,
+        };
+      }
       record.result = result;
       record.state =
         result.errorCode === "CANCELLED"
