@@ -772,3 +772,78 @@ test("Git and file discovery use canonical roots when a workspace is an alias", 
   });
   expect(files.output.trim()).toBe("a.txt");
 });
+
+test("summary distinguishes reading tests from running them and resolves verified failures", async () => {
+  const { summarize } = await import("../../src/context/summary.js");
+  const failed = summarize([
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "source",
+          name: "read_file",
+          input: { path: "test.ts" },
+        },
+        {
+          type: "tool_use",
+          id: "check",
+          name: "run_shell",
+          input: { command: "bun test" },
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          toolUseId: "source",
+          content: 'test("passes", () => {});',
+        },
+        {
+          type: "tool_result",
+          toolUseId: "check",
+          content: "Command failed (exit 1). 1 fail",
+          isError: true,
+        },
+      ],
+    },
+  ]);
+  expect(failed.verification).toEqual([]);
+  expect(failed.openProblems).toHaveLength(1);
+  const verified = summarize(
+    [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "check-again",
+            name: "run_shell",
+            input: { command: "bun test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: "check-again",
+            content: "Command exited 0. 1 pass",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Next: check type errors." }],
+      },
+    ],
+    failed,
+  );
+  expect(verified.verification).toHaveLength(1);
+  expect(verified.openProblems).toEqual([]);
+  expect(verified.failedAttempts).toHaveLength(1);
+  expect(verified.nextAction).toBe("Next: check type errors.");
+});
