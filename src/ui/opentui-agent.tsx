@@ -1,4 +1,7 @@
 /** @jsxImportSource @opentui/react */
+
+import { lstatSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import React from "react";
@@ -240,9 +243,20 @@ export async function runOpenTuiAgent(
       if (activeSkillNames.has(name)) activeSkillNames.delete(name);
       else activeSkillNames.add(name);
       currentController().append(
-        `Скилл /${name} ${activeSkillNames.has(name) ? "задействован" : "отключён"}`,
+        `Скилл /${name} ${activeSkillNames.has(name) ? "закреплён для этой вкладки" : "откреплён"}`,
         "info",
       );
+    },
+    editSource: (name) => {
+      const skill = loadSkills(currentController().snapshot.projectPath).find(
+        (item) => item.name === name && item.source === "user",
+      );
+      if (!skill) throw new Error("Пользовательский скилл больше не доступен.");
+      const file = join(skill.dir, "SKILL.md");
+      const info = lstatSync(file);
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new Error("Не удалось безопасно открыть инструкции скилла.");
+      return readFileSync(file, "utf8");
     },
   };
   const statusText = async (

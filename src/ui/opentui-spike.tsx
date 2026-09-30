@@ -51,6 +51,7 @@ import {
   sidebarLayout,
   toggleSidebarMode,
 } from "./sidebar-layout.js";
+import { skillCommandDraft, skillEditDraft } from "./skill-draft.js";
 import type { TuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
@@ -192,16 +193,18 @@ function OpenTuiScreen({
   useEffect(() => controller?.subscribe(setView), [controller]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload available skill commands.
   useEffect(() => {
-    setSkillCommands(
-      skillsActions
-        ? invocableSkills(skillsActions.load()).map(
-            ({ name, description }) => ({
-              name,
-              description,
-            }),
-          )
-        : [],
-    );
+    try {
+      setSkillCommands(
+        skillsActions
+          ? invocableSkills(skillsActions.load()).map(
+              ({ name, description }) => ({ name, description }),
+            )
+          : [],
+      );
+    } catch {
+      // The library popup presents discovery failures without breaking the composer.
+      setSkillCommands([]);
+    }
   }, [skillsActions, view.projectPath, skillsOpen]);
   const [expanded, setExpanded] = useState(
     controller?.presentation.expanded ?? false,
@@ -544,7 +547,7 @@ function OpenTuiScreen({
   });
 
   const submit = (command?: string) => {
-    if (approval) return;
+    if (approval || skillsOpen) return;
     const value = command ?? editor.current?.plainText.trim();
     if (!value) return;
     if (!command && selectedSuggestion && value !== selectedSuggestion.name) {
@@ -594,6 +597,7 @@ function OpenTuiScreen({
       return;
     }
     if (skillsActions && value === "/skills") {
+      editor.current?.blur();
       setSkillsOpen(true);
       controller?.setOverlay("skills");
       controller?.setFocus("modal");
@@ -700,20 +704,22 @@ function OpenTuiScreen({
         }}
       />
     );
-  if (skillsOpen && skillsActions)
-    return (
-      <OpenTuiSkills
-        actions={skillsActions}
-        width={width}
-        height={height}
-        palette={palette}
-        onClose={() => {
-          setSkillsOpen(false);
-          controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : focus);
-        }}
-      />
-    );
+  const closeSkills = () => {
+    setSkillsOpen(false);
+    controller?.setOverlay();
+    controller?.setFocus(focus === "editor" ? "composer" : focus);
+  };
+  const prepareSkill = (value: string) => {
+    acceptedCompletion.current = value;
+    editor.current?.setText(value);
+    if (editor.current) editor.current.cursorOffset = value.length;
+    setDraft(value);
+    controller?.setDraft(value);
+    setSuggestionsDismissed(true);
+    closeSkills();
+    setFocus("editor");
+    controller?.setFocus("composer");
+  };
 
   return (
     <box
@@ -946,6 +952,37 @@ function OpenTuiScreen({
           </box>
         )}
       </box>
+      {skillsOpen && skillsActions && (
+        <OpenTuiSkills
+          actions={skillsActions}
+          width={width}
+          height={height}
+          palette={palette}
+          onClose={closeSkills}
+          onChoose={(skill) =>
+            prepareSkill(
+              skillCommandDraft(skill.name, draft, skillsActions.load()),
+            )
+          }
+          onCreate={() =>
+            prepareSkill(
+              skillCommandDraft("skill-creator", draft, skillsActions.load()),
+            )
+          }
+          onEdit={
+            skillsActions.editSource
+              ? (skill) =>
+                  prepareSkill(
+                    skillEditDraft(
+                      skill.name,
+                      skillsActions.editSource?.(skill.name) ?? "",
+                      draft,
+                    ),
+                  )
+              : undefined
+          }
+        />
+      )}
     </box>
   );
 }
