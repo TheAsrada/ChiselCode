@@ -6,6 +6,31 @@
 
 ## [Не выпущено]
 
+## [0.6.0] - 2026-09-30
+
+### Добавлено
+
+- Core Runtime v2: AgentRuntime, TurnRunner, RuntimeEventBus и явные состояния turn/tool invocation; UI и eval recorder используют общий поток событий.
+- ContextManager с token budget, output reserve, protocol-safe partitioning, structured rolling summary и context checkpoints. Compaction сохраняет полный transcript; provider context overflow допускает один recovery/retry.
+- ToolCatalog, двухфазные handlers, ToolExecutor и scheduler: четыре параллельных read workers, последовательные mixed batches, idempotency call IDs, cancellation, timeout и guard повторных failures.
+- EditingService: persistent SHA-256 revisions, stale-write protection и apply_patch с multi-hunk/multi-file create/update/delete/move, полным preflight и rollback с structured failure details.
+- Artifact store и read_tool_result для больших outputs, встроенный grep fallback при отсутствии rg, корневые AGENTS.md/CLAUDE.md с native приоритетом CHISEL.md.
+- Isolated eval harness, command/filesystem/trajectory graders, JSON/Markdown reports, baseline comparisons, fixtures и CI smoke без live API. Отдельный manual workflow запускает live coding trials при наличии credentials.
+
+### Исправлено
+
+- Approval больше не откатывает assistant message: выполненные calls остаются в истории, pending invocation переживает resume, denial становится валидным tool result.
+- Отмена shell завершает дерево процессов и блокирует новые calls. Сложные shell expressions больше не получают approval по наивному prefix rule.
+- Provider adapters проверяют termination markers, malformed streamed tool arguments, refusal и usage tails; ошибки нормализованы в typed categories.
+- Multi-file patches показывают все structured diffs, включая replay сохранённой сессии.
+
+### Изменено
+
+- RunPrompt использует Runtime v2. Старые AgentLoop/ToolRegistry API оставлены как compatibility adapters без monolithic business logic; message-count compaction и постоянное project file tree удалены.
+- Старые sessions дополняются runtime/context без удаления истории. Settings Core Runtime доступны через необязательные поля .chiselrc.
+- Secure approval defaults и существующие главная/вкладки сохранены. Host execution явно сообщает sandboxed=false; MCP, LSP, subagents и OS sandbox остаются будущими extensions.
+
+
 ## [0.5.43] - 2026-09-30
 
 ### Добавлено

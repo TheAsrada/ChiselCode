@@ -19,7 +19,11 @@ export function compare(baseline: TrialReport[], candidate: TrialReport[]) {
     const comparable =
       old?.model === trial.model &&
       old.provider === trial.provider &&
-      old.environment.fixture_hash === trial.environment.fixture_hash;
+      old.environment.fixture_hash === trial.environment.fixture_hash &&
+      JSON.stringify(old.environment.model_parameters) ===
+        JSON.stringify(trial.environment.model_parameters) &&
+      old.environment.timeout === trial.environment.timeout &&
+      old.environment.bun === trial.environment.bun;
     return {
       task: trial.task,
       trial: trial.trial,

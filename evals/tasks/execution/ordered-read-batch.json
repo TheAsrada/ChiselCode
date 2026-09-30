@@ -1,0 +1,43 @@
+{
+  "fixture": "runtime/basic",
+  "timeout": 30,
+  "setup": [],
+  "constraints": {
+    "forbidden_paths": ["large.txt"]
+  },
+  "mockOnly": true,
+  "id": "ordered-read-batch",
+  "prompt": "Inspect a.txt, old.txt and find Needle in large.txt.",
+  "mockTurns": [
+    [
+      {
+        "name": "read_file",
+        "input": {
+          "path": "a.txt"
+        }
+      },
+      {
+        "name": "read_file",
+        "input": {
+          "path": "old.txt"
+        }
+      },
+      {
+        "name": "grep",
+        "input": {
+          "pattern": "Needle",
+          "path": "large.txt"
+        }
+      }
+    ]
+  ],
+  "graders": [
+    {
+      "type": "trajectory",
+      "event": "tool_completed",
+      "minimum": 3,
+      "maximum": 3
+    }
+  ],
+  "tags": ["read", "parallel"]
+}

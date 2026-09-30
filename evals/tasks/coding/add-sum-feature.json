@@ -1,0 +1,37 @@
+{
+  "id": "add-sum-feature",
+  "fixture": "typescript/feature-app",
+  "prompt": "Add an exported sum(values: number[]): number function. Return 0 for an empty array. Preserve double and do not change tests. Verify the result.",
+  "graders": [
+    {
+      "type": "command",
+      "command": "bun test"
+    }
+  ],
+  "constraints": {
+    "forbidden_paths": ["index.test.ts"]
+  },
+  "tags": ["feature", "instruction-adherence"],
+  "mockCalls": [
+    {
+      "name": "read_file",
+      "input": {
+        "path": "index.ts"
+      }
+    },
+    {
+      "name": "edit_file",
+      "input": {
+        "path": "index.ts",
+        "old_str": "export function double(value: number): number { return value * 2; }",
+        "new_str": "export function double(value: number): number { return value * 2; }\nexport function sum(values: number[]): number { return values.reduce((total, value) => total + value, 0); }"
+      }
+    },
+    {
+      "name": "run_shell",
+      "input": {
+        "command": "bun test"
+      }
+    }
+  ]
+}

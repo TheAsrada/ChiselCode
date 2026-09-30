@@ -4,26 +4,33 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { DEFAULT_PROJECT_CONFIG } from "../src/config/load.js";
-import { AgentLoop } from "../src/core/agent-loop.js";
+import { ContextManager } from "../src/context/context-manager.js";
+import { AgentRuntime } from "../src/runtime/agent-runtime.js";
+import { RuntimeEventBus } from "../src/runtime/events.js";
 import { ApprovalGate } from "../src/security/approval.js";
 import { createSession } from "../src/sessions/store.js";
-import { ToolRegistry } from "../src/tools/registry.js";
+import { createLocalToolRuntime } from "../src/tools/local-runtime.js";
 import type {
   AgentResult,
   ProviderAdapter,
   StreamEvent,
-  ToolName,
 } from "../src/types/domain.js";
 import { scanGlob } from "../src/utils/fs-scan.js";
-import { resolveProjectPath } from "../src/utils/paths.js";
+import { matchesPattern, resolveProjectPath } from "../src/utils/paths.js";
 import { grade } from "./graders/index.js";
 import type { EvalTask } from "./task-schema.js";
+import { traceRecorder } from "./trace-recorder.js";
 import { emptyMetrics, type TrialReport } from "./trial.js";
 
 export async function snapshot(root: string): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
   for await (const path of scanGlob("**/*", { cwd: root, onlyFiles: true })) {
-    if (path.startsWith("node_modules/")) continue;
+    if (
+      ["node_modules/", ".git/", ".chisel/"].some((prefix) =>
+        path.startsWith(prefix),
+      )
+    )
+      continue;
     const safe = await resolveProjectPath(root, path);
     result[path] = createHash("sha256")
       .update(await readFile(safe))
@@ -58,7 +65,7 @@ export async function runTrial(
       platform: process.platform,
       network: mode === "mock" ? "no model network" : "host network",
       timeout: task.timeout,
-      model_parameters: {},
+      model_parameters: task.context ? { context: task.context } : {},
       resources: "host (no CPU/RAM limit configured)",
     },
     tests_before: [],
@@ -66,6 +73,7 @@ export async function runTrial(
     metrics,
     trace: [],
   };
+  const record = traceRecorder(report);
   try {
     const fixture = await resolveProjectPath(
       join(import.meta.dir, "fixtures"),
@@ -100,16 +108,11 @@ export async function runTrial(
           },
           { requestApproval: async () => "approved" },
           {
-            onText: (text) => report.trace.push({ type: "text", text }),
+            onEvent: record,
+            onText: () => {},
             onThinking: () => {},
-            onToolStart: (name, input) => {
-              metrics.tool_call_count++;
-              report.trace.push({ type: "tool_started", name, input });
-            },
-            onToolResult: (name, outcome) => {
-              if (outcome.isError) metrics.tool_error_count++;
-              report.trace.push({ type: "tool_completed", name, outcome });
-            },
+            onToolStart: () => {},
+            onToolResult: () => {},
           },
           abort.signal,
         )
@@ -121,35 +124,40 @@ export async function runTrial(
         listModels: async () => [],
         countTokens: async () => 0,
         async *streamChat(request): AsyncIterable<StreamEvent> {
-          metrics.provider_request_count++;
-          metrics.turn_count++;
           report.trace.push({
             type: "provider_request",
             request: { ...request, signal: undefined },
           });
-          const call = task.mockCalls[turn++];
+          const calls =
+            task.mockTurns?.[turn++] ??
+            (task.mockTurns
+              ? []
+              : task.mockCalls[turn]
+                ? [task.mockCalls[turn++]]
+                : []);
           yield {
             type: "turn_complete",
-            stopReason: call ? "tool_use" : "end_turn",
+            stopReason: calls.length ? "tool_use" : "end_turn",
             usage: { inputTokens: 1, outputTokens: 1 },
             message: {
               role: "assistant",
-              content: call
-                ? [
-                    {
-                      type: "tool_use",
-                      id: `eval-${turn}`,
-                      name: call.name as ToolName,
-                      input: call.input,
-                    },
-                  ]
+              content: calls.length
+                ? calls.map((call, index) => ({
+                    type: "tool_use" as const,
+                    id: `eval-${turn}-${index}`,
+                    name: call?.name ?? "",
+                    input: call?.input ?? {},
+                  }))
                 : [{ type: "text", text: "Done" }],
             },
           };
         },
       };
       const session = createSession(root, "anthropic", model);
-      const tools = new ToolRegistry(
+      session.messages = structuredClone(task.seedMessages);
+      const events = new RuntimeEventBus(session.id);
+      events.subscribe(record);
+      const tools = createLocalToolRuntime(
         root,
         DEFAULT_PROJECT_CONFIG.ignorePatterns,
         new ApprovalGate(
@@ -158,27 +166,28 @@ export async function runTrial(
           { requestApproval: async () => "approved" },
         ),
         session,
-      );
-      result = await new AgentLoop(
-        adapter,
-        tools,
-        "Complete the task using evidence.",
+        [],
         {
-          onToolStart: (name, input) => {
-            metrics.tool_call_count++;
-            if (name === "read_file")
-              metrics.files_read.push(String(input.path));
-            report.trace.push({ type: "tool_started", name, input });
-          },
-          onToolResult: (name, outcome) => {
-            if (outcome.isError) metrics.tool_error_count++;
-            metrics.tool_output_tokens += Math.ceil(outcome.output.length / 3);
-            report.trace.push({ type: "tool_completed", name, outcome });
-          },
+          events,
+          signal: abort.signal,
+          maxInlineTokens: task.context?.maxInlineToolResultTokens,
+          artifactDirectory: join(root, ".chisel", "artifacts"),
         },
+      );
+      result = await new AgentRuntime(
+        adapter,
+        new ContextManager(task.context, events),
+        {
+          selectForTurn: () => tools.catalog.selectForTurn(),
+          execute: (calls, signal) => tools.scheduler.execute(calls, signal),
+        },
+        "Complete the task using evidence.",
+        events,
       ).run(session, task.prompt, { signal: abort.signal });
     }
-    report.tests_after = await grade(task, root, abort.signal);
+    if (abort.signal.aborted)
+      throw new Error("Eval runner timeout (infrastructure)");
+    report.tests_after = await grade(task, root, abort.signal, report.trace);
     const after = await snapshot(root);
     metrics.files_changed = [
       ...new Set([...Object.keys(before), ...Object.keys(after)]),
@@ -193,10 +202,23 @@ export async function runTrial(
       result.status === "completed" &&
       report.tests_after.every((entry) => (entry as { pass: boolean }).pass) &&
       !metrics.files_changed.some((path) =>
-        task.constraints.forbidden_paths.includes(path),
+        task.constraints.forbidden_paths.some(
+          (pattern) =>
+            matchesPattern(path, pattern) || path.startsWith(`${pattern}/`),
+        ),
       )
         ? "success"
         : "failure";
+    if (
+      [
+        "authentication",
+        "model_not_found",
+        "transport",
+        "rate_limit",
+        "timeout",
+      ].includes(result.errorCode ?? "")
+    )
+      report.status = "infra_error";
     report.task_success = report.status === "success";
     report.error = result.error;
   } catch (error) {

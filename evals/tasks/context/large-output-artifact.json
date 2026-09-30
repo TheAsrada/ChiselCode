@@ -1,0 +1,35 @@
+{
+  "fixture": "runtime/basic",
+  "timeout": 30,
+  "setup": [],
+  "constraints": {
+    "forbidden_paths": ["large.txt"]
+  },
+  "mockOnly": true,
+  "id": "large-output-artifact",
+  "prompt": "Read large.txt. Preserve project files.",
+  "context": {
+    "maxInlineToolResultTokens": 128
+  },
+  "mockCalls": [
+    {
+      "name": "read_file",
+      "input": {
+        "path": "large.txt"
+      }
+    }
+  ],
+  "graders": [
+    {
+      "type": "trajectory",
+      "event": "tool_completed",
+      "minimum": 1
+    },
+    {
+      "type": "file",
+      "path": "large.txt",
+      "contains": "Needle"
+    }
+  ],
+  "tags": ["large-output"]
+}

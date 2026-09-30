@@ -4,7 +4,7 @@
 
 ## Окружение
 
-Нужны Git, ripgrep и Bun **1.2+** (минимум из `package.json`). Текущий CI использует Bun **1.4.2**. Для `npm ci` нужен Node.js с npm.
+Нужны Git и Bun **1.3+** (минимум из `package.json`). Текущий CI использует Bun **1.4.2**. Ripgrep ускоряет поиск, но имеет встроенный fallback. Для `npm ci` нужен Node.js с npm.
 
 ```bash
 git clone https://github.com/TheAsrada/ChiselCode.git
@@ -13,7 +13,7 @@ npm ci
 bun run dev
 ```
 
-`npm ci` использует существующий `package-lock.json` и применяется в release workflow. Основной CI сейчас использует `bun install --frozen-lockfile`; учитывайте эту разницу при воспроизведении CI. Не обновляйте зависимости и lockfile случайно вместе с правкой документации.
+`npm ci` использует существующий `package-lock.json` и применяется в release workflow. Основной CI также использует `npm ci`. Не обновляйте зависимости и lockfile случайно вместе с правкой документации.
 
 Для работы с реальной моделью понадобится [настройка провайдера](providers.md). Не добавляйте свои ключи и сессии в репозиторий.
 
@@ -30,7 +30,7 @@ bun run build
 | --- | --- |
 | `bun run typecheck` | Типы TypeScript без генерации файлов |
 | `bun test` | Unit- и integration-тесты |
-| `bun run lint` | Biome для `src` и `tests` |
+| `bun run lint` | Biome для `src`, `tests` и `evals` |
 | `bun run build` | JS-сборку в `dist/` для Bun |
 | `bun run compile` | Исполняемый файл `dist/chisel` для текущей платформы |
 | `bun run format` | Переформатирует `src` и `tests`; изменяет файлы |
@@ -67,3 +67,17 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 Держите полные инструкции в `docs`, а корневой README — короткой входной страницей. Пишите по-русски, используйте относительные ссылки и проверяйте названия команд по исходникам. Не представляйте планы как уже реализованные функции и не обещайте проверок, которые не запускались.
 
 Перед PR: [руководство участника](../CONTRIBUTING.md). Для ориентации в исходниках: [архитектура](architecture.md).
+
+## Agent evaluation
+
+```bash
+bun run eval --category all
+bun run eval --category coding --trials 3 --baseline evals/baselines/runtime-v1-mock.json
+bun run eval --live --category coding --model <exact-model-id> --provider anthropic --trials 3
+```
+
+Fixture копируется в отдельный temporary directory на каждый trial и удаляется после grading. Setup failures, runner timeout и исключения инфраструктуры отмечаются `infra_error`. Команды и filesystem graders измеряют итоговое состояние; trajectory grader использует общий RuntimeEvent stream. Отчёты JSON/Markdown создаются в `evals/results/`, baseline хранится отдельно. Точное содержимое fixture фиксируется hash, окружение — commit/platform/Bun/timeout/resource/network metadata. Host harness не ограничивает CPU/RAM и не является sandbox.
+
+Mock trials используют scripted provider: success означает корректность сценария, а не качество реальной модели. Live run требует ключа обычным способом, выполняет approved команды в fixture с правами пользователя и может расходовать API budget. Не запускайте недоверенные fixtures. Manual workflow `Agent evaluation` использует secrets провайдера; PR CI не вызывает live API.
+
+Conformance cases находятся в `tests/unit/runtime-v2.test.ts` и `provider-conformance.test.ts`. Перед изменением runtime добавьте соответствующий case и сравните одинаковый fixture/model/settings с baseline. Не представляйте mock token counters как сравнение стоимости реальных моделей.
