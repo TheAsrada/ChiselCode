@@ -5,8 +5,10 @@ export const SLASH_COMMANDS = [
     description: "начать новую вкладку, сохранив текущий разговор",
   },
   { name: "/cwd", description: "сменить папку проекта: <путь>" },
-  { name: "/settings", description: "открыть настройки" },
-  { name: "/theme", description: "выбрать оформление и цвета" },
+  {
+    name: "/settings",
+    description: "подключение, профили и оформление",
+  },
   { name: "/model", description: "сменить модель" },
   { name: "/skills", description: "скиллы: выбрать и задействовать" },
   { name: "/status", description: "показать состояние сессии" },
@@ -124,15 +126,7 @@ const HELP_GROUPS: { title: string; commands: string[] }[] = [
   { title: "Проект", commands: ["/cwd", "/status", "/doctor"] },
   {
     title: "Приложение",
-    commands: [
-      "/settings",
-      "/theme",
-      "/model",
-      "/skills",
-      "/update",
-      "/help",
-      "/exit",
-    ],
+    commands: ["/settings", "/model", "/skills", "/update", "/help", "/exit"],
   },
 ];
 

@@ -285,7 +285,7 @@ test("slash suggestions keep the selected command visible past the first page", 
     await setup.renderOnce();
     await act(async () => setup.mockInput.pasteBracketedText("/"));
     act(() => {
-      for (let index = 0; index < 8; index++)
+      for (let index = 0; index < 7; index++)
         setup.mockInput.pressArrow("down");
     });
     await setup.renderOnce();
@@ -325,38 +325,6 @@ test("Ctrl+C remains available while an approval owns keyboard focus", async () 
     expect(exits).toBe(1);
   } finally {
     resolver.dispose();
-    act(() => setup.renderer.destroy());
-  }
-});
-
-test("theme picker changes the palette without losing an unsent draft", async () => {
-  const selected: string[] = [];
-  const setup = await testRender(
-    <OpenTuiSpike
-      onExit={() => {}}
-      onThemeChange={(theme) => selected.push(theme)}
-    />,
-    { width: 80, height: 24 },
-  );
-  try {
-    await setup.renderOnce();
-    await act(async () =>
-      setup.mockInput.pasteBracketedText("неотправленный текст"),
-    );
-    act(() => setup.mockInput.pressKey("t", { ctrl: true }));
-    await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("ОФОРМЛЕНИЕ CHISELCODE");
-    act(() => {
-      setup.mockInput.pressArrow("down");
-      setup.mockInput.pressEnter();
-    });
-    await setup.renderOnce();
-    expect(selected).toEqual(["graphite"]);
-    expect(setup.captureCharFrame()).toContain("graphite");
-    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
-      "неотправленный текст",
-    );
-  } finally {
     act(() => setup.renderer.destroy());
   }
 });

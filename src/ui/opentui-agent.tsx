@@ -588,16 +588,16 @@ export async function runOpenTuiAgent(
         initialTheme: config.ui?.theme ?? "obsidian",
         accent: config.ui?.accent,
         onThemeChange: (theme) => {
-          currentTheme = theme;
-          pendingSave = pendingSave
-            .then(async () => {
-              const current = await loadGlobalConfig();
-              await saveGlobalConfig({
-                ...current,
-                ui: { ...current.ui, theme },
-              });
-            })
-            .catch(() => {});
+          const saved = pendingSave.then(async () => {
+            const current = await loadGlobalConfig();
+            await saveGlobalConfig({
+              ...current,
+              ui: { ...current.ui, theme },
+            });
+            currentTheme = theme;
+          });
+          pendingSave = saved.catch(() => {});
+          return saved;
         },
         onModeChange: (mode) => {
           pendingSave = pendingSave

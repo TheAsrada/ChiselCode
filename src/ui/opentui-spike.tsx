@@ -8,12 +8,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
 import { invocableSkills } from "../skills/skills.js";
-import {
-  THEME_NAMES,
-  THEMES,
-  type ThemeName,
-  themePalette,
-} from "./appearance.js";
+import { type ThemeName, themePalette } from "./appearance.js";
 import {
   type CommandSuggestion,
   isSlashInput,
@@ -89,9 +84,9 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
       initialMode={mode}
       initialSettingsOpen={setupOpen}
       onInitialSettingsComplete={() => setSetupOpen(false)}
-      onThemeChange={(next) => {
+      onThemeChange={async (next) => {
+        await props.onThemeChange?.(next);
         setTheme(next);
-        props.onThemeChange?.(next);
       }}
       onModeChange={(next) => {
         setMode(next);
@@ -136,7 +131,7 @@ function OpenTuiScreen({
   skillsActions?: OpenTuiSkillsActions;
   initialTheme?: ThemeName;
   accent?: string;
-  onThemeChange?: (theme: ThemeName) => void;
+  onThemeChange?: (theme: ThemeName) => void | Promise<void>;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -158,15 +153,6 @@ function OpenTuiScreen({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
-  const [themeOpen, setThemeOpen] = useState(false);
-  const [themeSelection, setThemeSelection] = useState(
-    THEME_NAMES.indexOf(initialTheme),
-  );
-  const themeSelectionRef = React.useRef(THEME_NAMES.indexOf(initialTheme));
-  const selectThemeIndex = (index: number) => {
-    themeSelectionRef.current = index;
-    setThemeSelection(index);
-  };
   const palette = themePalette(theme, accent);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
@@ -174,6 +160,9 @@ function OpenTuiScreen({
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const [settingsSelection, setSettingsSelection] = useState(0);
+  const [settingsPage, setSettingsPage] = useState<"connection" | "appearance">(
+    "connection",
+  );
   useEffect(() => {
     approvalResolver?.bind(setApproval);
     return () => approvalResolver?.bind(undefined);
@@ -403,22 +392,13 @@ function OpenTuiScreen({
       !pickerOpen &&
       !settingsOpen &&
       !skillsOpen &&
-      !themeOpen &&
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
       else if (focus === "transcript") transcript.current?.focus();
       else sidebar.current?.focus();
     }
-  }, [
-    approval,
-    pickerOpen,
-    settingsOpen,
-    skillsOpen,
-    themeOpen,
-    contextOnly,
-    focus,
-  ]);
+  }, [approval, pickerOpen, settingsOpen, skillsOpen, contextOnly, focus]);
   useEffect(() => {
     if (focus === "sidebar" && !showSidebar) {
       setFocus("editor");
@@ -426,27 +406,17 @@ function OpenTuiScreen({
     }
   }, [focus, showSidebar, controller]);
 
+  const openSettings = (page: "connection" | "appearance", selection = 0) => {
+    editor.current?.blur();
+    setSettingsSelection(selection);
+    setSettingsPage(page);
+    setSettingsOpen(true);
+    controller?.setOverlay("settings");
+    controller?.setFocus("modal");
+  };
+
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") return onExit();
-    if (themeOpen) {
-      key.preventDefault();
-      if (key.name === "escape" || (key.ctrl && key.name === "t"))
-        setThemeOpen(false);
-      else if (key.name === "up" || key.name === "down")
-        selectThemeIndex(
-          (themeSelectionRef.current +
-            (key.name === "up" ? -1 : 1) +
-            THEME_NAMES.length) %
-            THEME_NAMES.length,
-        );
-      else if (key.name === "return" || key.name === "enter") {
-        const selected = THEME_NAMES[themeSelectionRef.current] ?? "obsidian";
-        setTheme(selected);
-        onThemeChange?.(selected);
-        setThemeOpen(false);
-      }
-      return;
-    }
     if (approval) {
       const answer = key.name.toLowerCase();
       if (answer === "y" || answer === "н")
@@ -461,10 +431,12 @@ function OpenTuiScreen({
       submit("/skills");
       return;
     }
-    if (key.ctrl && key.name === "t") {
+    if (
+      key.ctrl &&
+      (key.name === "t" || key.name === "," || key.name === "comma")
+    ) {
       key.preventDefault();
-      selectThemeIndex(THEME_NAMES.indexOf(theme));
-      setThemeOpen(true);
+      openSettings(key.name === "t" ? "appearance" : "connection");
       return;
     }
     if (
@@ -594,7 +566,7 @@ function OpenTuiScreen({
   });
 
   const submit = (command?: string) => {
-    if (approval || skillsOpen) return;
+    if (approval || skillsOpen || settingsOpen || pickerOpen) return;
     const value = command ?? editor.current?.plainText.trim();
     if (!value) return;
     if (!command && selectedSuggestion && value !== selectedSuggestion.name) {
@@ -623,12 +595,6 @@ function OpenTuiScreen({
       clearInput();
       return;
     }
-    if (value === "/theme") {
-      selectThemeIndex(THEME_NAMES.indexOf(theme));
-      setThemeOpen(true);
-      clearInput();
-      return;
-    }
     if (sessionPicker && (value === "/sessions" || value === "/resume")) {
       setPickerOpen(true);
       controller?.setOverlay("sessions");
@@ -637,10 +603,7 @@ function OpenTuiScreen({
       return;
     }
     if (settingsActions && (value === "/settings" || value === "/model")) {
-      setSettingsSelection(value === "/model" ? 1 : 0);
-      setSettingsOpen(true);
-      controller?.setOverlay("settings");
-      controller?.setFocus("modal");
+      openSettings("connection", value === "/model" ? 1 : 0);
       clearInput();
       return;
     }
@@ -675,50 +638,6 @@ function OpenTuiScreen({
         palette={palette}
       />
     );
-  if (themeOpen)
-    return (
-      <box
-        width={width}
-        height={height}
-        backgroundColor={palette.bg}
-        flexDirection="column"
-        padding={2}
-      >
-        <text fg={palette.accent}>◈ ОФОРМЛЕНИЕ CHISELCODE</text>
-        <text fg={palette.muted}>↑↓ выбрать · Enter применить · Esc назад</text>
-        <box height={1} />
-        {THEME_NAMES.map((name, index) => {
-          const colors = THEMES[name];
-          return (
-            // biome-ignore lint/a11y/noStaticElementInteractions: Terminal palette has full keyboard control above.
-            <box
-              key={name}
-              backgroundColor={
-                index === themeSelection ? palette.raised : palette.bg
-              }
-              paddingLeft={1}
-              onMouseUp={() => {
-                setTheme(name);
-                onThemeChange?.(name);
-                setThemeOpen(false);
-              }}
-            >
-              <text
-                fg={index === themeSelection ? palette.accent : palette.text}
-              >
-                {index === themeSelection ? "❯" : " "} {colors.label.padEnd(12)}{" "}
-                {colors.description}
-                {theme === name ? "  ✓" : ""}
-              </text>
-            </box>
-          );
-        })}
-        <box height={1} />
-        <text fg={palette.muted}>
-          Свой акцент: поле ui.accent в конфиге (#RRGGBB)
-        </text>
-      </box>
-    );
   if (pickerOpen && sessionPicker)
     return (
       <OpenTuiSessions
@@ -733,24 +652,34 @@ function OpenTuiScreen({
         }}
       />
     );
-  if (settingsOpen && settingsActions)
+  const settingsDialog = settingsOpen ? (
+    <OpenTuiSettings
+      actions={settingsActions}
+      width={width}
+      height={height}
+      palette={palette}
+      initialSelection={settingsSelection}
+      initialPage={settingsPage}
+      theme={initialTheme}
+      setup={setupPending}
+      onThemePreview={setTheme}
+      onThemeChange={onThemeChange}
+      onClose={(outcome) => {
+        if (setupPending && outcome !== "saved") return onExit();
+        if (setupPending && outcome === "saved") onSetupComplete?.();
+        onInitialSettingsComplete?.();
+        setSetupPending(false);
+        setSettingsOpen(false);
+        controller?.setOverlay();
+        controller?.setFocus(focus === "editor" ? "composer" : focus);
+      }}
+    />
+  ) : undefined;
+  if (setupPending && settingsOpen)
     return (
-      <OpenTuiSettings
-        actions={settingsActions}
-        width={width}
-        height={height}
-        palette={palette}
-        initialSelection={settingsSelection}
-        onClose={(outcome) => {
-          if (setupPending && outcome !== "saved") return onExit();
-          if (setupPending && outcome === "saved") onSetupComplete?.();
-          onInitialSettingsComplete?.();
-          setSetupPending(false);
-          setSettingsOpen(false);
-          controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : focus);
-        }}
-      />
+      <box width={width} height={height} backgroundColor={palette.bg}>
+        {settingsDialog}
+      </box>
     );
   const closeSkills = () => {
     setSkillsOpen(false);
@@ -790,7 +719,7 @@ function OpenTuiScreen({
       <OpenTuiPrompt
         palette={palette}
         width={composerWidth}
-        focused={focus === "editor" && !skillsOpen}
+        focused={focus === "editor" && !skillsOpen && !settingsOpen}
         hasDraft={!!draft.trim()}
         busy={view.busy}
         model={view.usage?.model}
@@ -800,6 +729,7 @@ function OpenTuiScreen({
           id="prompt-editor"
           ref={editor}
           height={editorHeight}
+          focused={focus === "editor" && !skillsOpen && !settingsOpen}
           initialValue={draft}
           backgroundColor={palette.surface}
           focusedBackgroundColor={palette.surface}
@@ -845,7 +775,7 @@ function OpenTuiScreen({
           {terminalSafeText(
             workspace
               ? "Enter отправить · Shift+Enter строка"
-              : "Enter отправить · Shift+Enter строка · Ctrl+T тема · Esc выход",
+              : "Enter отправить · Shift+Enter строка · Ctrl+T оформление · Esc выход",
             composerWidth,
           )}
         </text>
@@ -934,17 +864,16 @@ function OpenTuiScreen({
                         Math.max(8, textWidth - 23),
                       )}
                     </text>
-                    {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+T and /theme provide keyboard access. */}
+                    {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+comma also opens settings. */}
                     <box
                       backgroundColor={palette.raised}
                       paddingLeft={1}
                       paddingRight={1}
                       onMouseUp={() => {
-                        selectThemeIndex(THEME_NAMES.indexOf(theme));
-                        setThemeOpen(true);
+                        openSettings("connection");
                       }}
                     >
-                      <text fg={palette.accent}>◐ Тема Ctrl+T</text>
+                      <text fg={palette.accent}>Настройки Ctrl+,</text>
                     </box>
                   </box>
                 </>
@@ -1041,6 +970,7 @@ function OpenTuiScreen({
           </box>
         )}
       </box>
+      {settingsDialog}
       {skillsOpen && skillsActions && (
         <OpenTuiSkills
           actions={skillsActions}
