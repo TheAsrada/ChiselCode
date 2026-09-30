@@ -128,7 +128,8 @@ export interface ProviderAdapter {
   readonly kind: ProviderKind;
   readonly providerId?: string;
   streamChat(request: ProviderRequest): AsyncIterable<StreamEvent>;
-  listModels(): Promise<ModelInfo[]>;
+  listModels?(): Promise<ModelInfo[]>;
+  checkConnection?(): Promise<
     import("../providers/contracts.js").ProviderHealthResult
   >;
   getCapabilities?(model: string): Promise<ModelCapabilities>;

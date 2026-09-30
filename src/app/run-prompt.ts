@@ -1,6 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { execa } from "execa";
-import OpenAI from "openai";
 import {
   loadGlobalConfig,
   loadProjectConfig,
@@ -8,15 +6,16 @@ import {
 } from "../config/load.js";
 import { ContextManager } from "../context/context-manager.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
+import { resolveCredential } from "../providers/auth.js";
 import {
-  AGENTROUTER_API_KEY_ENV,
-  AgentRouterAdapter,
-} from "../providers/agentrouter.js";
-import {
-  AnthropicAdapter,
-  AnthropicCompatibleAdapter,
-} from "../providers/anthropic.js";
-import { OpenAIAdapter, OpenAICompatibleAdapter } from "../providers/openai.js";
+  checkAdapterHealth,
+  createBuiltinProviderRegistry,
+  MissingApiKeyError,
+  resolveProviderRuntime,
+} from "../providers/runtime.js";
+
+export { MissingApiKeyError } from "../providers/runtime.js";
+
 import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
@@ -52,15 +51,6 @@ export interface RunOptions {
   json?: boolean;
   resume?: string;
   cwd?: string;
-}
-
-export class MissingApiKeyError extends Error {
-  constructor(provider: ProviderKind) {
-    super(
-      `Для ${providerLabel(provider)} не найден API-ключ. Запустите "chisel setup" для быстрой настройки.`,
-    );
-    this.name = "MissingApiKeyError";
-  }
 }
 
 export async function hasApiKey(
@@ -107,7 +97,10 @@ export async function checkProviderConnection(
       providerConfig?.apiKeyRef,
       new CredentialStore(),
     ));
-  if (!apiKey)
+  if (
+    !apiKey &&
+    createBuiltinProviderRegistry().get(input.provider)?.auth.required
+  )
     return {
       ok: false,
       message: `Нет API-ключа для ${providerLabel(input.provider)}: пройдите настройку заново и вставьте ключ.`,
@@ -115,17 +108,25 @@ export async function checkProviderConnection(
   const baseUrl = input.baseUrl ?? providerConfig?.baseUrl;
   let adapter: ProviderAdapter;
   try {
-    adapter = createProvider(input.provider, apiKey, baseUrl);
+    adapter = await createProvider(input.provider, apiKey, baseUrl);
   } catch (error) {
     return {
       ok: false,
       message: error instanceof Error ? error.message : String(error),
     };
   }
+  if (adapter.checkConnection || !adapter.listModels) {
+    const health = await checkAdapterHealth(adapter);
+    return { ok: health.status !== "unhealthy", message: health.message };
+  }
   let models: { id: string }[];
   try {
     models = await withTimeout(
-      adapter.listModels(),
+      adapter.listModels
+        ? adapter.listModels()
+        : Promise.reject(
+            new Error("Model listing unsupported; введите модель вручную."),
+          ),
       CONNECTION_CHECK_TIMEOUT_MS,
       `Превышено время ожидания (${CONNECTION_CHECK_TIMEOUT_MS / 1000}с): проверьте адрес API и доступность сервера.`,
     );
@@ -173,7 +174,10 @@ export async function listProviderModels(
       providerConfig?.apiKeyRef,
       new CredentialStore(),
     ));
-  if (!apiKey)
+  if (
+    !apiKey &&
+    createBuiltinProviderRegistry().get(input.provider)?.auth.required
+  )
     return {
       ok: false,
       error: `Нет API-ключа для ${providerLabel(input.provider)}: вставьте ключ на экране «API-ключ» и попробуйте снова.`,
@@ -181,7 +185,7 @@ export async function listProviderModels(
   const baseUrl = input.baseUrl ?? providerConfig?.baseUrl;
   let adapter: ProviderAdapter;
   try {
-    adapter = createProvider(input.provider, apiKey, baseUrl);
+    adapter = await createProvider(input.provider, apiKey, baseUrl);
   } catch (error) {
     return {
       ok: false,
@@ -190,7 +194,11 @@ export async function listProviderModels(
   }
   try {
     const models = await withTimeout(
-      adapter.listModels(),
+      adapter.listModels
+        ? adapter.listModels()
+        : Promise.reject(
+            new Error("Model listing unsupported; введите модель вручную."),
+          ),
       CONNECTION_CHECK_TIMEOUT_MS,
       `Превышено время ожидания (${CONNECTION_CHECK_TIMEOUT_MS / 1000}с): проверьте адрес API и доступность сервера.`,
     );
@@ -218,16 +226,9 @@ async function withTimeout<T>(
   }
 }
 
-function connectionErrorStatus(error: unknown): number | undefined {
-  if (error instanceof OpenAI.APIError) return error.status;
-  if (error instanceof Anthropic.APIError) return error.status;
-  const status = (error as { status?: unknown } | null)?.status;
-  return typeof status === "number" ? status : undefined;
-}
-
 function formatConnectionError(error: unknown, baseUrl?: string): string {
   const message = error instanceof Error ? error.message : String(error);
-  const status = connectionErrorStatus(error);
+  const status = (error as { status?: number } | null)?.status;
   if (
     status === 401 ||
     /unauthenticated|unauthorized|incorrect api key|invalid api key|authentication/i.test(
@@ -286,7 +287,7 @@ export async function runPrompt(
     credentials,
   );
   if (!apiKey) throw new MissingApiKeyError(session.provider);
-  const provider = createProvider(
+  const provider = await createProvider(
     session.provider,
     apiKey,
     options.baseUrl ?? providerConfig?.baseUrl,
@@ -388,37 +389,30 @@ function resolveModel(options: RunOptions, fallback?: string): string {
   return options.model ?? fallback ?? "claude-opus-5";
 }
 
-function createProvider(
+async function createProvider(
   kind: ProviderKind,
   apiKey: string | undefined,
   baseUrl: string | undefined,
-): ProviderAdapter {
-  if (kind === "anthropic") return new AnthropicAdapter({ apiKey });
-  if (kind === "anthropic-compatible") {
-    if (!apiKey) throw new MissingApiKeyError(kind);
-    return new AnthropicCompatibleAdapter({ authToken: apiKey, baseUrl });
-  }
-  if (kind === "openai") return new OpenAIAdapter({ apiKey });
-  if (kind === "agentrouter")
-    return new AgentRouterAdapter({ apiKey, baseUrl });
-  return new OpenAICompatibleAdapter({ apiKey, baseUrl });
+): Promise<ProviderAdapter> {
+  return (
+    await resolveProviderRuntime({
+      profile: { providerId: kind, baseUrl },
+      apiKey,
+    })
+  ).adapter;
 }
-
 async function resolveApiKey(
   kind: ProviderKind,
   keyRef: string | undefined,
   credentials: CredentialStore,
 ): Promise<string | undefined> {
-  const environmentName =
-    kind === "agentrouter"
-      ? AGENTROUTER_API_KEY_ENV
-      : kind === "anthropic-compatible"
-        ? "ANTHROPIC_AUTH_TOKEN"
-        : kind === "anthropic"
-          ? "ANTHROPIC_API_KEY"
-          : "OPENAI_API_KEY";
-  if (process.env[environmentName]) return process.env[environmentName];
-  return keyRef ? credentials.get(keyRef) : undefined;
+  const definition = createBuiltinProviderRegistry().get(kind);
+  if (!definition) return undefined;
+  return resolveCredential(
+    definition,
+    { providerId: kind, apiKeyRef: keyRef },
+    credentials,
+  );
 }
 
 function parseAllowedTools(value: string | undefined): Set<ToolName> {
@@ -459,11 +453,7 @@ async function runGit(
 }
 
 function providerLabel(provider: ProviderKind): string {
-  if (provider === "anthropic") return "Anthropic";
-  if (provider === "anthropic-compatible") return "Anthropic-совместимого API";
-  if (provider === "openai") return "OpenAI";
-  if (provider === "agentrouter") return "AgentRouter";
-  return "OpenAI-совместимого API";
+  return createBuiltinProviderRegistry().get(provider)?.label ?? provider;
 }
 
 export const nonInteractiveResolver: ApprovalResolver = {
