@@ -93,6 +93,26 @@ test("large transcript pages backwards and returns to newest messages", async ()
   }
 });
 
+test("assistant formatting renders visible headings, lists and inline code", async () => {
+  const controller = new TuiController(process.cwd());
+  controller.append("## План\n- **Шаг**: `bun test`", "assistant");
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} controller={controller} />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("План");
+    expect(frame).toContain("Шаг");
+    expect(frame).toContain("bun test");
+    expect(frame).not.toContain("**Шаг**");
+  } finally {
+    act(() => setup.renderer.destroy());
+    controller.dispose();
+  }
+});
+
 test("resuming another session resets the transcript window to its latest entry", async () => {
   const controller = new TuiController(process.cwd());
   controller.switchSession({ id: "old", projectPath: process.cwd() });
@@ -265,7 +285,7 @@ test("slash suggestions keep the selected command visible past the first page", 
     await setup.renderOnce();
     await act(async () => setup.mockInput.pasteBracketedText("/"));
     act(() => {
-      for (let index = 0; index < 7; index++)
+      for (let index = 0; index < 8; index++)
         setup.mockInput.pressArrow("down");
     });
     await setup.renderOnce();
@@ -305,6 +325,38 @@ test("Ctrl+C remains available while an approval owns keyboard focus", async () 
     expect(exits).toBe(1);
   } finally {
     resolver.dispose();
+    act(() => setup.renderer.destroy());
+  }
+});
+
+test("theme picker changes the palette without losing an unsent draft", async () => {
+  const selected: string[] = [];
+  const setup = await testRender(
+    <OpenTuiSpike
+      onExit={() => {}}
+      onThemeChange={(theme) => selected.push(theme)}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    await act(async () =>
+      setup.mockInput.pasteBracketedText("неотправленный текст"),
+    );
+    act(() => setup.mockInput.pressKey("t", { ctrl: true }));
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("ОФОРМЛЕНИЕ CHISELCODE");
+    act(() => {
+      setup.mockInput.pressArrow("down");
+      setup.mockInput.pressEnter();
+    });
+    await setup.renderOnce();
+    expect(selected).toEqual(["graphite"]);
+    expect(setup.captureCharFrame()).toContain("graphite");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+      "неотправленный текст",
+    );
+  } finally {
     act(() => setup.renderer.destroy());
   }
 });

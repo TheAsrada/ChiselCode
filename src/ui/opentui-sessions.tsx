@@ -1,8 +1,10 @@
 /** @jsxImportSource @opentui/react */
+
 import { useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
+import { type Palette, THEMES } from "./appearance.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { filterSessions } from "./session-filter.js";
 
@@ -41,11 +43,13 @@ export function OpenTuiSessions({
   actions,
   width,
   height,
+  palette = THEMES.obsidian,
   onClose,
 }: {
   actions: OpenTuiSessionsActions;
   width: number;
   height: number;
+  palette?: Palette;
   onClose: () => void;
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -193,19 +197,19 @@ export function OpenTuiSessions({
       flexDirection="column"
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor="#111827"
+      backgroundColor={palette.bg}
     >
-      <text fg="#78c8d4">Возобновить сессию</text>
-      <text fg="#d6dce5">Поиск: {terminalSafeText(query, 120)}▏</text>
-      <text fg="#8390a0">{filtered.length} сессий</text>
+      <text fg={palette.accent}>Возобновить сессию</text>
+      <text fg={palette.text}>Поиск: {terminalSafeText(query, 120)}▏</text>
+      <text fg={palette.muted}>{filtered.length} сессий</text>
       <box height={listHeight} flexDirection="column">
         {filtered.length === 0 && (
-          <text fg="#8390a0">Сессий нет. Начните новый разговор.</text>
+          <text fg={palette.muted}>Сессий нет. Начните новый разговор.</text>
         )}
         {filtered.slice(start, start + listHeight).map((item, index) => (
           <text
             key={item.id}
-            fg={start + index === selection ? "#78c8d4" : "#aebbc9"}
+            fg={start + index === selection ? palette.accent : palette.muted}
           >
             {start + index === selection ? "❯ " : "  "}
             {terminalSafeText(item.title, Math.max(8, width - 29)).replace(
@@ -218,7 +222,7 @@ export function OpenTuiSessions({
         ))}
       </box>
       {selected && (
-        <text fg="#aebbc9">
+        <text fg={palette.muted}>
           {terminalSafeText(selected.model, 60)} · {selected.provider} ·{" "}
           {selected.totalTokens.inputTokens + selected.totalTokens.outputTokens}{" "}
           токенов
@@ -226,22 +230,22 @@ export function OpenTuiSessions({
       )}
       {preview &&
         previewLines(preview).map(({ id, line }) => (
-          <text key={`${preview.id}:${id}`} fg="#98a6b6">
+          <text key={`${preview.id}:${id}`} fg={palette.muted}>
             {line}
           </text>
         ))}
       {mode === "rename" && (
-        <text fg="#e5bf74">
+        <text fg={palette.yellow}>
           Новое название: {terminalSafeText(draft, 120)}▏
         </text>
       )}
       {mode === "delete" && (
-        <text fg="#e5bf74">
+        <text fg={palette.yellow}>
           Удалить «{terminalSafeText(selected?.title ?? "", 80)}»? [y/N]
         </text>
       )}
-      {error && <text fg="#e98484">{terminalSafeText(error, 200)}</text>}
-      <text fg="#8390a0">
+      {error && <text fg={palette.red}>{terminalSafeText(error, 200)}</text>}
+      <text fg={palette.muted}>
         {width < 80
           ? "↑/↓ выбор · Enter · Space · Ctrl+R/D · Esc"
           : "↑/↓ выбор · Enter продолжить · Space просмотр · Ctrl+R имя · Ctrl+D удалить · Esc"}

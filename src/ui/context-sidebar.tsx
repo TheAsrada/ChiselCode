@@ -3,10 +3,8 @@ import { basename } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import React from "react";
 import { contextProgress } from "../core/context-usage.js";
+import { type Palette, THEMES } from "./appearance.js";
 import type { TuiViewState } from "./tui-controller.js";
-
-const quiet = "#9aa9ba";
-const title = "#83cbd5";
 
 function safeLine(value: string, limit = 35): string {
   const clean = Array.from(stripVTControlCharacters(value), (character) => {
@@ -21,12 +19,16 @@ export function ContextSidebar({
   width = 40,
   height = 24,
   focused = false,
+  palette = THEMES.obsidian,
 }: {
   state: TuiViewState;
   width?: number;
   height?: number;
   focused?: boolean;
+  palette?: Palette;
 }) {
+  const quiet = palette.muted;
+  const title = palette.accent;
   const usage = state.usage;
   const progress = contextProgress(usage?.contextSnapshot);
   const files = state.gitChanges?.files ?? [];
@@ -41,6 +43,7 @@ export function ContextSidebar({
       flexDirection="column"
       paddingLeft={1}
       paddingRight={1}
+      backgroundColor={palette.surface}
     >
       <text fg={title}>{focused ? "› Контекст" : "Контекст"}</text>
       <text fg={quiet}>
@@ -85,7 +88,7 @@ export function ContextSidebar({
       {(state.toolActivity || state.overlay) && (
         <React.Fragment>
           <text fg={title}>Активность</text>
-          <text fg="#e5bc74">
+          <text fg={palette.yellow}>
             {safeLine(state.overlay ?? state.toolActivity ?? "")}
           </text>
         </React.Fragment>

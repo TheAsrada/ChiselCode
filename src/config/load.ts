@@ -59,7 +59,14 @@ const GlobalConfigSchema = z.object({
     })
     .default({}),
   ui: z
-    .object({ sidebarMode: z.enum(["auto", "show", "hide"]).optional() })
+    .object({
+      sidebarMode: z.enum(["auto", "show", "hide"]).optional(),
+      theme: z.enum(["obsidian", "graphite", "ember", "paper"]).optional(),
+      accent: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/)
+        .optional(),
+    })
     .optional(),
 });
 

@@ -1,5 +1,6 @@
 import { BoxRenderable, type CliRenderer, TextRenderable } from "@opentui/core";
 import stringWidth from "string-width";
+import { type Palette, THEMES } from "./appearance.js";
 import { changedLinePreview, terminalSafeText } from "./opentui-transcript.js";
 import type { TranscriptEntry, TuiController } from "./tui-controller.js";
 
@@ -12,6 +13,7 @@ export function attachTranscriptScrollback(
     CliRenderer,
     "writeToScrollback" | "resetSplitFooterForReplay"
   >,
+  palette: () => Palette = () => THEMES.obsidian,
 ): () => void {
   let lastId = -1;
   let previousCount = 0;
@@ -59,7 +61,7 @@ export function attachTranscriptScrollback(
               content: lines.join("\n"),
               width,
               height: lines.length,
-              fg: scrollbackColor(entry.tone),
+              fg: scrollbackColor(entry.tone, palette()),
             }),
           );
           height += lines.length;
@@ -78,18 +80,26 @@ export function attachTranscriptScrollback(
   });
 }
 
-function scrollbackColor(tone: TranscriptEntry["tone"]): string {
+function scrollbackColor(
+  tone: TranscriptEntry["tone"],
+  palette: Palette,
+): string {
   switch (tone) {
     case "error":
-      return "#e98484";
+      return palette.red;
     case "warn":
-      return "#e5bf74";
+      return palette.yellow;
     case "success":
-      return "#88c89b";
+      return palette.green;
     case "user":
-      return "#f0f3f7";
+      return palette.text;
+    case "logo":
+      return palette.accent;
+    case "tool":
+    case "dim":
+      return palette.muted;
     default:
-      return "#d6dce5";
+      return palette.text;
   }
 }
 

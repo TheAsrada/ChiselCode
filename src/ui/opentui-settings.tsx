@@ -1,8 +1,10 @@
 /** @jsxImportSource @opentui/react */
+
 import { useKeyboard, usePaste } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultBaseUrlForProvider } from "../providers/agentrouter.js";
 import type { ProviderKind } from "../types/domain.js";
+import { type Palette, THEMES } from "./appearance.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import type { ModelListResult, TuiSettingsValues } from "./settings-values.js";
 
@@ -46,12 +48,14 @@ export function OpenTuiSettings({
   actions,
   width,
   height,
+  palette = THEMES.obsidian,
   onClose,
   initialSelection = 0,
 }: {
   actions: OpenTuiSettingsActions;
   width: number;
   height: number;
+  palette?: Palette;
   onClose: (outcome?: "saved") => void;
   initialSelection?: number;
 }) {
@@ -302,17 +306,20 @@ export function OpenTuiSettings({
       paddingLeft={1}
       paddingRight={1}
       flexDirection="column"
-      backgroundColor="#111827"
+      backgroundColor={palette.bg}
     >
-      <text fg="#78c8d4">Настройки ChiselCode</text>
+      <text fg={palette.accent}>Настройки ChiselCode</text>
       {screen === "menu" && (
         <>
-          <text fg="#aebbc9">
+          <text fg={palette.muted}>
             {values.provider} ·{" "}
             {terminalSafeText(values.model || "модель не выбрана", 70)}
           </text>
           {menuItems.map((item, index) => (
-            <text key={item} fg={selected === index ? "#78c8d4" : "#aebbc9"}>
+            <text
+              key={item}
+              fg={selected === index ? palette.accent : palette.muted}
+            >
               {selected === index ? "❯ " : "  "}
               {item}
               {item === "API-ключ"
@@ -326,7 +333,7 @@ export function OpenTuiSettings({
         providers.map((item, index) => (
           <text
             key={item.id}
-            fg={providerIndex === index ? "#78c8d4" : "#aebbc9"}
+            fg={providerIndex === index ? palette.accent : palette.muted}
           >
             {providerIndex === index ? "❯ " : "  "}
             {item.name}
@@ -334,7 +341,7 @@ export function OpenTuiSettings({
         ))}
       {screen === "model-list" && (
         <>
-          <text fg="#aebbc9">
+          <text fg={palette.muted}>
             Поиск модели: {terminalSafeText(modelFilter, 80)}
           </text>
           {visibleModels.map((item) => (
@@ -342,8 +349,8 @@ export function OpenTuiSettings({
               key={item.id}
               fg={
                 filteredModels[modelIndex]?.id === item.id
-                  ? "#78c8d4"
-                  : "#aebbc9"
+                  ? palette.accent
+                  : palette.muted
               }
             >
               {filteredModels[modelIndex]?.id === item.id ? "❯ " : "  "}
@@ -351,32 +358,40 @@ export function OpenTuiSettings({
             </text>
           ))}
           <text
-            fg={modelIndex >= filteredModels.length ? "#78c8d4" : "#aebbc9"}
+            fg={
+              modelIndex >= filteredModels.length
+                ? palette.accent
+                : palette.muted
+            }
           >
             Ввести вручную…
           </text>
         </>
       )}
       {screen === "model-manual" && (
-        <text fg="#aebbc9">Модель: {terminalSafeText(values.model, 120)}▏</text>
+        <text fg={palette.muted}>
+          Модель: {terminalSafeText(values.model, 120)}▏
+        </text>
       )}
       {screen === "base-url" && (
-        <text fg="#aebbc9">
+        <text fg={palette.muted}>
           Адрес API: {terminalSafeText(values.baseUrl ?? "", 160)}▏
         </text>
       )}
       {screen === "key" && (
         <>
-          <text fg="#e5bf74">
+          <text fg={palette.yellow}>
             Введите новый API-ключ. Enter — применить к настройкам.
           </text>
-          <text fg="#aebbc9">
+          <text fg={palette.muted}>
             Ключ: {"•".repeat(Math.min(values.apiKey?.length ?? 0, 80))}▏
           </text>
         </>
       )}
-      {notice && <text fg="#e5bf74">{terminalSafeText(notice, 240)}</text>}
-      <text fg="#8390a0">
+      {notice && (
+        <text fg={palette.yellow}>{terminalSafeText(notice, 240)}</text>
+      )}
+      <text fg={palette.muted}>
         {busy ? "Подождите…" : "↑/↓ выбрать · Enter подтвердить · Esc назад"}
       </text>
     </box>
