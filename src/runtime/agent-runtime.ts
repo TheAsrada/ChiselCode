@@ -174,7 +174,7 @@ export class AgentRuntime {
               system: frame.system,
               messages: frame.messages,
               tools: frame.tools,
-              maxTokens: frame.budget.reservedOutputTokens,
+              maxTokens: frame.budget.maxOutputTokens,
               signal: options.signal,
             },
             frame.estimatedInputTokens,
@@ -190,7 +190,8 @@ export class AgentRuntime {
           ) {
             responseRecoveries++;
             finalText = textBeforeRequest;
-            responseRecoveryInstructions = `\n\nThe previous provider response was rejected before any of its tools ran: ${error.code}. Return complete, valid JSON objects for all tool arguments, with correctly escaped strings. Keep each response comfortably below the ${frame.budget.reservedOutputTokens}-token output limit. Split large file creation or edits into small complete tool calls across separate turns; create a small valid file first, then extend it using fresh reads and edit_file or apply_patch. Do not repeat previously completed tool calls. Keep prose brief.`;
+            const limit = frame.budget.maxOutputTokens;
+            responseRecoveryInstructions = `\n\nThe previous provider response was rejected before any of its tools ran: ${error.code}. Return complete, valid JSON objects for all tool arguments, with correctly escaped strings. ${limit === undefined ? "The provider truncated the response; keep each response smaller." : `Keep each response comfortably below the ${limit}-token output limit.`} Split large file creation or edits into small complete tool calls across separate turns; create a small valid file first, then extend it using fresh reads and edit_file or apply_patch. Do not repeat previously completed tool calls. Keep prose brief.`;
             await this.events.emit({
               type: "provider_response_recovery",
               errorCode: error.code,
@@ -218,6 +219,14 @@ export class AgentRuntime {
             "refusal",
             "The provider refused this request.",
           );
+        await this.context.refresh({
+          session,
+          system: frame.system,
+          tools: frame.tools,
+          provider: this.provider,
+          capabilities,
+          signal: options.signal,
+        });
         const hasTools = response.message.content.some(
           (content) => content.type === "tool_use",
         );

@@ -13,6 +13,7 @@ import type {
 import { ToolNameSchema } from "../../types/domain.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
+import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import { parseToolArguments } from "../tool-arguments.js";
 
 export interface OpenAIAdapterOptions {
@@ -24,6 +25,7 @@ export interface OpenAIAdapterOptions {
   providerId?: string;
   includeUsage?: boolean;
   tokenLimitFallback?: boolean;
+  allowModelMetadata?: boolean;
 }
 
 /** prompt_tokens already contains cached tokens in OpenAI completions. */
@@ -43,6 +45,8 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
   readonly providerId: string;
   private readonly options: OpenAIAdapterOptions;
   private readonly client: OpenAI;
+  private metadata?: Promise<ModelInfo[]>;
+  private usageSupported = true;
 
   constructor(options: OpenAIAdapterOptions = {}) {
     this.options = options;
@@ -67,6 +71,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
   private async createCompletionStream(
     request: ProviderRequest,
     useLegacyMaxTokens: boolean,
+    includeUsage = this.usageSupported && (this.options.includeUsage ?? true),
   ): Promise<AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>> {
     const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
       {
@@ -74,12 +79,12 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         stream: true,
         messages: toOpenAIMessages(request.system, request.messages),
         tools: toOpenAITools(request.tools),
-        ...(this.options.includeUsage
-          ? { stream_options: { include_usage: true } }
-          : {}),
-        ...(useLegacyMaxTokens
-          ? { max_tokens: request.maxTokens }
-          : { max_completion_tokens: request.maxTokens }),
+        ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
+        ...(request.maxTokens === undefined
+          ? {}
+          : useLegacyMaxTokens
+            ? { max_tokens: request.maxTokens }
+            : { max_completion_tokens: request.maxTokens }),
       };
     try {
       return await this.client.chat.completions.create(params, {
@@ -87,11 +92,21 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       });
     } catch (error) {
       if (
+        includeUsage &&
+        error instanceof OpenAI.APIError &&
+        error.status === 400 &&
+        /stream_options|include_usage/i.test(error.message)
+      ) {
+        this.usageSupported = false;
+        return this.createCompletionStream(request, useLegacyMaxTokens, false);
+      }
+      if (
         !useLegacyMaxTokens &&
+        request.maxTokens !== undefined &&
         this.options.tokenLimitFallback &&
         isTokenLimitError(error)
       ) {
-        return this.createCompletionStream(request, true);
+        return this.createCompletionStream(request, true, includeUsage);
       }
       throw error;
     }
@@ -221,14 +236,31 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
   async listModels(): Promise<ModelInfo[]> {
     try {
       const models = await this.client.models.list();
-      return models.data.map((model) => ({ id: model.id }));
+      return models.data.flatMap((model) => {
+        const info = modelInfo(model, this.providerId);
+        return info ? [info] : [];
+      });
     } catch (error) {
       throw normalizeProviderError(error);
     }
   }
 
-  async getCapabilities() {
-    return { tokenCounting: "local_estimate" as const };
+  async getCapabilities(model: string) {
+    let limits = catalogModelLimits(this.providerId, model);
+    if (this.options.allowModelMetadata !== false) {
+      this.metadata ??= this.client.models
+        .list({ timeout: 5000, maxRetries: 0 })
+        .then((page) =>
+          page.data.flatMap((item) => {
+            const info = modelInfo(item, this.providerId);
+            return info ? [info] : [];
+          }),
+        )
+        .catch(() => []);
+      const known = (await this.metadata).find((info) => info.id === model);
+      if (known) limits = { ...limits, ...known };
+    }
+    return { ...limits, tokenCounting: "local_estimate" as const };
   }
   async countTokens(): Promise<undefined> {
     return undefined;
@@ -250,9 +282,7 @@ export function isTokenLimitError(error: unknown): boolean {
     error instanceof Error
       ? error.message
       : String((error as { message?: unknown }).message ?? "");
-  return /max_(completion_)?tokens|unsupported\s+(parameter|field)/i.test(
-    message,
-  );
+  return /max_(completion_)?tokens/i.test(message);
 }
 
 function toOpenAITools(
@@ -373,6 +403,7 @@ export const openaiChatDriver: ProviderDriver = {
     const adapter: ProviderAdapter = new OpenAIProtocolAdapter({
       ...options,
       providerId: definition.id,
+      allowModelMetadata: definition.capabilities.modelListing,
       apiKey: apiKey ?? "chisel-no-auth",
       baseUrl,
     });

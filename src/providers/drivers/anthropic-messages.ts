@@ -14,6 +14,7 @@ import { ToolNameSchema } from "../../types/domain.js";
 import type { ModelCapabilities, TokenCountRequest } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
+import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import { parseToolArguments } from "../tool-arguments.js";
 
 export interface AnthropicAdapterOptions {
@@ -23,6 +24,7 @@ export interface AnthropicAdapterOptions {
   providerId?: string;
   adaptiveThinking?: boolean;
   nativeTokenCounting?: boolean;
+  allowModelMetadata?: boolean;
   maxRetries?: number;
   timeoutMs?: number;
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -33,6 +35,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
   readonly providerId: string;
   private readonly options: AnthropicAdapterOptions;
   private readonly client: Anthropic;
+  private readonly metadata = new Map<string, Promise<ModelCapabilities>>();
 
   constructor(options: AnthropicAdapterOptions = {}) {
     this.options = options;
@@ -49,13 +52,21 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
 
   async *streamChat(request: ProviderRequest): AsyncIterable<StreamEvent> {
     try {
+      const maxTokens =
+        request.maxTokens ??
+        (await this.getCapabilities(request.model)).maxOutputTokens;
+      if (maxTokens === undefined)
+        throw new ProviderError(
+          "unsupported",
+          "Anthropic API требует max_tokens, но предел ответа этой модели неизвестен. Укажите context.maxOutputTokens в .chiselrc или используйте API с метаданными модели.",
+        );
       // Read raw events: MessageStream's eager partial-JSON parser can fail before
       // max_tokens is known, and must not decide whether a tool call is complete.
       const stream = await this.client.messages.create(
         {
           stream: true,
           model: request.model,
-          max_tokens: request.maxTokens,
+          max_tokens: maxTokens,
           system: request.system,
           messages: toAnthropicMessages(request.messages),
           tools: toAnthropicTools(request.tools),
@@ -212,30 +223,41 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
   async listModels(): Promise<ModelInfo[]> {
     try {
       const page = await this.client.models.list();
-      return page.data.map((model) => ({
-        id: model.id,
-        displayName: model.display_name ?? undefined,
-        contextWindow: model.max_input_tokens ?? undefined,
-        maxOutputTokens: model.max_tokens ?? undefined,
-      }));
+      return page.data.flatMap((model) => {
+        const info = modelInfo(model, this.providerId);
+        return info ? [info] : [];
+      });
     } catch (error) {
       throw normalizeProviderError(error);
     }
   }
 
   async getCapabilities(model: string): Promise<ModelCapabilities> {
-    if (!this.options.nativeTokenCounting)
-      return { tokenCounting: "local_estimate" };
-    try {
-      const info = await this.client.models.retrieve(model);
-      return {
-        contextWindow: info.max_input_tokens ?? undefined,
-        maxOutputTokens: info.max_tokens ?? undefined,
-        tokenCounting: "provider",
+    const existing = this.metadata.get(model);
+    if (existing) return existing;
+    const request = (async (): Promise<ModelCapabilities> => {
+      const fallback = {
+        ...catalogModelLimits(this.providerId, model),
+        tokenCounting: this.options.nativeTokenCounting
+          ? ("provider" as const)
+          : ("local_estimate" as const),
       };
-    } catch {
-      return { tokenCounting: "local_estimate" };
-    }
+      if (this.options.allowModelMetadata === false) return fallback;
+      try {
+        const info = modelInfo(
+          await this.client.models.retrieve(model, undefined, {
+            timeout: 5000,
+            maxRetries: 0,
+          }),
+          this.providerId,
+        );
+        return info ? { ...fallback, ...info } : fallback;
+      } catch {
+        return fallback;
+      }
+    })();
+    this.metadata.set(model, request);
+    return request;
   }
 
   async countTokens(request: TokenCountRequest): Promise<number | undefined> {
@@ -248,7 +270,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           messages: toAnthropicMessages(request.messages),
           tools: toAnthropicTools(request.tools),
         },
-        { signal: request.signal },
+        { signal: request.signal, timeout: 5000, maxRetries: 0 },
       );
       return result.input_tokens;
     } catch (error) {
@@ -388,6 +410,7 @@ export const anthropicMessagesDriver: ProviderDriver = {
         options.nativeTokenCounting ??
         definition.capabilities.tokenCounting === "native",
       providerId: definition.id,
+      allowModelMetadata: definition.capabilities.modelListing,
       baseUrl,
       ...(options.authMode === "bearer"
         ? { apiKey: null, authToken: apiKey ?? "chisel-no-auth" }

@@ -52,13 +52,13 @@ Profile.baseUrl и --base-url переопределяют definition endpoint, 
 
 ## Drivers и AgentRouter
 
-`openai-chat` использует Chat Completions, streaming, ordered tool calls и reasoning deltas. OpenAI Responses API не реализован. includeUsage включает stream_options.include_usage. tokenLimitFallback допускает один повтор при 400 о max_completion_tokens с max_tokens; official OpenAI выключает его, gateways включают. AgentRouter — definition поверх generic OpenAI driver, без собственного wire adapter.
+`openai-chat` использует Chat Completions, streaming, ordered tool calls и reasoning deltas. OpenAI Responses API не реализован. includeUsage включает stream_options.include_usage по умолчанию, чтобы получать фактический input usage и у совместимых шлюзов. Если сервер отклоняет именно этот параметр с 400, driver повторяет запрос без него и использует оценку. tokenLimitFallback допускает один повтор при 400 о max_completion_tokens с max_tokens; official OpenAI выключает его, gateways включают. Эти повторы выполняются до принятия запроса сервером. AgentRouter — definition поверх generic OpenAI driver, без собственного wire adapter.
 
 `anthropic-messages` использует Messages API, tool translation, streaming и optional native token count. authMode=api-key использует x-api-key; bearer — Authorization. adaptiveThinking и nativeTokenCounting явно задаются options/capabilities. Совместимые шлюзы не получают adaptive thinking автоматически.
 
 ## Capabilities и health
 
-Definition.capabilities: modelListing, tokenCounting(native/unsupported), usageReporting(stream/final/unknown), toolCalling, thinking. Все built-ins перечисляют модели и поддерживают tool calling; Anthropic-compatible не заявляет thinking. Native token counting — у official Anthropic; остальные unsupported. Usage Anthropic — final, OpenAI-compatible — stream. Model capabilities отдельно сообщают только известные contextWindow/maxOutputTokens: неизвестный window не выдумывается.
+Definition.capabilities: modelListing, tokenCounting(native/unsupported), usageReporting(stream/final/unknown), toolCalling, thinking. Все built-ins перечисляют модели и поддерживают tool calling; Anthropic-compatible не заявляет thinking. Native token counting — у official Anthropic; остальные unsupported. Usage Anthropic — final, OpenAI-compatible — stream. Model capabilities сообщают известные contextWindow/maxInputTokens/maxOutputTokens. Метаданные API имеют приоритет над встроенным каталогом models.dev; неизвестное окно не выдумывается. Параметры deployment за шлюзом могут отличаться от опубликованных пределов исходной модели.
 
 Health: checkConnection → listModels → unsupported. Последнее не означает failure. modelListing=false позволяет ручной выбор модели без /models. «Проверить подключение» не гарантирует tool compatibility или успешную генерацию; проверьте коротким запросом. doctor и /doctor проверяют локальную настройку без API-запросов.
 

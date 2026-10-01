@@ -95,7 +95,9 @@ export interface ModelInfo {
   id: string;
   displayName?: string;
   contextWindow?: number;
+  maxInputTokens?: number;
   maxOutputTokens?: number;
+  limitsSource?: "provider" | "catalog" | "config";
 }
 
 export interface TokenUsage {
@@ -107,13 +109,18 @@ export interface TokenUsage {
   cacheCreationTokens?: number;
 }
 
-/** Provider-observed usage for one request, never a cumulative session total. */
+/** Current retained context, including instructions and tools; never session spend. */
 export interface ContextSnapshot {
   model: string;
   observedInputTokens: number;
   contextWindow?: number;
+  occupiedTokens?: number;
+  /** Local baseline for calibrating later history changes against provider usage. */
+  localTokens?: number;
+  connectionId?: string;
+  windowSource?: "provider" | "catalog" | "config";
   observedAt: string;
-  source: "provider_usage" | "count_tokens";
+  source: "provider_usage" | "count_tokens" | "local_estimate";
   status: "observed" | "estimated";
 }
 
@@ -122,7 +129,8 @@ export interface ProviderRequest {
   system: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];
-  maxTokens: number;
+  /** Omit for protocols that can use their own output maximum. */
+  maxTokens?: number;
   signal?: AbortSignal;
 }
 

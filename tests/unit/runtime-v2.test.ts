@@ -175,7 +175,7 @@ test("token budget compacts large outputs without changing transcript and counts
   expect(frame.estimatedInputTokens).toBeLessThan(
     frame.budget.maxInputTokens ?? 0,
   );
-  expect(frame.budget.reservedOutputTokens).toBe(500);
+  expect(frame.budget.maxOutputTokens).toBeUndefined();
   expect(frame.checkpoint?.summary.userConstraints).toContain(
     "Keep the public API; fix null handling.",
   );

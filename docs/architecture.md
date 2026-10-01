@@ -54,7 +54,11 @@ Project sessions используют `schemaVersion: 3`, открытые provi
 
 ## Контекст
 
-ContextManager считает system, instructions, summary, сообщения и tool schemas, резервирует output и buffer. Для официального Anthropic используются capability/model metadata и count-tokens API; неизвестные context windows остаются `undefined`. Другие adapters используют локальную оценку UTF-8 bytes / 3. Это оценка размера, а не гарантия tokenizer провайдера. Явный `contextWindow` можно задать в `.chiselrc`.
+ContextManager считает system, instructions, summary, сообщения и tool schemas. Budget рассчитывается после подсчёта: output ограничен возможностями модели и свободным местом после buffer, без общего предела 4096 или четверти окна. Известный отдельный предел input также соблюдается. Ручные ограничения не увеличивают реальные пределы модели.
+
+Drivers читают лимиты через настроенное подключение: OpenAI-compatible `/models`, Anthropic model metadata. Ошибка получения метаданных не блокирует запрос; резервные параметры точных ID находятся в `src/providers/model-limits.json` со ссылкой на [models.dev](https://models.dev/api.json) и датой обновления. Неизвестные ID не получают лимиты по похожему имени. Для OpenAI неизвестный output не отправляется; Anthropic требует явный предел, полученный из API, каталога или config.
+
+`context_updated` передаёт снимок текущей проекции в session и UI до вызова модели и после ответа. Официальный Anthropic использует count-tokens API. При его недоступности и у остальных adapters применяется оценка UTF-8 bytes / 3; измеренный provider input калибрует последующие изменения истории. Кэш учитывается один раз по семантике протокола. Hidden reasoning/output usage не прибавляется как будто этот текст хранится в истории. После compaction калибровка сбрасывается и проекция считается заново; cumulative session usage остаётся отдельно. UI отмечает оценку знаком `~` и не показывает процент при неизвестном окне.
 
 Compaction работает на атомарных units: assistant с несколькими tool calls и все соответствующие tool results составляют один unit. Pending unit сохраняется. Новейший unit также сохраняется целиком; если он вместе с instructions/schemas уже превышает budget, runtime возвращает `CONTEXT_BUDGET_EXCEEDED`. Provider overflow разрешает одну emergency compaction и один retry на run.
 

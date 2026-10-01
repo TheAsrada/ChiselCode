@@ -1,4 +1,6 @@
 import { resolve } from "node:path";
+import type { ModelCapabilities } from "../providers/capabilities.js";
+import { catalogModelLimits } from "../providers/model-metadata.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import {
   type ApprovalMode,
@@ -30,6 +32,8 @@ export interface TuiViewState {
   approvalMode: ApprovalMode;
   runningApprovalMode?: ApprovalMode;
   modelSelection?: ModelSelection;
+  modelCapabilities?: ModelCapabilities;
+  contextSnapshot?: ContextSnapshot;
   sessionId?: string;
   sessionTitle?: string;
   projectPath: string;
@@ -238,7 +242,7 @@ export class TuiController implements TuiTranscript {
     this.update({ runningApprovalMode });
   }
 
-  setSessionUsage(session: Session): void {
+  setSessionUsage(session: Session, requestSelection?: ModelSelection): void {
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
       return;
     if (this.state.sessionId && this.state.sessionId !== session.id) return;
@@ -251,6 +255,17 @@ export class TuiController implements TuiTranscript {
       sessionId: session.id,
       sessionTitle: session.title,
       modelSelection: selected,
+      modelCapabilities: this.state.modelCapabilities ?? {
+        tokenCounting: "local_estimate",
+        ...catalogModelLimits(selected.provider, selected.model),
+      },
+      contextSnapshot:
+        selected.provider === session.providerId &&
+        selected.profileId === session.profileId &&
+        selected.model === session.model &&
+        (!requestSelection || this.matchesSelection(requestSelection))
+          ? session.contextSnapshot
+          : this.state.contextSnapshot,
       usage: {
         provider: selected.provider,
         profileId: selected.profileId,
@@ -264,7 +279,8 @@ export class TuiController implements TuiTranscript {
           selected.provider === session.providerId &&
           selected.profileId === session.profileId &&
           selected.model === session.model &&
-          session.contextSnapshot?.model === session.model
+          session.contextSnapshot?.model === session.model &&
+          (!requestSelection || this.matchesSelection(requestSelection))
             ? session.contextSnapshot
             : undefined,
       },
@@ -279,8 +295,17 @@ export class TuiController implements TuiTranscript {
     baseUrl?: string,
   ): void {
     const usage = this.state.usage;
+    const same = this.matchesSelection({ provider, model, profileId, baseUrl });
     this.update({
       modelSelection: { provider, model, profileId, baseUrl },
+      modelCapabilities:
+        same && this.state.modelCapabilities
+          ? this.state.modelCapabilities
+          : {
+              tokenCounting: "local_estimate",
+              ...catalogModelLimits(provider, model),
+            },
+      contextSnapshot: same ? this.state.contextSnapshot : undefined,
       usage: usage
         ? {
             ...usage,
@@ -297,6 +322,30 @@ export class TuiController implements TuiTranscript {
           }
         : undefined,
     });
+  }
+
+  setModelCapabilities(
+    selection: ModelSelection,
+    capabilities: ModelCapabilities,
+  ): void {
+    if (this.matchesSelection(selection))
+      this.update({ modelCapabilities: capabilities });
+  }
+  setContextSnapshot(
+    selection: ModelSelection,
+    snapshot: ContextSnapshot,
+  ): void {
+    if (this.matchesSelection(selection) && snapshot.model === selection.model)
+      this.update({ contextSnapshot: snapshot });
+  }
+  private matchesSelection(selection: ModelSelection): boolean {
+    const current = this.state.modelSelection;
+    return (
+      current?.provider === selection.provider &&
+      current.model === selection.model &&
+      current.profileId === selection.profileId &&
+      current.baseUrl === selection.baseUrl
+    );
   }
 
   refreshGitChanges(): void {

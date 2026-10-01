@@ -4,28 +4,40 @@ export function contextBudget(
   capabilities: ModelCapabilities,
   options: ContextOptions,
   requestedOutput?: number,
+  inputTokens = 0,
 ): ContextBudget {
-  const contextWindow = options.contextWindow ?? capabilities.contextWindow;
-  let reservedOutputTokens = Math.min(
-    requestedOutput ?? options.maxOutputTokens ?? 4096,
-    capabilities.maxOutputTokens ?? Number.POSITIVE_INFINITY,
-  );
-  if (contextWindow !== undefined)
-    reservedOutputTokens = Math.min(
-      reservedOutputTokens,
-      Math.max(1, Math.floor(contextWindow / 4)),
-    );
+  const contextWindow =
+    capabilities.contextWindow === undefined
+      ? options.contextWindow
+      : Math.min(options.contextWindow ?? Infinity, capabilities.contextWindow);
+  const requested =
+    requestedOutput ?? options.maxOutputTokens ?? capabilities.maxOutputTokens;
+  let maxOutputTokens =
+    requested === undefined
+      ? undefined
+      : Math.min(requested, capabilities.maxOutputTokens ?? requested);
   const safetyBufferTokens =
     contextWindow === undefined
       ? 0
       : Math.ceil(contextWindow * options.bufferRatio);
+  if (contextWindow !== undefined && maxOutputTokens !== undefined)
+    maxOutputTokens = Math.min(
+      maxOutputTokens,
+      Math.max(1, contextWindow - safetyBufferTokens - inputTokens),
+    );
+  const reservedOutputTokens = maxOutputTokens ?? 0;
+  const maxInputTokens =
+    contextWindow === undefined
+      ? capabilities.maxInputTokens
+      : Math.min(
+          capabilities.maxInputTokens ?? Infinity,
+          contextWindow - safetyBufferTokens - reservedOutputTokens,
+        );
   return {
     contextWindow,
     reservedOutputTokens,
+    maxOutputTokens,
     safetyBufferTokens,
-    maxInputTokens:
-      contextWindow === undefined
-        ? undefined
-        : contextWindow - reservedOutputTokens - safetyBufferTokens,
+    maxInputTokens,
   };
 }

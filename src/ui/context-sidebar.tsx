@@ -26,7 +26,25 @@ export function ContextSidebar({
   const quiet = palette.muted;
   const title = palette.accent;
   const usage = state.usage;
-  const progress = contextProgress(usage?.contextSnapshot);
+  const snapshot = state.contextSnapshot ?? usage?.contextSnapshot;
+  const preferMetadata =
+    snapshot?.windowSource !== "provider" &&
+    state.modelCapabilities?.limitsSource === "provider";
+  const window = preferMetadata
+    ? (state.modelCapabilities?.contextWindow ?? snapshot?.contextWindow)
+    : (snapshot?.contextWindow ?? state.modelCapabilities?.contextWindow);
+  const windowSource = preferMetadata
+    ? state.modelCapabilities?.limitsSource
+    : (snapshot?.windowSource ?? state.modelCapabilities?.limitsSource);
+  const progress = contextProgress(
+    snapshot ? { ...snapshot, contextWindow: window } : undefined,
+  );
+  const selection = state.modelSelection;
+  const barWidth = Math.max(4, Math.min(20, width - 12));
+  const filled =
+    (progress.barPercent ?? 0) > 0
+      ? Math.max(1, Math.round(((progress.barPercent ?? 0) / 100) * barWidth))
+      : 0;
   const files = state.gitChanges?.files ?? [];
   const totalTokens = usage
     ? usage.totalTokens.inputTokens + usage.totalTokens.outputTokens
@@ -42,21 +60,35 @@ export function ContextSidebar({
       backgroundColor={palette.surface}
     >
       <text fg={title}>{focused ? "> Контекст" : "Контекст"}</text>
-      <text fg={quiet}>
-        {safeLine(`${usage?.provider ?? "-"} / ${usage?.model ?? "-"}`)}
+      <text fg={palette.text}>
+        {safeLine(selection?.model ?? usage?.model ?? "-", width - 2)}
       </text>
       <text fg={quiet}>
-        Последний запрос:{" "}
-        {progress.label.replaceAll("—", "-").replaceAll("·", "|")}
+        {safeLine(
+          `${selection?.provider ?? usage?.provider ?? "-"}${selection?.profileId ? ` / ${selection.profileId}` : ""}`,
+          width - 2,
+        )}
       </text>
+      <text fg={quiet}>
+        {window
+          ? `Окно: ${window.toLocaleString("ru-RU")}${windowSource === "catalog" ? " (каталог)" : windowSource === "config" ? " (настройки)" : ""}`
+          : "Размер окна неизвестен"}
+      </text>
+      <text fg={quiet}>{snapshot ? progress.label : "Заполнение: —"}</text>
       {progress.barPercent !== undefined && (
         <text fg={title}>
-          {"#".repeat(Math.round(progress.barPercent / 10))}
-          {".".repeat(10 - Math.round(progress.barPercent / 10))}
+          <span bg={title}>{" ".repeat(filled)}</span>
+          <span bg={palette.border}>{" ".repeat(barWidth - filled)}</span>
         </text>
       )}
-      <text fg={title}>Сессия</text>
-      <text fg={quiet}>{totalTokens.toLocaleString("ru-RU")} токенов</text>
+      {snapshot?.status === "estimated" && (
+        <text fg={quiet}>~ приблизительная оценка</text>
+      )}
+      {usage && (
+        <text fg={quiet}>
+          Расход сессии: {totalTokens.toLocaleString("ru-RU")}
+        </text>
+      )}
       {usage &&
         usage.totalCost !== undefined &&
         Number.isFinite(usage.totalCost) &&

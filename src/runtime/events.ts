@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ToolInvocationState } from "../tools/invocation.js";
 import type {
   ChatMessage,
+  ContextSnapshot,
   JsonObject,
   TokenUsage,
   ToolExecutionResult,
@@ -16,6 +17,7 @@ export type RuntimeEventType =
   | "provider_failed"
   | "provider_response_recovery"
   | "context_compaction_started"
+  | "context_updated"
   | "context_compaction_completed"
   | "overflow_recovery"
   | "tool_queued"
@@ -44,6 +46,7 @@ export interface RuntimeEvent {
   durationMs?: number;
   estimatedInputTokens?: number;
   maxOutputTokens?: number;
+  contextSnapshot?: ContextSnapshot;
 }
 export class RuntimeEventBus {
   private listeners = new Set<(event: RuntimeEvent) => void | Promise<void>>();

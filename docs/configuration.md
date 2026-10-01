@@ -38,16 +38,18 @@ Shell allow rules сопоставляются с нормализованным
     "autoCompact": true,
     "bufferRatio": 0.1,
     "keepRecentTokens": 16000,
-    "maxInlineToolResultTokens": 10000,
-    "contextWindow": 128000,
-    "maxOutputTokens": 4096
+    "maxInlineToolResultTokens": 10000
   },
   "tools": { "maxParallelReads": 4 },
   "editing": { "requireFreshRead": true }
 }
 ```
 
-`contextWindow` и `maxOutputTokens` в примере — явные overrides, а не универсальные свойства моделей. Без override runtime использует известную provider capability; неизвестный window остаётся неизвестным. Output reserve и buffer входят в общий budget. Большие tool outputs сохраняются как artifacts и доступны через `read_tool_result`. Отключение `requireFreshRead` снимает обязательность предварительного чтения, но не проверку уже наблюдавшейся revision или проверку между preflight и commit.
+Размер окна и максимальный ответ берутся из API выбранной модели; если API не сообщает лимиты, используется встроенный каталог точных ID моделей. Общего лимита ответа в 4096 токенов нет: runtime допускает максимум модели с учётом текущего запроса и buffer. Для неизвестной модели OpenAI лимит ответа не отправляется, его выбирает сервер.
+
+Необязательные `context.contextWindow` и `context.maxOutputTokens` позволяют задать лимиты вручную. Первый ограничивает рабочий budget или задаёт неизвестное окно; второй ограничивает ответ. Они не увеличивают известные пределы модели. Для неизвестной модели Anthropic нужен `maxOutputTokens`, если API и каталог не сообщают его: протокол требует `max_tokens`. Панель отличает ручное окно от параметров API/каталога.
+
+Большие tool outputs сохраняются как artifacts и доступны через `read_tool_result`. Отключение `requireFreshRead` снимает обязательность предварительного чтения, но не проверку уже наблюдавшейся revision или проверку между preflight и commit.
 
 ## Инструкции проекта
 

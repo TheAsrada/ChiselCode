@@ -49,6 +49,7 @@ export class TuiWorkspace {
     const mode = this.controller.snapshot.agentMode;
     const approvalMode = this.controller.snapshot.approvalMode;
     const model = this.controller.snapshot.modelSelection;
+    const capabilities = this.controller.snapshot.modelCapabilities;
     if (this.activeKey || projectPath !== this.home.snapshot.projectPath) {
       this.home.switchSession(undefined, projectPath);
       this.home.presentation.history = createEditorState();
@@ -62,6 +63,8 @@ export class TuiWorkspace {
         model.profileId,
         model.baseUrl,
       );
+    if (model && capabilities)
+      this.home.setModelCapabilities(model, capabilities);
     this.select();
     return this.home;
   }

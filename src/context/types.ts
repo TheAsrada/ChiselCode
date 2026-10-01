@@ -22,6 +22,7 @@ export interface ContextCheckpoint {
 export interface ContextBudget {
   contextWindow?: number;
   reservedOutputTokens: number;
+  maxOutputTokens?: number;
   safetyBufferTokens: number;
   maxInputTokens?: number;
 }
@@ -31,6 +32,7 @@ export interface ContextFrame {
   tools: ToolDefinition[];
   budget: ContextBudget;
   estimatedInputTokens: number;
+  localInputTokens: number;
   checkpoint?: ContextCheckpoint;
 }
 export interface ContextOptions {

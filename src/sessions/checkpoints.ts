@@ -7,6 +7,8 @@ export function attachSessionRecorder(
   events: RuntimeEventBus,
 ): () => void {
   return events.subscribe((event) => {
+    if (event.type === "context_updated" && event.contextSnapshot)
+      session.contextSnapshot = event.contextSnapshot;
     if (event.type === "turn_state" && session.runtime)
       session.runtime.state =
         event.state as import("../runtime/turn-state.js").TurnState;
@@ -17,11 +19,23 @@ export function attachSessionRecorder(
     ) {
       session.messages.push(event.message);
       addUsage(session, event.usage);
-      session.contextSnapshot = observedContextSnapshot(
+      const prior = session.contextSnapshot;
+      const observed = observedContextSnapshot(
         session.providerId,
         session.model,
         event.usage,
+        {
+          id: session.model,
+          contextWindow: prior?.contextWindow,
+          limitsSource: prior?.windowSource,
+        },
       );
+      if (observed.observedInputTokens > 0)
+        session.contextSnapshot = {
+          ...observed,
+          localTokens: prior?.localTokens,
+          connectionId: prior?.connectionId,
+        };
     }
     if (
       (event.type === "tool_completed" || event.type === "tool_failed") &&

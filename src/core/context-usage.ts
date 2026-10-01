@@ -28,6 +28,9 @@ export function observedContextSnapshot(
   return {
     model,
     observedInputTokens: observedInputTokens(provider, usage),
+    occupiedTokens: observedInputTokens(provider, usage),
+    windowSource:
+      knownModel?.id === model ? knownModel.limitsSource : undefined,
     ...(window !== undefined && Number.isFinite(window) && window > 0
       ? { contextWindow: window }
       : {}),
@@ -43,12 +46,16 @@ export function contextProgress(snapshot?: ContextSnapshot): {
   barPercent?: number;
 } {
   if (!snapshot) return { label: "—" };
-  const tokens = snapshot.observedInputTokens;
+  const tokens = snapshot.occupiedTokens ?? snapshot.observedInputTokens;
+  const prefix = snapshot.status === "estimated" ? "~" : "";
   if (!snapshot.contextWindow || snapshot.contextWindow <= 0)
-    return { label: `${tokens.toLocaleString("ru-RU")} токенов` };
+    return { label: `${prefix}${tokens.toLocaleString("ru-RU")} токенов` };
   const percent = (tokens / snapshot.contextWindow) * 100;
+  const percentLabel = percent.toLocaleString("ru-RU", {
+    maximumFractionDigits: percent >= 10 ? 0 : 1,
+  });
   return {
-    label: `${tokens.toLocaleString("ru-RU")} / ${snapshot.contextWindow.toLocaleString("ru-RU")} · ${percent.toFixed(0)}%`,
+    label: `${prefix}${tokens.toLocaleString("ru-RU")} / ${snapshot.contextWindow.toLocaleString("ru-RU")} · ${prefix}${percentLabel}%`,
     barPercent: Math.min(100, Math.max(0, percent)),
   };
 }

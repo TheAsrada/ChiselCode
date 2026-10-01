@@ -175,8 +175,12 @@ export const SessionV3Schema = z.looseObject({
       model: z.string(),
       observedInputTokens: z.number().nonnegative(),
       contextWindow: z.number().positive().optional(),
+      occupiedTokens: z.number().nonnegative().optional(),
+      localTokens: z.number().nonnegative().optional(),
+      connectionId: z.string().optional(),
+      windowSource: z.enum(["provider", "catalog", "config"]).optional(),
       observedAt: SessionTimestampSchema,
-      source: z.enum(["provider_usage", "count_tokens"]),
+      source: z.enum(["provider_usage", "count_tokens", "local_estimate"]),
       status: z.enum(["observed", "estimated"]),
     })
     .optional(),

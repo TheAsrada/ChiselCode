@@ -7,8 +7,11 @@ import {
 import { ContextManager } from "../context/context-manager.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
 import { resolveCredential } from "../providers/auth.js";
+import type { ModelCapabilities } from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import type { ProviderProfile } from "../providers/contracts.js";
+import { resolveEndpoint } from "../providers/endpoint.js";
+import { catalogModelLimits } from "../providers/model-metadata.js";
 import { resolveProfileModel, selectProfile } from "../providers/profiles.js";
 import {
   checkAdapterHealth,
@@ -102,6 +105,24 @@ export interface ConnectionCheckResult {
 }
 
 const CONNECTION_CHECK_TIMEOUT_MS = 25_000;
+
+/** Read model limits through the configured connection, without a generation request. */
+export async function getModelCapabilities(
+  input: ConnectionCheckInput,
+): Promise<ModelCapabilities> {
+  const fallback: ModelCapabilities = {
+    tokenCounting: "local_estimate",
+    ...catalogModelLimits(input.provider, input.model ?? ""),
+  };
+  try {
+    const runtime = await resolveConnectionRuntime(input);
+    return (
+      (await runtime.adapter.getCapabilities?.(input.model ?? "")) ?? fallback
+    );
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Проверка подключения к провайдеру: ключ + адрес + список моделей.
@@ -338,7 +359,8 @@ export async function runPrompt(
   session.approvalMode = approvalMode;
   if (
     session.model !== model ||
-    session.providerId !== selected.profile.providerId
+    session.providerId !== selected.profile.providerId ||
+    session.profileId !== selected.profileId
   )
     session.contextSnapshot = undefined;
   session.model = model;
@@ -353,7 +375,7 @@ export async function runPrompt(
     session.titleSource = "auto";
   }
 
-  const { adapter: provider } = await resolveProviderRuntime({
+  const { adapter: provider, definition } = await resolveProviderRuntime({
     ...selected,
     registry,
     drivers,
@@ -423,7 +445,18 @@ export async function runPrompt(
   );
   const runtime = new AgentRuntime(
     provider,
-    new ContextManager(config.context, eventBus),
+    new ContextManager(
+      config.context,
+      eventBus,
+      JSON.stringify([
+        selected.profile.providerId,
+        selected.profileId,
+        resolveEndpoint(
+          definition,
+          options.baseUrl ?? selected.profile.baseUrl,
+        ),
+      ]),
+    ),
     {
       getApprovalMode: tools.getApprovalMode,
       selectForTurn: () => tools.catalog.selectForTurn(),

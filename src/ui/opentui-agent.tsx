@@ -7,6 +7,7 @@ import { createRoot } from "@opentui/react";
 import React from "react";
 import {
   checkProviderConnection,
+  getModelCapabilities,
   hasApiKey,
   listProviderModels,
   type RunOptions,
@@ -156,6 +157,32 @@ export async function runOpenTuiAgent(
     { expires: number; result: Awaited<ReturnType<typeof listProviderModels>> }
   >();
   let modelCacheGeneration = 0;
+  const capabilityRequests = new Map<
+    string,
+    ReturnType<typeof getModelCapabilities>
+  >();
+  const warmModelCapabilities = (controller: TuiController) => {
+    const selection = controller.snapshot.modelSelection;
+    if (!selection) return;
+    const generation = controller.currentGeneration;
+    const key = JSON.stringify(selection);
+    let request = capabilityRequests.get(key);
+    if (!request) {
+      request = getModelCapabilities({
+        provider: selection.provider,
+        profileId: selection.profileId,
+        model: selection.model,
+        baseUrl: selection.baseUrl,
+      });
+      capabilityRequests.set(key, request);
+    }
+    void request.then((capabilities) => {
+      if (controller.isCurrent(generation))
+        controller.setModelCapabilities(selection, capabilities);
+    });
+  };
+  warmModelCapabilities(workspace.home);
+  warmModelCapabilities(workspace.controller);
   const modelRequests = new Map<string, number>();
   let currentTheme = config.ui?.theme ?? "obsidian";
   const classic =
@@ -282,7 +309,9 @@ export async function runOpenTuiAgent(
       autoApprove: project.autoApprove,
       allowBypassPermissions: bypassAvailable,
     });
-    persistExecutionModes(workspace.openSession(session));
+    const controller = workspace.openSession(session);
+    persistExecutionModes(controller);
+    warmModelCapabilities(controller);
   };
   const sessionPicker: OpenTuiSessionsActions = {
     load: async () => (await sessionStore()).list(),
@@ -355,6 +384,7 @@ export async function runOpenTuiAgent(
         baseUrl: values.baseUrl,
       };
       modelCache.clear();
+      capabilityRequests.clear();
       modelCacheGeneration++;
       currentController().setActiveModel(
         values.provider,
@@ -362,6 +392,7 @@ export async function runOpenTuiAgent(
         profile,
         values.baseUrl,
       );
+      warmModelCapabilities(currentController());
       return outcome;
     },
     check: async (values) => {
@@ -496,6 +527,7 @@ export async function runOpenTuiAgent(
           profileId,
           selection.baseUrl,
         );
+        warmModelCapabilities(controller);
       },
     };
   };
@@ -759,6 +791,7 @@ export async function runOpenTuiAgent(
       controller.setSessionTitle(
         clipText(input.split("\n", 1)[0] ?? input, 120),
       );
+      warmModelCapabilities(controller);
       controller.presentation.history = inputHistory;
       skillNames.set(controller, {
         generation: controller.currentGeneration,
@@ -780,6 +813,7 @@ export async function runOpenTuiAgent(
       );
       return;
     }
+    const requestGeneration = controller.currentGeneration;
     controller.startRequest();
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
@@ -812,6 +846,24 @@ export async function runOpenTuiAgent(
           approvalResolver,
           {
             onEvent: (event) => {
+              if (
+                controller.isCurrent(requestGeneration) &&
+                event.type === "context_updated" &&
+                event.contextSnapshot
+              ) {
+                const selection = controller.snapshot.modelSelection;
+                if (selection)
+                  controller.setContextSnapshot(
+                    {
+                      provider: turnModelOptions.provider ?? selection.provider,
+                      profileId: turnModelOptions.profile,
+                      model:
+                        turnModelOptions.model ?? event.contextSnapshot.model,
+                      baseUrl: turnModelOptions.baseUrl,
+                    },
+                    event.contextSnapshot,
+                  );
+              }
               if (event.type === "provider_response_recovery") {
                 controller.discardStreaming();
                 hasText = false;
@@ -841,7 +893,12 @@ export async function runOpenTuiAgent(
         );
         status = result.status;
         elapsedMs = result.elapsedMs;
-        controller.setSessionUsage(result.session);
+        controller.setSessionUsage(result.session, {
+          provider: result.session.providerId,
+          profileId: result.session.profileId,
+          model: result.session.model,
+          baseUrl: turnModelOptions.baseUrl,
+        });
         controller.setToolActivity();
         if (result.error) controller.append(result.error, "error");
         else if (!hasText)

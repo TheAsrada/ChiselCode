@@ -2,6 +2,7 @@ import type { ModelCapabilities } from "../providers/capabilities.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
 import type {
+  ContextSnapshot,
   ProviderAdapter,
   Session,
   ToolDefinition,
@@ -29,80 +30,150 @@ export class ContextManager {
   constructor(
     options: Partial<ContextOptions> = {},
     private readonly events?: RuntimeEventBus,
+    private readonly connectionId?: string,
   ) {
     this.options = { ...DEFAULT_CONTEXT_OPTIONS, ...options };
   }
   async build(input: ContextBuildRequest): Promise<ContextFrame> {
     cancelled(input.signal);
-    const budget = contextBudget(
+    let messages = assembleMessages(input.session);
+    let count = await this.count(input, messages);
+    // Try to free old history for the model's full response before shrinking output.
+    const preferredBudget = contextBudget(
       input.capabilities,
       this.options,
       input.requestedOutput,
     );
-    let messages = assembleMessages(input.session);
-    let estimatedInputTokens = await this.count(input, messages);
     if (
-      budget.maxInputTokens !== undefined &&
-      estimatedInputTokens > budget.maxInputTokens &&
+      preferredBudget.maxInputTokens !== undefined &&
+      count.tokens > preferredBudget.maxInputTokens &&
       this.options.autoCompact
     ) {
-      await this.compact(
+      const changed = await this.compact(
         input.session,
         Math.min(
           this.options.keepRecentTokens,
-          Math.floor(budget.maxInputTokens / 2),
+          Math.max(0, Math.floor(preferredBudget.maxInputTokens / 2)),
         ),
       );
       messages = assembleMessages(input.session);
-      estimatedInputTokens = await this.count(input, messages);
+      count = await this.count(input, messages, !changed);
     }
+    const budget = contextBudget(
+      input.capabilities,
+      this.options,
+      input.requestedOutput,
+      count.tokens,
+    );
     if (
       budget.maxInputTokens !== undefined &&
-      estimatedInputTokens > budget.maxInputTokens
+      count.tokens > budget.maxInputTokens
     )
       throw new RuntimeError(
         "CONTEXT_BUDGET_EXCEEDED",
-        `Request needs approximately ${estimatedInputTokens} input tokens; budget is ${budget.maxInputTokens}. Reduce instructions, schemas or current input. User constraints were preserved.`,
+        `Request needs approximately ${count.tokens} input tokens; budget is ${budget.maxInputTokens}. Reduce instructions, schemas or current input. User constraints were preserved.`,
       );
+    await this.publish(input, count);
     return {
       system: input.system,
       messages,
       tools: input.tools,
       budget,
-      estimatedInputTokens,
+      estimatedInputTokens: count.tokens,
+      localInputTokens: count.localTokens,
       checkpoint: input.session.context?.activeCheckpoint,
     };
+  }
+  /** Refresh after the reply using the same system/tools as the actual request. */
+  async refresh(input: ContextBuildRequest): Promise<void> {
+    await this.publish(
+      input,
+      await this.count(input, assembleMessages(input.session)),
+    );
+  }
+  private async publish(
+    input: ContextBuildRequest,
+    count: { tokens: number; localTokens: number; exact: boolean },
+  ): Promise<void> {
+    const snapshot: ContextSnapshot = {
+      model: input.session.model,
+      observedInputTokens:
+        input.session.contextSnapshot?.connectionId === this.connectionId
+          ? (input.session.contextSnapshot?.observedInputTokens ?? count.tokens)
+          : count.tokens,
+      occupiedTokens: count.tokens,
+      localTokens: count.localTokens,
+      connectionId: this.connectionId,
+      contextWindow:
+        input.capabilities.contextWindow ?? this.options.contextWindow,
+      windowSource:
+        input.capabilities.contextWindow !== undefined
+          ? input.capabilities.limitsSource
+          : this.options.contextWindow !== undefined
+            ? "config"
+            : undefined,
+      observedAt: new Date().toISOString(),
+      source: count.exact ? "count_tokens" : "local_estimate",
+      status: count.exact ? "observed" : "estimated",
+    };
+    input.session.contextSnapshot = snapshot;
+    await this.events?.emit({
+      type: "context_updated",
+      contextSnapshot: snapshot,
+    });
   }
   async emergencyCompact(session: Session): Promise<void> {
     await this.events?.emit({ type: "overflow_recovery" });
     await this.compact(session, 0);
   }
-  private async compact(session: Session, retain: number): Promise<void> {
+  private async compact(session: Session, retain: number): Promise<boolean> {
     await this.events?.emit({ type: "context_compaction_started" });
     const changed = compactProjection(session, retain);
-    if (changed)
+    if (changed) {
+      session.contextSnapshot = undefined;
       await this.events?.emit({ type: "context_compaction_completed" });
+    }
+    return changed;
   }
   private async count(
     input: ContextBuildRequest,
     messages: ContextFrame["messages"],
-  ): Promise<number> {
+    calibrate = true,
+  ): Promise<{ tokens: number; localTokens: number; exact: boolean }> {
     cancelled(input.signal);
+    const localTokens = requestTokens(input.system, messages, input.tools);
     if (
       input.capabilities.tokenCounting === "provider" &&
       input.provider.countTokens
     ) {
-      const count = await input.provider.countTokens({
-        model: input.session.model,
-        system: input.system,
-        messages,
-        tools: input.tools,
-        signal: input.signal,
-      });
-      cancelled(input.signal);
-      if (count !== undefined && Number.isFinite(count) && count >= 0)
-        return count;
+      try {
+        const count = await input.provider.countTokens({
+          model: input.session.model,
+          system: input.system,
+          messages,
+          tools: input.tools,
+          signal: input.signal,
+        });
+        cancelled(input.signal);
+        if (count !== undefined && Number.isFinite(count) && count >= 0)
+          return { tokens: count, localTokens, exact: true };
+      } catch {
+        cancelled(input.signal);
+      }
     }
-    return requestTokens(input.system, messages, input.tools);
+    const prior = input.session.contextSnapshot;
+    const tokens =
+      calibrate &&
+      prior?.model === input.session.model &&
+      prior.connectionId === this.connectionId &&
+      prior.localTokens !== undefined
+        ? Math.max(
+            0,
+            (prior.occupiedTokens ?? prior.observedInputTokens) +
+              localTokens -
+              prior.localTokens,
+          )
+        : localTokens;
+    return { tokens, localTokens, exact: false };
   }
 }

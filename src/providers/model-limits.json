@@ -1,0 +1,400 @@
+{
+  "source": "https://models.dev/api.json",
+  "updatedAt": "2026-10-01",
+  "providers": {
+    "openai": {
+      "gpt-5.4": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.4-pro": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-3.5-turbo": {
+        "contextWindow": 16385,
+        "maxOutputTokens": 4096
+      },
+      "gpt-5.5-pro": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "text-embedding-3-small": {
+        "contextWindow": 8191,
+        "maxOutputTokens": 1536
+      },
+      "gpt-5.4-nano": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-realtime-2.1": {
+        "contextWindow": 128000,
+        "maxInputTokens": 96000,
+        "maxOutputTokens": 32000
+      },
+      "gpt-4o-2024-05-13": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 4096
+      },
+      "gpt-4o": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384
+      },
+      "gpt-5-mini": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.2-pro": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "o4-mini": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 100000
+      },
+      "o3-mini": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 100000
+      },
+      "text-embedding-ada-002": {
+        "contextWindow": 8192,
+        "maxOutputTokens": 1536
+      },
+      "gpt-4": {
+        "contextWindow": 8192,
+        "maxOutputTokens": 8192
+      },
+      "gpt-5.3-codex": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-4.1-nano": {
+        "contextWindow": 1047576,
+        "maxOutputTokens": 32768
+      },
+      "gpt-5-nano": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.6": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.2-chat-latest": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384
+      },
+      "o1": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 100000
+      },
+      "gpt-5-pro": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 272000
+      },
+      "gpt-5.3-codex-spark": {
+        "contextWindow": 128000,
+        "maxInputTokens": 100000,
+        "maxOutputTokens": 32000
+      },
+      "gpt-6.1-sol": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "text-embedding-3-large": {
+        "contextWindow": 8191,
+        "maxOutputTokens": 3072
+      },
+      "gpt-4o-2024-08-06": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384
+      },
+      "gpt-6-astra": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.1": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-4o-mini": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384
+      },
+      "o3-pro": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 100000
+      },
+      "gpt-daybreak-blue-latest": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.4-mini": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.6-luna": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.2": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.5": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-4.1": {
+        "contextWindow": 1047576,
+        "maxOutputTokens": 32768
+      },
+      "gpt-4o-2024-11-20": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384
+      },
+      "gpt-4.1-mini": {
+        "contextWindow": 1047576,
+        "maxOutputTokens": 32768
+      },
+      "gpt-6-luna": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.3-chat-latest": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 16384
+      },
+      "gpt-5.6-terra": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-4-turbo": {
+        "contextWindow": 128000,
+        "maxOutputTokens": 4096
+      },
+      "gpt-daybreak-red-latest": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "o3": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 100000
+      },
+      "gpt-5": {
+        "contextWindow": 400000,
+        "maxInputTokens": 272000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-5.6-sol": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "gpt-6-sol": {
+        "contextWindow": 1050000,
+        "maxInputTokens": 922000,
+        "maxOutputTokens": 128000
+      },
+      "o1-pro": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 100000
+      }
+    },
+    "anthropic": {
+      "claude-haiku-4-5": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000
+      },
+      "claude-opus-4-5": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000
+      },
+      "claude-sonnet-4-5": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000
+      },
+      "claude-opus-5-5": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-fable-5-1": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-opus-4-5-20251101": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000
+      },
+      "claude-opus-5": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-fable-5": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-opus-4-8": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-sonnet-4-5-20250929": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000
+      },
+      "claude-sonnet-5": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-opus-4-6": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-haiku-4-5-20251001": {
+        "contextWindow": 200000,
+        "maxOutputTokens": 64000
+      },
+      "claude-sonnet-4-6": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-sonnet-5-5": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "claude-opus-4-7": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000
+      }
+    },
+    "deepseek": {
+      "deepseek-v4-flash-vision-exp": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 393216
+      },
+      "deepseek-flash": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 393216
+      },
+      "deepseek-v4-pro": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 393216
+      },
+      "deepseek-v4-flash": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 393216
+      }
+    },
+    "fireworks-ai": {
+      "accounts/fireworks/models/nemotron-3-ultra-nvfp4": {
+        "contextWindow": 262144,
+        "maxOutputTokens": 128000
+      },
+      "accounts/fireworks/models/kimi-k3": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/models/qwen3p8-2p4t-a95b": {
+        "contextWindow": 262144,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/models/ember-1": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/models/deepseek-v4p1-flash": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 384000
+      },
+      "accounts/fireworks/models/glm-5p3": {
+        "contextWindow": 1048573,
+        "maxOutputTokens": 262144
+      },
+      "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b": {
+        "contextWindow": 262144,
+        "maxOutputTokens": 262144
+      },
+      "accounts/fireworks/models/inkling": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": 1048576
+      },
+      "accounts/fireworks/models/minimax-m3": {
+        "contextWindow": 512000,
+        "maxOutputTokens": 512000
+      },
+      "accounts/fireworks/models/glm-5p3-flash": {
+        "contextWindow": 1048573,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/models/gpt-oss-120b": {
+        "contextWindow": 131072,
+        "maxOutputTokens": 32768
+      },
+      "accounts/fireworks/models/qwen3p8-max": {
+        "contextWindow": 262144,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/routers/minimax-latest": {
+        "contextWindow": 512000,
+        "maxOutputTokens": 512000
+      },
+      "accounts/fireworks/routers/glm-flash-latest": {
+        "contextWindow": 1048573,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/routers/glm-fast-latest": {
+        "contextWindow": 1048572,
+        "maxOutputTokens": 262144
+      },
+      "accounts/fireworks/routers/kimi-k3-fast": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/routers/glm-5p3-fast": {
+        "contextWindow": 1048572,
+        "maxOutputTokens": 262144
+      },
+      "accounts/fireworks/routers/kimi-fast-latest": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/routers/qwen-max-latest": {
+        "contextWindow": 262144,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/routers/kimi-latest": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": 131072
+      },
+      "accounts/fireworks/routers/deepseek-flash-latest": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": 384000
+      },
+      "accounts/fireworks/routers/glm-latest": {
+        "contextWindow": 1048573,
+        "maxOutputTokens": 262144
+      }
+    }
+  }
+}
