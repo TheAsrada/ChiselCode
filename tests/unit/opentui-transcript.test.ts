@@ -51,3 +51,7 @@ test("split requires two actual fifty-column diff panes", () => {
   expect(diffViewForWidth(99)).toBe("unified");
   expect(diffViewForWidth(100)).toBe("split");
 });
+test("terminal display normalizes CRLF without inserting spaces into full-width lines", () => {
+  expect(terminalSafeText("Первая\r\nВторая\r\n")).toBe("Первая\nВторая\n");
+  expect(terminalSafeText("x\ry")).toBe("x y");
+});

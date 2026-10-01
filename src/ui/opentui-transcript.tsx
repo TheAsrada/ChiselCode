@@ -22,7 +22,7 @@ export function visibleTranscriptWindow(
 /** Keep the original patch in the session; sanitize only the render model. */
 export function terminalSafeText(input: string, maxChars = 100_000): string {
   return Array.from(
-    stripVTControlCharacters(input.slice(0, maxChars)),
+    stripVTControlCharacters(input.slice(0, maxChars).replaceAll("\r\n", "\n")),
     (character) => {
       const code = character.codePointAt(0) ?? 0;
       return (code < 32 && code !== 10 && code !== 9) || code === 127
@@ -94,15 +94,15 @@ export function FormattedMessage({
   palette: Palette;
 }) {
   let fenced = false;
-  const occurrences = new Map<string, number>();
+  // Appending deltas changes the tail's text, but never its source offset.
+  let offset = 0;
   return (
-    <React.Fragment>
+    <box width="100%" flexDirection="column" paddingLeft={1} flexShrink={0}>
       {terminalSafeText(content, 20_000)
         .split("\n")
         .map((line) => {
-          const count = (occurrences.get(line) ?? 0) + 1;
-          occurrences.set(line, count);
-          const key = `${line}:${count}`;
+          const key = offset;
+          offset += line.length + 1;
           const fence = /^\s*```\s*([^`]*)$/.exec(line);
           if (fence) {
             fenced = !fenced;
@@ -123,7 +123,6 @@ export function FormattedMessage({
           if (heading)
             return (
               <text key={key} fg={palette.accent} selectable>
-                {" "}
                 <b>{inlineText(heading[1] ?? "", palette)}</b>
               </text>
             );
@@ -142,14 +141,12 @@ export function FormattedMessage({
           if (quote)
             return (
               <text key={key} fg={palette.muted} selectable>
-                {" "}
                 <i>│ {inlineText(quote[1] ?? "", palette)}</i>
               </text>
             );
           if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line))
             return (
               <text key={key} fg={palette.border}>
-                {" "}
                 ────────────────────
               </text>
             );
@@ -157,7 +154,6 @@ export function FormattedMessage({
           if (line.includes("|") && /^\s*\|/.test(line))
             return (
               <text key={key} fg={palette.text} selectable>
-                {" "}
                 {line
                   .trim()
                   .replace(/^\||\|$/g, "")
@@ -168,12 +164,11 @@ export function FormattedMessage({
             );
           return (
             <text key={key} fg={palette.text} selectable>
-              {" "}
-              {inlineText(line, palette)}
+              {line ? inlineText(line, palette) : " "}
             </text>
           );
         })}
-    </React.Fragment>
+    </box>
   );
 }
 
