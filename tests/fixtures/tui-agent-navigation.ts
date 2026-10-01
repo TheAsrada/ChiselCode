@@ -6,6 +6,7 @@ import type { RunOptions } from "../../src/commands/run.js";
 import * as run from "../../src/commands/run.js";
 import * as config from "../../src/config/load.js";
 import type { AgentEventHandlers } from "../../src/core/agent-loop.js";
+import type { AgentMode } from "../../src/runtime/agent-mode.js";
 import * as projects from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { stripActiveSkillsBlock } from "../../src/skills/skills.js";
@@ -47,9 +48,15 @@ mock.module("../../src/config/load.js", () => ({
   }),
   saveGlobalConfig: async () => {},
 }));
+const storedModes: AgentMode[] = [];
 mock.module("../../src/sessions/project-store.js", () => ({
   ...projects,
-  projectSessionStore: async () => ({ list: async () => [] }),
+  projectSessionStore: async () => ({
+    list: async () => [],
+    setMode: async (_id: string, mode: AgentMode) => {
+      storedModes.push(mode);
+    },
+  }),
   SessionProjectRegistry: class {
     async list() {
       return [];
@@ -59,6 +66,7 @@ mock.module("../../src/sessions/project-store.js", () => ({
 let releaseFirst: (() => void) | undefined;
 let calls = 0;
 const prompts: string[] = [];
+const modes: Array<AgentMode | undefined> = [];
 mock.module("../../src/commands/run.js", () => ({
   ...run,
   hasApiKey: async () => true,
@@ -72,6 +80,7 @@ mock.module("../../src/commands/run.js", () => ({
   ) => {
     calls++;
     prompts.push(prompt);
+    modes.push(options.mode);
     const task = stripActiveSkillsBlock(prompt);
     if (calls === 1)
       await new Promise<void>((resolve) => {
@@ -84,6 +93,7 @@ mock.module("../../src/commands/run.js", () => ({
       "test-model",
     );
     session.title = task;
+    session.mode = options.mode;
     return { result: { session, text: `answer: ${task}` } };
   },
 }));
@@ -96,7 +106,9 @@ try {
   await waitForFrame(() => !!setup.renderer.root.findDescendantById("welcome"));
   await frame();
   expect(setup.captureCharFrame()).toContain("ChiselCode");
-  expect(setup.captureCharFrame()).toContain("Chisel · test-model");
+  expect(setup.captureCharFrame()).toContain("Build");
+  expect(setup.captureCharFrame()).toContain("test-model");
+  expect(setup.captureCharFrame()).toContain("Shift+Tab режим");
   expect(setup.renderer.root.findDescendantById("session-tabs")).toBeFalsy();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
   await act(async () => {
@@ -117,13 +129,20 @@ try {
     await Bun.sleep(120);
   });
   await act(async () => {
+    setup.mockInput.pressTab({ shift: true });
     await setup.mockInput.pasteBracketedText("first task");
     setup.mockInput.pressEnter();
   });
   expect(calls).toBe(1);
+  expect(modes).toEqual(["plan"]);
   expect(prompts[0]).toContain("code-review");
   await frame();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeFalsy();
+  await act(async () => {
+    setup.mockInput.pressTab({ shift: true });
+  });
+  await frame();
+  expect(setup.captureCharFrame()).toContain("сейчас Plan");
   await act(async () => {
     setup.mockInput.pressKey("p", { ctrl: true });
   });
@@ -136,7 +155,8 @@ try {
   });
   await frame();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
-  expect(setup.captureCharFrame()).toContain("Chisel · test-model");
+  expect(setup.captureCharFrame()).toContain("Build");
+  expect(setup.captureCharFrame()).toContain("test-model");
   expect(
     setup.renderer.root
       .findDescendantById("session-tabs")
@@ -157,6 +177,9 @@ try {
   ).toBe(2);
   expect(setup.captureCharFrame()).toContain("В очереди: 1");
   await act(async () => {
+    setup.mockInput.pressTab({ shift: true });
+  });
+  await act(async () => {
     releaseFirst?.();
   });
   await waitForFrame(() =>
@@ -164,6 +187,8 @@ try {
   );
   expect(calls).toBe(2);
   expect(prompts[1]).toBe("second task");
+  expect(modes).toEqual(["plan", "build"]);
+  expect(setup.captureCharFrame()).toContain("Plan");
   expect(setup.captureCharFrame()).toContain("answer: second task");
   expect(setup.captureCharFrame()).not.toContain("answer: first task");
   await act(async () => {
@@ -176,6 +201,7 @@ try {
     setup.mockInput.pressCtrlC();
   });
   await running;
+  expect(storedModes).toContain("plan");
   process.stdout.write("Agent navigation and queued output verified\n");
 } finally {
   setup.renderer.destroy();

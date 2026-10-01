@@ -849,7 +849,7 @@ export function OpenTuiSettings({
                   flexDirection="column"
                 >
                   <text fg={palette.muted}>❯ Проверь мой проект</text>
-                  <text fg={palette.accent}>◆ Chisel</text>
+                  <text fg={palette.accent}>◆ Помощник</text>
                   <text fg={palette.text}>Готов к следующей задаче.</text>
                 </box>
                 <text marginTop={1} fg={palette.muted}>

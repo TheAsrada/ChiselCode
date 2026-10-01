@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AGENT_MODES, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 export const FileRevisionSchema = z.object({
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   size: z.number().int().nonnegative(),
@@ -36,6 +37,7 @@ const ToolResultSchema = z.object({
   sandboxed: z.boolean().optional(),
 });
 export const SessionRuntimeSchema = z.object({
+  turnMode: z.enum(AGENT_MODES).optional(),
   turnId: z.string().optional(),
   state: z
     .enum([
@@ -122,6 +124,7 @@ const contentSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export const SessionV3Schema = z.looseObject({
+  mode: z.enum(AGENT_MODES).default(DEFAULT_AGENT_MODE),
   schemaVersion: z.literal(3),
   runtime: SessionRuntimeSchema.optional(),
   context: SessionContextSchema.optional(),

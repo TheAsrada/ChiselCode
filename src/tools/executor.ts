@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { allowsToolInMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { ApprovalGate } from "../security/approval.js";
 import { initializeSessionState } from "../sessions/migrations.js";
@@ -87,6 +88,16 @@ export class ToolExecutor {
         state: "queued",
       });
       const handler = this.catalog.get(call.name);
+      const mode =
+        context.mode ??
+        context.session.runtime?.turnMode ??
+        context.session.mode ??
+        DEFAULT_AGENT_MODE;
+      if (!allowsToolInMode(mode, handler.spec.effect))
+        throw new RuntimeError(
+          "MODE_RESTRICTION",
+          "Plan mode permits only read-only tools. Switch to Build using Shift+Tab or /build before requesting changes or shell execution.",
+        );
       outputLimit =
         handler.spec.outputPolicy?.maxInlineTokens ?? this.maxInlineTokens;
       let input: unknown;
@@ -247,7 +258,8 @@ export class ToolExecutor {
       record.state =
         result.errorCode === "CANCELLED"
           ? "cancelled"
-          : result.errorCode === "PERMISSION_DENIED"
+          : result.errorCode === "PERMISSION_DENIED" ||
+              result.errorCode === "MODE_RESTRICTION"
             ? "denied"
             : "failed";
       record.updatedAt = new Date().toISOString();

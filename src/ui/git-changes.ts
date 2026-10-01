@@ -21,10 +21,23 @@ export interface GitWorkingState {
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await exec("git", ["-C", cwd, ...args], {
-    maxBuffer: 16 * 1024 * 1024,
-    encoding: "utf8",
-  });
+  const { stdout } = await exec(
+    "git",
+    [
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-C",
+      cwd,
+      ...(args[0] === "diff"
+        ? ["diff", "--no-ext-diff", "--no-textconv", ...args.slice(1)]
+        : args),
+    ],
+    {
+      maxBuffer: 16 * 1024 * 1024,
+      encoding: "utf8",
+    },
+  );
   return stdout;
 }
 

@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import type { Session } from "../types/domain.js";
 import { createEditorState } from "./editor.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
@@ -18,8 +19,8 @@ export class TuiWorkspace {
   private listeners = new Set<() => void>();
   private subscriptions = new Map<string, () => void>();
 
-  constructor(projectPath: string) {
-    this.home = new TuiController(projectPath);
+  constructor(projectPath: string, mode: AgentMode = DEFAULT_AGENT_MODE) {
+    this.home = new TuiController(projectPath, mode);
   }
 
   get controller(): TuiController {
@@ -36,16 +37,21 @@ export class TuiWorkspace {
 
   /** A new conversation starts on the welcome screen, without allocating a tab. */
   newDraft(projectPath = this.controller.snapshot.projectPath): TuiController {
+    const mode = this.controller.snapshot.agentMode;
     if (this.activeKey || projectPath !== this.home.snapshot.projectPath) {
       this.home.switchSession(undefined, projectPath);
       this.home.presentation.history = createEditorState();
     }
+    this.home.setAgentMode(mode);
     this.select();
     return this.home;
   }
 
-  newTab(projectPath = this.controller.snapshot.projectPath): TuiController {
-    const controller = new TuiController(projectPath);
+  newTab(
+    projectPath = this.controller.snapshot.projectPath,
+    mode = this.controller.snapshot.agentMode,
+  ): TuiController {
+    const controller = new TuiController(projectPath, mode);
     const key = `tab-${++this.serial}`;
     this.tabs = [...this.tabs, { key, controller }];
     this.subscriptions.set(

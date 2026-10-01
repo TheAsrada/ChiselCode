@@ -12,6 +12,7 @@ import {
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
+import type { AgentMode } from "../runtime/agent-mode.js";
 import type { Session } from "../types/domain.js";
 import { withLock } from "./lock.js";
 import {
@@ -363,6 +364,22 @@ export class ProjectSessionStore {
     session.title = trimmed.slice(0, 120);
     session.titleSource = "user";
     await this.save(session);
+  }
+  /** Update only the selection under the same lock as checkpoints, preserving history. */
+  async setMode(id: string, mode: AgentMode): Promise<void> {
+    await this.list();
+    await withLock(this.indexPath, async () => {
+      const session = await this.load(id);
+      const { projectPath: _projectPath, ...fields } = session;
+      const persisted = persistedSessionSchema.parse({
+        ...fields,
+        schemaVersion: 3,
+        mode,
+      });
+      const index = indexSchema.parse(await readJson(this.indexPath));
+      await atomicJson(this.file(id), persisted);
+      await atomicJson(this.indexPath, index);
+    });
   }
   async delete(id: string): Promise<void> {
     await this.list();

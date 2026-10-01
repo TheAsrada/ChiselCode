@@ -13,6 +13,7 @@ import type {
   TokenCountRequest,
 } from "../providers/capabilities.js";
 import type { ProviderErrorCode } from "../providers/errors.js";
+import type { AgentMode } from "../runtime/agent-mode.js";
 import type { TurnState } from "../runtime/turn-state.js";
 import type { ToolInvocationRecord } from "../tools/invocation.js";
 export interface FileRevision {
@@ -21,6 +22,7 @@ export interface FileRevision {
 }
 export interface SessionRuntimeState {
   turnId?: string;
+  turnMode?: AgentMode;
   state?: TurnState;
   invocations: Record<string, ToolInvocationRecord>;
   workspaceObservations: Record<string, FileRevision>;
@@ -196,6 +198,8 @@ export interface Session {
   runtime?: SessionRuntimeState;
   context?: SessionContextState;
   model: string;
+  /** Selected workflow for subsequent requests; old sessions default to Build. */
+  mode?: AgentMode;
   providerId: string;
   profileId: string;
   /** @deprecated Non-persisted alias for providerId. */

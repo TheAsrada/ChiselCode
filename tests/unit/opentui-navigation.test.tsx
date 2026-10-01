@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
+import { createSession } from "../../src/sessions/store.js";
 import { THEMES } from "../../src/ui/appearance.js";
 import { LOGO_WIDTH, renderLogoRows } from "../../src/ui/logo.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
@@ -25,6 +26,177 @@ async function click(setup: Setup, id: string) {
   });
   await frame(setup);
 }
+
+for (const [width, height] of [
+  [40, 12],
+  [80, 24],
+  [120, 36],
+]) {
+  test(`Shift+Tab and mode badge preserve draft, model and focus at ${width}×${height}`, async () => {
+    const workspace = new TuiWorkspace(process.cwd());
+    let submitted = false;
+    const setup = await testRender(
+      <OpenTuiSpike
+        workspace={workspace}
+        onExit={() => {}}
+        onSubmit={async () => {
+          submitted = true;
+        }}
+        getDefaultModel={() => "test-model"}
+      />,
+      { width, height },
+    );
+    try {
+      await frame(setup);
+      expect(setup.captureCharFrame()).toContain("Shift+Tab режим");
+      await act(async () => {
+        await setup.mockInput.pasteBracketedText("/bu");
+        setup.mockInput.pressTab({ shift: true });
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.agentMode).toBe("plan");
+      expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/bu");
+      expect(setup.captureCharFrame()).toContain("test-model");
+      expect(submitted).toBe(false);
+      const badge = setup.renderer.root.findDescendantById("prompt-agent-mode");
+      if (!badge) throw new Error("Mode badge is missing");
+      await act(async () => {
+        await setup.mockMouse.click(badge.x + 2, badge.y);
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.agentMode).toBe("build");
+      expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/bu");
+      expect(workspace.tabs).toHaveLength(0);
+    } finally {
+      act(() => {
+        setup.renderer.destroy();
+        workspace.dispose();
+      });
+    }
+  });
+}
+
+test("mode commands stay local; modes belong to tabs, resume restores them and a new draft inherits the selection", async () => {
+  const workspace = new TuiWorkspace(process.cwd());
+  const submitted: string[] = [];
+  const setup = await testRender(
+    <OpenTuiSpike
+      workspace={workspace}
+      onExit={() => {}}
+      onSubmit={async (input) => {
+        submitted.push(input);
+      }}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await frame(setup);
+    for (const [command, expected] of [
+      ["/plan", "plan"],
+      ["/build", "build"],
+      ["/mode plan", "plan"],
+    ]) {
+      await act(async () => {
+        await setup.mockInput.pasteBracketedText(command ?? "");
+        setup.mockInput.pressEnter();
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.agentMode).toBe(expected);
+      expect(setup.renderer.currentFocusedEditor?.plainText).toBe("");
+    }
+    expect(submitted).toEqual([]);
+    expect(workspace.tabs).toHaveLength(0);
+    let firstKey: string | undefined;
+    act(() => {
+      workspace.newTab();
+      firstKey = workspace.activeKey;
+      workspace.controller.setAgentMode("build");
+      workspace.newDraft();
+    });
+    await frame(setup);
+    expect(workspace.home.snapshot.agentMode).toBe("build");
+    const session = createSession(process.cwd(), "anthropic", "test-model");
+    session.mode = "plan";
+    act(() => {
+      workspace.openSession(session);
+    });
+    await frame(setup);
+    expect(workspace.controller.snapshot.agentMode).toBe("plan");
+    act(() => {
+      workspace.select(firstKey);
+    });
+    await frame(setup);
+    expect(workspace.controller.snapshot.agentMode).toBe("build");
+    const legacy = createSession(process.cwd(), "anthropic", "test-model");
+    act(() => {
+      workspace.openSession(legacy);
+    });
+    await frame(setup);
+    expect(workspace.controller.snapshot.agentMode).toBe("build");
+  } finally {
+    act(() => {
+      setup.renderer.destroy();
+      workspace.dispose();
+    });
+  }
+});
+
+test("Shift+Tab belongs to the open popup and does not change the agent mode", async () => {
+  const workspace = new TuiWorkspace(process.cwd());
+  const setup = await testRender(
+    <OpenTuiSpike
+      workspace={workspace}
+      onExit={() => {}}
+      skillsActions={{
+        load: () => [],
+        activeNames: () => [],
+        toggle: () => {},
+      }}
+      settingsActions={{
+        load: async () => ({
+          values: { provider: "anthropic", model: "test-model" },
+          hasKey: true,
+        }),
+        hasKey: async () => true,
+        save: async () => "saved",
+        check: async () => "ok",
+        models: async () => ({ ok: true, models: [] }),
+      }}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await frame(setup);
+    await act(async () => {
+      await setup.mockInput.pasteBracketedText("Keep my draft");
+    });
+    for (const shortcut of ["s", "t"]) {
+      await act(async () => {
+        setup.mockInput.pressKey(shortcut, { ctrl: true });
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.focus).toBe("modal");
+      await act(async () => {
+        setup.mockInput.pressTab({ shift: true });
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.agentMode).toBe("build");
+      await act(async () => {
+        setup.mockInput.pressEscape();
+        await Bun.sleep(120);
+      });
+      await frame(setup);
+      expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+        "Keep my draft",
+      );
+    }
+  } finally {
+    act(() => {
+      setup.renderer.destroy();
+      workspace.dispose();
+    });
+  }
+});
 
 for (const [width, height] of [
   [40, 12],
@@ -148,7 +320,7 @@ test("native multiline input survives resize and clicking send creates only one 
     expect((prompt?.y ?? 0) + (prompt?.height ?? 0)).toBeLessThanOrEqual(12);
     const lines = setup.captureCharFrame().split("\n"),
       y = lines.findIndex(
-        (line) => line.includes("Chisel") && line.includes("↵"),
+        (line) => line.includes("Build") && line.includes("↵"),
       );
     const sendColumn = lines[y]?.lastIndexOf("↵");
     if (sendColumn === undefined || sendColumn < 0)

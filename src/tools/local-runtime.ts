@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { ToolResultStore } from "../context/tool-result-store.js";
 import { sessionsRootDir } from "../paths/home.js";
+import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { RuntimeEventBus } from "../runtime/events.js";
 import type { ApprovalGate } from "../security/approval.js";
 import { HostSandboxExecutor } from "../security/sandbox.js";
@@ -21,6 +22,7 @@ export function createLocalToolRuntime(
   session: Session,
   skills: readonly Skill[] = [],
   options: {
+    mode?: AgentMode;
     events?: RuntimeEventBus;
     signal?: AbortSignal;
     checkpoint?: () => Promise<void>;
@@ -32,13 +34,20 @@ export function createLocalToolRuntime(
 ) {
   initializeSessionState(session);
   const workspace = new WorkspacePolicy(root, ignorePatterns);
-  const catalog = new ToolCatalog();
+  const catalog = new ToolCatalog(
+    () =>
+      options.mode ??
+      session.runtime?.turnMode ??
+      session.mode ??
+      DEFAULT_AGENT_MODE,
+  );
   for (const handler of [
     ...new LocalToolProvider().handlers,
     ...new SkillsToolProvider(skills).handlers,
   ])
     catalog.register(handler);
   const context: ToolContext = {
+    mode: options.mode,
     session,
     workspace,
     editing: new EditingService(

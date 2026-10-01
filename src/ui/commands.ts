@@ -19,6 +19,9 @@ export const SLASH_COMMANDS = [
   { name: "/home", description: "перейти на главную" },
   { name: "/new", description: "создать вкладку сессии" },
   { name: "/exit", description: "закрыть ChiselCode" },
+  { name: "/plan", description: "Plan: изучить проект и составить план" },
+  { name: "/build", description: "Build: выполнить изменения" },
+  { name: "/mode", description: "сменить режим: plan|build" },
 ] as const;
 
 export type SlashCommandName = (typeof SLASH_COMMANDS)[number]["name"];
@@ -119,6 +122,7 @@ function levenshtein(a: string, b: string): number {
 }
 
 const HELP_GROUPS: { title: string; commands: string[] }[] = [
+  { title: "Режим", commands: ["/plan", "/build", "/mode"] },
   {
     title: "Сессия",
     commands: ["/home", "/new", "/clear", "/sessions", "/resume"],
@@ -160,6 +164,8 @@ export function commandHelpText(skills: CommandSuggestion[] = []): string {
   lines.push(
     "",
     "Обычный текст отправляется помощнику. Shift+Enter — новая строка.",
+    "Shift+Tab — Plan / Build для следующего запроса; модель сохраняется.",
+    "Plan читает проект и составляет план; Build выполняет работу с обычными разрешениями.",
     "Alt+N / Ctrl+Shift+N — новая вкладка; Alt+←/→ / Ctrl+Tab — переключить.",
     "Ctrl+G — главная; Ctrl+W — закрыть вкладку без удаления сохранённой сессии.",
     "Лента листается клавишами PgUp/PgDn (пол-экрана) и Ctrl+U/D (±10 строк),",

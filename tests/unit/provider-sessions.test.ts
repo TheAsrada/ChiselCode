@@ -103,3 +103,44 @@ test("v3 explicit profile roundtrip and absent provider/profile keep history rea
     expect(await store.list()).toHaveLength(2);
   });
 });
+
+test("mode selection persists separately from the completed request and preserves the latest transcript", async () => {
+  await fixture(async (store) => {
+    const session = store.create("anthropic", "original-model");
+    session.mode = "plan";
+    await store.save(session);
+    const latest = await store.load(session.id);
+    latest.messages.push({
+      role: "assistant",
+      content: [{ type: "text", text: "Plan completed" }],
+    });
+    if (latest.runtime) latest.runtime.turnMode = "plan";
+    await store.save(latest);
+    const before = await store.load(session.id);
+    await store.setMode(session.id, "build");
+    const restored = await store.load(session.id);
+    expect(restored.mode).toBe("build");
+    expect(restored.runtime?.turnMode).toBe("plan");
+    expect(restored.messages).toEqual(before.messages);
+    expect(restored.updatedAt).toBe(before.updatedAt);
+    expect(restored.model).toBe("original-model");
+    expect((await store.list())[0]?.messageCount).toBe(1);
+  });
+});
+
+test("legacy sessions default to Build and invalid persisted modes leave the source untouched", async () => {
+  await fixture(async (store) => {
+    const session = store.create("openai", "original-model");
+    await store.save(session);
+    const file = join(store.directory, `${session.id}.json`);
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    delete raw.mode;
+    await writeFile(file, JSON.stringify(raw));
+    expect((await store.load(session.id)).mode).toBe("build");
+    raw.mode = "unknown";
+    const invalid = JSON.stringify(raw);
+    await writeFile(file, invalid);
+    await expect(store.load(session.id)).rejects.toThrow("Invalid session");
+    expect(await readFile(file, "utf8")).toBe(invalid);
+  });
+});

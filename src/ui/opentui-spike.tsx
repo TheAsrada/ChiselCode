@@ -6,6 +6,13 @@ import type {
 } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
+import {
+  AGENT_MODE_LABELS,
+  AGENT_MODES,
+  type AgentMode,
+  DEFAULT_AGENT_MODE,
+  nextAgentMode,
+} from "../runtime/agent-mode.js";
 import type { ApprovalRequest } from "../security/approval.js";
 import { invocableSkills } from "../skills/skills.js";
 import { type ThemeName, themePalette } from "./appearance.js";
@@ -14,6 +21,7 @@ import {
   isSlashInput,
   MAX_VISIBLE_SUGGESTIONS,
   matchingCommands,
+  parseSlashCommand,
 } from "./commands.js";
 import { ContextSidebar } from "./context-sidebar.js";
 import {
@@ -108,6 +116,7 @@ function OpenTuiScreen({
   sessionPicker,
   settingsActions,
   getDefaultModel,
+  onAgentModeChange,
   initialSettingsOpen = false,
   onSetupComplete,
   onInitialSettingsComplete,
@@ -127,6 +136,7 @@ function OpenTuiScreen({
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
   getDefaultModel?: () => string;
+  onAgentModeChange?: (mode: AgentMode) => void;
   initialSettingsOpen?: boolean;
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
@@ -173,6 +183,7 @@ function OpenTuiScreen({
     () =>
       controller?.snapshot ?? {
         projectPath: process.cwd(),
+        agentMode: DEFAULT_AGENT_MODE,
         transcript: [],
         streaming: "",
         draft: "",
@@ -261,7 +272,7 @@ function OpenTuiScreen({
   const homeCompact = homeHeight < 12;
   const homeFixedRows =
     (fullHomeLogo ? 5 : 1) +
-    (homeCompact ? 0 : 2) +
+    (homeCompact ? 1 : 2) +
     (homeHeight >= 10 ? 1 : 0) +
     4;
   const editorLimit = Math.max(
@@ -352,6 +363,16 @@ function OpenTuiScreen({
     onModeChange?.(next);
   };
 
+  const changeAgentMode = (next: AgentMode) => {
+    if (controller) controller.setAgentMode(next);
+    else setView((current) => ({ ...current, agentMode: next }));
+    onAgentModeChange?.(next);
+  };
+  const toggleAgentMode = () =>
+    changeAgentMode(
+      nextAgentMode(controller?.snapshot.agentMode ?? view.agentMode),
+    );
+
   const browseHistory = (direction: -1 | 1) => {
     const input = editor.current;
     if (!input) return;
@@ -428,6 +449,19 @@ function OpenTuiScreen({
       return;
     }
     if (pickerOpen || settingsOpen || skillsOpen) return;
+    if (
+      key.name === "tab" &&
+      key.shift &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      focus === "editor" &&
+      !contextOnly
+    ) {
+      key.preventDefault();
+      toggleAgentMode();
+      return;
+    }
     if (skillsActions && key.ctrl && key.name === "s") {
       key.preventDefault();
       submit("/skills");
@@ -590,6 +624,23 @@ function OpenTuiScreen({
       editor.current?.setText("");
       setDraft("");
     };
+    const parsed = parseSlashCommand(value);
+    if (parsed && ["/plan", "/build", "/mode"].includes(parsed.name)) {
+      const requested =
+        parsed.name === "/mode" ? parsed.args : parsed.name.slice(1);
+      if (
+        AGENT_MODES.includes(requested as AgentMode) &&
+        (parsed.name === "/mode" || !parsed.args)
+      )
+        changeAgentMode(requested as AgentMode);
+      else
+        controller?.append(
+          "Режим: /plan, /build или /mode plan|build. Shift+Tab переключает режим следующего запроса.",
+          "info",
+        );
+      clearInput();
+      return;
+    }
     if (value === "/sidebar" || value.startsWith("/sidebar ")) {
       const arg = value.slice("/sidebar".length).trim();
       const next = arg ? parseSidebarMode(arg) : toggleSidebarMode(mode, width);
@@ -725,6 +776,9 @@ function OpenTuiScreen({
         hasDraft={!!draft.trim()}
         busy={view.busy}
         model={view.usage?.model ?? getDefaultModel?.()}
+        agentMode={view.agentMode}
+        runningMode={view.runningMode}
+        onToggleMode={toggleAgentMode}
         onSubmit={() => submit()}
       >
         <textarea
@@ -772,16 +826,14 @@ function OpenTuiScreen({
           ]}
         />
       </OpenTuiPrompt>
-      {(!home || !homeCompact) && (
-        <text fg={palette.muted} height={1}>
-          {terminalSafeText(
-            workspace
-              ? "Enter отправить · Shift+Enter строка"
-              : "Enter отправить · Shift+Enter строка · Ctrl+T оформление · Esc выход",
-            composerWidth,
-          )}
-        </text>
-      )}
+      <text fg={palette.muted} height={1}>
+        {terminalSafeText(
+          composerWidth >= 56
+            ? "Enter отправить · Shift+Enter строка · Shift+Tab режим"
+            : "Enter ↵ · Shift+Tab режим",
+          composerWidth,
+        )}
+      </text>
     </box>
   );
 
@@ -936,7 +988,20 @@ function OpenTuiScreen({
                   )}
                   {controller && view.streaming && (
                     <React.Fragment>
-                      <text fg={palette.accent}>◆ Chisel · отвечает…</text>
+                      <text
+                        fg={
+                          view.runningMode === "plan"
+                            ? palette.yellow
+                            : palette.accent
+                        }
+                      >
+                        ◆{" "}
+                        {AGENT_MODE_LABELS[view.runningMode ?? view.agentMode]}{" "}
+                        ·{" "}
+                        {view.runningMode === "plan"
+                          ? "составляет план…"
+                          : "отвечает…"}
+                      </text>
                       <FormattedMessage
                         content={view.streaming}
                         palette={palette}

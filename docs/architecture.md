@@ -17,7 +17,8 @@ flowchart TD
   Events --> Eval[Eval trace recorder]
   Runtime --> Scheduler[ToolScheduler]
   Scheduler --> Executor[ToolExecutor]
-  Executor --> Prepare[Handler prepare]
+  Executor --> Mode[AgentMode: tool effect check]
+  Mode --> Prepare[Handler prepare]
   Prepare --> Permission[PermissionPolicy / ApprovalResolver]
   Permission --> Execute[Handler execute]
   Execute --> Editing[EditingService: preflight / revisions / commit / rollback]
@@ -26,6 +27,12 @@ flowchart TD
 ```
 
 `src/app/run-prompt.ts` собирает зависимости, конфигурацию и сохранение. `AgentRuntime` управляет переходами turn, а `TurnRunner` нормализует provider stream. `src/core/agent-loop.ts`, `src/tools/registry.ts` и `src/commands/run.ts` оставлены как адаптеры старого API; business logic инструментов находится в handlers, executor и editing service.
+
+## Plan / Build
+
+`src/runtime/agent-mode.ts` определяет режимы, инструкции и политику допустимых effects. Plan показывает модели только инструменты `effect=read`. Executor повторно проверяет режим до parse/prepare/approval, в том числе для неизвестных модели вызовов и pending approvals. Build сохраняет существующую PermissionPolicy. Инструкции режима добавляются при сборке каждого контекста, включая emergency compaction.
+
+`session.mode` хранит выбранный режим; `session.runtime.turnMode` фиксирует режим запроса. В TUI `agentMode` принадлежит контроллеру вкладки, `runningMode` показывает выполняющийся запрос. Очередь захватывает режим при отправке. Переключение UI не меняет runtime текущего запроса. Сохранение выбора после idle использует metadata update под тем же lock, что checkpoints; полный transcript не перезаписывается устаревшей копией. Подробнее о решениях и источниках: [режимы агента](agent-modes.md).
 
 ## Три вида состояния
 

@@ -23,6 +23,7 @@ import {
 } from "../commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
 import { getProviderCatalog } from "../providers/catalog.js";
+import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { shortSessionId } from "../sessions/store.js";
 import {
@@ -61,8 +62,12 @@ export async function runOpenTuiAgent(
   setupOnly = false,
 ): Promise<void> {
   let activeOptions = { ...options, resume: undefined };
-  const workspace = new TuiWorkspace(options.cwd ?? process.cwd());
+  const workspace = new TuiWorkspace(
+    options.cwd ?? process.cwd(),
+    options.mode ?? DEFAULT_AGENT_MODE,
+  );
   if (initialSession) workspace.openSession(initialSession);
+  if (options.mode) workspace.controller.setAgentMode(options.mode);
   const currentController = () => workspace.controller;
   const approvalResolver = createTuiApprovalResolver();
   const config = await loadGlobalConfig();
@@ -107,8 +112,11 @@ export async function runOpenTuiAgent(
   const abort = new AbortController();
   let activeRun: Promise<void> | undefined;
   let selfUpdateRunning = false;
-  const pendingPrompts: Array<{ input: string; controller: TuiController }> =
-    [];
+  const pendingPrompts: Array<{
+    input: string;
+    controller: TuiController;
+    mode: AgentMode;
+  }> = [];
   const skillNames = new WeakMap<
     TuiController,
     { generation: number; names: Set<string> }
@@ -125,6 +133,23 @@ export async function runOpenTuiAgent(
     return entry.names;
   };
   let pendingSave: Promise<void> = Promise.resolve();
+  const persistAgentMode = (controller: TuiController) => {
+    if (!controller.snapshot.sessionId || controller.snapshot.busy) return;
+    pendingSave = pendingSave
+      .then(async () => {
+        const { sessionId, projectPath, agentMode, busy } = controller.snapshot;
+        if (!sessionId || busy) return;
+        const store = await projectSessionStore(projectPath);
+        await store.setMode(sessionId, agentMode);
+      })
+      .catch((error) =>
+        controller.append(
+          `Не удалось сохранить режим: ${String(error)}`,
+          "error",
+        ),
+      );
+  };
+  if (initialSession && options.mode) persistAgentMode(workspace.controller);
   let finish: (() => void) | undefined;
   const finished = new Promise<void>((resolve) => {
     finish = resolve;
@@ -387,6 +412,7 @@ export async function runOpenTuiAgent(
   const submit = async (
     input: string,
     target = currentController(),
+    turnMode = target.snapshot.agentMode,
   ): Promise<void> => {
     let controller = target;
     if (abort.signal.aborted) return;
@@ -487,7 +513,7 @@ export async function runOpenTuiAgent(
     if (controller === workspace.home) {
       const selectedSkills = activeSkills(controller);
       const inputHistory = controller.presentation.history;
-      controller = workspace.newTab(controller.snapshot.projectPath);
+      controller = workspace.newTab(controller.snapshot.projectPath, turnMode);
       controller.setSessionTitle(
         input.split("\n", 1)[0]?.slice(0, 120) ?? input.slice(0, 120),
       );
@@ -498,7 +524,7 @@ export async function runOpenTuiAgent(
       });
     }
     if (activeRun) {
-      pendingPrompts.push({ input, controller });
+      pendingPrompts.push({ input, controller, mode: turnMode });
       controller.setBusy(true);
       controller.append(
         `В очереди: ${pendingPrompts.length} · ${input}`,
@@ -507,6 +533,7 @@ export async function runOpenTuiAgent(
       return;
     }
     controller.setBusy(true);
+    controller.setRunningMode(turnMode);
     controller.append(`❯ ${input}`, "user");
     const expanded = skill
       ? expandSkill(skill, input.slice(command.length).trim())
@@ -526,6 +553,7 @@ export async function runOpenTuiAgent(
             ...profileOverrides.get(controller),
             cwd: controller.snapshot.projectPath,
             resume: controller.snapshot.sessionId,
+            mode: turnMode,
           },
           approvalResolver,
           {
@@ -564,12 +592,14 @@ export async function runOpenTuiAgent(
         if (!abort.signal.aborted) controller.append(String(error), "error");
       } finally {
         activeRun = undefined;
+        controller.setRunningMode();
         controller.setBusy(
           pendingPrompts.some((item) => item.controller === controller),
         );
+        persistAgentMode(controller);
         const next = pendingPrompts.shift();
         if (next && !abort.signal.aborted)
-          void submit(next.input, next.controller);
+          void submit(next.input, next.controller, next.mode);
       }
     })();
     activeRun = work;
@@ -587,6 +617,7 @@ export async function runOpenTuiAgent(
         sessionPicker,
         settingsActions,
         getDefaultModel: () => defaultModel,
+        onAgentModeChange: () => persistAgentMode(currentController()),
         skillsActions,
         initialSettingsOpen: setupRequired || setupOnly,
         onSetupComplete: setupOnly ? shutdown : undefined,

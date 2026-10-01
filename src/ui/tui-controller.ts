@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import type {
   ContextSnapshot,
   FileDiff,
@@ -17,6 +18,8 @@ export interface TranscriptEntry {
 }
 
 export interface TuiViewState {
+  agentMode: AgentMode;
+  runningMode?: AgentMode;
   sessionId?: string;
   sessionTitle?: string;
   projectPath: string;
@@ -53,8 +56,9 @@ export class TuiController implements TuiTranscript {
   private gitSource = new GitChangesSource();
   private state: TuiViewState;
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, agentMode: AgentMode = DEFAULT_AGENT_MODE) {
     this.state = {
+      agentMode,
       projectPath,
       transcript: [],
       streaming: "",
@@ -165,6 +169,12 @@ export class TuiController implements TuiTranscript {
   setBusy(busy: boolean): void {
     this.update({ busy });
   }
+  setAgentMode(agentMode: AgentMode): void {
+    this.update({ agentMode });
+  }
+  setRunningMode(runningMode?: AgentMode): void {
+    this.update({ runningMode });
+  }
 
   setSessionUsage(session: Session): void {
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
@@ -222,7 +232,7 @@ export class TuiController implements TuiTranscript {
   /** Invalidates responses from the previous project or session immediately. */
   switchSession(
     session?: Pick<Session, "id" | "projectPath"> &
-      Partial<Pick<Session, "title">>,
+      Partial<Pick<Session, "title" | "mode">>,
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.generation++;
@@ -231,6 +241,9 @@ export class TuiController implements TuiTranscript {
     this.presentation.scrollTop = undefined;
     this.gitSource.dispose();
     this.state = {
+      agentMode: session
+        ? (session.mode ?? DEFAULT_AGENT_MODE)
+        : this.state.agentMode,
       projectPath,
       sessionId: session?.id,
       sessionTitle: session?.title,

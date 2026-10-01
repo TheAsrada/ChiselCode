@@ -1,7 +1,15 @@
+import {
+  type AgentMode,
+  allowsToolInMode,
+  DEFAULT_AGENT_MODE,
+} from "../runtime/agent-mode.js";
 import { RuntimeError } from "../runtime/errors.js";
 import type { ToolDefinition } from "../types/domain.js";
 import type { ToolHandler, ToolProvider } from "./types.js";
 export class ToolCatalog {
+  constructor(
+    private readonly getMode: () => AgentMode = () => DEFAULT_AGENT_MODE,
+  ) {}
   private handlers = new Map<string, ToolHandler>();
   register(handler: ToolHandler): void {
     if (this.handlers.has(handler.spec.name))
@@ -19,11 +27,13 @@ export class ToolCatalog {
     return handler;
   }
   selectForTurn(_input?: { prompt?: string }): ToolDefinition[] {
-    return [...this.handlers.values()].map(({ spec }) => ({
-      name: spec.name,
-      description: spec.description,
-      inputSchema: spec.inputSchema,
-      requiresApproval: spec.effect !== "read",
-    }));
+    return [...this.handlers.values()]
+      .filter(({ spec }) => allowsToolInMode(this.getMode(), spec.effect))
+      .map(({ spec }) => ({
+        name: spec.name,
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        requiresApproval: spec.effect !== "read",
+      }));
   }
 }

@@ -18,6 +18,7 @@ import type { GlobalConfig } from "../types/domain.js";
 
 export { MissingApiKeyError } from "../providers/runtime.js";
 
+import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
@@ -45,6 +46,7 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
+  mode?: AgentMode;
   /** Internal harness override; not a CLI flag. */
   configPath?: string;
   provider?: ProviderId;
@@ -315,6 +317,8 @@ export async function runPrompt(
       : resolveProfileModel(selected.profile, registry, options.model);
   const session =
     previous ?? createSession(projectRoot, selected.profile.providerId, model);
+  const mode = options.mode ?? session.mode ?? DEFAULT_AGENT_MODE;
+  session.mode = mode;
   if (
     session.model !== model ||
     session.providerId !== selected.profile.providerId
@@ -380,6 +384,7 @@ export async function runPrompt(
     skills,
     {
       events: eventBus,
+      mode,
       signal,
       maxInlineTokens: config.context?.maxInlineToolResultTokens,
       maxParallelReads: config.tools?.maxParallelReads,
@@ -407,6 +412,7 @@ export async function runPrompt(
   let result: AgentResult;
   try {
     result = await runtime.run(session, prompt, {
+      mode,
       signal,
       onCheckpoint: (current) => sessionStore.save(current),
     });
@@ -454,7 +460,14 @@ async function runGit(
   cwd: string,
 ): Promise<string | undefined> {
   try {
-    const result = await execa("git", args, { cwd, reject: false });
+    const result = await execa(
+      "git",
+      ["--no-optional-locks", "-c", "core.fsmonitor=false", ...args],
+      {
+        cwd,
+        reject: false,
+      },
+    );
     return result.exitCode === 0 ? result.stdout.trim() : undefined;
   } catch {
     return undefined;

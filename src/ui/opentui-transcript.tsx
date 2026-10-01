@@ -203,7 +203,7 @@ export function OpenTuiTranscript({
         if (!diff && entry.tone === "assistant")
           return (
             <React.Fragment key={entry.id}>
-              <text fg={palette.accent}>◆ Chisel</text>
+              <text fg={palette.accent}>◆ Помощник</text>
               <FormattedMessage content={entry.text} palette={palette} />
             </React.Fragment>
           );

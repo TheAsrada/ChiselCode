@@ -30,6 +30,7 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 | `--profile <profile-id>` | Конкретный аккаунт/profile |
 | `--provider <provider>` | Compatibility выбор provider ID из `chisel providers list`; нужен единственный profile |
 | `--model <model>` | ID модели выбранного сервиса |
+| `--mode <build\|plan>` | Режим агента; новая сессия начинает в Build, resume без флага восстанавливает сохранённый режим |
 | `--base-url <url>` | Адрес совместимого API |
 | `--resume <session-id>` | Полный ID или однозначный префикс сессии текущего проекта |
 | `--allow <tools>` | Разрешить перечисленные через запятую инструменты без вопроса |
@@ -45,6 +46,13 @@ chisel --cwd ./my-project --allow edit_file "Исправь опечатку в 
 
 `--allow edit_file` не разрешает `write_file`, `run_shell` или другие инструменты. Отдельного CLI-флага для разрешения одной конкретной shell-команды нет: это настраивается в `.chiselrc`. Проверяйте [семантику правил](configuration.md) перед автоматизацией.
 
+В Plan изменяющие инструменты и shell недоступны независимо от `--yes` и `--allow`. Результат — план в разговоре; для реализации продолжите ту же сессию в Build:
+
+```bash
+chisel --mode plan --cwd ./my-project "Изучи обработку ошибок и составь план исправления"
+chisel --mode build --cwd ./my-project --resume <session-id> "Выполни предложенный план"
+```
+
 ## JSON и коды завершения
 
 ```bash
@@ -56,6 +64,7 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 | `status` | `completed`, `approval_required`, `failed`, `cancelled` |
 | `text` | Итоговый текст |
 | `sessionId` | ID сохранённой сессии |
+| `mode` | `build` или `plan` для выполненного запроса |
 | `totalTokens` | Счётчики `inputTokens`, `outputTokens` и необязательные счётчики кэша |
 | `totalCost` | Optional известная estimated стоимость; отсутствует при unknown pricing |
 | `costEstimate` | source=provider/estimated/unknown, optional usd; не заменяет billing |

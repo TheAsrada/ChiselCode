@@ -1,4 +1,5 @@
 import type { ToolResultStore } from "../context/tool-result-store.js";
+import type { AgentMode } from "../runtime/agent-mode.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
 import type { SandboxExecutor } from "../security/sandbox.js";
 import type { WorkspacePolicy } from "../security/workspace-policy.js";
@@ -17,6 +18,8 @@ export interface ToolSpec extends Omit<ToolDefinition, "requiresApproval"> {
   timeoutMs?: number;
 }
 export interface ToolContext {
+  /** Immutable override for the request; never a mutable UI selection. */
+  readonly mode?: AgentMode;
   session: Session;
   workspace: WorkspacePolicy;
   editing: EditingService;

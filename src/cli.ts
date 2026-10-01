@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { stdin as nodeStdin, stdout as nodeStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import {
   hasApiKey,
   nonInteractiveResolver,
@@ -22,6 +22,7 @@ import { getProviderCatalog } from "./providers/catalog.js";
 import { formatProviderDiagnostic } from "./providers/custom/diagnostics.js";
 import { resolveEndpoint } from "./providers/endpoint.js";
 import { selectProfile } from "./providers/profiles.js";
+import { AGENT_MODES, type AgentMode } from "./runtime/agent-mode.js";
 import { CredentialStore } from "./security/credentials.js";
 import { projectSessionStore } from "./sessions/project-store.js";
 import {
@@ -42,6 +43,11 @@ program
   )
   .option("--profile <profile-id>", "профиль провайдера")
   .option("--model <model>", "название модели")
+  .addOption(
+    new Option("--mode <mode>", "режим работы: build или plan").choices([
+      ...AGENT_MODES,
+    ]),
+  )
   .option("--base-url <url>", "base URL выбранного API")
   .option("--yes", "разрешить все изменения без подтверждения")
   .option("--allow <tools>", "разрешить конкретные инструменты через запятую")
@@ -322,6 +328,7 @@ function toOptions(raw: Record<string, unknown>): RunOptions {
     provider: raw.provider as string | undefined,
     profile: raw.profile as string | undefined,
     model: raw.model as string | undefined,
+    mode: raw.mode as AgentMode | undefined,
     baseUrl: raw.baseUrl as string | undefined,
     yes: Boolean(raw.yes),
     allow: raw.allow as string | undefined,

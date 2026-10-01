@@ -6,7 +6,7 @@ import { defineTool } from "../handler.js";
 import type { ToolContext } from "../types.js";
 
 async function git(context: ToolContext, args: string[]) {
-  const result = await execa("git", args, {
+  const result = await execa("git", ["-c", "core.fsmonitor=false", ...args], {
     cwd: await realpath(context.workspace.root),
     reject: false,
     all: true,
@@ -29,7 +29,7 @@ export function gitHandlers() {
       },
       z.object({}),
       async () => ({ data: {}, preview: "git status", resources: [] }),
-      (context) => git(context, ["status", "--short"]),
+      (context) => git(context, ["--no-optional-locks", "status", "--short"]),
     ),
     defineTool(
       {
@@ -61,6 +61,8 @@ export function gitHandlers() {
       (context, { data }) =>
         git(context, [
           "diff",
+          "--no-ext-diff",
+          "--no-textconv",
           ...(data.scope === "staged"
             ? ["--cached"]
             : data.scope === "all"

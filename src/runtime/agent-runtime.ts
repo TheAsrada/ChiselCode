@@ -12,6 +12,11 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
 } from "../types/domain.js";
+import {
+  type AgentMode,
+  agentModeInstructions,
+  DEFAULT_AGENT_MODE,
+} from "./agent-mode.js";
 import { cancelled, RuntimeError } from "./errors.js";
 import type { RuntimeEventBus } from "./events.js";
 import { TurnRunner } from "./turn-runner.js";
@@ -24,6 +29,7 @@ export interface RuntimeTools {
   ): Promise<ToolExecutionResult[]>;
 }
 export interface RuntimeOptions {
+  mode?: AgentMode;
   maxIterations?: number;
   maxTokens?: number;
   signal?: AbortSignal;
@@ -46,6 +52,10 @@ export class AgentRuntime {
     const runtime = session.runtime;
     if (!runtime) throw new Error("Missing session runtime.");
     runtime.turnId = randomUUID();
+    const mode = options.mode ?? session.mode ?? DEFAULT_AGENT_MODE;
+    session.mode = mode;
+    runtime.turnMode = mode;
+    const system = `${this.system}\n\n${agentModeInstructions(mode)}`;
     this.events.turnId = runtime.turnId;
     const detach = attachSessionRecorder(session, this.events);
     let finalText = "";
@@ -132,7 +142,7 @@ export class AgentRuntime {
         await state("preparing_context");
         const frame = await this.context.build({
           session,
-          system: this.system,
+          system,
           tools: await this.tools.selectForTurn(),
           provider: this.provider,
           capabilities,
