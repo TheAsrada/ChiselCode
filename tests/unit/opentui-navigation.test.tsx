@@ -243,6 +243,59 @@ test("Shift+Tab belongs to the open popup and does not change the agent mode", a
   }
 });
 
+test("a pending approval survives a screen remount and a second request cannot replace its decision", async () => {
+  const workspace = new TuiWorkspace(process.cwd());
+  const resolver = createTuiApprovalResolver();
+  const setup = await testRender(
+    <OpenTuiSpike
+      workspace={workspace}
+      onExit={() => {}}
+      approvalResolver={resolver}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await frame(setup);
+    let pending: Promise<string> | undefined;
+    await act(async () => {
+      pending = resolver.requestApproval({
+        tool: "write_file",
+        preview: "Original pending action",
+      });
+    });
+    await frame(setup);
+    // An asynchronous resume can complete after a background action asks for permission.
+    act(() => workspace.newTab());
+    await frame(setup);
+    expect(
+      setup.renderer.root.findDescendantById("approval-popup"),
+    ).toBeTruthy();
+    expect(setup.captureCharFrame()).toContain("Original pending action");
+    expect(
+      await resolver.requestApproval({
+        tool: "run_shell",
+        preview: "Second action",
+      }),
+    ).toBe("unavailable");
+    expect(setup.captureCharFrame()).not.toContain("Second action");
+    await act(async () => {
+      setup.mockInput.pressEscape();
+      await Bun.sleep(120);
+    });
+    expect(await pending).toBe("denied");
+    await frame(setup);
+    expect(
+      setup.renderer.root.findDescendantById("approval-popup"),
+    ).toBeFalsy();
+  } finally {
+    act(() => {
+      resolver.dispose();
+      setup.renderer.destroy();
+      workspace.dispose();
+    });
+  }
+});
+
 test("approval shows every file in an atomic patch and scrolls beyond 200 lines", async () => {
   const resolver = createTuiApprovalResolver();
   const setup = await testRender(

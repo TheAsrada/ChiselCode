@@ -45,26 +45,31 @@ export interface TuiTranscript {
 
 export function createTuiApprovalResolver(): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
+  let pendingRequest: ApprovalRequest | undefined;
   let setRequest: ((request: ApprovalRequest | undefined) => void) | undefined;
   return {
     async requestApproval(request) {
-      if (!setRequest) return "unavailable";
+      if (!setRequest || resolvePending) return "unavailable";
       return new Promise((resolve) => {
         resolvePending = resolve;
+        pendingRequest = request;
         setRequest?.(request);
       });
     },
     bind(setter) {
       setRequest = setter;
+      setter?.(pendingRequest);
     },
     resolve(decision) {
       resolvePending?.(decision);
       resolvePending = undefined;
+      pendingRequest = undefined;
       setRequest?.(undefined);
     },
     dispose() {
       resolvePending?.("unavailable");
       resolvePending = undefined;
+      pendingRequest = undefined;
       setRequest = undefined;
     },
   } as TuiApprovalResolver;
