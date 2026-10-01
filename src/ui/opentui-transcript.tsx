@@ -121,7 +121,7 @@ export function FormattedMessage({
               <text key={key} fg={palette.text} selectable>
                 {list[1]}
                 <span fg={palette.accent}>
-                  {/^\d/.test(list[2] ?? "") ? list[2] : "*"}
+                  {/^\d/.test(list[2] ?? "") ? list[2] : "•"}
                 </span>{" "}
                 {inlineText(list[3] ?? "", palette)}
               </text>
@@ -187,7 +187,7 @@ export function OpenTuiTranscript({
         if (!diff && entry.tone === "assistant")
           return (
             <React.Fragment key={entry.id}>
-              <text fg={palette.accent}>* Помощник</text>
+              <text fg={palette.accent}>● Помощник</text>
               <FormattedMessage content={entry.text} palette={palette} />
             </React.Fragment>
           );
@@ -216,7 +216,7 @@ export function OpenTuiTranscript({
           return (
             <text key={entry.id} fg={palette.muted}>
               {" "}
-              *{" "}
+              •{" "}
               {terminalSafeText(
                 entry.text.replace(/^\[chisel\]\s*/, ""),
                 20_000,

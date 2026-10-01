@@ -68,7 +68,7 @@ test("changing graphics restores the native scrollbar without recreating the vie
 });
 
 for (const width of [40, 120]) {
-  test(`compatible chrome uses ASCII, scrolls and preserves Unicode content at ${width} columns`, async () => {
+  test(`compatible chrome uses simple marks, scrolls and preserves Unicode content at ${width} columns`, async () => {
     const workspace = new TuiWorkspace(process.cwd());
     const controller = workspace.newTab();
     controller.setSessionTitle("Проверка значков");
@@ -96,7 +96,7 @@ for (const width of [40, 120]) {
     try {
       await frame();
       expect(setup.captureCharFrame()).not.toMatch(
-        /[^\x20-\x7e\u0400-\u052f\n]/u,
+        /[^\x20-\x7e\u0400-\u052f•●\n]/u,
       );
       const findFeed = (
         node: typeof setup.renderer.root,
@@ -125,7 +125,7 @@ for (const width of [40, 120]) {
       expect(controller.snapshot.transcript.at(-1)?.text).toBe(payload);
       expect(setup.captureCharFrame()).toContain(payload);
       expect(setup.captureCharFrame().replaceAll(payload, "")).not.toMatch(
-        /[^\x20-\x7e\u0400-\u052f\n]/u,
+        /[^\x20-\x7e\u0400-\u052f•●\n]/u,
       );
     } finally {
       act(() => setup.renderer.destroy());

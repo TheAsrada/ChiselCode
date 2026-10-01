@@ -1211,7 +1211,7 @@ function OpenTuiScreen({
                             : palette.accent
                         }
                       >
-                        *{" "}
+                        ●{" "}
                         {AGENT_MODE_LABELS[view.runningMode ?? view.agentMode]}{" "}
                         |{" "}
                         {view.runningMode === "plan"

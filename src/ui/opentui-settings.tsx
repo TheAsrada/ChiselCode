@@ -959,9 +959,9 @@ export function OpenTuiSettings({
                           (name === savedTheme ? " +" : "")}
                       </text>
                       <text height={1} fg={colors.accent} selectable={false}>
-                        <span fg={colors.bg}># </span>
-                        <span fg={colors.surface}># </span>
-                        <span fg={colors.accent}>#</span>
+                        <span bg={colors.bg}>{"  "}</span>{" "}
+                        <span bg={colors.surface}>{"  "}</span>{" "}
+                        <span bg={colors.accent}>{"  "}</span>
                       </text>
                     </box>
                     {roomy && (
@@ -998,7 +998,7 @@ export function OpenTuiSettings({
                   flexDirection="column"
                 >
                   <text fg={palette.muted}>{">"} Проверь мой проект</text>
-                  <text fg={palette.accent}>* Помощник</text>
+                  <text fg={palette.accent}>● Помощник</text>
                   <text fg={palette.text}>Готов к следующей задаче.</text>
                 </box>
                 <text marginTop={1} fg={palette.muted}>
