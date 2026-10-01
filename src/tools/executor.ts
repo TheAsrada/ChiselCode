@@ -131,18 +131,17 @@ export class ToolExecutor {
         fileDiff: plan.diffs?.[0],
         diffs: plan.diffs,
       };
+      const approvalMode =
+        context.approvalMode ??
+        runtime.turnApprovalMode ??
+        context.session.approvalMode ??
+        this.gate.policy.approvalMode;
       const permission =
         handler.spec.effect === "workspace_write" &&
         plan.diffs?.length === 0 &&
         plan.resources.length === 0
           ? "allow"
-          : this.gate.policy.decide(
-              request,
-              handler.spec.effect,
-              context.approvalMode ??
-                runtime.turnApprovalMode ??
-                context.session.approvalMode,
-            );
+          : this.gate.policy.decide(request, handler.spec.effect, approvalMode);
       if (permission === "deny")
         throw new RuntimeError(
           "PERMISSION_DENIED",
@@ -203,6 +202,20 @@ export class ToolExecutor {
       );
       let result: ToolExecutionResult;
       try {
+        if (
+          permission === "allow" &&
+          approvalMode === "bypassPermissions" &&
+          !this.gate.policy.bypassAllowed &&
+          this.gate.policy.decide(
+            request,
+            handler.spec.effect,
+            approvalMode,
+          ) !== "allow"
+        )
+          throw new RuntimeError(
+            "PERMISSION_DENIED",
+            "Bypass was disabled before execution. Retry under Manual permissions.",
+          );
         result = await handler.execute(
           {
             ...context,

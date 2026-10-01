@@ -7,7 +7,7 @@ export const SLASH_COMMANDS = [
   { name: "/cwd", description: "сменить папку проекта: <путь>" },
   {
     name: "/settings",
-    description: "подключение, профили и оформление",
+    description: "подключение, оформление и разрешения",
   },
   { name: "/model", description: "сменить модель" },
   { name: "/skills", description: "скиллы: выбрать и задействовать" },
@@ -22,9 +22,15 @@ export const SLASH_COMMANDS = [
   { name: "/plan", description: "Plan: изучить проект и составить план" },
   { name: "/build", description: "Build: выполнить изменения" },
   { name: "/mode", description: "сменить режим: plan|build" },
-  { name: "/permissions", description: "разрешения: ask|auto" },
-  { name: "/ask", description: "спрашивать перед изменениями и командами" },
-  { name: "/auto", description: "разрешать действия без диалогов" },
+  {
+    name: "/permissions",
+    description: "выбрать Manual, Accept edits, Dont ask или Bypass",
+  },
+  { name: "/ask", description: "Manual: подтверждать изменения и команды" },
+  {
+    name: "/auto",
+    description: "Accept edits: разрешать правки файлов проекта",
+  },
 ] as const;
 
 export type SlashCommandName = (typeof SLASH_COMMANDS)[number]["name"];
@@ -170,8 +176,10 @@ export function commandHelpText(skills: CommandSuggestion[] = []): string {
     "Обычный текст отправляется помощнику. Shift+Enter — новая строка.",
     "Shift+Tab — Plan / Build для следующего запроса; модель сохраняется.",
     "Plan читает проект и составляет план; Build выполняет работу с обычными разрешениями.",
-    "F4 — С подтверждением / Авто для следующего запроса, независимо от Plan / Build.",
-    "Чтение и явно разрешённые правилами действия не требуют подтверждения; Авто сохраняет запреты.",
+    "F4 — следующий режим разрешений; нажатие на метку или /permissions открывает меню.",
+    "Manual спрашивает; Accept edits разрешает правки; Dont ask отклоняет всё без выданного разрешения.",
+    "Bypass доступен только после включения в Settings → Разрешения и выбирается отдельно.",
+    "Чтение и явно разрешённые правилами действия выполняются сразу; запреты и Plan сохраняются.",
     "Alt+N / Ctrl+Shift+N — новая вкладка; Alt+←/→ / Ctrl+Tab — переключить.",
     "Ctrl+G — главная; Ctrl+W — закрыть вкладку без удаления сохранённой сессии.",
     "Лента листается клавишами PgUp/PgDn (пол-экрана) и Ctrl+U/D (±10 строк),",

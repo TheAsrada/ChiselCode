@@ -15,10 +15,12 @@ import {
 } from "../runtime/agent-mode.js";
 import type { ApprovalRequest } from "../security/approval.js";
 import {
-  APPROVAL_MODES,
+  APPROVAL_MODE_INPUTS,
   type ApprovalMode,
+  type ApprovalModeInput,
   DEFAULT_APPROVAL_MODE,
   nextApprovalMode,
+  resolveApprovalMode,
 } from "../security/approval-mode.js";
 import { invocableSkills } from "../skills/skills.js";
 import { type ThemeName, themePalette } from "./appearance.js";
@@ -39,6 +41,7 @@ import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
+import { OpenTuiPermissions } from "./opentui-permissions.js";
 import { OpenTuiPrompt } from "./opentui-prompt.js";
 import {
   OpenTuiSessions,
@@ -80,6 +83,9 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
   const [theme, setTheme] = useState(props.initialTheme ?? "obsidian");
   const [mode, setMode] = useState(props.initialMode ?? "auto");
   const [setupOpen, setSetupOpen] = useState(props.initialSettingsOpen);
+  const [bypassAllowed, setBypassAllowed] = useState(
+    props.allowBypassPermissions ?? false,
+  );
   useEffect(
     () => props.workspace?.subscribe(() => refresh((value) => value + 1)),
     [props.workspace],
@@ -98,6 +104,15 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
       initialTheme={theme}
       initialMode={mode}
       initialSettingsOpen={setupOpen}
+      allowBypassPermissions={bypassAllowed}
+      onBypassAvailabilityChange={
+        props.onBypassAvailabilityChange
+          ? async (allowed) => {
+              await props.onBypassAvailabilityChange?.(allowed);
+              setBypassAllowed(allowed);
+            }
+          : undefined
+      }
       onInitialSettingsComplete={() => setSetupOpen(false)}
       onThemeChange={async (next) => {
         await props.onThemeChange?.(next);
@@ -126,6 +141,8 @@ function OpenTuiScreen({
   getDefaultModel,
   onAgentModeChange,
   onApprovalModeChange,
+  allowBypassPermissions = false,
+  onBypassAvailabilityChange,
   initialSettingsOpen = false,
   onSetupComplete,
   onInitialSettingsComplete,
@@ -148,6 +165,8 @@ function OpenTuiScreen({
   getDefaultModel?: () => string;
   onAgentModeChange?: (mode: AgentMode) => void;
   onApprovalModeChange?: (mode: ApprovalMode) => void;
+  allowBypassPermissions?: boolean;
+  onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   initialSettingsOpen?: boolean;
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
@@ -179,14 +198,16 @@ function OpenTuiScreen({
   const palette = themePalette(theme, accent);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [modelsActions, setModelsActions] = useState<OpenTuiModelsActions>();
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [bypassAllowed, setBypassAllowed] = useState(allowBypassPermissions);
   const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const [settingsSelection, setSettingsSelection] = useState(0);
-  const [settingsPage, setSettingsPage] = useState<"connection" | "appearance">(
-    "connection",
-  );
+  const [settingsPage, setSettingsPage] = useState<
+    "connection" | "appearance" | "permissions"
+  >("connection");
   useEffect(() => {
     approvalResolver?.bind(setApproval);
     return () => approvalResolver?.bind(undefined);
@@ -386,6 +407,7 @@ function OpenTuiScreen({
       nextAgentMode(controller?.snapshot.agentMode ?? view.agentMode),
     );
   const changeApprovalMode = (next: ApprovalMode) => {
+    if (next === "bypassPermissions" && !bypassAllowed) return;
     if (controller) controller.setApprovalMode(next);
     else setView((current) => ({ ...current, approvalMode: next }));
     onApprovalModeChange?.(next);
@@ -434,6 +456,7 @@ function OpenTuiScreen({
       !settingsOpen &&
       !skillsOpen &&
       !modelsActions &&
+      !permissionsOpen &&
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
@@ -446,6 +469,7 @@ function OpenTuiScreen({
     settingsOpen,
     skillsOpen,
     modelsActions,
+    permissionsOpen,
     contextOnly,
     focus,
   ]);
@@ -456,13 +480,51 @@ function OpenTuiScreen({
     }
   }, [focus, showSidebar, controller]);
 
-  const openSettings = (page: "connection" | "appearance", selection = 0) => {
+  const openSettings = (
+    page: "connection" | "appearance" | "permissions",
+    selection = 0,
+  ) => {
     editor.current?.blur();
     setSettingsSelection(selection);
     setSettingsPage(page);
     setSettingsOpen(true);
     controller?.setOverlay("settings");
     controller?.setFocus("modal");
+  };
+  const closePermissions = () => {
+    setPermissionsOpen(false);
+    controller?.setOverlay();
+    controller?.setFocus(focus === "editor" ? "composer" : focus);
+  };
+  const openPermissions = () => {
+    if (approval || pickerOpen || settingsOpen || skillsOpen || modelsActions)
+      return;
+    editor.current?.blur();
+    setPermissionsOpen(true);
+    controller?.setOverlay("permissions");
+    controller?.setFocus("modal");
+  };
+  const changeBypassAvailability = async (allowed: boolean) => {
+    if (!onBypassAvailabilityChange)
+      throw new Error("Сохранение разрешений недоступно.");
+    await onBypassAvailabilityChange(allowed);
+    setBypassAllowed(allowed);
+    if (!allowed) {
+      const targets = workspace
+        ? [workspace.home, ...workspace.tabs.map((tab) => tab.controller)]
+        : controller
+          ? [controller]
+          : [];
+      for (const target of targets) {
+        if (target.snapshot.approvalMode === "bypassPermissions")
+          target.setApprovalMode(DEFAULT_APPROVAL_MODE);
+      }
+      if (!controller && view.approvalMode === "bypassPermissions")
+        setView((current) => ({
+          ...current,
+          approvalMode: DEFAULT_APPROVAL_MODE,
+        }));
+    }
   };
   const openModels = () => {
     if (
@@ -471,7 +533,8 @@ function OpenTuiScreen({
       pickerOpen ||
       settingsOpen ||
       skillsOpen ||
-      modelsActions
+      modelsActions ||
+      permissionsOpen
     )
       return;
     editor.current?.blur();
@@ -490,7 +553,14 @@ function OpenTuiScreen({
         approvalResolver?.resolve("denied");
       return;
     }
-    if (pickerOpen || settingsOpen || skillsOpen || modelsActions) return;
+    if (
+      pickerOpen ||
+      settingsOpen ||
+      skillsOpen ||
+      modelsActions ||
+      permissionsOpen
+    )
+      return;
     if (
       key.name === "f4" &&
       !key.ctrl &&
@@ -504,6 +574,7 @@ function OpenTuiScreen({
       changeApprovalMode(
         nextApprovalMode(
           controller?.snapshot.approvalMode ?? view.approvalMode,
+          bypassAllowed,
         ),
       );
       return;
@@ -661,7 +732,14 @@ function OpenTuiScreen({
   });
 
   const submit = (command?: string) => {
-    if (approval || skillsOpen || settingsOpen || pickerOpen || modelsActions)
+    if (
+      approval ||
+      skillsOpen ||
+      settingsOpen ||
+      pickerOpen ||
+      modelsActions ||
+      permissionsOpen
+    )
       return;
     const value = command ?? editor.current?.plainText.trim();
     if (!value) return;
@@ -688,17 +766,32 @@ function OpenTuiScreen({
     if (parsed && ["/permissions", "/auto", "/ask"].includes(parsed.name)) {
       const requested =
         parsed.name === "/permissions" ? parsed.args : parsed.name.slice(1);
+      clearInput();
+      if (!requested && parsed.name === "/permissions")
+        return openPermissions();
       if (
-        APPROVAL_MODES.includes(requested as ApprovalMode) &&
+        APPROVAL_MODE_INPUTS.includes(requested as ApprovalModeInput) &&
         (parsed.name === "/permissions" || !parsed.args)
-      )
-        changeApprovalMode(requested as ApprovalMode);
-      else
+      ) {
+        try {
+          changeApprovalMode(
+            resolveApprovalMode({
+              approvalMode: requested as ApprovalModeInput,
+              allowBypassPermissions: bypassAllowed,
+            }),
+          );
+        } catch (error) {
+          controller?.append(
+            error instanceof Error ? error.message : String(error),
+            "info",
+          );
+        }
+      } else {
         controller?.append(
-          "Разрешения: /permissions ask|auto, /ask или /auto. F4 переключает следующий запрос. С подтверждением — спрашивать перед изменениями и командами; Авто — разрешать действия без диалога. Запреты и ограничения Plan сохраняются.",
+          "/permissions открывает выбор. Режимы: default, acceptEdits, dontAsk, bypassPermissions. Bypass включается в Settings → Разрешения. F4 переключает следующий запрос.",
           "info",
         );
-      clearInput();
+      }
       return;
     }
     if (parsed && ["/plan", "/build", "/mode"].includes(parsed.name)) {
@@ -790,6 +883,10 @@ function OpenTuiScreen({
         setup={setupPending}
         onThemePreview={setTheme}
         onThemeChange={onThemeChange}
+        allowBypassPermissions={bypassAllowed}
+        onBypassAvailabilityChange={
+          onBypassAvailabilityChange ? changeBypassAvailability : undefined
+        }
         onClose={(outcome) => {
           if (setupPending && outcome !== "saved") return onExit();
           if (setupPending && outcome === "saved") onSetupComplete?.();
@@ -850,6 +947,7 @@ function OpenTuiScreen({
           !skillsOpen &&
           !settingsOpen &&
           !modelsActions &&
+          !permissionsOpen &&
           !approval
         }
         hasDraft={!!draft.trim()}
@@ -862,7 +960,7 @@ function OpenTuiScreen({
         approvalMode={view.approvalMode}
         runningApprovalMode={view.runningApprovalMode}
         onToggleMode={toggleAgentMode}
-        onApprovalModeChange={changeApprovalMode}
+        onPermissionsSelect={openPermissions}
         onModelSelect={getModelsActions ? openModels : undefined}
         onSubmit={() => submit()}
       >
@@ -875,6 +973,7 @@ function OpenTuiScreen({
             !skillsOpen &&
             !settingsOpen &&
             !modelsActions &&
+            !permissionsOpen &&
             !approval
           }
           initialValue={draft}
@@ -1131,6 +1230,24 @@ function OpenTuiScreen({
         )}
       </box>
       {settingsDialog}
+      {permissionsOpen && !approval && (
+        <OpenTuiPermissions
+          width={width}
+          height={height}
+          palette={palette}
+          mode={view.approvalMode}
+          allowBypassPermissions={bypassAllowed}
+          onClose={closePermissions}
+          onSelect={(next) => {
+            changeApprovalMode(next);
+            closePermissions();
+          }}
+          onSettings={() => {
+            setPermissionsOpen(false);
+            openSettings("permissions");
+          }}
+        />
+      )}
       {modelsActions && !approval && (
         <OpenTuiModels
           actions={modelsActions}

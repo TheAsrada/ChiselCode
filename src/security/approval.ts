@@ -1,5 +1,5 @@
 import type { FileDiff, ProjectConfig, ToolName } from "../types/domain.js";
-import type { ApprovalMode } from "./approval-mode.js";
+import type { ApprovalModeInput } from "./approval-mode.js";
 import { PermissionPolicy } from "./permission-policy.js";
 
 const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
@@ -33,7 +33,9 @@ export interface ApprovalResolver {
 }
 
 export interface ApprovalOptions {
-  approvalMode?: ApprovalMode;
+  approvalMode?: ApprovalModeInput;
+  /** User setting, never granted by project instructions or a session record. */
+  allowBypassPermissions?: boolean | (() => boolean);
   autoApprove: boolean;
   allowedTools: Set<ToolName>;
   nonInteractive: boolean;
@@ -55,7 +57,15 @@ export class ApprovalGate {
   async decide(request: ApprovalRequest): Promise<ApprovalDecision> {
     const decision = this.policy.decide(
       request,
-      MUTATING_TOOLS.has(request.tool) ? "workspace_write" : "read",
+      request.tool === "run_shell"
+        ? "process"
+        : request.tool === "git_commit"
+          ? "git_write"
+          : request.tool === "create_skill"
+            ? "external"
+            : MUTATING_TOOLS.has(request.tool)
+              ? "workspace_write"
+              : "read",
     );
     return decision === "allow"
       ? "approved"

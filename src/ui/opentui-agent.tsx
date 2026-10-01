@@ -77,11 +77,14 @@ export async function runOpenTuiAgent(
   setupOnly = false,
 ): Promise<void> {
   let activeOptions = { ...options, resume: undefined };
+  const config = await loadGlobalConfig();
+  let bypassAvailable = config.permissions?.allowBypassPermissions === true;
   const projectConfig = await loadProjectConfig(options.cwd ?? process.cwd());
   const initialApprovalMode = resolveApprovalMode({
     ...options,
     saved: initialSession?.approvalMode,
     autoApprove: projectConfig.autoApprove,
+    allowBypassPermissions: bypassAvailable,
   });
   const workspace = new TuiWorkspace(
     options.cwd ?? process.cwd(),
@@ -93,7 +96,6 @@ export async function runOpenTuiAgent(
   if (options.mode) workspace.controller.setAgentMode(options.mode);
   const currentController = () => workspace.controller;
   const approvalResolver = createTuiApprovalResolver();
-  const config = await loadGlobalConfig();
   const catalog = await getProviderCatalog();
   const homeModel = settingsDraft(config, catalog.registry, activeOptions);
   workspace.home.setActiveModel(
@@ -239,7 +241,13 @@ export async function runOpenTuiAgent(
         ),
       );
   };
-  if (initialSession && (options.mode || options.approvalMode || options.yes))
+  if (
+    initialSession &&
+    (options.mode ||
+      options.approvalMode ||
+      options.yes ||
+      initialSession.approvalMode !== initialApprovalMode)
+  )
     persistExecutionModes(workspace.controller);
   let finish: (() => void) | undefined;
   const finished = new Promise<void>((resolve) => {
@@ -262,13 +270,13 @@ export async function runOpenTuiAgent(
   const resume = async (ref: string): Promise<void> => {
     const store = await sessionStore();
     const session = await store.load((await store.resolve(ref)).id);
-    if (!session.approvalMode) {
-      const project = await loadProjectConfig(session.projectPath);
-      session.approvalMode = resolveApprovalMode({
-        autoApprove: project.autoApprove,
-      });
-    }
-    workspace.openSession(session);
+    const project = await loadProjectConfig(session.projectPath);
+    session.approvalMode = resolveApprovalMode({
+      saved: session.approvalMode,
+      autoApprove: project.autoApprove,
+      allowBypassPermissions: bypassAvailable,
+    });
+    persistExecutionModes(workspace.openSession(session));
   };
   const sessionPicker: OpenTuiSessionsActions = {
     load: async () => (await sessionStore()).list(),
@@ -635,6 +643,10 @@ export async function runOpenTuiAgent(
   ): Promise<void> => {
     let controller = target;
     if (abort.signal.aborted) return;
+    turnApprovalMode = resolveApprovalMode({
+      saved: turnApprovalMode,
+      allowBypassPermissions: bypassAvailable,
+    });
     if (input === "/exit") return shutdown();
     if (selfUpdateRunning) {
       controller.append("Дождитесь завершения обновления.", "warn");
@@ -786,6 +798,7 @@ export async function runOpenTuiAgent(
             resume: controller.snapshot.sessionId,
             mode: turnMode,
             approvalMode: turnApprovalMode,
+            isBypassAllowed: () => bypassAvailable,
           },
           approvalResolver,
           {
@@ -859,6 +872,36 @@ export async function runOpenTuiAgent(
         getDefaultModel: () => defaultModel,
         onAgentModeChange: () => persistExecutionModes(currentController()),
         onApprovalModeChange: () => persistExecutionModes(currentController()),
+        allowBypassPermissions: bypassAvailable,
+        onBypassAvailabilityChange: (allowed) => {
+          const saved = pendingSave.then(async () => {
+            const current = await loadGlobalConfig();
+            await saveGlobalConfig({
+              ...current,
+              permissions: {
+                ...current.permissions,
+                allowBypassPermissions: allowed,
+              },
+            });
+            bypassAvailable = allowed;
+            if (!allowed) {
+              for (const queued of pendingPrompts)
+                if (queued.approvalMode === "bypassPermissions")
+                  queued.approvalMode = "default";
+              for (const controller of [
+                workspace.home,
+                ...workspace.tabs.map((tab) => tab.controller),
+              ]) {
+                if (controller.snapshot.approvalMode === "bypassPermissions") {
+                  controller.setApprovalMode("default");
+                  persistExecutionModes(controller);
+                }
+              }
+            }
+          });
+          pendingSave = saved.catch(() => {});
+          return saved;
+        },
         skillsActions,
         initialSettingsOpen: setupRequired || setupOnly,
         onSetupComplete: setupOnly ? shutdown : undefined,

@@ -37,7 +37,7 @@ describe("project session storage", () => {
     const store = await projectSessionStore(join(root, "work"));
     const session = store.create("anthropic", "old-model");
     session.mode = "plan";
-    session.approvalMode = "auto";
+    session.approvalMode = "acceptEdits";
     session.messages = [
       { role: "user", content: [{ type: "text", text: "Existing history" }] },
     ];
@@ -62,7 +62,7 @@ describe("project session storage", () => {
       profileId: "work",
       model: "new-model",
       mode: "plan",
-      approvalMode: "auto",
+      approvalMode: "acceptEdits",
       updatedAt: before.updatedAt,
     });
     expect(after.messages).toEqual(before.messages);

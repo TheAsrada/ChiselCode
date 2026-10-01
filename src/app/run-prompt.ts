@@ -23,7 +23,7 @@ import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import {
-  type ApprovalMode,
+  type ApprovalModeInput,
   resolveApprovalMode,
 } from "../security/approval-mode.js";
 import { CredentialStore } from "../security/credentials.js";
@@ -51,7 +51,9 @@ export interface RunEventHandlers {
 
 export interface RunOptions {
   mode?: AgentMode;
-  approvalMode?: ApprovalMode;
+  approvalMode?: ApprovalModeInput;
+  /** Internal live revocation hook; user config must also permit Bypass. */
+  isBypassAllowed?: () => boolean;
   /** Internal harness override; not a CLI flag. */
   configPath?: string;
   provider?: ProviderId;
@@ -328,6 +330,9 @@ export async function runPrompt(
     ...options,
     saved: session.approvalMode,
     autoApprove: config.autoApprove,
+    allowBypassPermissions:
+      global.permissions?.allowBypassPermissions === true &&
+      (options.isBypassAllowed?.() ?? true),
   });
   session.approvalMode = approvalMode;
   if (
@@ -369,6 +374,9 @@ export async function runPrompt(
     {
       autoApprove: Boolean(options.yes),
       approvalMode,
+      allowBypassPermissions: () =>
+        global.permissions?.allowBypassPermissions === true &&
+        (options.isBypassAllowed?.() ?? true),
       allowedTools: parseAllowedTools(options.allow),
       nonInteractive: !process.stdin.isTTY,
     },

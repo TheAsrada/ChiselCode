@@ -60,25 +60,38 @@ for (const [width, height] of [
       expect(workspace.controller.snapshot.agentMode).toBe("plan");
       await act(async () => setup.mockInput.pressKey("F4"));
       await frame(setup);
-      expect(workspace.controller.snapshot.approvalMode).toBe("auto");
+      expect(workspace.controller.snapshot.approvalMode).toBe("acceptEdits");
       expect(workspace.controller.snapshot.agentMode).toBe("plan");
-      const confirm = setup.renderer.root.findDescendantById(
-        "prompt-approval-ask",
-      );
+      const confirm =
+        setup.renderer.root.findDescendantById("prompt-permissions");
       if (!confirm) throw new Error("Permission selector is missing");
       await act(async () => setup.mockMouse.click(confirm.x + 2, confirm.y));
       await frame(setup);
-      expect(workspace.controller.snapshot.approvalMode).toBe("ask");
-      expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/bu");
-      const automatic = setup.renderer.root.findDescendantById(
-        "prompt-approval-auto",
+      expect(
+        setup.renderer.root.findDescendantById("permissions-popup"),
+      ).toBeTruthy();
+      const manual = setup.renderer.root.findDescendantById(
+        "permissions-mode-default",
       );
+      if (!manual) throw new Error("Manual option is missing");
+      await act(async () => setup.mockMouse.click(manual.x + 2, manual.y));
+      await frame(setup);
+      expect(workspace.controller.snapshot.approvalMode).toBe("default");
+      expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/bu");
+      const automatic =
+        setup.renderer.root.findDescendantById("prompt-permissions");
       if (!automatic) throw new Error("Auto option is missing");
       await act(async () =>
         setup.mockMouse.click(automatic.x + 2, automatic.y),
       );
       await frame(setup);
-      expect(workspace.controller.snapshot.approvalMode).toBe("auto");
+      const edits = setup.renderer.root.findDescendantById(
+        "permissions-mode-acceptEdits",
+      );
+      if (!edits) throw new Error("Accept edits option is missing");
+      await act(async () => setup.mockMouse.click(edits.x + 2, edits.y));
+      await frame(setup);
+      expect(workspace.controller.snapshot.approvalMode).toBe("acceptEdits");
       expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/bu");
       expect(setup.captureCharFrame()).toContain("test-model");
       expect(submitted).toBe(false);
@@ -131,9 +144,9 @@ test("mode commands stay local; modes belong to tabs, resume restores them and a
     expect(submitted).toEqual([]);
     expect(workspace.tabs).toHaveLength(0);
     for (const [command, expected] of [
-      ["/auto", "auto"],
-      ["/ask", "ask"],
-      ["/permissions auto", "auto"],
+      ["/auto", "acceptEdits"],
+      ["/ask", "default"],
+      ["/permissions auto", "acceptEdits"],
     ]) {
       await act(async () => {
         await setup.mockInput.pasteBracketedText(command ?? "");
@@ -154,22 +167,22 @@ test("mode commands stay local; modes belong to tabs, resume restores them and a
     });
     await frame(setup);
     expect(workspace.home.snapshot.agentMode).toBe("build");
-    expect(workspace.home.snapshot.approvalMode).toBe("auto");
+    expect(workspace.home.snapshot.approvalMode).toBe("acceptEdits");
     const session = createSession(process.cwd(), "anthropic", "test-model");
     session.mode = "plan";
-    session.approvalMode = "ask";
+    session.approvalMode = "default";
     act(() => {
       workspace.openSession(session);
     });
     await frame(setup);
     expect(workspace.controller.snapshot.agentMode).toBe("plan");
-    expect(workspace.controller.snapshot.approvalMode).toBe("ask");
+    expect(workspace.controller.snapshot.approvalMode).toBe("default");
     act(() => {
       workspace.select(firstKey);
     });
     await frame(setup);
     expect(workspace.controller.snapshot.agentMode).toBe("build");
-    expect(workspace.controller.snapshot.approvalMode).toBe("auto");
+    expect(workspace.controller.snapshot.approvalMode).toBe("acceptEdits");
     const legacy = createSession(process.cwd(), "anthropic", "test-model");
     act(() => {
       workspace.openSession(legacy);
@@ -225,7 +238,7 @@ test("Shift+Tab belongs to the open popup and does not change the agent mode", a
       });
       await frame(setup);
       expect(workspace.controller.snapshot.agentMode).toBe("build");
-      expect(workspace.controller.snapshot.approvalMode).toBe("ask");
+      expect(workspace.controller.snapshot.approvalMode).toBe("default");
       await act(async () => {
         setup.mockInput.pressEscape();
         await Bun.sleep(120);
@@ -689,7 +702,7 @@ for (const [width, height] of [
           setup.mockInput.pressKey("END");
         });
         await frame(setup);
-        expect(workspace.controller.snapshot.approvalMode).toBe("ask");
+        expect(workspace.controller.snapshot.approvalMode).toBe("default");
         expect(workspace.controller.snapshot.agentMode).toBe("build");
         expect(setup.captureCharFrame()).toContain("preview line 59");
         await act(async () => {

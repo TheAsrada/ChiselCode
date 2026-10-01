@@ -50,7 +50,13 @@ function registry(
 ): ToolRegistry {
   const gate = new ApprovalGate(
     config,
-    { autoApprove, allowedTools: new Set(), nonInteractive: true },
+    {
+      approvalMode: autoApprove ? "bypassPermissions" : "default",
+      allowBypassPermissions: autoApprove,
+      autoApprove: false,
+      allowedTools: new Set(),
+      nonInteractive: true,
+    },
     {
       async requestApproval() {
         return "denied";

@@ -23,7 +23,10 @@ import { formatProviderDiagnostic } from "./providers/custom/diagnostics.js";
 import { resolveEndpoint } from "./providers/endpoint.js";
 import { selectProfile } from "./providers/profiles.js";
 import { AGENT_MODES, type AgentMode } from "./runtime/agent-mode.js";
-import { APPROVAL_MODES, type ApprovalMode } from "./security/approval-mode.js";
+import {
+  APPROVAL_MODE_INPUTS,
+  type ApprovalModeInput,
+} from "./security/approval-mode.js";
 import { CredentialStore } from "./security/credentials.js";
 import { projectSessionStore } from "./sessions/project-store.js";
 import {
@@ -53,10 +56,10 @@ program
   .addOption(
     new Option(
       "--approval <mode>",
-      "разрешения: ask (с подтверждением) или auto",
-    ).choices([...APPROVAL_MODES]),
+      "разрешения: default, acceptEdits, dontAsk, bypassPermissions (включается в Settings)",
+    ).choices([...APPROVAL_MODE_INPUTS]),
   )
-  .option("--yes", "выбрать Авто (совместимый флаг; запреты сохраняются)")
+  .option("--yes", "совместимый флаг Accept edits: команды требуют разрешения")
   .option("--allow <tools>", "разрешить конкретные инструменты через запятую")
   .option("--json", "вывести один JSON-объект")
   .option("--resume <session-id>", "продолжить предыдущую сессию")
@@ -336,7 +339,7 @@ function toOptions(raw: Record<string, unknown>): RunOptions {
     profile: raw.profile as string | undefined,
     model: raw.model as string | undefined,
     mode: raw.mode as AgentMode | undefined,
-    approvalMode: raw.approval as ApprovalMode | undefined,
+    approvalMode: raw.approval as ApprovalModeInput | undefined,
     baseUrl: raw.baseUrl as string | undefined,
     yes: Boolean(raw.yes),
     allow: raw.allow as string | undefined,

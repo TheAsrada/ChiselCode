@@ -49,8 +49,15 @@ type Screen =
   | "key"
   | "base-url"
   | "profile-id";
-type Page = "connection" | "appearance";
-type Work = "load" | "models" | "check" | "save" | "profile" | "theme";
+type Page = "connection" | "appearance" | "permissions";
+type Work =
+  | "load"
+  | "models"
+  | "check"
+  | "save"
+  | "profile"
+  | "theme"
+  | "permissions";
 const labels: Record<Screen, string> = {
   menu: "Подключение",
   providers: "Выберите сервис",
@@ -89,6 +96,8 @@ export function OpenTuiSettings({
   theme = "obsidian",
   onThemePreview,
   onThemeChange,
+  allowBypassPermissions = false,
+  onBypassAvailabilityChange,
   setup = false,
 }: {
   actions?: OpenTuiSettingsActions;
@@ -101,6 +110,8 @@ export function OpenTuiSettings({
   theme?: ThemeName;
   onThemePreview?: (theme: ThemeName) => void;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
+  allowBypassPermissions?: boolean;
+  onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   setup?: boolean;
 }) {
   const [values, setValues] = useState<TuiSettingsValues>({
@@ -113,7 +124,9 @@ export function OpenTuiSettings({
   const [profiles, setProfiles] = useState<Record<string, ProviderProfile>>({});
   const [hasKey, setHasKey] = useState(false);
   const [loaded, setLoaded] = useState(!actions);
-  const [page, setPage] = useState<Page>(actions ? initialPage : "appearance");
+  const [page, setPage] = useState<Page>(
+    actions || initialPage === "permissions" ? initialPage : "appearance",
+  );
   const [screen, setScreen] = useState<Screen>("menu");
   const [selected, setSelectedState] = useState(initialSelection);
   const selectedRef = useRef(initialSelection);
@@ -142,6 +155,7 @@ export function OpenTuiSettings({
     setThemeIndexState(next);
   };
   const [savedTheme, setSavedTheme] = useState(theme);
+  const [bypassAllowed, setBypassAllowed] = useState(allowBypassPermissions);
   const lifetime = useRef({
     mounted: true,
     operation: 0,
@@ -359,14 +373,22 @@ export function OpenTuiSettings({
     if (page === "appearance") onThemePreview?.(currentTheme);
   }, [page, currentTheme]);
   const close = () => {
-    if (lifetime.current.busy === "save" || lifetime.current.busy === "theme")
+    if (
+      lifetime.current.busy === "save" ||
+      lifetime.current.busy === "theme" ||
+      lifetime.current.busy === "permissions"
+    )
       return;
     cancelWork();
     onThemePreview?.(restore.current.theme);
     onClose();
   };
   const changePage = (next: Page) => {
-    if (lifetime.current.busy === "save" || lifetime.current.busy === "theme")
+    if (
+      lifetime.current.busy === "save" ||
+      lifetime.current.busy === "theme" ||
+      lifetime.current.busy === "permissions"
+    )
       return;
     if (next === "connection" && !actions) return;
     if (lifetime.current.busy !== "load") cancelWork();
@@ -433,6 +455,21 @@ export function OpenTuiSettings({
       restore.current.theme = chosen;
       setSavedTheme(chosen);
       setMessage("Тема сохранена", "success");
+    });
+  };
+  const toggleBypass = () => {
+    if (!onBypassAvailabilityChange) return;
+    const allowed = !bypassAllowed;
+    run("permissions", async (valid) => {
+      await onBypassAvailabilityChange(allowed);
+      if (!valid()) return;
+      setBypassAllowed(allowed);
+      setMessage(
+        allowed
+          ? "Bypass доступен в выборе режимов; текущий режим сохранён"
+          : "Bypass выключен; выбранные Bypass-сессии переведены в Manual",
+        "success",
+      );
     });
   };
   const open = (next: Screen) => {
@@ -613,6 +650,7 @@ export function OpenTuiSettings({
     if (key.ctrl && name === "s") {
       key.preventDefault();
       if (page === "appearance") applyTheme();
+      else if (page === "permissions") toggleBypass();
       else if (!field) save();
       return;
     }
@@ -623,8 +661,24 @@ export function OpenTuiSettings({
     }
     if (name === "tab") {
       key.preventDefault();
-      if (!field)
-        changePage(page === "connection" ? "appearance" : "connection");
+      if (!field) {
+        const pages: Page[] = actions
+          ? ["connection", "appearance", "permissions"]
+          : ["appearance", "permissions"];
+        changePage(
+          pages[
+            (pages.indexOf(page) + (key.shift ? -1 : 1) + pages.length) %
+              pages.length
+          ] ?? "appearance",
+        );
+      }
+      return;
+    }
+    if (page === "permissions") {
+      if (name === "return" || name === "space") {
+        key.preventDefault();
+        toggleBypass();
+      }
       return;
     }
     if (page === "appearance") {
@@ -688,21 +742,25 @@ export function OpenTuiSettings({
     safeNotice(value, values, editing, screen === "key");
   const help = rows[menuIndex]?.help ?? "";
   const hints =
-    innerWidth < 50
-      ? page === "appearance"
-        ? "↑↓ · Enter применить · Esc отмена"
-        : field
-          ? "Enter готово · Esc отмена"
-          : selector
-            ? "Поиск · ↑↓ · Enter · Esc назад"
-            : "↑↓ Enter · Tab · Ctrl+S · Esc"
-      : page === "appearance"
-        ? "↑↓ предпросмотр · Enter применить · Esc отменить"
-        : field
-          ? "Enter подтвердить · Esc отменить"
-          : selector
-            ? "Поиск · ↑↓ выбрать · Enter · Esc назад"
-            : "↑↓ / Enter · Tab раздел · Ctrl+S сохранить";
+    page === "permissions"
+      ? innerWidth < 45
+        ? "Enter вкл/выкл · Tab · Esc"
+        : "Enter переключить · Tab раздел · Esc закрыть"
+      : innerWidth < 50
+        ? page === "appearance"
+          ? "↑↓ · Enter применить · Esc отмена"
+          : field
+            ? "Enter готово · Esc отмена"
+            : selector
+              ? "Поиск · ↑↓ · Enter · Esc назад"
+              : "↑↓ Enter · Tab · Ctrl+S · Esc"
+        : page === "appearance"
+          ? "↑↓ предпросмотр · Enter применить · Esc отменить"
+          : field
+            ? "Enter подтвердить · Esc отменить"
+            : selector
+              ? "Поиск · ↑↓ выбрать · Enter · Esc назад"
+              : "↑↓ / Enter · Tab раздел · Ctrl+S сохранить";
   return (
     <OpenTuiDialog
       id="settings"
@@ -725,14 +783,16 @@ export function OpenTuiSettings({
           label="Esc ×"
           palette={palette}
           onSelect={close}
-          disabled={busy === "save" || busy === "theme"}
+          disabled={
+            busy === "save" || busy === "theme" || busy === "permissions"
+          }
         />
       </box>
       {roomy && (
         <text height={1} fg={palette.muted}>
           {setup
             ? "Подключите сервис, чтобы начать работу"
-            : "Ваше подключение и оформление"}
+            : "Подключение, оформление и разрешения"}
         </text>
       )}
       <box
@@ -744,7 +804,7 @@ export function OpenTuiSettings({
       >
         <DialogAction
           id="settings-connection"
-          label="Подключение"
+          label={innerWidth < 45 ? "API" : "Подключение"}
           palette={palette}
           active={page === "connection"}
           disabled={!actions}
@@ -752,10 +812,17 @@ export function OpenTuiSettings({
         />
         <DialogAction
           id="settings-appearance"
-          label="Оформление"
+          label={innerWidth < 45 ? "Вид" : "Оформление"}
           palette={palette}
           active={page === "appearance"}
           onSelect={() => changePage("appearance")}
+        />
+        <DialogAction
+          id="settings-permissions"
+          label={innerWidth < 45 ? "Доступ" : "Разрешения"}
+          palette={palette}
+          active={page === "permissions"}
+          onSelect={() => changePage("permissions")}
         />
       </box>
       <box
@@ -765,7 +832,43 @@ export function OpenTuiSettings({
         flexDirection="column"
         overflow="hidden"
       >
-        {page === "appearance" ? (
+        {page === "permissions" ? (
+          <scrollbox width="100%" height="100%">
+            <box flexDirection="column" gap={roomy ? 1 : 0}>
+              <text height={1} fg={palette.accent}>
+                <strong>Доступ к Bypass</strong>
+              </text>
+              <DialogAction
+                id="settings-bypass-toggle"
+                label={`[${bypassAllowed ? "● Вкл" : "○ Выкл"}] Разрешить Bypass`}
+                palette={palette}
+                active={bypassAllowed}
+                disabled={!!busy || !onBypassAvailabilityChange}
+                onSelect={toggleBypass}
+              />
+              <text fg={palette.text}>
+                Переключатель добавляет Bypass в меню разрешений и цикл F4. Сам
+                режим выбирается отдельно.
+              </text>
+              <text fg={palette.yellow}>
+                В Bypass правки и команды выполняются без подтверждения, с
+                правами процесса ChiselCode.
+              </text>
+              <text fg={palette.muted}>
+                Явные запреты, границы файловых инструментов и режим Plan
+                сохраняются. Это не песочница.
+              </text>
+              <text fg={palette.muted}>
+                Выключение возвращает Bypass-сессии и очередь в Manual;
+                следующие действия активного запроса снова проверяют разрешения.
+              </text>
+              <text fg={palette.muted}>
+                Настройка принадлежит пользователю и сохраняется сразу. Проект и
+                скиллы не могут её включить.
+              </text>
+            </box>
+          </scrollbox>
+        ) : page === "appearance" ? (
           <box flexDirection="row" height="100%" width="100%">
             <box
               width={wide ? listWidth : innerWidth}
@@ -1108,7 +1211,21 @@ export function OpenTuiSettings({
         flexDirection="row"
         gap={1}
       >
-        {page === "appearance" ? (
+        {page === "permissions" ? (
+          <DialogAction
+            id="settings-bypass-action"
+            label={
+              busy === "permissions"
+                ? "Сохраняем…"
+                : bypassAllowed
+                  ? "Выключить Bypass"
+                  : "Включить Bypass"
+            }
+            palette={palette}
+            disabled={!!busy || !onBypassAvailabilityChange}
+            onSelect={toggleBypass}
+          />
+        ) : page === "appearance" ? (
           <DialogAction
             id="settings-apply-theme"
             label={busy === "theme" ? "Сохраняем…" : "Применить тему"}

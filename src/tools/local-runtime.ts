@@ -4,7 +4,10 @@ import { sessionsRootDir } from "../paths/home.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { RuntimeEventBus } from "../runtime/events.js";
 import type { ApprovalGate } from "../security/approval.js";
-import type { ApprovalMode } from "../security/approval-mode.js";
+import {
+  type ApprovalMode,
+  resolveApprovalMode,
+} from "../security/approval-mode.js";
 import { HostSandboxExecutor } from "../security/sandbox.js";
 import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { initializeSessionState } from "../sessions/migrations.js";
@@ -74,10 +77,15 @@ export function createLocalToolRuntime(
     options.maxInlineTokens,
   );
   const scheduler = new ToolScheduler(executor, options.maxParallelReads);
-  const getApprovalMode = () =>
-    options.approvalMode ??
-    session.runtime?.turnApprovalMode ??
-    session.approvalMode ??
-    gate.policy.approvalMode;
+  const getApprovalMode = (requested?: ApprovalMode) =>
+    resolveApprovalMode({
+      saved:
+        requested ??
+        options.approvalMode ??
+        session.runtime?.turnApprovalMode ??
+        session.approvalMode ??
+        gate.policy.approvalMode,
+      allowBypassPermissions: gate.policy.bypassAllowed,
+    });
   return { catalog, executor, scheduler, context, getApprovalMode };
 }

@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { AGENT_MODE_LABELS, type AgentMode } from "../runtime/agent-mode.js";
 import {
   APPROVAL_MODE_LABELS,
-  APPROVAL_MODES,
   type ApprovalMode,
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
@@ -23,7 +22,7 @@ export function OpenTuiPrompt({
   approvalMode,
   runningApprovalMode,
   onToggleMode,
-  onApprovalModeChange,
+  onPermissionsSelect,
   onModelSelect,
   onSubmit,
 }: {
@@ -39,7 +38,7 @@ export function OpenTuiPrompt({
   approvalMode: ApprovalMode;
   runningApprovalMode?: ApprovalMode;
   onToggleMode: () => void;
-  onApprovalModeChange: (mode: ApprovalMode) => void;
+  onPermissionsSelect: () => void;
   onModelSelect?: () => void;
   onSubmit: () => void;
 }) {
@@ -102,49 +101,37 @@ export function OpenTuiPrompt({
               <strong>{AGENT_MODE_LABELS[agentMode]}</strong>
             </text>
           </box>
-          <box flexDirection="row" height={1} gap={1}>
-            {APPROVAL_MODES.filter(
-              (mode) => width >= 35 || mode === approvalMode,
-            ).map((mode) => (
-              // biome-ignore lint/a11y/noStaticElementInteractions: F4 also switches permission modes.
-              <box
-                key={mode}
-                id={`prompt-approval-${mode}`}
-                height={1}
-                flexShrink={0}
-                paddingLeft={1}
-                paddingRight={1}
-                backgroundColor={
-                  mode === approvalMode ? palette.raised : palette.surface
-                }
-                onMouseUp={(event) => {
-                  event.stopPropagation();
-                  onApprovalModeChange(
-                    width < 35 ? (mode === "ask" ? "auto" : "ask") : mode,
-                  );
-                }}
-              >
-                <text
-                  height={1}
-                  selectable={false}
-                  fg={
-                    mode === approvalMode
-                      ? mode === "auto"
-                        ? palette.yellow
-                        : palette.text
-                      : palette.muted
-                  }
-                >
-                  {mode === "ask"
-                    ? width >= 60
-                      ? "С подтверждением"
-                      : width >= 35
-                        ? "Спрашивать"
-                        : "Ask"
-                    : "Авто"}
-                </text>
-              </box>
-            ))}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: /permissions opens the picker and F4 cycles modes. */}
+          <box
+            id="prompt-permissions"
+            height={1}
+            flexShrink={0}
+            paddingLeft={1}
+            paddingRight={1}
+            backgroundColor={palette.raised}
+            onMouseUp={(event) => {
+              event.stopPropagation();
+              onPermissionsSelect();
+            }}
+          >
+            <text
+              height={1}
+              selectable={false}
+              fg={
+                approvalMode === "bypassPermissions"
+                  ? palette.red
+                  : approvalMode === "acceptEdits"
+                    ? palette.yellow
+                    : palette.text
+              }
+            >
+              {width < 45 && approvalMode === "acceptEdits"
+                ? "Edits"
+                : width < 45 && approvalMode === "dontAsk"
+                  ? "Allowed"
+                  : APPROVAL_MODE_LABELS[approvalMode]}{" "}
+              ▾
+            </text>
           </box>
         </box>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: Enter also submits the message. */}

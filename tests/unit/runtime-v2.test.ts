@@ -58,7 +58,13 @@ function setup(
   const events = new RuntimeEventBus(session.id);
   const gate = new ApprovalGate(
     DEFAULT_PROJECT_CONFIG,
-    { autoApprove: approve, allowedTools: new Set(), nonInteractive: true },
+    {
+      approvalMode: approve ? "bypassPermissions" : "default",
+      allowBypassPermissions: approve,
+      autoApprove: false,
+      allowedTools: new Set(),
+      nonInteractive: true,
+    },
     { requestApproval: async () => "unavailable" },
   );
   const tools = createLocalToolRuntime(

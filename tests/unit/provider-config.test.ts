@@ -11,6 +11,34 @@ import {
 } from "../../src/providers/profiles.js";
 import { createBuiltinProviderRegistry } from "../../src/providers/runtime.js";
 
+test("Bypass opt-in persists in user settings, defaults off and rejects invalid values without overwriting config", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "chisel-permission-config-"));
+  const path = join(dir, "config.json");
+  try {
+    const original = await loadGlobalConfig(path);
+    expect(original.permissions?.allowBypassPermissions ?? false).toBe(false);
+    for (const allowed of [true, false]) {
+      await saveGlobalConfig(
+        { ...original, permissions: { allowBypassPermissions: allowed } },
+        path,
+      );
+      expect(
+        (await loadGlobalConfig(path)).permissions?.allowBypassPermissions,
+      ).toBe(allowed);
+    }
+    const source = await readFile(path, "utf8");
+    await expect(
+      saveGlobalConfig(
+        { ...original, permissions: { allowBypassPermissions: "true" } },
+        path,
+      ),
+    ).rejects.toThrow("Invalid ChiselCode config");
+    expect(await readFile(path, "utf8")).toBe(source);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 for (const d of builtinDefinitions)
   test(`legacy config ${d.id} preserves refs, endpoint, unknown fields and is idempotent`, () => {
     const raw = {

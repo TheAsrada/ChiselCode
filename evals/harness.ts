@@ -169,7 +169,14 @@ export async function runTrial(
         DEFAULT_PROJECT_CONFIG.ignorePatterns,
         new ApprovalGate(
           DEFAULT_PROJECT_CONFIG,
-          { autoApprove: true, allowedTools: new Set(), nonInteractive: true },
+          // Execution evals explicitly opt in; permission modes have separate regression tests.
+          {
+            approvalMode: "bypassPermissions",
+            allowBypassPermissions: true,
+            autoApprove: false,
+            allowedTools: new Set(),
+            nonInteractive: true,
+          },
           { requestApproval: async () => "approved" },
         ),
         session,

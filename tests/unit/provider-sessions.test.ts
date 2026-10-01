@@ -108,7 +108,7 @@ test("mode selection persists separately from the completed request and preserve
   await fixture(async (store) => {
     const session = store.create("anthropic", "original-model");
     session.mode = "plan";
-    session.approvalMode = "ask";
+    session.approvalMode = "default";
     await store.save(session);
     const latest = await store.load(session.id);
     latest.messages.push({
@@ -116,24 +116,56 @@ test("mode selection persists separately from the completed request and preserve
       content: [{ type: "text", text: "Plan completed" }],
     });
     if (latest.runtime) latest.runtime.turnMode = "plan";
-    if (latest.runtime) latest.runtime.turnApprovalMode = "ask";
+    if (latest.runtime) latest.runtime.turnApprovalMode = "default";
     await store.save(latest);
     const before = await store.load(session.id);
     await store.setExecutionModes(session.id, {
       mode: "build",
-      approvalMode: "auto",
+      approvalMode: "acceptEdits",
     });
     const restored = await store.load(session.id);
     expect(restored.mode).toBe("build");
     expect(restored.runtime?.turnMode).toBe("plan");
-    expect(restored.approvalMode).toBe("auto");
-    expect(restored.runtime?.turnApprovalMode).toBe("ask");
+    expect(restored.approvalMode).toBe("acceptEdits");
+    expect(restored.runtime?.turnApprovalMode).toBe("default");
     expect(restored.messages).toEqual(before.messages);
     expect(restored.updatedAt).toBe(before.updatedAt);
     expect(restored.model).toBe("original-model");
     expect((await store.list())[0]?.messageCount).toBe(1);
     await store.setMode(session.id, "plan");
-    expect((await store.load(session.id)).approvalMode).toBe("auto");
+    expect((await store.load(session.id)).approvalMode).toBe("acceptEdits");
+  });
+});
+
+test("legacy permission choices migrate without enabling Bypass or rewriting the transcript", async () => {
+  await fixture(async (store) => {
+    const session = store.create("openai", "original-model");
+    session.messages.push({
+      role: "user",
+      content: [{ type: "text", text: "Keep my conversation" }],
+    });
+    await store.save(session);
+    const file = join(store.directory, `${session.id}.json`);
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    for (const [legacy, expected] of [
+      ["ask", "default"],
+      ["auto", "acceptEdits"],
+    ] as const) {
+      raw.approvalMode = legacy;
+      raw.runtime = {
+        invocations: {},
+        workspaceObservations: {},
+        failedCalls: {},
+        turnApprovalMode: legacy,
+      };
+      const source = JSON.stringify(raw);
+      await writeFile(file, source);
+      const restored = await store.load(session.id);
+      expect(restored.approvalMode).toBe(expected);
+      expect(restored.runtime?.turnApprovalMode).toBe(expected);
+      expect(restored.messages).toEqual(session.messages);
+      expect(await readFile(file, "utf8")).toBe(source);
+    }
   });
 });
 

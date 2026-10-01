@@ -465,6 +465,7 @@ test("first-run theme save does not bypass required connection setup", async () 
     expect(completed).toBe(0);
     expect(setup.captureCharFrame()).not.toContain("Опишите задачу");
     await key(setup, "TAB");
+    await key(setup, "TAB");
     await key(setup, "s", true);
     expect(completed).toBe(0);
     await key(setup, "DOWN");

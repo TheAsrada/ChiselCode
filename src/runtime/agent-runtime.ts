@@ -26,7 +26,7 @@ import type { RuntimeEventBus } from "./events.js";
 import { TurnRunner } from "./turn-runner.js";
 import type { TurnState } from "./turn-state.js";
 export interface RuntimeTools {
-  getApprovalMode?(): ApprovalMode;
+  getApprovalMode?(requested?: ApprovalMode): ApprovalMode;
   selectForTurn(): ToolDefinition[] | Promise<ToolDefinition[]>;
   execute(
     calls: ToolCall[],
@@ -61,10 +61,10 @@ export class AgentRuntime {
     const mode = options.mode ?? session.mode ?? DEFAULT_AGENT_MODE;
     session.mode = mode;
     runtime.turnMode = mode;
+    const requestedApprovalMode = options.approvalMode ?? session.approvalMode;
     const approvalMode =
-      options.approvalMode ??
-      session.approvalMode ??
-      this.tools.getApprovalMode?.();
+      this.tools.getApprovalMode?.(requestedApprovalMode) ??
+      requestedApprovalMode;
     runtime.turnApprovalMode = approvalMode;
     if (approvalMode) session.approvalMode = approvalMode;
     const system = `${this.system}\n\n${agentModeInstructions(mode)}${approvalMode ? `\n\n${approvalModeInstructions(approvalMode)}` : ""}`;

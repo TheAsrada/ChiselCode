@@ -20,7 +20,7 @@
 | `allowedCommands` | `[]` | Shell-команды, которые можно выполнять без вопроса |
 | `deniedCommands` | `[]` | Shell-команды, которые отклоняются даже при `--yes` |
 | `ignorePatterns` | `[".git/**", "node_modules/**", ".chisel/**"]` | Пути, исключённые из файловых инструментов |
-| `autoApprove` | `false` | Default Авто для новой/legacy сессии без выбранного approvalMode |
+| `autoApprove` | `false` | Совместимый default Accept edits для новой/legacy сессии без выбранного approvalMode; не включает Bypass |
 
 Указанный `ignorePatterns` **заменяет** стандартный список. Поэтому в примере сохранены стандартные исключения и добавлены `.env`. Секреты не исключаются автоматически одним только наличием `.env` в проекте.
 
@@ -28,7 +28,7 @@ Shell allow rules сопоставляются с нормализованным
 
 ## Параметры Core Runtime v2
 
-Явный `--approval ask` и сохранённый выбор «С подтверждением» заменяют общий `autoApprove`; `--yes` выбирает Авто, если нет явного `--approval`. Точечные `allowedCommands`/`--allow` и запреты сохраняются. [Приоритеты разрешений](permissions.md).
+Явный `--approval default` и сохранённый Manual заменяют общий `autoApprove`; `--yes` выбирает Accept edits, если нет явного `--approval`. Bypass доступен только при `permissions.allowBypassPermissions: true` в пользовательском config; настройка управляется в Settings → Разрешения. Точечные `allowedCommands`/`--allow` и запреты сохраняются. [Приоритеты разрешений](permissions.md).
 
 Необязательные настройки `.chiselrc`:
 

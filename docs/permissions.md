@@ -1,84 +1,102 @@
-# С подтверждением / Авто
+# Режимы разрешений
 
 [Документация](README.md) · [Plan / Build](agent-modes.md) · [Безопасность](security.md)
 
-Рядом с Plan/Build в поле ввода находятся две кнопки: **С подтверждением** и **Авто**. Нажмите нужную кнопку или F4 для выбора порядка разрешений следующего запроса. Shift+Tab отдельно переключает Plan/Build. Модель показана следующей строкой, чтобы название и переключатели помещались в компактном терминале.
+Метка рядом с Plan/Build показывает текущий режим разрешений. Нажмите её или выполните `/permissions`, чтобы открыть popup с описаниями. F4 переключает доступные режимы для следующего запроса; Shift+Tab отдельно переключает Plan/Build. Модель и черновик сохраняются.
 
-По умолчанию используется «С подтверждением». Чтение проходит без диалога; изменение файлов, shell, Git commit и создание скиллов требуют разрешения, если действие заранее не разрешено через `--allow` или `allowedCommands`. Попап показывает команду или diff и позволяет разрешить действие **один раз** либо отклонить. Y/Н разрешает, N/Т/Esc и нажатие вне окна отклоняют. Предпросмотр листается колесом, стрелками, PgUp/PgDn, Home/End. Следующая операция снова проверяется по правилам.
-
-В «Авто» приложение разрешает обычные действия без диалогов. Агент продолжает уточнять существенную неопределённость самой задачи. Авто сохраняет запреты команд, проверки путей, актуальности прочитанного файла, корректности patch и ограничения Plan.
-
-| Workflow | С подтверждением | Авто |
+| Режим | ID для CLI и команд | Поведение в Build |
 | --- | --- | --- |
-| Plan | Только инструменты чтения | Только инструменты чтения |
-| Build | Обычные инструменты; изменения требуют решения, кроме явных allow rules | Обычные инструменты без диалогов; deny rules и проверки сохраняются |
+| Manual | `default` | Чтение и явно разрешённые действия выполняются сразу. Другие действия требуют подтверждения |
+| Accept edits | `acceptEdits` | Правки файлов проекта разрешены. Shell, Git commit и создание скиллов вне проекта требуют подтверждения, кроме явных allow rules |
+| Dont ask | `dontAsk` | Только чтение и явно разрешённые действия. Всё остальное отклоняется без диалога и без ожидания интерактивного resume |
+| Bypass | `bypassPermissions` | Действия выполняются без запросов разрешения. Доступен только после включения в пользовательских Settings |
 
-Сам переход в Build не включает Авто. Скилл, его `allowed-tools`, ответ модели и просьба «игнорировать разрешения» не меняют выбранные режимы. Внутри попапа F4 и Shift+Tab не меняют разрешения агента.
+По умолчанию выбран Manual. В Plan любой режим разрешений допускает только инструменты чтения. `deniedCommands`, границы файловых инструментов, проверка актуальности прочитанного файла, валидация patch и аргументов сохраняются во всех режимах. Bypass не является системной песочницей: shell работает с правами процесса и может обращаться за пределы проекта.
 
-## Команды, CLI и сохранение
+Подтверждение показывает команду или все diffs атомарной операции и разрешает действие **один раз**. Y/Н разрешает; N/Т/Esc и нажатие вне окна отклоняют. Предпросмотр прокручивается мышью, стрелками, PgUp/PgDn, Home/End. Следующая операция снова проверяется по правилам. Запрос разрешения имеет приоритет над другими popup и переживает пересоздание экрана.
 
-`/auto`, `/ask` и `/permissions ask|auto` выбирают режим локально, без запроса к модели или создания вкладки. `/permissions` без аргумента показывает пояснение. Команды доступны в автодополнении и `/help`.
+## Доступ к Bypass
 
-```bash
-chisel --approval ask
-chisel --mode build --approval auto "Выполни задачу и проверь результат"
-chisel --resume <session-id> --approval ask
+Откройте **Settings → Разрешения → Разрешить Bypass**. Переключатель сохраняется сразу; включение добавляет Bypass в popup и цикл F4, сохраняя текущий режим. После этого Bypass нужно выбрать отдельно. Выключение убирает его из выбора и переводит выбравшие его вкладки и очередь в Manual.
+
+Настройка находится только в пользовательском `config.json`:
+
+```json
+{
+  "schemaVersion": 2,
+  "profiles": {},
+  "permissions": {
+    "allowBypassPermissions": false
+  }
+}
 ```
 
-`--yes` совместим и выбирает Авто. Приоритет: явный `--approval` → `--yes` → сохранённый выбор сессии → `.chiselrc.autoApprove` → `ask`. Явный Ask заменяет широкое автоматическое разрешение, даже при `--yes` или `autoApprove: true`. Точечные `--allow` и `allowedCommands` продолжают работать. `deniedCommands` имеют приоритет над любым разрешением. Prefix allow rule разрешает только простую shell-команду; операторы, redirection и expansions требуют общего разрешения или решения пользователя.
+Отсутствие поля означает `false`. `.chiselrc`, скилл, его `allowed-tools`, ответ модели, сохранённый `approvalMode` и флаг `--yes` не включают эту возможность. Ошибка сохранения не меняет переключатель. Settings не закрывается во время записи настройки.
 
-Обе настройки принадлежат вкладке. «+» наследует выбранные режимы для нового разговора; существующие вкладки сохраняют собственный выбор. Resume восстанавливает сохранённые значения. Старые сессии без `approvalMode` используют прежний default проекта; чтение старого файла не переписывает его.
+Проверка есть и в runtime: при выключенном доступе явный `--approval bypassPermissions` сообщает, где включить настройку, а возобновлённая Bypass-сессия начинает в Manual. Активный запрос получает живую проверку доступности. После выключения следующие действия проходят Manual-проверку; если доступ отозван между подготовкой и исполнением действия, оно отклоняется. Уже начатый внешний процесс или выполненная правка не откатываются автоматически.
 
-Сообщение захватывает оба режима при отправке, включая очередь. F4 во время работы выбирает разрешения следующего сообщения; текущий запрос продолжает работать с прежними. При отличии выбора подпись показывает режим выполняющегося запроса. Изменение выбора сохраняется после завершения работы без перезаписи истории устаревшей копией.
+## Команды, CLI и совместимость
 
-В одноразовом запуске Ask без доступного подтверждения возвращает `approval_required`, код завершения 2. Явный resume с Авто повторно проверяет pending action и может выполнить его. Завершённые или отклонённые invocation автоматически не воспроизводятся; после отказа нужен новый вызов. JSON содержит `approvalMode`: `ask` или `auto`.
+`/permissions` открывает меню локально, без обращения к модели или создания сессии. `/permissions <ID>` выбирает режим. `manual` и старый `ask` — алиасы `default`; `/ask` выбирает Manual. Старый `auto`, `/auto`, `--yes` и `.chiselrc.autoApprove: true` теперь означают **Accept edits**: они не открывают Bypass и не разрешают любые команды.
 
-## Архитектурное решение
+```bash
+chisel --approval default
+chisel --mode build --approval acceptEdits "Выполни задачу"
+chisel --approval dontAsk --allow write_file,edit_file "Исправь файл"
+chisel --resume <session-id> --approval default
+# Только при включённом доступе в пользовательских Settings:
+chisel --approval bypassPermissions "Выполни задачу"
+```
 
-Подтверждение имеет приоритет над настройками, скиллами и выбором сессий: фоновый запрос разрешения не скрывается за другим окном. Для атомарного patch передаются все diffs; окно показывает число файлов и весь прокручиваемый набор, включая изменения длиннее 200 строк. Одно решение относится ко всему подготовленному действию.
+Приоритет: явный `--approval` → `--yes` → сохранённый режим сессии → `.chiselrc.autoApprove` → `default`. Узкие `--allow` и `allowedCommands` сохраняются; `deniedCommands` имеют приоритет над разрешением любого режима. Prefix allow rule действует только для простой shell-команды, без operators, redirection и неизвестных expansions.
 
-Workflow `AgentMode` и порядок подтверждений `ApprovalMode` — разные оси. Политика разрешений единая: UI не исполняет инструменты и не выдаёт обходных разрешений. `src/security/approval-mode.ts` содержит тип, default, разрешение приоритетов и инструкции. `PermissionPolicy` выдаёт `allow`, `ask` или `deny`: Auto разрешает обычные действия, которые иначе требовали бы подтверждения; явный deny остаётся отказом.
+Схема сессии принимает старые `ask/auto` и преобразует их в `default/acceptEdits`, включая `runtime.turnApprovalMode`; разговор и исходный файл при чтении не переписываются. После сохранения используются новые ID. Старый режим Auto не мигрирует в Bypass.
+
+В неинтерактивном Manual или Accept edits действие, требующее подтверждения, сохраняет pending checkpoint и возвращает `APPROVAL_UNAVAILABLE`, exit 2. В Dont ask такое действие получает `PERMISSION_DENIED` и модель может продолжить работу. Resume повторно проверяет pending action; завершённые и отклонённые вызовы не воспроизводятся.
+
+## Архитектура
+
+Workflow `AgentMode` и permissions `ApprovalMode` остаются независимыми. `session.approvalMode` — выбор следующего запроса; `runtime.turnApprovalMode` — снимок текущего. Очередь фиксирует режим при отправке. Переключение F4 во время работы не расширяет разрешения текущего запроса, а выключение доступности Bypass отзывает её и для него.
+
+`src/security/approval-mode.ts` содержит режимы, алиасы, описания и инструкции; `PermissionPolicy` решает `allow/ask/deny`. Accept edits основан на effect `workspace_write`, поэтому `process`, `git_write` и `external` не получают неявного разрешения. Compatibility gate также различает shell, Git и создание скиллов. `createLocalToolRuntime.getApprovalMode` проверяет доступность перед началом запроса; executor проверяет её при каждом действии и перед исполнением подготовленного Bypass-действия.
 
 ```mermaid
 flowchart TD
-  Selection[Выбор вкладки: workflow + approvals] --> Snapshot[Снимок запроса при отправке]
-  Snapshot --> Mode[Executor: проверка effect для Plan/Build]
-  Mode --> Prepare[Подготовка: пути, revisions, patch, preview]
+  Selection[Workflow + режим разрешений] --> Snapshot[Снимок при отправке]
+  Snapshot --> Mode[Executor: ограничения Plan]
+  Mode --> Prepare[Пути, revisions и подготовка]
   Prepare --> Policy[PermissionPolicy: deny / allow / ask]
-  Policy -->|deny| Reject[Отказ без исполнения]
-  Policy -->|allow или Auto| Execute[Исполнение и сохранение результата]
-  Policy -->|ask| Dialog[ApprovalResolver: решение одного действия]
-  Dialog -->|approved| Execute
-  Dialog -->|denied| Reject
-  Dialog -->|unavailable| Pending[Checkpoint: ожидание resume]
+  Settings[User Settings: доступность Bypass] --> Policy
+  Policy -->|deny| Reject[Отклонить]
+  Policy -->|ask| Dialog[Решение одного действия]
+  Dialog -->|approved| Recheck[Проверка перед исполнением]
+  Policy -->|allow| Recheck
+  Settings --> Recheck
+  Recheck --> Execute[Исполнить и сохранить результат]
 ```
 
-`session.approvalMode` хранит выбор; `runtime.turnApprovalMode` фиксирует выполняющийся запрос. TUI использует `approvalMode` и `runningApprovalMode` контроллера, очередь сохраняет оба режима при отправке. Runtime добавляет инструкции политики при каждом построении контекста, включая compaction. Local runtime передаёт зафиксированный выбор в executor; compatibility adapter получает его через `getApprovalMode`.
+Настройка доступности хранится в глобальном config, а выбор режима — в metadata сессии под существующим lock. Записи Settings сериализуются с настройками темы и sidebar. При выключении доступности выбранные Bypass-вкладки и ожидающие запросы возвращаются в Manual. UI не исполняет инструменты и не выдаёт session-wide grants.
 
-`ProjectSessionStore.setExecutionModes` обновляет только metadata под тем же lock, что checkpoints. Схема v3 проверяет enum и сохраняет runtime/историю; у legacy approvalMode нет принудительного schema default, иначе старый `autoApprove` потерялся бы. После выполнения приложение сохраняет выбранный enum.
+## Что изучено в Claude Code
 
-Реализовано детерминированное автоматическое разрешение, как Auto в OpenCode. Отдельный анализатор намерений и системная песочница не добавляются. `run_shell` работает с правами процесса и может обращаться за пределы рабочей папки. Workspace checks защищают файловые инструменты и shell cwd, но не изолируют процесс shell. Границы описаны в [модели безопасности](security.md).
+Официальный Python Agent SDK перечисляет `default`, `acceptEdits`, `plan`, `bypassPermissions`, `dontAsk` и `auto`. Changelog описывает Manual как подпись `default`, Shift+Tab, сохранение режимов при resume, запрет Bypass через пользовательскую/управляемую политику и проверки реального пути symlink. SDK отдельно подтверждает, что Bypass сохраняет explicit deny rules.
 
-## Изученные источники
+| Claude Code | Решение ChiselCode |
+| --- | --- |
+| Manual / `default` | Manual с одноразовыми подтверждениями |
+| `acceptEdits` | Автоматические правки проекта; прочие effects проверяются отдельно |
+| `dontAsk` | Заранее разрешённые действия выполняются, остальные отклоняются без диалога |
+| `bypassPermissions` | Отдельный режим с пользовательским opt-in в Settings и проверкой в runtime |
+| `plan` | Уже реализованный независимый Plan, ограниченный executor |
+| `auto` | В Claude это отдельный AI-классификатор, оценивающий каждый вызов. В ChiselCode такой классификатор не реализован, поэтому обычное разрешение всех действий не называется Auto |
 
-Pending request принадлежит resolver, а не экземпляру экрана: пересоздание экрана после асинхронного resume повторно показывает то же действие. Второй одновременно пришедший запрос не заменяет ожидающее решение и возвращает unavailable. Никакое закрытие или смена экрана не выдаёт разрешение.
+Сравнение выполнено по официальным исходникам на 1 октября 2026 года. Страницы code.claude.com в этом окружении возвращали HTTP 403; семантика проверена по доступным первичным источникам:
 
-Сопоставление основано на доступных официальных источниках на 1 октября 2026 года. Возможности upstream не объявляются реализованными в ChiselCode.
-
-| Проект | Наблюдаемая модель | Решение для ChiselCode |
-| --- | --- | --- |
-| OpenCode | `allow/ask/deny`; `--auto` разрешает запросы, кроме explicit deny. Auto отображается рядом с агентом; approval предлагает once/always/reject | Авто отдельно от workflow, deny имеет приоритет. Попап разрешает только один раз; постоянные grants задаются правилами |
-| Codex | `AskForApproval` отдельно от `SandboxPolicy`. `Never` не эскалирует ошибки через approval; сам по себе не снимает sandbox restrictions | Разделить взаимодействие и допустимые действия. Наш Auto автоматически разрешает обычные действия, семантика отличается от Codex Never |
-| Claude Code | Changelog описывает Auto с отдельной проверкой безопасности, отличает его от bypass, исправляет stale permission mode, resume и symlink restrictions | Захват политики на запрос, проверки resume/queue и файлов. Классификатор Claude Auto в ChiselCode не воспроизводится |
-| OpenTUI | Native textarea, keyboard hooks с modifiers и bounded scrollbox | F4 не конфликтует с редактированием; две кнопки рядом с workflow, отдельная строка модели, общий popup с мышью и клавиатурой |
-
-Источники:
-
-- [OpenCode permissions](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/permissions.mdx).
-- [Codex protocol: AskForApproval и SandboxPolicy](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs).
-- [Claude Code: официальный changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md). Полные страницы документации в окружении возвращали HTTP 403; сравнение ограничено подтверждёнными сведениями changelog.
-- [OpenTUI React](https://github.com/anomalyco/opentui/blob/main/packages/react/README.md), [textarea](https://github.com/anomalyco/opentui/blob/main/packages/core/src/renderables/Textarea.ts).
+- [Claude Agent SDK: PermissionMode и описание permission_mode](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/types.py).
+- [Claude Agent SDK: acceptEdits и правила allowlist](https://github.com/anthropics/claude-agent-sdk-python/blob/main/README.md).
+- [Claude Code: официальный changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md).
+- [Документация Claude Code permissions](https://code.claude.com/docs/en/permissions).
 
 ## Проверки
 
-Тесты проверяют приоритеты и legacy defaults, narrow grants и hard denies, Auto без resolver, одноразовый Ask и отказ, path/freshness/Plan restrictions, неизменность политики после выбора другого режима и загрузки скилла, emergency compaction, pending resume без replay, enum и metadata без потери истории. Native OpenTUI проверяет F4 и мышь, черновик/модель/фокус, команды, вкладки, очередь и popup dismissal/scrolling при 40×12, 80×24 и 120×36. Проверки механики выполняются без платной модели.
+Проверяются матрица effects, allow/deny и составные shell-команды, отсутствие resolver в Dont ask, границы путей и freshness в Accept edits и Bypass, Plan во всех режимах, отключение Bypass до исполнения, наследование и migration сессий, сохранение и отказ записи пользовательской настройки. Native OpenTUI проверяет popup, F4, команды, Settings, черновик, модель, focus и приоритет подтверждения при 40×12, 80×24 и 120×36. Интеграционные сценарии покрывают очередь и независимость вкладок. Механика проверяется без платных запросов к модели.

@@ -16,6 +16,9 @@ export const GlobalConfigV2Schema = z.looseObject({
   schemaVersion: z.literal(2),
   defaultProfileId: ProfileIdSchema.optional(),
   profiles: z.record(ProfileIdSchema, ProviderProfileSchema),
+  permissions: z
+    .looseObject({ allowBypassPermissions: z.boolean().optional() })
+    .optional(),
   ui: z
     .looseObject({
       sidebarMode: z.enum(["auto", "show", "hide"]).optional(),

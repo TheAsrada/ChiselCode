@@ -10,10 +10,20 @@ export class PermissionPolicy {
   ) {}
   get approvalMode(): ApprovalMode {
     return resolveApprovalMode({
-      approvalMode: this.options.approvalMode,
+      approvalMode:
+        this.options.approvalMode === "bypassPermissions" && !this.bypassAllowed
+          ? "default"
+          : this.options.approvalMode,
       yes: this.options.autoApprove,
       autoApprove: this.config.autoApprove,
+      allowBypassPermissions: this.bypassAllowed,
     });
+  }
+  get bypassAllowed(): boolean {
+    const available = this.options.allowBypassPermissions;
+    return typeof available === "function"
+      ? available() === true
+      : available === true;
   }
   decide(
     request: ApprovalRequest,
@@ -44,8 +54,12 @@ export class PermissionPolicy {
         return "allow";
       // Broad explicit tool approval can still authorize complex shell; prefix rules cannot.
     }
-    if (approvalMode === "auto" || this.options.allowedTools.has(request.tool))
+    if (this.options.allowedTools.has(request.tool)) return "allow";
+    if (approvalMode === "bypassPermissions" && this.bypassAllowed)
       return "allow";
+    if (approvalMode === "acceptEdits" && effect === "workspace_write")
+      return "allow";
+    if (approvalMode === "dontAsk") return "deny";
     return "ask";
   }
 }

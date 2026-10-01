@@ -172,6 +172,7 @@ export interface GlobalConfig {
   schemaVersion: 2;
   defaultProfileId?: string;
   profiles: Record<string, import("../providers/contracts.js").ProviderProfile>;
+  permissions?: { allowBypassPermissions?: boolean };
   [key: string]: unknown;
   /** @deprecated Non-persisted accessor. Use defaultProfileId. */
   defaultProvider?: ProviderId;

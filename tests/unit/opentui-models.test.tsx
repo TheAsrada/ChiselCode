@@ -422,7 +422,7 @@ test("/model opens directly, preserves composer and modes, and yields to approva
     await key(setup, "F4");
     await act(async () => setup.mockInput.pressTab({ shift: true }));
     await frame(setup);
-    expect(controller.snapshot.approvalMode).toBe("ask");
+    expect(controller.snapshot.approvalMode).toBe("default");
     expect(controller.snapshot.agentMode).toBe("build");
     let decision: Promise<unknown> | undefined;
     await act(async () => {

@@ -7,7 +7,10 @@ import * as run from "../../src/commands/run.js";
 import * as config from "../../src/config/load.js";
 import type { AgentEventHandlers } from "../../src/core/agent-loop.js";
 import type { AgentMode } from "../../src/runtime/agent-mode.js";
-import type { ApprovalMode } from "../../src/security/approval-mode.js";
+import {
+  type ApprovalMode,
+  resolveApprovalMode,
+} from "../../src/security/approval-mode.js";
 import * as projects from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { stripActiveSkillsBlock } from "../../src/skills/skills.js";
@@ -105,7 +108,7 @@ mock.module("../../src/commands/run.js", () => ({
     calls++;
     prompts.push(prompt);
     modes.push(options.mode);
-    approvals.push(options.approvalMode);
+    approvals.push(resolveApprovalMode(options));
     requestedModels.push(options.model);
     requestedConnections.push({ ...options });
     const task = stripActiveSkillsBlock(prompt);
@@ -127,7 +130,7 @@ mock.module("../../src/commands/run.js", () => ({
     session.title = task;
     session.profileId = options.profile ?? session.profileId;
     session.mode = options.mode;
-    session.approvalMode = options.approvalMode;
+    session.approvalMode = resolveApprovalMode(options);
     return { result: { session, text: `answer: ${task}` } };
   },
 }));
@@ -198,7 +201,7 @@ try {
   });
   expect(calls).toBe(1);
   expect(modes).toEqual(["plan"]);
-  expect(approvals).toEqual(["ask"]);
+  expect(approvals).toEqual(["default"]);
   expect(prompts[0]).toContain("code-review");
   await frame();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeFalsy();
@@ -222,7 +225,7 @@ try {
   expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
   expect(setup.captureCharFrame()).toContain("Build");
   expect(setup.captureCharFrame()).toContain("test-model");
-  expect(approvals).toEqual(["ask"]);
+  expect(approvals).toEqual(["default"]);
   expect(
     setup.renderer.root
       .findDescendantById("session-tabs")
@@ -244,7 +247,9 @@ try {
   ).toBe(2);
   expect(setup.captureCharFrame()).toContain("В очереди: 1");
   expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build");
-  expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build · Авто");
+  expect(setup.captureCharFrame()).toContain(
+    "В очереди: 1 · Build · Accept edits",
+  );
   expect(setup.captureCharFrame()).toContain("в очереди");
   await chooseModel("later-model", "anthropic-default");
   await act(async () => {
@@ -260,7 +265,7 @@ try {
   expect(calls).toBe(2);
   expect(prompts[1]).toBe("second task");
   expect(modes).toEqual(["plan", "build"]);
-  expect(approvals).toEqual(["ask", "auto"]);
+  expect(approvals).toEqual(["default", "acceptEdits"]);
   expect(requestedModels).toEqual(["test-model", "queued-model"]);
   expect(requestedConnections[1]).toMatchObject({
     profile: "personal",
@@ -299,9 +304,9 @@ try {
   });
   await running;
   expect(calls).toBe(3);
-  expect(storedApprovals.at(-1)).toBe("ask");
+  expect(storedApprovals.at(-1)).toBe("dontAsk");
   expect(storedModes).toContain("plan");
-  expect(storedApprovals).toContain("ask");
+  expect(storedApprovals).toContain("acceptEdits");
   expect(globalSaves).toBe(0);
   expect(catalogProfiles).toEqual(["anthropic-default", "personal"]);
   process.stdout.write("Agent navigation and queued output verified\n");
