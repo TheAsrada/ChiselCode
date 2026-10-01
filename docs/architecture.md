@@ -36,7 +36,11 @@ flowchart TD
 
 ## Политика подтверждений
 
-Порядок подтверждений задаётся отдельно через `ApprovalMode` (`ask/auto`). `session.approvalMode` хранит выбор, `runtime.turnApprovalMode` — снимок запроса. TUI и очередь захватывают его вместе с workflow; `run-prompt` передаёт в runtime и executor. PermissionPolicy сохраняет hard denies и narrow allow rules, а Auto разрешает обычные действия без диалога. `setExecutionModes` сохраняет обе настройки атомарно без замены истории. Схема старых сессий оставляет отсутствующий approvalMode неопределённым для совместимости с `autoApprove`. Подробнее: [архитектурный отчёт разрешений](permissions.md).
+Порядок подтверждений задаётся отдельно через `ApprovalMode`: `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`. `session.approvalMode` хранит выбор следующего запроса, `runtime.turnApprovalMode` — снимок текущего. TUI и очередь захватывают его вместе с workflow; `run-prompt` передаёт в runtime и executor. `setExecutionModes` сохраняет обе настройки атомарно без замены истории. Старые `ask/auto` преобразуются в `default/acceptEdits`. [Пользовательская инструкция](permissions.md).
+
+`PermissionPolicy` решает `allow/ask/deny` после проверки ограничений Plan и подготовки действия. Accept edits автоматически разрешает effect `workspace_write`; `process`, `git_write` и `external` проверяются отдельно. Dont ask отклоняет действия, требующие подтверждения. Все режимы сохраняют явные запреты, ограничения путей и проверки актуальности файлов.
+
+Доступность Bypass хранится только в пользовательском config и проверяется runtime перед началом запроса, каждым действием и исполнением подготовленного действия. Её отключение возвращает выбравшие Bypass вкладки и очередь в Manual и отзывает доступ для следующих действий активного запроса. Записи Settings сериализуются с темой и sidebar; UI не исполняет инструменты и не выдаёт разрешение на всю сессию.
 
 ## Три вида состояния
 

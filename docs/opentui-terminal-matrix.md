@@ -1,6 +1,6 @@
 # OpenTUI physical terminal checks
 
-Use the `opentui-terminal-<runner>` artifacts from the latest CI run on the migration PR. The artifacts contain the compiled `chisel` CLI and `opentui-spike` probe for that platform. The probe needs no API key. These checks must run in real terminals; the CI smoke uses an in-memory terminal.
+Use the `opentui-terminal-<runner>` artifacts from the latest CI run on `main`. The artifacts contain the compiled `chisel` CLI and `opentui-spike` probe for that platform. The probe needs no API key. These checks must run in real terminals; the CI smoke uses an in-memory terminal.
 
 ## Windows
 
@@ -28,4 +28,4 @@ Run the matching compiled artifact in macOS Terminal, iTerm2, a Linux terminal a
 | Linux terminal | pending | pending | pending | pending | pending |
 | SSH terminal | pending | pending | pending | pending | pending |
 
-Record terminal version, OS, artifact SHA, size, outcome and any corrupted frame or leftover terminal mode in the migration PR. Record defects for the single OpenTUI renderer and fix blocking physical-terminal issues before release.
+Record terminal version, OS, artifact SHA, size, outcome and any corrupted frame or leftover terminal mode in the relevant issue or change description. Record defects for the single OpenTUI renderer and fix blocking physical-terminal issues before release.

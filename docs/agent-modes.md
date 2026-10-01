@@ -33,28 +33,3 @@
 Build передаёт действия существующей PermissionPolicy. Сам переход в Build не включает auto-approval. Pending approval из Build, возобновлённый в Plan, становится отказом без исполнения; выполненные ранее вызовы сохраняются как история и не повторяются. Для выполнения отклонённого действия после перехода в Build модель должна запросить новый вызов.
 
 Инструкции режима входят в system при каждом построении контекста, поэтому compaction не превращает Plan в Build. История, checkpoint и internal artifacts сохраняются приложением; запросы к выбранному провайдеру продолжаются. Plan ограничивает действия зарегистрированных инструментов; ОС-изоляция остаётся отдельной возможностью runtime.
-
-## Сопоставление с другими агентами
-
-Изучены официальные исходники и опубликованные инструкции, доступные 1 октября 2026 года.
-
-| Агент | Наблюдаемая архитектура | Решение для ChiselCode |
-| --- | --- | --- |
-| OpenCode | Build и Plan — primary agents. Документация описывает ограниченные edits/bash с `ask`; текущий agent.ts запрещает обычные edits в Plan и оставляет исключения для файлов плана. Переключение primary agent: Tab / Shift+Tab | Два явно выбираемых режима поверх общего runtime; для Plan принята строгая политика чтения без исключения для файла плана |
-| Codex | Plan/Default — collaboration modes. Официальный Plan template требует исследования до финального плана, разрешает действия без изменений проекта и запрещает реализацию. Изменение режима задаётся отдельно от пользовательского текста и инструмента update_plan | Режим отделён от инструментов, скиллов и модели; готовый план остаётся контекстом для следующего запроса Build |
-| Claude Code | Официальный changelog подтверждает отдельный Plan, команду `/plan`, Shift+Tab в UX разрешений и исправления потери Plan после compaction и read-only permissions при старте | Переключение пользователем, сохранение режима и regression checks для compaction, resume и popup focus |
-
-Для ChiselCode не требуется отдельный агент с собственной историей: смена workflow должна сохранять изученный проект и план. У режимов общие provider adapters, context manager, scheduler и durable transcript. Различаются цель системных инструкций и допустимые effects.
-
-Полные страницы Claude Code в этом окружении возвращали HTTP 403; сведения в сравнении ограничены доступным официальным changelog. У OpenCode документация и текущий agent.ts описывают разные детали разрешений Plan; обе версии приведены явно.
-
-Источники:
-
-- [OpenCode: agents](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/agents.mdx), [agent.ts](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/agent/agent.ts), [keybinds](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/keybinds.mdx).
-- [Codex: Plan template](https://github.com/openai/codex/blob/main/codex-rs/collaboration-mode-templates/templates/plan.md), [Default template](https://github.com/openai/codex/blob/main/codex-rs/collaboration-mode-templates/templates/default.md).
-- [Claude Code: официальный changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md).
-- [OpenTUI React: keyboard hooks и native components](https://github.com/anomalyco/opentui/blob/main/packages/react/README.md). UI использует native textarea, modifiers через useKeyboard, небольшую цветную метку и рамку, responsive подсказку и guards активного popup.
-
-## Проверки
-
-Regression tests проверяют скрытые mutating calls до prepare/approval, отсутствие изменений при auto-approval, инструкции скиллов, сохранение Plan после emergency compaction, Build с обычным approval, pending approval → Plan, Git hooks, roundtrip и legacy sessions, очередь с захваченным режимом, черновик/модель/фокус, команды и мышь. Native OpenTUI проверяется от 40×12 до 120×36; в popup режим остаётся прежним.

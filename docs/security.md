@@ -14,7 +14,7 @@
 | `git_commit` | Разрешение на коммит |
 | `create_skill` | Разрешение; запись ограничена `skills/user/` |
 
-Manual / Accept edits / Dont ask / Bypass, `--approval` и `--allow` задают поведение подтверждений. Совместимые `--yes` и `autoApprove` выбирают Accept edits и не разрешают shell или Bypass. Доступ к Bypass включается только в пользовательских Settings; выбранный режим и возможность его использовать проверяются раздельно. Для shell сначала проверяется `deniedCommands`, затем `allowedCommands`, затем режим. Все режимы сохраняют deny rules, path/revision checks и ограничения Plan. Без доступного подтверждения требующее его действие не выполняется. [Приоритеты и архитектура](permissions.md).
+Manual / Accept edits / Dont ask / Bypass, `--approval` и `--allow` задают поведение подтверждений. Совместимые `--yes` и `autoApprove` выбирают Accept edits и не разрешают shell или Bypass. Доступ к Bypass включается только в пользовательских Settings; выбранный режим и возможность его использовать проверяются раздельно. Для shell сначала проверяется `deniedCommands`, затем `allowedCommands`, затем режим. Все режимы сохраняют deny rules, path/revision checks и ограничения Plan. Без доступного подтверждения требующее его действие не выполняется. [Режимы и приоритеты разрешений](permissions.md).
 
 ## Границы файловых инструментов
 

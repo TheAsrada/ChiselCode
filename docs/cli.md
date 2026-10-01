@@ -34,12 +34,12 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 | `--base-url <url>` | Адрес совместимого API |
 | `--resume <session-id>` | Полный ID или однозначный префикс сессии текущего проекта |
 | `--allow <tools>` | Разрешить перечисленные через запятую инструменты без вопроса |
-| `--approval <ask\|auto>` | Порядок подтверждений независимо от Plan/Build; resume восстанавливает сохранённый выбор |
-| `--yes` | Совместимый выбор Авто; явный `--approval ask` имеет приоритет |
+| `--approval <режим>` | `default`, `acceptEdits`, `dontAsk` или `bypassPermissions`, независимо от Plan/Build; resume восстанавливает сохранённый выбор |
+| `--yes` | Выбрать Accept edits; явный `--approval` имеет приоритет |
 | `--json` | Вывести итог запроса одним JSON-объектом |
 | `--pause` / `--no-pause` | Ждать / не ждать Enter перед выходом |
 
-Одноразовый запуск использует обработчик без интерактивного подтверждения. Если действию нужно разрешение, результат будет `approval_required`. Для изменения используйте интерактивный режим или заранее разрешите необходимые инструменты.
+Одноразовый запуск использует обработчик без интерактивного подтверждения. В Manual и Accept edits действие, требующее разрешения, возвращает `approval_required`; в Dont ask оно отклоняется без ожидания подтверждения. Для изменения используйте интерактивный режим или заранее разрешите необходимые инструменты.
 
 ```bash
 chisel --cwd ./my-project --allow edit_file "Исправь опечатку в README.md"
@@ -56,7 +56,7 @@ chisel --mode build --cwd ./my-project --resume <session-id> "Выполни п�
 
 ## JSON и коды завершения
 
-`--approval auto` выполняет обычные действия без диалогов; `deniedCommands`, path/revision checks и ограничения Plan сохраняются. Приоритет: `--approval` → `--yes` → сохранённый выбор → `.chiselrc.autoApprove` → Ask. Явный Ask заменяет широкое автоматическое разрешение, сохраняя grants `--allow` и `allowedCommands`. Подробнее: [разрешения](permissions.md).
+`--approval acceptEdits` разрешает правки проекта, а shell и Git-запись проверяются отдельно. Старый `auto` — алиас Accept edits, `ask` и `manual` — алиасы `default`. Bypass доступен после включения в пользовательских Settings. Приоритет: `--approval` → `--yes` → сохранённый выбор → `.chiselrc.autoApprove` → Manual. Явные `--allow` и `allowedCommands` сохраняются; `deniedCommands` и ограничения Plan действуют во всех режимах. Подробнее: [разрешения](permissions.md).
 
 ```bash
 chisel --cwd ./my-project --json "Объясни структуру проекта" > result.json
@@ -68,7 +68,7 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 | `text` | Итоговый текст |
 | `sessionId` | ID сохранённой сессии |
 | `mode` | `build` или `plan` для выполненного запроса |
-| `approvalMode` | `ask` или `auto` для выполненного запроса |
+| `approvalMode` | `default`, `acceptEdits`, `dontAsk` или `bypassPermissions` для выполненного запроса |
 | `totalTokens` | Счётчики `inputTokens`, `outputTokens` и необязательные счётчики кэша |
 | `totalCost` | Optional известная estimated стоимость; отсутствует при unknown pricing |
 | `costEstimate` | source=provider/estimated/unknown, optional usd; не заменяет billing |
