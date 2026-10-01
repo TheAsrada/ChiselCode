@@ -224,6 +224,14 @@ export interface Session {
   gitBranch?: string;
   /** UI-only applied diffs keyed by tool-use id; never part of provider messages. */
   fileDiffs?: Record<string, FileDiff>;
+  /** UI-only request durations, placed after this many messages during replay. */
+  requestTimings?: RequestTiming[];
+}
+
+export interface RequestTiming {
+  afterMessage: number;
+  elapsedMs: number;
+  status: AgentResult["status"];
 }
 
 export interface FileDiff {
@@ -250,6 +258,7 @@ export interface ToolExecutionResult {
 
 export interface AgentResult {
   status: "completed" | "approval_required" | "failed" | "cancelled";
+  elapsedMs?: number;
   text: string;
   session: Session;
   error?: string;

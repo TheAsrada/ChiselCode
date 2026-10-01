@@ -14,6 +14,7 @@ import { ToolNameSchema } from "../../types/domain.js";
 import type { ModelCapabilities, TokenCountRequest } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
+import { parseToolArguments } from "../tool-arguments.js";
 
 export interface AnthropicAdapterOptions {
   apiKey?: string | null;
@@ -48,8 +49,11 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
 
   async *streamChat(request: ProviderRequest): AsyncIterable<StreamEvent> {
     try {
-      const stream = this.client.messages.stream(
+      // Read raw events: MessageStream's eager partial-JSON parser can fail before
+      // max_tokens is known, and must not decide whether a tool call is complete.
+      const stream = await this.client.messages.create(
         {
+          stream: true,
           model: request.model,
           max_tokens: request.maxTokens,
           system: request.system,
@@ -68,17 +72,77 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         { signal: request.signal },
       );
 
-      const toolArguments = new Map<number, string>();
+      const blocks = new Map<
+        number,
+        { block: Anthropic.ContentBlock; json: string }
+      >();
+      let usage: Anthropic.Usage | undefined;
+      let stopReason: string | undefined;
       let terminated = false;
       for await (const event of stream) {
+        if (request.signal?.aborted)
+          throw new ProviderError("cancelled", "Provider request cancelled.");
+        if (event.type === "message_start") {
+          if (event.message.role !== "assistant")
+            throw new ProviderError(
+              "transport",
+              "Invalid provider message role.",
+            );
+          usage = event.message.usage;
+        }
+        if (event.type === "message_delta") {
+          if (usage)
+            usage = {
+              ...usage,
+              input_tokens: event.usage.input_tokens ?? usage.input_tokens,
+              output_tokens: event.usage.output_tokens ?? usage.output_tokens,
+              cache_read_input_tokens:
+                event.usage.cache_read_input_tokens ??
+                usage.cache_read_input_tokens,
+              cache_creation_input_tokens:
+                event.usage.cache_creation_input_tokens ??
+                usage.cache_creation_input_tokens,
+            };
+          stopReason = event.delta.stop_reason ?? stopReason;
+        }
         if (event.type === "message_stop") terminated = true;
+        if (event.type === "content_block_start") {
+          if (
+            !Number.isInteger(event.index) ||
+            event.index < 0 ||
+            blocks.has(event.index)
+          )
+            throw new ProviderError(
+              "transport",
+              "Invalid or duplicate provider content block index.",
+            );
+          blocks.set(event.index, {
+            block: { ...event.content_block } as Anthropic.ContentBlock,
+            json: "",
+          });
+        }
         if (event.type !== "content_block_delta") continue;
-        if (event.delta.type === "input_json_delta")
-          toolArguments.set(
-            event.index,
-            (toolArguments.get(event.index) ?? "") + event.delta.partial_json,
+        const current = blocks.get(event.index);
+        if (!current)
+          throw new ProviderError(
+            "transport",
+            "Provider delta has no content block.",
           );
+        if (event.delta.type === "input_json_delta") {
+          if (current.block.type !== "tool_use")
+            throw new ProviderError(
+              "transport",
+              "Tool arguments delta has an invalid block type.",
+            );
+          current.json += event.delta.partial_json;
+        }
         if (event.delta.type === "text_delta") {
+          if (current.block.type !== "text")
+            throw new ProviderError(
+              "transport",
+              "Text delta has an invalid block type.",
+            );
+          current.block.text += event.delta.text;
           yield { type: "text_delta", text: event.delta.text };
         }
         if (event.delta.type === "thinking_delta") {
@@ -86,23 +150,40 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         }
       }
 
-      if (!terminated)
+      if (!terminated || !usage)
         throw new ProviderError(
           "transport",
           "Provider stream ended without a message_stop marker.",
         );
-      for (const json of toolArguments.values()) {
-        try {
-          JSON.parse(json);
-        } catch {
-          throw new ProviderError(
-            "transport",
-            "Invalid JSON arguments in provider tool call.",
-          );
+      if (stopReason === "max_tokens")
+        throw new ProviderError(
+          "output_truncated",
+          "Ответ провайдера обрезан по лимиту токенов. Неполные вызовы инструментов не выполнены; большую правку нужно разбить на части.",
+        );
+      if (stopReason === "model_context_window_exceeded")
+        throw new ProviderError(
+          "context_overflow",
+          "Provider context window exceeded.",
+        );
+      const content = [...blocks.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, { block, json }]) => {
+          if (block.type === "tool_use" && json.trim())
+            block.input = parseToolArguments(json, block.name);
+          return block;
+        });
+      const normalized = fromAnthropicContent(content);
+      const ids = new Set<string>();
+      for (const content of normalized) {
+        if (content.type === "tool_use") {
+          if (ids.has(content.id))
+            throw new ProviderError(
+              "transport",
+              "Duplicate provider tool call ID.",
+            );
+          ids.add(content.id);
         }
       }
-      const message = await stream.finalMessage();
-      const normalized = fromAnthropicContent(message.content);
       for (const content of normalized) {
         if (content.type === "tool_use") {
           yield {
@@ -115,8 +196,8 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
       yield {
         type: "turn_complete",
         message: { role: "assistant", content: normalized },
-        stopReason: message.stop_reason ?? "unknown",
-        usage: normalizeAnthropicUsage(message.usage),
+        stopReason: stopReason ?? "unknown",
+        usage: normalizeAnthropicUsage(usage),
       };
     } catch (error) {
       const failure = normalizeProviderError(error, request.signal);

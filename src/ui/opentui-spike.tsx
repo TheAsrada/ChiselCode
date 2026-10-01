@@ -42,6 +42,7 @@ import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPermissions } from "./opentui-permissions.js";
 import { OpenTuiPrompt } from "./opentui-prompt.js";
+import { OpenTuiRequestStatus } from "./opentui-request-status.js";
 import {
   OpenTuiSessions,
   type OpenTuiSessionsActions,
@@ -1214,6 +1215,14 @@ function OpenTuiScreen({
                     <text fg={palette.muted}>
                       {terminalSafeText(view.toolActivity, 2_000)}
                     </text>
+                  )}
+                  {controller && view.requestStartedAt !== undefined && (
+                    <OpenTuiRequestStatus
+                      controller={controller}
+                      palette={palette}
+                      width={textWidth - 2}
+                      awaitingApproval={!!approval}
+                    />
                   )}
                 </TerminalScrollbox>
               )}

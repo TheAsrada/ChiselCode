@@ -24,20 +24,16 @@ extend({ messageTable: TextTableRenderable });
 interface MessageBlock {
   token: Token;
   offset: number;
-  gap: number;
 }
 
 /** Source offsets keep completed blocks mounted while the response grows. */
 function blocks(tokens: readonly Token[]): MessageBlock[] {
   const result: MessageBlock[] = [];
   let offset = 0;
-  let gap = false;
   for (const token of tokens) {
-    if (token.type === "space") gap ||= /\n/.test(token.raw);
-    else if (token.type !== "def" && token.type !== "checkbox") {
-      result.push({ token, offset, gap: result.length && gap ? 1 : 0 });
-      gap = /\n[ \t]*\n$/.test(token.raw);
-    }
+    // Block boundaries already separate rows; code content keeps its own whitespace.
+    if (!["space", "def", "checkbox"].includes(token.type))
+      result.push({ token, offset });
     offset += token.raw.length;
   }
   return result;
@@ -196,13 +192,12 @@ export function FormattedMessage({
   );
 
   const renderBlocks = (tokens: readonly Token[], depth = 0): React.ReactNode =>
-    blocks(tokens).map(({ token, offset, gap }) => (
+    blocks(tokens).map(({ token, offset }) => (
       <box
         key={`${offset}:${token.type}`}
         width="100%"
         flexShrink={0}
         flexDirection="column"
-        marginTop={gap}
       >
         {renderBlock(token, depth)}
       </box>

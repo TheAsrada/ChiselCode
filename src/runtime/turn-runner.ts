@@ -55,6 +55,11 @@ export class TurnRunner {
           "transport",
           "Provider stream ended without a final assistant message.",
         );
+      if (["length", "max_tokens"].includes(completed.stopReason))
+        throw new ProviderError(
+          "output_truncated",
+          "Ответ провайдера обрезан по лимиту токенов; неполные вызовы инструментов не выполнены.",
+        );
       await this.events.emit({
         type: "provider_turn_completed",
         message: completed.message,

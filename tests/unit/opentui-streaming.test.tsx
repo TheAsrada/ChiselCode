@@ -86,13 +86,13 @@ test("streamed text updates the same row instead of recreating it for every delt
     act(() => setup.renderer.destroy());
   }
 });
-test("intentional paragraph breaks and Windows line endings preserve their row count", async () => {
+test("Windows paragraph separators display compactly without modifying the content", async () => {
   const setup = await testRender(view("Первый абзац\r\n\r\nВторой абзац", 40), {
     width: 40,
     height: 20,
   });
   try {
-    expect(await frame(setup)).toEqual(["Первый абзац", "", "Второй абзац"]);
+    expect(await frame(setup)).toEqual(["Первый абзац", "Второй абзац"]);
   } finally {
     act(() => setup.renderer.destroy());
   }

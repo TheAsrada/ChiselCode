@@ -89,7 +89,9 @@ mock.module("../../src/commands/run.js", () => ({
       options.approvalMode === "bypassPermissions"
         ? "bypassPermissions"
         : "default";
-    return { result: { session, text: `answer: ${prompt}` } };
+    return {
+      result: { session, text: `answer: ${prompt}`, status: "completed" },
+    };
   },
 }));
 const { runOpenTuiAgent } = await import("../../src/ui/opentui-agent.js");

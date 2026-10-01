@@ -107,6 +107,14 @@ export function OpenTuiTranscript({
               )}
             </text>
           );
+        if (!diff && entry.tone === "dim")
+          return (
+            <box key={entry.id} width="100%" paddingLeft={1}>
+              <text fg={palette.muted} selectable>
+                {terminalSafeText(entry.text, 20_000)}
+              </text>
+            </box>
+          );
         if (!diff)
           return (
             <text

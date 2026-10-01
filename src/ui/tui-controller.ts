@@ -5,6 +5,7 @@ import {
   DEFAULT_APPROVAL_MODE,
 } from "../security/approval-mode.js";
 import type {
+  AgentResult,
   ContextSnapshot,
   FileDiff,
   Session,
@@ -13,6 +14,7 @@ import type {
 import { createEditorState } from "./editor.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
 import type { ModelSelection } from "./opentui-models.js";
+import { requestCompletion } from "./request-timing.js";
 import type { TranscriptTone, TuiTranscript } from "./tui-contract.js";
 
 export interface TranscriptEntry {
@@ -38,6 +40,7 @@ export interface TuiViewState {
   focus: "composer" | "transcript" | "sidebar" | "modal";
   overlay?: string;
   busy?: boolean;
+  requestStartedAt?: number;
   gitChanges?: GitWorkingState;
   usage?: {
     provider: Session["providerId"];
@@ -68,6 +71,7 @@ export class TuiController implements TuiTranscript {
     projectPath: string,
     agentMode: AgentMode = DEFAULT_AGENT_MODE,
     approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
+    private readonly now: () => number = () => performance.now(),
   ) {
     this.state = {
       agentMode,
@@ -129,6 +133,11 @@ export class TuiController implements TuiTranscript {
     this.renderer?.appendToLast(text);
   }
 
+  /** A rejected provider response is regenerated; its partial text is not an answer. */
+  discardStreaming(): void {
+    this.update({ streaming: "", toolActivity: undefined });
+  }
+
   setToolActivity(text?: string): void {
     this.update({
       toolActivity: text,
@@ -181,6 +190,40 @@ export class TuiController implements TuiTranscript {
   }
   setBusy(busy: boolean): void {
     this.update({ busy });
+  }
+
+  /** A queued prompt starts counting only when it actually begins execution. */
+  startRequest(): void {
+    this.update({
+      busy: true,
+      requestStartedAt: this.now(),
+      toolActivity: undefined,
+    });
+  }
+
+  get requestElapsedMs(): number {
+    return this.state.requestStartedAt === undefined
+      ? 0
+      : Math.max(0, this.now() - this.state.requestStartedAt);
+  }
+
+  finishRequest(
+    status: AgentResult["status"],
+    elapsedMs = this.requestElapsedMs,
+  ): void {
+    if (this.state.requestStartedAt === undefined) return;
+    const text = requestCompletion(status, elapsedMs);
+    this.update({
+      transcript: [
+        ...this.withStreaming(),
+        { id: this.serial++, text, tone: "dim" },
+      ],
+      streaming: "",
+      toolActivity: undefined,
+      requestStartedAt: undefined,
+    });
+    this.renderer?.setToolActivity();
+    this.renderer?.append(text, "dim");
   }
   setAgentMode(agentMode: AgentMode): void {
     this.update({ agentMode });

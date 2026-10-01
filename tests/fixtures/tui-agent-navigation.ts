@@ -2,10 +2,10 @@ import { expect, mock } from "bun:test";
 import * as core from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
+import type { RunEventHandlers } from "../../src/app/run-prompt.js";
 import type { RunOptions } from "../../src/commands/run.js";
 import * as run from "../../src/commands/run.js";
 import * as config from "../../src/config/load.js";
-import type { AgentEventHandlers } from "../../src/core/agent-loop.js";
 import type { AgentMode } from "../../src/runtime/agent-mode.js";
 import {
   type ApprovalMode,
@@ -102,7 +102,7 @@ mock.module("../../src/commands/run.js", () => ({
     prompt: string,
     options: RunOptions,
     _approval: unknown,
-    callbacks: AgentEventHandlers,
+    callbacks: RunEventHandlers,
     signal?: AbortSignal,
   ) => {
     calls++;
@@ -112,6 +112,17 @@ mock.module("../../src/commands/run.js", () => ({
     requestedModels.push(options.model);
     requestedConnections.push({ ...options });
     const task = stripActiveSkillsBlock(prompt);
+    if (calls === 1) {
+      callbacks.onText?.("Rejected partial prose");
+      await callbacks.onEvent?.({
+        id: "recovery",
+        sessionId: "test",
+        timestamp: new Date().toISOString(),
+        type: "provider_response_recovery",
+        errorCode: "invalid_tool_arguments",
+      });
+    }
+    callbacks.onThinking?.("Internal reasoning must stay hidden");
     if (calls === 1)
       await new Promise<void>((resolve) => {
         releaseFirst = resolve;
@@ -131,7 +142,13 @@ mock.module("../../src/commands/run.js", () => ({
     session.profileId = options.profile ?? session.profileId;
     session.mode = options.mode;
     session.approvalMode = resolveApprovalMode(options);
-    return { result: { session, text: `answer: ${task}` } };
+    return {
+      result: {
+        session,
+        text: `answer: ${task}`,
+        status: signal?.aborted ? "cancelled" : "completed",
+      },
+    };
   },
 }));
 const { runOpenTuiAgent } = await import("../../src/ui/opentui-agent.js");
@@ -205,6 +222,10 @@ try {
   expect(prompts[0]).toContain("code-review");
   await frame();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeFalsy();
+  expect(setup.captureCharFrame()).toContain("Думаю ·");
+  expect(setup.captureCharFrame()).not.toContain("Internal reasoning");
+  expect(setup.captureCharFrame()).not.toContain("Rejected partial prose");
+  expect(setup.captureCharFrame()).not.toContain("Размышление");
   await act(async () => {
     setup.mockInput.pressTab({ shift: true });
     setup.mockInput.pressKey("F4");
@@ -251,6 +272,7 @@ try {
     "В очереди: 1 | Build | Accept edits",
   );
   expect(setup.captureCharFrame()).toContain("в очереди");
+  expect(setup.renderer.root.findDescendantById("request-status")).toBeFalsy();
   await chooseModel("later-model", "anthropic-default");
   await act(async () => {
     setup.mockInput.pressTab({ shift: true });
@@ -275,6 +297,8 @@ try {
   expect(setup.captureCharFrame()).toContain("later-model");
   expect(setup.captureCharFrame()).toContain("Plan");
   expect(setup.captureCharFrame()).toContain("answer: second task");
+  expect(setup.captureCharFrame()).toContain("Завершено за");
+  expect(setup.renderer.root.findDescendantById("request-status")).toBeFalsy();
   expect(setup.captureCharFrame()).not.toContain("answer: first task");
   await chooseModel("idle-model");
   expect(storedModels).toContain("idle-model");

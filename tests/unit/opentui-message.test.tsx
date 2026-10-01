@@ -43,13 +43,13 @@ function findTable(setup: Setup): TextTableRenderable | undefined {
   return find(setup.renderer.root);
 }
 
-test("excess and trailing blank lines collapse while real paragraphs remain separated", async () => {
+test("prose paragraphs use adjacent rows without empty Markdown separator rows", async () => {
   const setup = await testRender(
     view("\n\nПервый абзац\r\n\r\n\r\n\r\nВторой абзац\r\n\r\n", 40),
     { width: 40, height: 30 },
   );
   try {
-    expect(await render(setup)).toEqual(["Первый абзац", "", "Второй абзац"]);
+    expect(await render(setup)).toEqual(["Первый абзац", "Второй абзац"]);
   } finally {
     act(() => setup.renderer.destroy());
   }

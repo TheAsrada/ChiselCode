@@ -55,9 +55,7 @@ export function OpenTuiPrompt({
       ? "в очереди"
       : differentRun
         ? `сейчас ${AGENT_MODE_LABELS[runningMode]}${runningApprovalMode ? ` | ${APPROVAL_MODE_LABELS[runningApprovalMode]}` : ""}`
-        : agentMode === "plan"
-          ? "планирует"
-          : "отвечает"
+        : ""
     : "";
   const caption = (busy && differentRun ? [activity, model] : [model, activity])
     .filter(Boolean)

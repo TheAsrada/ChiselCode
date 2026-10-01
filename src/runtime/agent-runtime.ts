@@ -73,6 +73,8 @@ export class AgentRuntime {
     let finalText = "";
     let overflowRecovered = false;
     let emptyRetried = false;
+    let responseRecoveries = 0;
+    let responseRecoveryInstructions = "";
     const checkpoint = async () => {
       await options.onCheckpoint?.(session);
       await this.events.emit({ type: "checkpoint_saved" });
@@ -154,7 +156,7 @@ export class AgentRuntime {
         await state("preparing_context");
         const frame = await this.context.build({
           session,
-          system,
+          system: `${system}${responseRecoveryInstructions}`,
           tools: await this.tools.selectForTurn(),
           provider: this.provider,
           capabilities,
@@ -164,6 +166,7 @@ export class AgentRuntime {
         await checkpoint();
         await state("calling_provider");
         let response: import("./turn-runner.js").AssistantTurn;
+        const textBeforeRequest = finalText;
         try {
           response = await runner.run(
             {
@@ -177,6 +180,24 @@ export class AgentRuntime {
             frame.estimatedInputTokens,
           );
         } catch (error) {
+          if (
+            error instanceof ProviderError &&
+            ["invalid_tool_arguments", "output_truncated"].includes(
+              error.code,
+            ) &&
+            responseRecoveries < 2 &&
+            !options.signal?.aborted
+          ) {
+            responseRecoveries++;
+            finalText = textBeforeRequest;
+            responseRecoveryInstructions = `\n\nThe previous provider response was rejected before any of its tools ran: ${error.code}. Return complete, valid JSON objects for all tool arguments, with correctly escaped strings. Keep each response comfortably below the ${frame.budget.reservedOutputTokens}-token output limit. Split large file creation or edits into small complete tool calls across separate turns; create a small valid file first, then extend it using fresh reads and edit_file or apply_patch. Do not repeat previously completed tool calls. Keep prose brief.`;
+            await this.events.emit({
+              type: "provider_response_recovery",
+              errorCode: error.code,
+            });
+            iteration--;
+            continue;
+          }
           if (
             error instanceof ProviderError &&
             error.code === "context_overflow" &&

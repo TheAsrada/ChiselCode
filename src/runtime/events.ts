@@ -14,6 +14,7 @@ export type RuntimeEventType =
   | "provider_thinking_delta"
   | "provider_turn_completed"
   | "provider_failed"
+  | "provider_response_recovery"
   | "context_compaction_started"
   | "context_compaction_completed"
   | "overflow_recovery"

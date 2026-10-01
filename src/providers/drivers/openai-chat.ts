@@ -13,6 +13,7 @@ import type {
 import { ToolNameSchema } from "../../types/domain.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
+import { parseToolArguments } from "../tool-arguments.js";
 
 export interface OpenAIAdapterOptions {
   maxRetries?: number;
@@ -132,13 +133,28 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         }
         for (const call of choice.delta.tool_calls ?? []) {
           const index = call.index;
+          if (!Number.isInteger(index) || index < 0)
+            throw new ProviderError(
+              "transport",
+              "Invalid provider tool call index.",
+            );
           const current = toolCalls.get(index) ?? {
             id: "",
             name: "",
             arguments: "",
           };
+          if (
+            (call.id && current.id && call.id !== current.id) ||
+            (call.function?.name &&
+              current.name &&
+              call.function.name !== current.name)
+          )
+            throw new ProviderError(
+              "transport",
+              "Provider changed a tool call ID or name during streaming.",
+            );
           if (call.id) current.id = call.id;
-          if (call.function?.name) current.name += call.function.name;
+          if (call.function?.name) current.name = call.function.name;
           if (call.function?.arguments)
             current.arguments += call.function.arguments;
           toolCalls.set(index, current);
@@ -153,35 +169,29 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
           "transport",
           "Provider stream ended without a finish marker.",
         );
+      if (finishReason === "length")
+        throw new ProviderError(
+          "output_truncated",
+          "Ответ провайдера обрезан по лимиту токенов. Неполные вызовы инструментов не выполнены; большую правку нужно разбить на части.",
+        );
       const content: ChatContent[] = text ? [{ type: "text", text }] : [];
+      const ids = new Set<string>();
       for (const [, call] of [...toolCalls.entries()].sort(
         ([a], [b]) => a - b,
       )) {
         const parsedName = ToolNameSchema.safeParse(call.name);
-        if (!parsedName.success || !call.id)
+        if (!parsedName.success || !call.id || ids.has(call.id))
           throw new ProviderError(
             "transport",
-            "Malformed provider tool call: missing ID or invalid name.",
+            "Malformed provider tool call: missing or duplicate ID, or invalid name.",
           );
-        let input: unknown;
-        try {
-          input = JSON.parse(call.arguments);
-        } catch {
-          throw new ProviderError(
-            "transport",
-            `Invalid JSON arguments for ${call.name}.`,
-          );
-        }
-        if (!input || typeof input !== "object" || Array.isArray(input))
-          throw new ProviderError(
-            "transport",
-            `Arguments for ${call.name} must be an object.`,
-          );
+        ids.add(call.id);
+        const input = parseToolArguments(call.arguments, call.name);
         content.push({
           type: "tool_use",
           id: call.id,
           name: parsedName.data,
-          input: input as Record<string, unknown>,
+          input,
         });
       }
 

@@ -48,7 +48,7 @@ import {
 } from "../skills/skills.js";
 import type { Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
-import { clipText, textTail } from "../utils/text.js";
+import { clipText } from "../utils/text.js";
 import { VERSION } from "../version.js";
 import { themePalette } from "./appearance.js";
 import { commandHelpText, suggestSimilarCommand } from "./commands.js";
@@ -780,7 +780,7 @@ export async function runOpenTuiAgent(
       );
       return;
     }
-    controller.setBusy(true);
+    controller.startRequest();
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
     controller.append(`> ${input}`, "user");
@@ -793,6 +793,9 @@ export async function runOpenTuiAgent(
     );
     const tools = toolTranscriptHandlers(() => controller);
     const work = (async () => {
+      let status: "completed" | "failed" | "cancelled" | "approval_required" =
+        "failed";
+      let elapsedMs: number | undefined;
       try {
         let hasText = false;
         const { result } = await runPrompt(
@@ -808,12 +811,17 @@ export async function runOpenTuiAgent(
           },
           approvalResolver,
           {
+            onEvent: (event) => {
+              if (event.type === "provider_response_recovery") {
+                controller.discardStreaming();
+                hasText = false;
+              }
+            },
             onText: (text) => {
               controller.appendToLast(text);
               hasText = true;
             },
-            onThinking: (text) =>
-              controller.setToolActivity(`Размышление: ${textTail(text, 200)}`),
+            onThinking: () => {},
             onToolStart: tools.onToolStart,
             onToolResult: (name, outcome) => {
               tools.onToolResult?.(name, outcome);
@@ -831,6 +839,8 @@ export async function runOpenTuiAgent(
           },
           abort.signal,
         );
+        status = result.status;
+        elapsedMs = result.elapsedMs;
         controller.setSessionUsage(result.session);
         controller.setToolActivity();
         if (result.error) controller.append(result.error, "error");
@@ -840,8 +850,10 @@ export async function runOpenTuiAgent(
             "assistant",
           );
       } catch (error) {
+        status = abort.signal.aborted ? "cancelled" : "failed";
         if (!abort.signal.aborted) controller.append(String(error), "error");
       } finally {
+        controller.finishRequest(status, elapsedMs);
         activeRun = undefined;
         controller.setRunningMode();
         controller.setRunningApprovalMode();

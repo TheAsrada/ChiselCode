@@ -6,6 +6,8 @@ export type ProviderErrorCode =
   | "timeout"
   | "cancelled"
   | "transport"
+  | "invalid_tool_arguments"
+  | "output_truncated"
   | "refusal"
   | "invalid_endpoint"
   | "bad_request"

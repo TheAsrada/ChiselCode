@@ -41,6 +41,50 @@ function sink() {
   return { entries, view, activity: () => activity };
 }
 
+test("request durations survive saving and replay outside provider messages", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-timing-session-"));
+  const variable =
+    process.platform === "win32" ? "LOCALAPPDATA" : "XDG_DATA_HOME";
+  const previous = process.env[variable];
+  process.env[variable] = root;
+  try {
+    const session = createSession(root, "anthropic", "test");
+    session.messages = [
+      { role: "user", content: [{ type: "text", text: "Привет" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Привет!\n\nЯ помогу." }],
+      },
+      { role: "user", content: [{ type: "text", text: "Ещё" }] },
+    ];
+    session.requestTimings = [
+      { afterMessage: 2, elapsedMs: 12345, status: "completed" },
+      { afterMessage: 3, elapsedMs: 4567, status: "failed" },
+    ];
+    await saveSession(session);
+    const restored = await loadSession(session.id, root);
+    expect(restored.requestTimings).toEqual(session.requestTimings);
+    expect(restored.messages).toEqual(session.messages);
+    const { view, entries } = sink();
+    replaySessionIntoTranscript(view, restored);
+    expect(entries.map((entry) => entry.text)).toEqual([
+      "Привет",
+      "Привет!\n\nЯ помогу.",
+      "Завершено за 12,3 с",
+      "Ещё",
+      "Завершено с ошибкой · 4,6 с",
+    ]);
+    view.clear();
+    delete restored.requestTimings;
+    replaySessionIntoTranscript(view, restored);
+    expect(entries).toHaveLength(3);
+  } finally {
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("session storage round-trips complete diff metadata", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-diff-session-"));
   const variable =

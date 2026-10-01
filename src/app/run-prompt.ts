@@ -296,6 +296,7 @@ export async function runPrompt(
   events: RunEventHandlers = {},
   signal?: AbortSignal,
 ): Promise<{ result: AgentResult; exitCode: number }> {
+  const startedAt = performance.now();
   const projectRoot = options.cwd ?? process.cwd();
   const sessionStore = await projectSessionStore(projectRoot);
   const config = await loadProjectConfig(projectRoot);
@@ -442,6 +443,13 @@ export async function runPrompt(
   } finally {
     detachEvents();
   }
+  result.elapsedMs = Math.max(0, performance.now() - startedAt);
+  result.session.requestTimings ??= [];
+  result.session.requestTimings.push({
+    afterMessage: result.session.messages.length,
+    elapsedMs: result.elapsedMs,
+    status: result.status,
+  });
   await sessionStore.save(result.session);
   if (
     !events.onText &&

@@ -155,6 +155,20 @@ export const SessionV3Schema = z.looseObject({
       content: z.array(contentSchema),
     }),
   ),
+  requestTimings: z
+    .array(
+      z.object({
+        afterMessage: z.number().int().nonnegative(),
+        elapsedMs: z.number().finite().nonnegative(),
+        status: z.enum([
+          "completed",
+          "approval_required",
+          "failed",
+          "cancelled",
+        ]),
+      }),
+    )
+    .optional(),
   totalTokens: SessionUsageSchema,
   contextSnapshot: z
     .object({
