@@ -176,6 +176,8 @@ try {
       .filter((item) => item.id.startsWith("session-tab-")).length,
   ).toBe(2);
   expect(setup.captureCharFrame()).toContain("В очереди: 1");
+  expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build");
+  expect(setup.captureCharFrame()).toContain("в очереди");
   await act(async () => {
     setup.mockInput.pressTab({ shift: true });
   });

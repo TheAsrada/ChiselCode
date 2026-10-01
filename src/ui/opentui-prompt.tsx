@@ -32,11 +32,13 @@ export function OpenTuiPrompt({
 }) {
   const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
   const activity = busy
-    ? runningMode && runningMode !== agentMode
-      ? `сейчас ${AGENT_MODE_LABELS[runningMode]}`
-      : agentMode === "plan"
-        ? "планирует"
-        : "отвечает"
+    ? !runningMode
+      ? "в очереди"
+      : runningMode !== agentMode
+        ? `сейчас ${AGENT_MODE_LABELS[runningMode]}`
+        : agentMode === "plan"
+          ? "планирует"
+          : "отвечает"
     : "";
   const caption = (
     busy && runningMode && runningMode !== agentMode

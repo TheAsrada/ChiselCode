@@ -23,7 +23,11 @@ import {
 } from "../commands/update.js";
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
 import { getProviderCatalog } from "../providers/catalog.js";
-import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
+import {
+  AGENT_MODE_LABELS,
+  type AgentMode,
+  DEFAULT_AGENT_MODE,
+} from "../runtime/agent-mode.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { shortSessionId } from "../sessions/store.js";
 import {
@@ -527,7 +531,7 @@ export async function runOpenTuiAgent(
       pendingPrompts.push({ input, controller, mode: turnMode });
       controller.setBusy(true);
       controller.append(
-        `В очереди: ${pendingPrompts.length} · ${input}`,
+        `В очереди: ${pendingPrompts.length} · ${AGENT_MODE_LABELS[turnMode]} · ${input}`,
         "info",
       );
       return;
