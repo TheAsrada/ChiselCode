@@ -37,6 +37,7 @@ import {
 } from "./editor.js";
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
+import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPrompt } from "./opentui-prompt.js";
 import {
@@ -121,6 +122,7 @@ function OpenTuiScreen({
   onSubmit,
   sessionPicker,
   settingsActions,
+  getModelsActions,
   getDefaultModel,
   onAgentModeChange,
   onApprovalModeChange,
@@ -142,6 +144,7 @@ function OpenTuiScreen({
   onSubmit?: (prompt: string) => Promise<void>;
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
+  getModelsActions?: () => OpenTuiModelsActions;
   getDefaultModel?: () => string;
   onAgentModeChange?: (mode: AgentMode) => void;
   onApprovalModeChange?: (mode: ApprovalMode) => void;
@@ -175,6 +178,7 @@ function OpenTuiScreen({
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const palette = themePalette(theme, accent);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [modelsActions, setModelsActions] = useState<OpenTuiModelsActions>();
   const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
@@ -429,13 +433,22 @@ function OpenTuiScreen({
       !pickerOpen &&
       !settingsOpen &&
       !skillsOpen &&
+      !modelsActions &&
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
       else if (focus === "transcript") transcript.current?.focus();
       else sidebar.current?.focus();
     }
-  }, [approval, pickerOpen, settingsOpen, skillsOpen, contextOnly, focus]);
+  }, [
+    approval,
+    pickerOpen,
+    settingsOpen,
+    skillsOpen,
+    modelsActions,
+    contextOnly,
+    focus,
+  ]);
   useEffect(() => {
     if (focus === "sidebar" && !showSidebar) {
       setFocus("editor");
@@ -451,6 +464,21 @@ function OpenTuiScreen({
     controller?.setOverlay("settings");
     controller?.setFocus("modal");
   };
+  const openModels = () => {
+    if (
+      !getModelsActions ||
+      approval ||
+      pickerOpen ||
+      settingsOpen ||
+      skillsOpen ||
+      modelsActions
+    )
+      return;
+    editor.current?.blur();
+    setModelsActions(getModelsActions());
+    controller?.setOverlay("models");
+    controller?.setFocus("modal");
+  };
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === "c") return onExit();
@@ -462,7 +490,7 @@ function OpenTuiScreen({
         approvalResolver?.resolve("denied");
       return;
     }
-    if (pickerOpen || settingsOpen || skillsOpen) return;
+    if (pickerOpen || settingsOpen || skillsOpen || modelsActions) return;
     if (
       key.name === "f4" &&
       !key.ctrl &&
@@ -633,7 +661,8 @@ function OpenTuiScreen({
   });
 
   const submit = (command?: string) => {
-    if (approval || skillsOpen || settingsOpen || pickerOpen) return;
+    if (approval || skillsOpen || settingsOpen || pickerOpen || modelsActions)
+      return;
     const value = command ?? editor.current?.plainText.trim();
     if (!value) return;
     if (!command && selectedSuggestion && value !== selectedSuggestion.name) {
@@ -702,8 +731,13 @@ function OpenTuiScreen({
       clearInput();
       return;
     }
-    if (settingsActions && (value === "/settings" || value === "/model")) {
-      openSettings("connection", value === "/model" ? 1 : 0);
+    if (getModelsActions && value === "/model") {
+      openModels();
+      clearInput();
+      return;
+    }
+    if (settingsActions && value === "/settings") {
+      openSettings("connection");
       clearInput();
       return;
     }
@@ -812,17 +846,24 @@ function OpenTuiScreen({
         palette={palette}
         width={composerWidth}
         focused={
-          focus === "editor" && !skillsOpen && !settingsOpen && !approval
+          focus === "editor" &&
+          !skillsOpen &&
+          !settingsOpen &&
+          !modelsActions &&
+          !approval
         }
         hasDraft={!!draft.trim()}
         busy={view.busy}
-        model={view.usage?.model ?? getDefaultModel?.()}
+        model={
+          view.modelSelection?.model ?? view.usage?.model ?? getDefaultModel?.()
+        }
         agentMode={view.agentMode}
         runningMode={view.runningMode}
         approvalMode={view.approvalMode}
         runningApprovalMode={view.runningApprovalMode}
         onToggleMode={toggleAgentMode}
         onApprovalModeChange={changeApprovalMode}
+        onModelSelect={getModelsActions ? openModels : undefined}
         onSubmit={() => submit()}
       >
         <textarea
@@ -830,7 +871,11 @@ function OpenTuiScreen({
           ref={editor}
           height={editorHeight}
           focused={
-            focus === "editor" && !skillsOpen && !settingsOpen && !approval
+            focus === "editor" &&
+            !skillsOpen &&
+            !settingsOpen &&
+            !modelsActions &&
+            !approval
           }
           initialValue={draft}
           backgroundColor={palette.surface}
@@ -1086,6 +1131,23 @@ function OpenTuiScreen({
         )}
       </box>
       {settingsDialog}
+      {modelsActions && !approval && (
+        <OpenTuiModels
+          actions={modelsActions}
+          width={width}
+          height={height}
+          palette={palette}
+          onClose={() => {
+            setModelsActions(undefined);
+            controller?.setOverlay();
+            controller?.setFocus(focus === "editor" ? "composer" : focus);
+          }}
+          onSettings={() => {
+            setModelsActions(undefined);
+            openSettings("connection");
+          }}
+        />
+      )}
       {approval && (
         <OpenTuiApproval
           request={approval}

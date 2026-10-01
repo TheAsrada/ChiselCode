@@ -34,6 +34,7 @@ mock.module("@opentui/core", () => ({
   ...core,
   createCliRenderer: async () => setup.renderer,
 }));
+let globalSaves = 0;
 mock.module("../../src/config/load.js", () => ({
   ...config,
   loadGlobalConfig: async () => ({
@@ -44,23 +45,32 @@ mock.module("../../src/config/load.js", () => ({
         providerId: "anthropic",
         defaultModel: "test-model",
       },
+      personal: {
+        providerId: "openai",
+        defaultModel: "other-model",
+        baseUrl: "https://api.example.test/v1",
+      },
     },
     providers: {},
   }),
-  saveGlobalConfig: async () => {},
+  saveGlobalConfig: async () => {
+    globalSaves++;
+  },
 }));
 const storedModes: AgentMode[] = [];
 const storedApprovals: ApprovalMode[] = [];
+const storedModels: string[] = [];
 mock.module("../../src/sessions/project-store.js", () => ({
   ...projects,
   projectSessionStore: async () => ({
     list: async () => [],
-    setExecutionModes: async (
+    setPreferences: async (
       _id: string,
-      modes: { mode: AgentMode; approvalMode: ApprovalMode },
+      modes: { mode?: AgentMode; approvalMode?: ApprovalMode; model?: string },
     ) => {
-      storedModes.push(modes.mode);
-      storedApprovals.push(modes.approvalMode);
+      if (modes.mode) storedModes.push(modes.mode);
+      if (modes.approvalMode) storedApprovals.push(modes.approvalMode);
+      if (modes.model) storedModels.push(modes.model);
     },
   }),
   SessionProjectRegistry: class {
@@ -74,11 +84,17 @@ let calls = 0;
 const prompts: string[] = [];
 const modes: Array<AgentMode | undefined> = [];
 const approvals: Array<ApprovalMode | undefined> = [];
+const requestedModels: Array<string | undefined> = [];
+const requestedConnections: RunOptions[] = [];
+const catalogProfiles: Array<string | undefined> = [];
 mock.module("../../src/commands/run.js", () => ({
   ...run,
   hasApiKey: async () => true,
   checkProviderConnection: async () => ({ ok: true }),
-  listProviderModels: async () => ({ ok: true, models: [] }),
+  listProviderModels: async (selection: { profileId?: string }) => {
+    catalogProfiles.push(selection.profileId);
+    return { ok: true, models: [] };
+  },
   runPrompt: async (
     prompt: string,
     options: RunOptions,
@@ -90,6 +106,8 @@ mock.module("../../src/commands/run.js", () => ({
     prompts.push(prompt);
     modes.push(options.mode);
     approvals.push(options.approvalMode);
+    requestedModels.push(options.model);
+    requestedConnections.push({ ...options });
     const task = stripActiveSkillsBlock(prompt);
     if (calls === 1)
       await new Promise<void>((resolve) => {
@@ -103,16 +121,46 @@ mock.module("../../src/commands/run.js", () => ({
     callbacks.onText?.(`answer: ${task}`);
     const session = createSession(
       options.cwd ?? process.cwd(),
-      "anthropic",
-      "test-model",
+      options.provider ?? "anthropic",
+      options.model ?? "test-model",
     );
     session.title = task;
+    session.profileId = options.profile ?? session.profileId;
     session.mode = options.mode;
     session.approvalMode = options.approvalMode;
     return { result: { session, text: `answer: ${task}` } };
   },
 }));
 const { runOpenTuiAgent } = await import("../../src/ui/opentui-agent.js");
+async function chooseModel(id: string, profileId?: string) {
+  await act(async () => {
+    await setup.mockInput.pasteBracketedText("/model");
+    setup.mockInput.pressEnter();
+  });
+  await waitForFrame(
+    () => !!setup.renderer.root.findDescendantById("models-search"),
+  );
+  if (profileId) {
+    await act(async () => setup.mockInput.pressTab());
+    await frame();
+    await act(async () => {
+      await setup.mockInput.pasteBracketedText(profileId);
+      setup.mockInput.pressEnter();
+    });
+    await frame();
+  }
+  await act(async () => setup.mockInput.pressKey("n", { ctrl: true }));
+  await frame();
+  await act(async () => {
+    setup.mockInput.pressKey("a", { ctrl: true });
+    setup.mockInput.pressKey("k", { ctrl: true });
+    await setup.mockInput.pasteBracketedText(id);
+    setup.mockInput.pressEnter();
+  });
+  await waitForFrame(
+    () => !setup.renderer.root.findDescendantById("models-popup"),
+  );
+}
 let running: Promise<void> | undefined;
 try {
   act(() => {
@@ -181,6 +229,7 @@ try {
       ?.getChildren()
       .filter((item) => item.id.startsWith("session-tab-")).length,
   ).toBe(1);
+  await chooseModel("queued-model", "personal");
   await act(async () => {
     await setup.mockInput.pasteBracketedText("second task");
     setup.mockInput.pressEnter();
@@ -197,6 +246,7 @@ try {
   expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build");
   expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build · Авто");
   expect(setup.captureCharFrame()).toContain("в очереди");
+  await chooseModel("later-model", "anthropic-default");
   await act(async () => {
     setup.mockInput.pressTab({ shift: true });
     setup.mockInput.pressKey("F4");
@@ -211,9 +261,19 @@ try {
   expect(prompts[1]).toBe("second task");
   expect(modes).toEqual(["plan", "build"]);
   expect(approvals).toEqual(["ask", "auto"]);
+  expect(requestedModels).toEqual(["test-model", "queued-model"]);
+  expect(requestedConnections[1]).toMatchObject({
+    profile: "personal",
+    provider: "openai",
+    baseUrl: "https://api.example.test/v1",
+  });
+  expect(setup.captureCharFrame()).toContain("later-model");
   expect(setup.captureCharFrame()).toContain("Plan");
   expect(setup.captureCharFrame()).toContain("answer: second task");
   expect(setup.captureCharFrame()).not.toContain("answer: first task");
+  await chooseModel("idle-model");
+  expect(storedModels).toContain("idle-model");
+  expect(setup.captureCharFrame()).toContain("idle-model");
   await act(async () => {
     setup.mockInput.pressKey("ARROW_LEFT", { meta: true });
   });
@@ -242,6 +302,8 @@ try {
   expect(storedApprovals.at(-1)).toBe("ask");
   expect(storedModes).toContain("plan");
   expect(storedApprovals).toContain("ask");
+  expect(globalSaves).toBe(0);
+  expect(catalogProfiles).toEqual(["anthropic-default", "personal"]);
   process.stdout.write("Agent navigation and queued output verified\n");
 } finally {
   setup.renderer.destroy();

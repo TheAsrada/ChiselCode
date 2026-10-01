@@ -27,6 +27,7 @@ import {
   saveGlobalConfig,
 } from "../config/load.js";
 import { getProviderCatalog } from "../providers/catalog.js";
+import { selectProfile } from "../providers/profiles.js";
 import {
   AGENT_MODE_LABELS,
   type AgentMode,
@@ -50,6 +51,7 @@ import { resolveProjectDir } from "../utils/paths.js";
 import { VERSION } from "../version.js";
 import { themePalette } from "./appearance.js";
 import { commandHelpText, suggestSimilarCommand } from "./commands.js";
+import type { OpenTuiModelsActions } from "./opentui-models.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import type { OpenTuiSettingsActions } from "./opentui-settings.js";
@@ -93,12 +95,60 @@ export async function runOpenTuiAgent(
   const approvalResolver = createTuiApprovalResolver();
   const config = await loadGlobalConfig();
   const catalog = await getProviderCatalog();
-  let defaultModel = settingsDraft(
+  const homeModel = settingsDraft(config, catalog.registry, activeOptions);
+  workspace.home.setActiveModel(
+    homeModel.provider,
+    homeModel.model,
+    homeModel.profileId,
+    homeModel.baseUrl,
+  );
+  const initialModel = settingsDraft(
     config,
     catalog.registry,
-    activeOptions,
-  ).model;
-  const profileOverrides = new WeakMap<TuiController, RunOptions>();
+    initialSession
+      ? {
+          ...activeOptions,
+          profile:
+            options.profile ??
+            (options.provider ? undefined : initialSession.profileId),
+          provider:
+            options.provider ??
+            (options.profile ? undefined : initialSession.providerId),
+          model:
+            options.model ??
+            ((options.provider ??
+              (options.profile
+                ? config.profiles[options.profile]?.providerId
+                : initialSession.providerId)) === initialSession.providerId
+              ? initialSession.model
+              : undefined),
+        }
+      : activeOptions,
+  );
+  workspace.controller.setActiveModel(
+    initialModel.provider,
+    initialModel.model,
+    initialModel.profileId,
+    initialModel.baseUrl,
+  );
+  let defaultModel = homeModel.model;
+  const modelOptions = (controller: TuiController): RunOptions => {
+    const selected = controller.snapshot.modelSelection;
+    return selected
+      ? {
+          provider: selected.provider,
+          profile: selected.profileId,
+          model: selected.model,
+          baseUrl: selected.baseUrl,
+        }
+      : activeOptions;
+  };
+  const modelCache = new Map<
+    string,
+    { expires: number; result: Awaited<ReturnType<typeof listProviderModels>> }
+  >();
+  let modelCacheGeneration = 0;
+  const modelRequests = new Map<string, number>();
   let currentTheme = config.ui?.theme ?? "obsidian";
   const classic =
     process.env.CHISEL_ALT_SCREEN === "0" ||
@@ -138,6 +188,7 @@ export async function runOpenTuiAgent(
     controller: TuiController;
     mode: AgentMode;
     approvalMode: ApprovalMode;
+    modelOptions: RunOptions;
   }> = [];
   const skillNames = new WeakMap<
     TuiController,
@@ -159,18 +210,31 @@ export async function runOpenTuiAgent(
     if (!controller.snapshot.sessionId || controller.snapshot.busy) return;
     pendingSave = pendingSave
       .then(async () => {
-        const { sessionId, projectPath, agentMode, approvalMode, busy } =
-          controller.snapshot;
+        const {
+          sessionId,
+          projectPath,
+          agentMode,
+          approvalMode,
+          busy,
+          modelSelection,
+        } = controller.snapshot;
         if (!sessionId || busy) return;
         const store = await projectSessionStore(projectPath);
-        await store.setExecutionModes(sessionId, {
+        await store.setPreferences(sessionId, {
           mode: agentMode,
           approvalMode,
+          ...(modelSelection
+            ? {
+                providerId: modelSelection.provider,
+                profileId: modelSelection.profileId,
+                model: modelSelection.model,
+              }
+            : {}),
         });
       })
       .catch((error) =>
         controller.append(
-          `Не удалось сохранить режим: ${String(error)}`,
+          `Не удалось сохранить выбор сессии: ${String(error)}`,
           "error",
         ),
       );
@@ -240,16 +304,9 @@ export async function runOpenTuiAgent(
     }),
     load: async (profileId) => {
       const current = await loadGlobalConfig();
-      const selectedController = currentController().snapshot;
       const selection = profileId
         ? { profile: profileId }
-        : (profileOverrides.get(currentController()) ??
-          (selectedController.usage?.profileId
-            ? {
-                profile: selectedController.usage.profileId,
-                model: selectedController.usage.model,
-              }
-            : activeOptions));
+        : modelOptions(currentController());
       const values = settingsDraft(current, catalog.registry, selection);
       const profile = values.profileId
         ? current.profiles[values.profileId]
@@ -283,11 +340,13 @@ export async function runOpenTuiAgent(
         model: values.model,
         baseUrl: values.baseUrl,
       };
-      profileOverrides.set(currentController(), activeOptions);
+      modelCache.clear();
+      modelCacheGeneration++;
       currentController().setActiveModel(
         values.provider,
         values.model,
         profile,
+        values.baseUrl,
       );
       return outcome;
     },
@@ -307,6 +366,124 @@ export async function runOpenTuiAgent(
           }
         : { ok: false, error: result.error };
     },
+  };
+  const getModelsActions = (): OpenTuiModelsActions => {
+    const controller = currentController();
+    const generation = controller.currentGeneration;
+    return {
+      load: async () => {
+        const currentConfig = await loadGlobalConfig();
+        const current =
+          controller.snapshot.modelSelection ??
+          settingsDraft(
+            currentConfig,
+            catalog.registry,
+            modelOptions(controller),
+          );
+        const profiles = Object.entries(currentConfig.profiles).flatMap(
+          ([id, entry]) => {
+            const provider = catalog.registry.get(entry.providerId);
+            if (!provider) return [];
+            return [
+              {
+                key: id,
+                label: entry.label ?? id,
+                providerLabel: provider.label,
+                selection: settingsDraft(currentConfig, catalog.registry, {
+                  profile: id,
+                }),
+              },
+            ];
+          },
+        );
+        const matching = profiles.find(
+          (item) =>
+            item.selection.profileId === current.profileId &&
+            item.selection.provider === current.provider,
+        );
+        if (matching) matching.selection = { ...current };
+        return { current: { ...current }, profiles };
+      },
+      models: async (selection, refresh) => {
+        const key = JSON.stringify([
+          selection.provider,
+          selection.profileId,
+          selection.baseUrl,
+        ]);
+        const cached = modelCache.get(key);
+        const cacheHit = !refresh && cached && cached.expires > Date.now();
+        const generation = modelCacheGeneration;
+        const request = cacheHit
+          ? modelRequests.get(key)
+          : (modelRequests.get(key) ?? 0) + 1;
+        if (!cacheHit && request !== undefined) modelRequests.set(key, request);
+        const result = cacheHit
+          ? cached.result
+          : await listProviderModels(selection);
+        if (result.ok) {
+          if (
+            !cacheHit &&
+            generation === modelCacheGeneration &&
+            request === modelRequests.get(key)
+          )
+            modelCache.set(key, { expires: Date.now() + 300_000, result });
+          return {
+            ok: true,
+            models: result.models.map(
+              ({ id, displayName, contextWindow, maxOutputTokens }) => ({
+                id,
+                hint: displayName,
+                contextWindow,
+                maxOutputTokens,
+              }),
+            ),
+          };
+        }
+        return { ok: false, error: result.error };
+      },
+      select: async (selection) => {
+        if (abort.signal.aborted || !controller.isCurrent(generation))
+          throw new Error("Эта сессия уже закрыта.");
+        const currentConfig = await loadGlobalConfig();
+        if (abort.signal.aborted || !controller.isCurrent(generation))
+          throw new Error("Эта сессия уже закрыта.");
+        catalog.registry.require(selection.provider);
+        const { profileId } = selectProfile(currentConfig, {
+          provider: selection.provider,
+          profile: selection.profileId,
+        });
+        if (
+          !selection.model.trim() ||
+          [...selection.model].some(
+            (character) =>
+              character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+          )
+        )
+          throw new Error("Введите корректный ID модели.");
+        const { sessionId, projectPath, busy } = controller.snapshot;
+        if (sessionId && !busy) {
+          const saved = pendingSave.then(async () => {
+            const store = await projectSessionStore(projectPath);
+            if (abort.signal.aborted || !controller.isCurrent(generation))
+              throw new Error("Эта сессия уже закрыта.");
+            await store.setPreferences(sessionId, {
+              providerId: selection.provider,
+              profileId,
+              model: selection.model,
+            });
+          });
+          pendingSave = saved.catch(() => {});
+          await saved;
+        }
+        if (abort.signal.aborted || !controller.isCurrent(generation)) return;
+        controller.setActiveModel(
+          selection.provider,
+          selection.model,
+          profileId,
+          selection.baseUrl,
+        );
+      },
+    };
   };
   const skillsActions: OpenTuiSkillsActions = {
     load: () => loadSkills(currentController().snapshot.projectPath),
@@ -340,7 +517,7 @@ export async function runOpenTuiAgent(
     const draft = settingsDraft(
       current,
       catalog.registry,
-      diagnostic ? {} : (profileOverrides.get(controller) ?? activeOptions),
+      diagnostic ? {} : modelOptions(controller),
     );
     const provider = draft.provider;
     const selected = draft.profileId
@@ -454,6 +631,7 @@ export async function runOpenTuiAgent(
     target = currentController(),
     turnMode = target.snapshot.agentMode,
     turnApprovalMode = target.snapshot.approvalMode,
+    turnModelOptions = { ...modelOptions(target) },
   ): Promise<void> => {
     let controller = target;
     if (abort.signal.aborted) return;
@@ -558,6 +736,7 @@ export async function runOpenTuiAgent(
         controller.snapshot.projectPath,
         turnMode,
         turnApprovalMode,
+        target.snapshot.modelSelection,
       );
       controller.setSessionTitle(
         input.split("\n", 1)[0]?.slice(0, 120) ?? input.slice(0, 120),
@@ -574,6 +753,7 @@ export async function runOpenTuiAgent(
         controller,
         mode: turnMode,
         approvalMode: turnApprovalMode,
+        modelOptions: turnModelOptions,
       });
       controller.setBusy(true);
       controller.append(
@@ -601,7 +781,7 @@ export async function runOpenTuiAgent(
           prompt,
           {
             ...(controller.snapshot.sessionId ? options : activeOptions),
-            ...profileOverrides.get(controller),
+            ...turnModelOptions,
             cwd: controller.snapshot.projectPath,
             resume: controller.snapshot.sessionId,
             mode: turnMode,
@@ -657,6 +837,7 @@ export async function runOpenTuiAgent(
             next.controller,
             next.mode,
             next.approvalMode,
+            next.modelOptions,
           );
       }
     })();
@@ -674,6 +855,7 @@ export async function runOpenTuiAgent(
         approvalResolver,
         sessionPicker,
         settingsActions,
+        getModelsActions,
         getDefaultModel: () => defaultModel,
         onAgentModeChange: () => persistExecutionModes(currentController()),
         onApprovalModeChange: () => persistExecutionModes(currentController()),

@@ -33,6 +33,45 @@ afterEach(async () => {
 });
 
 describe("project session storage", () => {
+  test("model preference updates preserve latest history, modes and accounting and invalidate context", async () => {
+    const store = await projectSessionStore(join(root, "work"));
+    const session = store.create("anthropic", "old-model");
+    session.mode = "plan";
+    session.approvalMode = "auto";
+    session.messages = [
+      { role: "user", content: [{ type: "text", text: "Existing history" }] },
+    ];
+    session.totalTokens.inputTokens = 80;
+    session.contextSnapshot = {
+      model: session.model,
+      observedInputTokens: 80,
+      observedAt: new Date().toISOString(),
+      source: "provider_usage",
+      status: "observed",
+    };
+    await store.save(session);
+    const before = await store.load(session.id);
+    await store.setPreferences(session.id, {
+      providerId: "openai",
+      profileId: "work",
+      model: "new-model",
+    });
+    const after = await store.load(session.id);
+    expect(after).toMatchObject({
+      providerId: "openai",
+      profileId: "work",
+      model: "new-model",
+      mode: "plan",
+      approvalMode: "auto",
+      updatedAt: before.updatedAt,
+    });
+    expect(after.messages).toEqual(before.messages);
+    expect(after.totalTokens).toEqual(before.totalTokens);
+    expect(after.contextSnapshot).toBeUndefined();
+    expect(
+      (await store.list()).find((item) => item.id === session.id)?.model,
+    ).toBe("new-model");
+  });
   test("old sessions load without a snapshot; a new snapshot persists and is invalidated on model switch", async () => {
     const store = await projectSessionStore(join(root, "work"));
     const old = store.create("anthropic", "model-one");

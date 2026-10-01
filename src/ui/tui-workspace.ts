@@ -6,6 +6,7 @@ import {
 } from "../security/approval-mode.js";
 import type { Session } from "../types/domain.js";
 import { createEditorState } from "./editor.js";
+import type { ModelSelection } from "./opentui-models.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
 import { TuiController } from "./tui-controller.js";
 
@@ -47,12 +48,20 @@ export class TuiWorkspace {
   newDraft(projectPath = this.controller.snapshot.projectPath): TuiController {
     const mode = this.controller.snapshot.agentMode;
     const approvalMode = this.controller.snapshot.approvalMode;
+    const model = this.controller.snapshot.modelSelection;
     if (this.activeKey || projectPath !== this.home.snapshot.projectPath) {
       this.home.switchSession(undefined, projectPath);
       this.home.presentation.history = createEditorState();
     }
     this.home.setAgentMode(mode);
     this.home.setApprovalMode(approvalMode);
+    if (model)
+      this.home.setActiveModel(
+        model.provider,
+        model.model,
+        model.profileId,
+        model.baseUrl,
+      );
     this.select();
     return this.home;
   }
@@ -61,8 +70,16 @@ export class TuiWorkspace {
     projectPath = this.controller.snapshot.projectPath,
     mode = this.controller.snapshot.agentMode,
     approvalMode = this.controller.snapshot.approvalMode,
+    model: ModelSelection | undefined = this.controller.snapshot.modelSelection,
   ): TuiController {
     const controller = new TuiController(projectPath, mode, approvalMode);
+    if (model)
+      controller.setActiveModel(
+        model.provider,
+        model.model,
+        model.profileId,
+        model.baseUrl,
+      );
     const key = `tab-${++this.serial}`;
     this.tabs = [...this.tabs, { key, controller }];
     this.subscriptions.set(

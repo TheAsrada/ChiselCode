@@ -2,6 +2,41 @@ import { expect, test } from "bun:test";
 import { createSession } from "../../src/sessions/store.js";
 import type { TuiTranscript } from "../../src/ui/tui-contract.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
+import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+
+test("selected model exists before a session, survives old request completion and passes to new drafts", () => {
+  const workspace = new TuiWorkspace("/project");
+  workspace.home.setActiveModel("openai", "next-model", "work");
+  expect(workspace.home.snapshot.usage).toBeUndefined();
+  const tab = workspace.newTab();
+  const session = createSession("/project", "anthropic", "old-model");
+  session.totalTokens.inputTokens = 42;
+  session.contextSnapshot = {
+    model: "old-model",
+    observedInputTokens: 42,
+    observedAt: new Date().toISOString(),
+    source: "provider_usage",
+    status: "observed",
+  };
+  tab.setSessionUsage(session);
+  expect(tab.snapshot.modelSelection).toMatchObject({
+    provider: "openai",
+    model: "next-model",
+    profileId: "work",
+  });
+  expect(tab.snapshot.usage).toMatchObject({
+    model: "next-model",
+    totalTokens: { inputTokens: 42 },
+  });
+  expect(tab.snapshot.usage?.contextSnapshot).toBeUndefined();
+  workspace.newDraft();
+  expect(workspace.home.snapshot.modelSelection).toEqual(
+    tab.snapshot.modelSelection,
+  );
+  workspace.openSession({ ...session, id: "other" });
+  expect(workspace.controller.snapshot.modelSelection?.model).toBe("old-model");
+  workspace.dispose();
+});
 
 test("controller delivers agent callbacks to a fake renderer and replays after replacement", () => {
   const calls: string[] = [];

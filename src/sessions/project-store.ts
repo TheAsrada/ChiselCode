@@ -374,17 +374,48 @@ export class ProjectSessionStore {
     id: string,
     modes: { mode?: AgentMode; approvalMode?: ApprovalMode },
   ): Promise<void> {
+    await this.setPreferences(id, modes);
+  }
+  async setPreferences(
+    id: string,
+    preferences: Partial<
+      Pick<
+        Session,
+        "mode" | "approvalMode" | "providerId" | "profileId" | "model"
+      >
+    >,
+  ): Promise<void> {
     await this.list();
     await withLock(this.indexPath, async () => {
       const session = await this.load(id);
+      const changedModel =
+        (preferences.providerId !== undefined &&
+          preferences.providerId !== session.providerId) ||
+        (preferences.model !== undefined &&
+          preferences.model !== session.model) ||
+        (preferences.profileId !== undefined &&
+          preferences.profileId !== session.profileId);
+      if (changedModel) {
+        session.contextSnapshot = undefined;
+      }
       const { projectPath: _projectPath, ...fields } = session;
       const persisted = persistedSessionSchema.parse({
         ...fields,
         schemaVersion: 3,
-        ...modes,
+        ...preferences,
       });
       const index = indexSchema.parse(await readJson(this.indexPath));
       await atomicJson(this.file(id), persisted);
+      index.sessions = index.sessions.map((entry) =>
+        entry.id === id
+          ? toSummary(
+              withSessionCompatibility({
+                ...persisted,
+                projectPath: session.projectPath,
+              }),
+            )
+          : entry,
+      );
       await atomicJson(this.indexPath, index);
     });
   }

@@ -24,6 +24,7 @@ export function OpenTuiPrompt({
   runningApprovalMode,
   onToggleMode,
   onApprovalModeChange,
+  onModelSelect,
   onSubmit,
 }: {
   children: ReactNode;
@@ -39,6 +40,7 @@ export function OpenTuiPrompt({
   runningApprovalMode?: ApprovalMode;
   onToggleMode: () => void;
   onApprovalModeChange: (mode: ApprovalMode) => void;
+  onModelSelect?: () => void;
   onSubmit: () => void;
 }) {
   const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
@@ -165,9 +167,19 @@ export function OpenTuiPrompt({
           </text>
         </box>
       </box>
-      <text id="prompt-model" height={1} fg={palette.muted}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: /model also opens the model picker. */}
+      <text
+        id="prompt-model"
+        height={1}
+        fg={palette.muted}
+        selectable={!onModelSelect}
+        onMouseUp={(event) => {
+          event.stopPropagation();
+          onModelSelect?.();
+        }}
+      >
         {terminalSafeText(
-          caption || "Модель не выбрана",
+          `${caption || "Модель не выбрана"}${onModelSelect ? " ▾" : ""}`,
           Math.max(1, width - 6),
         )}
       </text>

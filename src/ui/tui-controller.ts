@@ -12,6 +12,7 @@ import type {
 } from "../types/domain.js";
 import { createEditorState } from "./editor.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
+import type { ModelSelection } from "./opentui-models.js";
 import type { TranscriptTone, TuiTranscript } from "./tui-contract.js";
 
 export interface TranscriptEntry {
@@ -26,6 +27,7 @@ export interface TuiViewState {
   runningMode?: AgentMode;
   approvalMode: ApprovalMode;
   runningApprovalMode?: ApprovalMode;
+  modelSelection?: ModelSelection;
   sessionId?: string;
   sessionTitle?: string;
   projectPath: string;
@@ -197,19 +199,28 @@ export class TuiController implements TuiTranscript {
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
       return;
     if (this.state.sessionId && this.state.sessionId !== session.id) return;
+    const selected = this.state.modelSelection ?? {
+      provider: session.providerId,
+      profileId: session.profileId,
+      model: session.model,
+    };
     this.update({
       sessionId: session.id,
       sessionTitle: session.title,
+      modelSelection: selected,
       usage: {
-        provider: session.providerId,
-        profileId: session.profileId,
-        model: session.model,
+        provider: selected.provider,
+        profileId: selected.profileId,
+        model: selected.model,
         totalTokens: { ...session.totalTokens },
         totalCost:
           session.costEstimate?.source === "unknown"
             ? undefined
             : (session.costEstimate?.usd ?? session.totalCost),
         contextSnapshot:
+          selected.provider === session.providerId &&
+          selected.profileId === session.profileId &&
+          selected.model === session.model &&
           session.contextSnapshot?.model === session.model
             ? session.contextSnapshot
             : undefined,
@@ -222,20 +233,26 @@ export class TuiController implements TuiTranscript {
     provider: Session["providerId"],
     model: string,
     profileId?: string,
+    baseUrl?: string,
   ): void {
     const usage = this.state.usage;
-    if (!usage) return;
     this.update({
-      usage: {
-        ...usage,
-        provider,
-        profileId,
-        model,
-        contextSnapshot:
-          usage.provider === provider && usage.model === model
-            ? usage.contextSnapshot
-            : undefined,
-      },
+      modelSelection: { provider, model, profileId, baseUrl },
+      usage: usage
+        ? {
+            ...usage,
+            provider,
+            profileId,
+            model,
+            contextSnapshot:
+              usage.provider === provider &&
+              usage.model === model &&
+              usage.profileId === profileId &&
+              this.state.modelSelection?.baseUrl === baseUrl
+                ? usage.contextSnapshot
+                : undefined,
+          }
+        : undefined,
     });
   }
 
@@ -264,6 +281,7 @@ export class TuiController implements TuiTranscript {
       approvalMode: session
         ? (session.approvalMode ?? DEFAULT_APPROVAL_MODE)
         : this.state.approvalMode,
+      modelSelection: session ? undefined : this.state.modelSelection,
       projectPath,
       sessionId: session?.id,
       sessionTitle: session?.title,

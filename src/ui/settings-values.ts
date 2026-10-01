@@ -16,6 +16,8 @@ export interface TuiSettingsValues {
 export interface ModelOption {
   id: string;
   hint?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
 }
 
 export type ModelListResult =
