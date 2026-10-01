@@ -988,7 +988,7 @@ export function OpenTuiSettings({
                 </text>
                 <box
                   marginTop={1}
-                  height={5}
+                  height={4}
                   backgroundColor={palette.bg}
                   border
                   borderStyle="rounded"
@@ -998,7 +998,6 @@ export function OpenTuiSettings({
                   flexDirection="column"
                 >
                   <text fg={palette.muted}>{">"} Проверь мой проект</text>
-                  <text fg={palette.accent}>● Помощник</text>
                   <text fg={palette.text}>Готов к следующей задаче.</text>
                 </box>
                 <text marginTop={1} fg={palette.muted}>

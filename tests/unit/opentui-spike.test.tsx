@@ -101,7 +101,10 @@ test("assistant formatting renders visible headings, lists and inline code", asy
     { width: 80, height: 24 },
   );
   try {
-    await setup.renderOnce();
+    await act(async () => {
+      await setup.renderOnce();
+      await setup.renderOnce();
+    });
     const frame = setup.captureCharFrame();
     expect(frame).toContain("План");
     expect(frame).toContain("Шаг");

@@ -24,7 +24,11 @@ async function frame(setup: Setup) {
 function view(content: string, width: number) {
   return (
     <box id="message" width={width} flexDirection="column">
-      <FormattedMessage content={content} palette={THEMES.obsidian} />
+      <FormattedMessage
+        content={content}
+        palette={THEMES.obsidian}
+        width={width}
+      />
     </box>
   );
 }
@@ -113,16 +117,15 @@ for (const width of [40, 80, 120]) {
     });
     const source = `${"abcdef".repeat(width / 2)}\r\n${"ghijkl".repeat(width / 2)}\r\nПоследняя строка`;
     try {
-      const contiguous = (header: string) => {
+      const contiguous = (id: string) => {
         const rows = setup.captureCharFrame().split("\n");
-        const start = rows.findIndex((row) => row.includes(header)) + 1;
-        expect(start).toBeGreaterThan(0);
-        expect(rows[start]?.trim()).not.toBe("");
-        const prompt = setup.renderer.root.findDescendantById("prompt");
-        const end = prompt?.y ?? rows.length;
-        const body = rows.slice(start, end);
-        while (body.length && !body.at(-1)?.trim()) body.pop();
+        const message = setup.renderer.root.findDescendantById(id);
+        if (!message) throw new Error(`Missing ${id}`);
+        const body = rows.slice(message.y, message.y + message.height);
+        expect(body.length).toBeGreaterThan(0);
         expect(body.every((row) => !!row.trim())).toBe(true);
+        expect(setup.captureCharFrame()).not.toContain("Помощник");
+        expect(setup.captureCharFrame()).not.toContain("Build | отвечает");
       };
       // Render once per delta, including splits inside Windows CRLF pairs.
       for (let i = 0; i < source.length; i += 7) {
@@ -132,7 +135,7 @@ for (const width of [40, 80, 120]) {
         await act(async () => {
           await setup.renderOnce();
         });
-        contiguous("Build | отвечает");
+        contiguous("streaming-message");
       }
       expect(controller.snapshot.streaming).toBe(source);
       await act(async () => {
@@ -143,7 +146,8 @@ for (const width of [40, 80, 120]) {
       await act(async () => {
         await setup.renderOnce();
       });
-      contiguous("Помощник");
+      const id = `assistant-${controller.snapshot.transcript[0]?.id}`;
+      contiguous(id);
       expect(controller.snapshot.transcript[0]?.text).toBe(source);
       await act(async () => {
         setup.resize(60, 30);
@@ -151,7 +155,7 @@ for (const width of [40, 80, 120]) {
       await act(async () => {
         await setup.renderOnce();
       });
-      contiguous("Помощник");
+      contiguous(id);
     } finally {
       act(() => setup.renderer.destroy());
       workspace.dispose();

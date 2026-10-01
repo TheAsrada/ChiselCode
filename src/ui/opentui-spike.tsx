@@ -7,7 +7,6 @@ import type {
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
 import {
-  AGENT_MODE_LABELS,
   AGENT_MODES,
   type AgentMode,
   DEFAULT_AGENT_MODE,
@@ -1203,26 +1202,13 @@ function OpenTuiScreen({
                     </React.Fragment>
                   )}
                   {controller && view.streaming && (
-                    <React.Fragment>
-                      <text
-                        fg={
-                          view.runningMode === "plan"
-                            ? palette.yellow
-                            : palette.accent
-                        }
-                      >
-                        ●{" "}
-                        {AGENT_MODE_LABELS[view.runningMode ?? view.agentMode]}{" "}
-                        |{" "}
-                        {view.runningMode === "plan"
-                          ? "составляет план..."
-                          : "отвечает..."}
-                      </text>
-                      <FormattedMessage
-                        content={view.streaming}
-                        palette={palette}
-                      />
-                    </React.Fragment>
+                    <FormattedMessage
+                      id="streaming-message"
+                      streaming
+                      content={view.streaming}
+                      palette={palette}
+                      width={textWidth - 2}
+                    />
                   )}
                   {controller && view.toolActivity && (
                     <text fg={palette.muted}>
