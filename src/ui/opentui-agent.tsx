@@ -48,6 +48,7 @@ import {
 } from "../skills/skills.js";
 import type { Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
+import { clipText, textTail } from "../utils/text.js";
 import { VERSION } from "../version.js";
 import { themePalette } from "./appearance.js";
 import { commandHelpText, suggestSimilarCommand } from "./commands.js";
@@ -63,7 +64,12 @@ import {
   settingsKeyReady,
 } from "./provider-settings.js";
 
-import { formatStatusDashboard } from "./theme.js";
+import {
+  FAIL_MARK,
+  formatStatusDashboard,
+  OK_MARK,
+  WARN_MARK,
+} from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController } from "./tui-controller.js";
@@ -360,7 +366,7 @@ export async function runOpenTuiAgent(
     },
     check: async (values) => {
       const result = await checkProviderConnection(values);
-      return `${result.ok ? "✓" : "✗"} ${result.message}`;
+      return `${result.ok ? OK_MARK : FAIL_MARK} ${result.message}`;
     },
     models: async (values) => {
       const result = await listProviderModels(values);
@@ -558,20 +564,20 @@ export async function runOpenTuiAgent(
       return;
     }
     selfUpdateRunning = true;
-    controller.append("Проверяю обновления ChiselCode…", "info");
+    controller.append("Проверяю обновления ChiselCode...", "info");
     try {
       const plan = planSelfUpdate(await checkForUpdates(VERSION), VERSION);
       if (abort.signal.aborted) return;
       if (plan.error) {
         controller.append(
-          `⚠ Не удалось проверить обновление: ${plan.error}\n${RELEASES_PAGE_URL}`,
+          `${WARN_MARK} Не удалось проверить обновление: ${plan.error}\n${RELEASES_PAGE_URL}`,
           "warn",
         );
         return;
       }
       if (!plan.updateAvailable) {
         controller.append(
-          `✓ У вас последняя версия ChiselCode v${plan.current}`,
+          `+ У вас последняя версия ChiselCode v${plan.current}`,
           "success",
         );
         return;
@@ -608,7 +614,7 @@ export async function runOpenTuiAgent(
         return;
       }
       if (abort.signal.aborted) return;
-      controller.append(`Скачиваю ${plan.asset}…`, "info");
+      controller.append(`Скачиваю ${plan.asset}...`, "info");
       const downloaded = await downloadReleaseAsset(plan.url, plan.asset, {
         expectedBytes: plan.assetSize,
         expectedSha256: plan.sha256,
@@ -626,7 +632,7 @@ export async function runOpenTuiAgent(
         return;
       }
       await launchWindowsInstaller(downloaded.path, NSIS_SILENT_ARGS);
-      controller.append("Установщик запущен. Закрываю ChiselCode…", "info");
+      controller.append("Установщик запущен. Закрываю ChiselCode...", "info");
       shutdown();
     } catch (error) {
       controller.append(`Ошибка обновления: ${String(error)}`, "error");
@@ -659,7 +665,7 @@ export async function runOpenTuiAgent(
     }
     if (input === "/help") {
       controller.append(
-        `${commandHelpText(invocableSkills(skillsActions.load()))}\n/sidebar [auto|show|hide] · показать или скрыть контекст`,
+        `${commandHelpText(invocableSkills(skillsActions.load()))}\n/sidebar [auto|show|hide] | показать или скрыть контекст`,
         "info",
       );
       return;
@@ -689,7 +695,7 @@ export async function runOpenTuiAgent(
       const sessions = await sessionPicker.load();
       controller.append(
         sessions
-          .map((s) => `${s.id} · ${s.title ?? "без названия"}`)
+          .map((s) => `${s.id} | ${s.title ?? "без названия"}`)
           .join("\n") || "Сессий нет",
         "info",
       );
@@ -736,7 +742,7 @@ export async function runOpenTuiAgent(
         invocableSkills(availableSkills),
       );
       controller.append(
-        `Неизвестная команда ${command}${hint ? ` · возможно, ${hint}` : ""}`,
+        `Неизвестная команда ${command}${hint ? ` | возможно, ${hint}` : ""}`,
         "warn",
       );
       return;
@@ -751,7 +757,7 @@ export async function runOpenTuiAgent(
         target.snapshot.modelSelection,
       );
       controller.setSessionTitle(
-        input.split("\n", 1)[0]?.slice(0, 120) ?? input.slice(0, 120),
+        clipText(input.split("\n", 1)[0] ?? input, 120),
       );
       controller.presentation.history = inputHistory;
       skillNames.set(controller, {
@@ -769,7 +775,7 @@ export async function runOpenTuiAgent(
       });
       controller.setBusy(true);
       controller.append(
-        `В очереди: ${pendingPrompts.length} · ${AGENT_MODE_LABELS[turnMode]} · ${APPROVAL_MODE_LABELS[turnApprovalMode]} · ${input}`,
+        `В очереди: ${pendingPrompts.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
         "info",
       );
       return;
@@ -777,7 +783,7 @@ export async function runOpenTuiAgent(
     controller.setBusy(true);
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
-    controller.append(`❯ ${input}`, "user");
+    controller.append(`> ${input}`, "user");
     const expanded = skill
       ? expandSkill(skill, input.slice(command.length).trim())
       : input;
@@ -807,7 +813,7 @@ export async function runOpenTuiAgent(
               hasText = true;
             },
             onThinking: (text) =>
-              controller.setToolActivity(`Размышление: ${text.slice(-200)}`),
+              controller.setToolActivity(`Размышление: ${textTail(text, 200)}`),
             onToolStart: tools.onToolStart,
             onToolResult: (name, outcome) => {
               tools.onToolResult?.(name, outcome);
@@ -908,6 +914,18 @@ export async function runOpenTuiAgent(
         onSubmit: submit,
         initialMode: config.ui?.sidebarMode ?? "auto",
         initialTheme: config.ui?.theme ?? "obsidian",
+        initialUnicodeDecorations: config.ui?.unicodeDecorations === true,
+        onUnicodeDecorationsChange: (unicodeDecorations) => {
+          const saved = pendingSave.then(async () => {
+            const current = await loadGlobalConfig();
+            await saveGlobalConfig({
+              ...current,
+              ui: { ...current.ui, unicodeDecorations },
+            });
+          });
+          pendingSave = saved.catch(() => {});
+          return saved;
+        },
         accent: config.ui?.accent,
         onThemeChange: (theme) => {
           const saved = pendingSave.then(async () => {

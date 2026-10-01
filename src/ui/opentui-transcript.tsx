@@ -1,9 +1,11 @@
 /** @jsxImportSource @opentui/react */
-import { stripVTControlCharacters } from "node:util";
 import React from "react";
 import type { FileDiff } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import type { TranscriptEntry } from "./tui-controller.js";
+
+export { terminalSafeText } from "./terminal-text.js";
 
 export const TRANSCRIPT_WINDOW = 240;
 
@@ -19,19 +21,6 @@ export function visibleTranscriptWindow(
   return { start, end, entries: entries.slice(start, end) };
 }
 
-/** Keep the original patch in the session; sanitize only the render model. */
-export function terminalSafeText(input: string, maxChars = 100_000): string {
-  return Array.from(
-    stripVTControlCharacters(input.slice(0, maxChars).replaceAll("\r\n", "\n")),
-    (character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return (code < 32 && code !== 10 && code !== 9) || code === 127
-        ? " "
-        : character;
-    },
-  ).join("");
-}
-
 export function changedLinePreview(diff: FileDiff, maxLines = 5): string[] {
   const result: string[] = [];
   for (const line of terminalSafeText(diff.patch).split("\n")) {
@@ -39,7 +28,7 @@ export function changedLinePreview(diff: FileDiff, maxLines = 5): string[] {
       (line.startsWith("+") && !line.startsWith("+++")) ||
       (line.startsWith("-") && !line.startsWith("---"))
     ) {
-      result.push(line.slice(0, 240));
+      result.push(terminalLine(line, 240));
       if (result.length >= maxLines) break;
     }
   }
@@ -108,7 +97,7 @@ export function FormattedMessage({
             fenced = !fenced;
             return (
               <text key={key} fg={palette.muted}>
-                {fenced ? `  ┌─ ${fence[1] || "код"}` : "  └─"}
+                {fenced ? `  +- ${fence[1] || "код"}` : "  +-"}
               </text>
             );
           }
@@ -116,7 +105,7 @@ export function FormattedMessage({
             return (
               <text key={key} fg={palette.green} selectable>
                 {" "}
-                │ {line}
+                | {line}
               </text>
             );
           const heading = /^\s{0,3}#{1,6}\s+(.+)$/.exec(line);
@@ -132,7 +121,7 @@ export function FormattedMessage({
               <text key={key} fg={palette.text} selectable>
                 {list[1]}
                 <span fg={palette.accent}>
-                  {/^\d/.test(list[2] ?? "") ? list[2] : "•"}
+                  {/^\d/.test(list[2] ?? "") ? list[2] : "*"}
                 </span>{" "}
                 {inlineText(list[3] ?? "", palette)}
               </text>
@@ -141,13 +130,13 @@ export function FormattedMessage({
           if (quote)
             return (
               <text key={key} fg={palette.muted} selectable>
-                <i>│ {inlineText(quote[1] ?? "", palette)}</i>
+                <i>| {inlineText(quote[1] ?? "", palette)}</i>
               </text>
             );
           if (/^\s*(?:---+|\*\*\*+)\s*$/.test(line))
             return (
               <text key={key} fg={palette.border}>
-                ────────────────────
+                --------------------
               </text>
             );
           if (/^\s*\|?\s*:?-{3,}/.test(line)) return null;
@@ -159,7 +148,7 @@ export function FormattedMessage({
                   .replace(/^\||\|$/g, "")
                   .split("|")
                   .map((cell) => cell.trim())
-                  .join("  │  ")}
+                  .join("  |  ")}
               </text>
             );
           return (
@@ -190,7 +179,7 @@ export function OpenTuiTranscript({
     <React.Fragment>
       {visible.start > 0 && (
         <text fg={palette.muted}>
-          ↑ Ещё {visible.start} сообщений · PgUp / колесо
+          Up Ещё {visible.start} сообщений | PgUp / колесо
         </text>
       )}
       {visible.entries.map((entry) => {
@@ -198,7 +187,7 @@ export function OpenTuiTranscript({
         if (!diff && entry.tone === "assistant")
           return (
             <React.Fragment key={entry.id}>
-              <text fg={palette.accent}>◆ Помощник</text>
+              <text fg={palette.accent}>* Помощник</text>
               <FormattedMessage content={entry.text} palette={palette} />
             </React.Fragment>
           );
@@ -213,9 +202,12 @@ export function OpenTuiTranscript({
               marginTop={1}
             >
               <text fg={palette.accent}>
-                ❯{" "}
+                {">"}{" "}
                 <span fg={palette.text}>
-                  {terminalSafeText(entry.text.replace(/^❯\s*/, ""), 20_000)}
+                  {terminalSafeText(
+                    entry.text.replace(/^[>\u276f]\s*/, ""),
+                    20_000,
+                  )}
                 </span>
               </text>
             </box>
@@ -224,7 +216,7 @@ export function OpenTuiTranscript({
           return (
             <text key={entry.id} fg={palette.muted}>
               {" "}
-              ◆{" "}
+              *{" "}
               {terminalSafeText(
                 entry.text.replace(/^\[chisel\]\s*/, ""),
                 20_000,
@@ -259,8 +251,8 @@ export function OpenTuiTranscript({
         return (
           <box key={entry.id} width="100%" flexDirection="column">
             <text fg={palette.accent}>
-              {terminalSafeText(diff.path, 180)} · +{diff.additions} −
-              {diff.deletions} · Ctrl+D
+              {terminalSafeText(diff.path, 180)} | +{diff.additions} -
+              {diff.deletions} | Ctrl+D
             </text>
             {previewItems.map(({ key, line }) => (
               <text
@@ -286,7 +278,7 @@ export function OpenTuiTranscript({
       })}
       {visible.end < entries.length && (
         <text fg={palette.muted}>
-          ↓ Ещё {entries.length - visible.end} сообщений · PgDn / колесо
+          Down Ещё {entries.length - visible.end} сообщений | PgDn / колесо
         </text>
       )}
     </React.Fragment>

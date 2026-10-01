@@ -39,7 +39,7 @@ export interface TerminalSizeReport {
 
 /**
  * Сырые источники размера для диагностики (`chisel doctor`).
- * Показывает, врёт ли рантайм: классика conhost — stdout.rows равен высоте
+ * Показывает, врёт ли рантайм: классика conhost - stdout.rows равен высоте
  * БУФЕРА (3000), а не окна; тогда live.rows пуст и TUI едет по высоте.
  */
 export function describeTerminalSize(): TerminalSizeReport {
@@ -66,11 +66,11 @@ export function describeTerminalSize(): TerminalSizeReport {
         windowColumns = size?.[0];
         windowRows = size?.[1];
       } catch {
-        // Сисколл недоступен — ниже будет помечено отсутствием значений.
+        // Сисколл недоступен - ниже будет помечено отсутствием значений.
       }
     }
   } catch {
-    // Нет TTY — все поля останутся undefined.
+    // Нет TTY - все поля останутся undefined.
   }
   const live = readLiveTerminalSize();
   return {
@@ -90,15 +90,15 @@ export function describeTerminalSize(): TerminalSizeReport {
 /** Одна строка для `chisel doctor`: всё про размер терминала сразу. */
 export function formatTerminalSizeLine(report: TerminalSizeReport): string {
   const show = (value: unknown): string =>
-    value === undefined || value === null || value === "" ? "—" : String(value);
+    value === undefined || value === null || value === "" ? "-" : String(value);
   const live =
     report.liveColumns !== undefined || report.liveRows !== undefined
       ? `${show(report.liveColumns)}x${show(report.liveRows)}`
       : "не определён (fallback 80x24)";
   return (
-    `Терминал: live ${live} · ` +
-    `stdout ${show(report.stdoutColumns)}x${show(report.stdoutRows)} · ` +
-    `getWindowSize ${report.hasGetWindowSize ? `${show(report.windowColumns)}x${show(report.windowRows)}` : "нет метода"} · ` +
+    `Терминал: live ${live} | ` +
+    `stdout ${show(report.stdoutColumns)}x${show(report.stdoutRows)} | ` +
+    `getWindowSize ${report.hasGetWindowSize ? `${show(report.windowColumns)}x${show(report.windowRows)}` : "нет метода"} | ` +
     `TTY ${report.isTTY ? "да" : "нет"}`
   );
 }

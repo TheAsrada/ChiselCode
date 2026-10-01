@@ -93,6 +93,15 @@ if (process.argv.includes("--version")) {
       controller,
       classic,
       initialMode: config.ui?.sidebarMode ?? "auto",
+      initialUnicodeDecorations: config.ui?.unicodeDecorations === true,
+      onUnicodeDecorationsChange: async (unicodeDecorations) => {
+        const saved = pendingSave.then(async () => {
+          const current = await loadGlobalConfig();
+          await saveGlobalConfig({ ...current, ui: { ...current.ui, unicodeDecorations } });
+        });
+        pendingSave = saved.catch(() => {});
+        return saved;
+      },
       onModeChange: (mode) => {
         pendingSave = pendingSave.then(async () => {
           const current = await loadGlobalConfig();

@@ -3,25 +3,29 @@
  *
  * Чистые строковые помощники используются и в TUI,
  * и в one-shot режиме, и в `chisel doctor/update`. Все функции возвращают
- * обычный текст без ANSI — раскраской занимается вызывающий слой.
+ * обычный текст без ANSI - раскраской занимается вызывающий слой.
  */
+import { clipText } from "./terminal-text.js";
 
-export const BRAND_MARK = "◈";
-export const USER_ARROW = "❯";
-export const TOOL_SPARK = "◆";
-export const OK_MARK = "✓";
-export const FAIL_MARK = "✗";
-export const WARN_MARK = "⚠";
-export const INFO_MARK = "ℹ";
-export const DOT = "·";
-export const ELLIPSIS = "…";
+export const BRAND_MARK = "[i]";
+export const USER_ARROW = ">";
+export const TOOL_SPARK = "*";
+export const OK_MARK = "+";
+// These controls must work with stock Cascadia Mono, without a symbol font.
+export const FAIL_MARK = "x";
+export const WARN_MARK = "!";
+export const INFO_MARK = "i";
+export const ENTER_KEY = "Enter";
+export const SKILL_MARK = "#";
+export const DOT = "|";
+export const ELLIPSIS = "...";
 
 /**
  * Дизайн-система журнала (подсмотрено у Codex/OpenCode):
- * - сообщение юзера — залитый блок с префиксом ❯ (blend белого 0.12
+ * - сообщение юзера - залитый блок с префиксом > (blend белого 0.12
  *   на тёмном фоне терминала);
- * - ответ ассистента — левая акцентная черта, markdown внутри на клетку уже;
- * - вызов инструмента — gutter «◆ глагол детали», глагол жирным в цвете.
+ * - ответ ассистента - левая акцентная черта, markdown внутри на клетку уже;
+ * - вызов инструмента - gutter '* глагол детали', глагол жирным в цвете.
  * Цвета заданы именами, читаемыми и в 16-цветных терминалах.
  */
 export const USER_BUBBLE_BG = "#1f1f1f";
@@ -41,32 +45,32 @@ export interface ToolDisplay {
 
 /** Человекочитаемые подписи инструментов. Метки совпадают с панелью подтверждения TUI. */
 export const TOOL_DISPLAY: Record<string, ToolDisplay> = {
-  read_file: { icon: "◉", label: "Чтение файла" },
-  list_dir: { icon: "≡", label: "Список файлов" },
-  glob: { icon: "✧", label: "Поиск файлов" },
-  grep: { icon: "⌕", label: "Поиск по коду" },
+  read_file: { icon: "o", label: "Чтение файла" },
+  list_dir: { icon: "=", label: "Список файлов" },
+  glob: { icon: "*", label: "Поиск файлов" },
+  grep: { icon: "/", label: "Поиск по коду" },
   write_file: { icon: "+", label: "Запись файла" },
   edit_file: { icon: "~", label: "Редактирование файла" },
-  delete_file: { icon: "×", label: "Удаление файла" },
+  delete_file: { icon: "x", label: "Удаление файла" },
   run_shell: { icon: "$", label: "Команда shell" },
-  git_diff: { icon: "≠", label: "Git diff" },
+  git_diff: { icon: "~", label: "Git diff" },
   git_status: { icon: "#", label: "Git status" },
-  load_skill: { icon: "✧", label: "Загрузка скилла" },
+  load_skill: { icon: "#", label: "Загрузка скилла" },
   create_skill: { icon: "+", label: "Сохранение скилла" },
   git_commit: { icon: "#", label: "Git commit" },
-  self_update: { icon: "⇪", label: "Обновление ChiselCode" },
+  self_update: { icon: "^", label: "Обновление ChiselCode" },
 };
 
 export function toolDisplay(tool: string): ToolDisplay {
-  return TOOL_DISPLAY[tool] ?? { icon: "?", label: tool };
+  return TOOL_DISPLAY[tool] ?? { icon: ":", label: tool };
 }
 
 export type ToolTone = "cyan" | "yellow" | "magenta" | "blue" | "green";
 
 /**
- * Цвет искры вызова инструмента в журнале — как группируют операции
- * топовые CLI: чтение/поиск — спокойный cyan, изменения файлов — заметный
- * yellow, shell — magenta, git — blue, остальное — green.
+ * Цвет искры вызова инструмента в журнале - как группируют операции
+ * топовые CLI: чтение/поиск - спокойный cyan, изменения файлов - заметный
+ * yellow, shell - magenta, git - blue, остальное - green.
  */
 export function toolTone(name: string): ToolTone {
   if (name === "run_shell" || name.startsWith("$")) return "magenta";
@@ -95,9 +99,10 @@ function singleLine(value: unknown, maxLength: number): string {
 }
 
 export function truncate(text: string, maxLength: number): string {
+  if (maxLength <= 0) return "";
   if (text.length <= maxLength) return text;
-  if (maxLength <= 1) return ELLIPSIS;
-  return `${text.slice(0, maxLength - 1)}${ELLIPSIS}`;
+  const suffix = ELLIPSIS.slice(0, maxLength);
+  return `${clipText(text, maxLength - suffix.length)}${suffix}`;
 }
 
 /**
@@ -117,33 +122,33 @@ export function formatToolSummary(
       const limit = typeof input.limit === "number" ? input.limit : undefined;
       const range =
         offset !== undefined || limit !== undefined
-          ? ` (строки ${(offset ?? 0) + 1}–${(offset ?? 0) + (limit ?? 1000)})`
+          ? ` (строки ${(offset ?? 0) + 1}-${(offset ?? 0) + (limit ?? 1000)})`
           : "";
       return `read_file ${path}${range}`;
     }
     case "list_dir": {
-      const recursive = input.recursive === true ? " — рекурсивно" : "";
+      const recursive = input.recursive === true ? " - рекурсивно" : "";
       return `list_dir ${path ?? "."}${recursive}`;
     }
     case "glob": {
       const pattern = typeof input.pattern === "string" ? input.pattern : "";
-      return `glob «${truncate(pattern, 80)}»${path ? ` в ${path}` : ""}`;
+      return `glob '${truncate(pattern, 80)}'${path ? ` в ${path}` : ""}`;
     }
     case "grep": {
       const pattern = typeof input.pattern === "string" ? input.pattern : "";
       const glob = typeof input.glob === "string" ? ` ${input.glob}` : "";
-      return `grep «${truncate(pattern, 80)}»${path && path !== "." ? ` в ${path}` : ""}${glob}`;
+      return `grep '${truncate(pattern, 80)}'${path && path !== "." ? ` в ${path}` : ""}${glob}`;
     }
     case "write_file": {
       const lines =
         typeof input.content === "string"
           ? input.content.split("\n").length
           : 0;
-      return `write_file ${path ?? "(новый файл)"} · +${lines} строк`;
+      return `write_file ${path ?? "(новый файл)"} | +${lines} строк`;
     }
     case "edit_file": {
       const oldStr = typeof input.old_str === "string" ? input.old_str : "";
-      return `edit_file ${path ?? ""} · замена «${singleLine(oldStr, 80)}»`.trim();
+      return `edit_file ${path ?? ""} | замена '${singleLine(oldStr, 80)}'`.trim();
     }
     case "delete_file":
       return `delete_file ${path ?? ""}`.trim();
@@ -170,7 +175,7 @@ export function formatToolSummary(
       return `create_skill ${singleLine(input.name, 70)}`;
     case "git_commit": {
       const message = typeof input.message === "string" ? input.message : "";
-      return `git commit -m «${singleLine(message, 100)}»`;
+      return `git commit -m '${singleLine(message, 100)}'`;
     }
     default:
       return `${tool} ${singleLine(input, 160)}`.trim();
@@ -189,14 +194,14 @@ export function formatDuration(ms: number): string {
   return `${minutes}м ${String(rest).padStart(2, "0")}с`;
 }
 
-/** Число с разделителем тысяч: 1234 → "1 234". */
+/** Число с разделителем тысяч: 1234 / "1 234". */
 export function formatTokens(count: number): string {
   return Math.round(count)
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
-/** Стоимость в долларах без лишних нулей: 0.01230 → "$0.0123". */
+/** Стоимость в долларах без лишних нулей: 0.01230 / "$0.0123". */
 export function formatCost(cost: number): string {
   if (!(cost > 0)) return "$0";
   const text = cost.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
@@ -219,19 +224,21 @@ export function formatStatusDashboard(input: StatusDashboardInput): string {
   const row = (label: string, value: string): string =>
     `${label.padEnd(9, " ")} ${value}`;
   const lines = [
-    `${BRAND_MARK} ChiselCode — состояние`,
+    `${BRAND_MARK} ChiselCode - состояние`,
     row("Сервис:", input.providerLabel),
     row("Модель:", input.model),
     row("Проект:", input.cwd),
     row(
       "API-ключ:",
-      input.keyReady ? "✓ настроен" : `✗ не настроен ${DOT} chisel setup`,
+      input.keyReady
+        ? `${OK_MARK} настроен`
+        : `${FAIL_MARK} не настроен ${DOT} chisel setup`,
     ),
     row(
       "Сессия:",
       input.sessionId
-        ? `${input.sessionTitle ? `«${input.sessionTitle}» ${DOT} ` : ""}${input.sessionId}`
-        : "новая — откроется следующим запросом",
+        ? `${input.sessionTitle ? `'${input.sessionTitle}' ${DOT} ` : ""}${input.sessionId}`
+        : "новая - откроется следующим запросом",
     ),
   ];
   if (input.totalTokens !== undefined && input.totalTokens > 0) {
@@ -257,7 +264,7 @@ export interface DoneSummaryInput {
   sessionId: string;
 }
 
-/** Итоговая строка после каждого ответа — как у топовых агентов. */
+/** Итоговая строка после каждого ответа - как у топовых агентов. */
 export function formatDoneSummary(input: DoneSummaryInput): string {
   return (
     `${OK_MARK} Готово за ${formatDuration(input.elapsedMs)} ${DOT} ` +
@@ -266,7 +273,7 @@ export function formatDoneSummary(input: DoneSummaryInput): string {
   );
 }
 
-/* ── ANSI для вывода команд без TUI (one-shot, doctor, update) ── */
+/* -- ANSI для вывода команд без TUI (one-shot, doctor, update) -- */
 
 const ANSI = {
   reset: "\u001b[0m",

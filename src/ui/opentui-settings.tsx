@@ -25,6 +25,12 @@ import {
   sortModelOptions,
   type TuiSettingsValues,
 } from "./settings-values.js";
+import {
+  TerminalScrollbox,
+  useTerminalDecoration,
+} from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
+import { FAIL_MARK } from "./theme.js";
 
 export interface OpenTuiSettingsActions {
   catalog?(): Promise<{
@@ -96,6 +102,8 @@ export function OpenTuiSettings({
   theme = "obsidian",
   onThemePreview,
   onThemeChange,
+  unicodeDecorations = false,
+  onUnicodeDecorationsChange,
   allowBypassPermissions = false,
   onBypassAvailabilityChange,
   setup = false,
@@ -110,10 +118,14 @@ export function OpenTuiSettings({
   theme?: ThemeName;
   onThemePreview?: (theme: ThemeName) => void;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
+  unicodeDecorations?: boolean;
+  onUnicodeDecorationsChange?: (value: boolean) => Promise<void>;
   allowBypassPermissions?: boolean;
   onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   setup?: boolean;
 }) {
+  const { borderChars } = useTerminalDecoration();
+  const [decorative, setDecorative] = useState(unicodeDecorations);
   const [values, setValues] = useState<TuiSettingsValues>({
     provider: "",
     model: "",
@@ -176,6 +188,7 @@ export function OpenTuiSettings({
       3 -
       (showHint ? 1 : 0) -
       (roomy ? 5 : 0) -
+      (page === "appearance" ? 1 : 0) -
       (notice ? 1 : 0),
   );
   const wide = innerWidth >= 70 && roomy;
@@ -291,7 +304,7 @@ export function OpenTuiSettings({
               ...filteredModels.map((m) => ({ ...m, label: m.id })),
               {
                 id: "__manual",
-                label: "Ввести вручную…",
+                label: "Ввести вручную...",
                 hint: query || "Точное название модели",
               },
             ]
@@ -443,7 +456,7 @@ export function OpenTuiSettings({
       if (valid())
         setMessage(
           safeNotice(result, values, editing, screen === "key"),
-          result.startsWith("✗") ? "error" : "success",
+          result.startsWith(FAIL_MARK) ? "error" : "success",
         );
     });
   };
@@ -468,6 +481,21 @@ export function OpenTuiSettings({
         allowed
           ? "Bypass доступен в выборе режимов; текущий режим сохранён"
           : "Bypass выключен; выбранные Bypass-сессии переведены в Manual",
+        "success",
+      );
+    });
+  };
+  const toggleDecoration = () => {
+    if (!onUnicodeDecorationsChange) return;
+    const next = !decorative;
+    run("theme", async (valid) => {
+      await onUnicodeDecorationsChange(next);
+      if (!valid()) return;
+      setDecorative(next);
+      setMessage(
+        next
+          ? "Графический логотип и рамки включены"
+          : "Совместимое оформление включено",
         "success",
       );
     });
@@ -637,6 +665,11 @@ export function OpenTuiSettings({
       else close();
       return;
     }
+    if (page === "appearance" && key.ctrl && name === "g") {
+      key.preventDefault();
+      toggleDecoration();
+      return;
+    }
     if (key.ctrl && name === "t") {
       key.preventDefault();
       changePage("appearance");
@@ -744,23 +777,23 @@ export function OpenTuiSettings({
   const hints =
     page === "permissions"
       ? innerWidth < 45
-        ? "Enter вкл/выкл · Tab · Esc"
-        : "Enter переключить · Tab раздел · Esc закрыть"
+        ? "Enter вкл/выкл | Tab | Esc"
+        : "Enter переключить | Tab раздел | Esc закрыть"
       : innerWidth < 50
         ? page === "appearance"
-          ? "↑↓ · Enter применить · Esc отмена"
+          ? "Up/Down | Enter применить | Esc отмена"
           : field
-            ? "Enter готово · Esc отмена"
+            ? "Enter готово | Esc отмена"
             : selector
-              ? "Поиск · ↑↓ · Enter · Esc назад"
-              : "↑↓ Enter · Tab · Ctrl+S · Esc"
+              ? "Поиск | Up/Down | Enter | Esc назад"
+              : "Up/Down Enter | Tab | Ctrl+S | Esc"
         : page === "appearance"
-          ? "↑↓ предпросмотр · Enter применить · Esc отменить"
+          ? "Up/Down предпросмотр | Enter применить | Esc отменить"
           : field
-            ? "Enter подтвердить · Esc отменить"
+            ? "Enter подтвердить | Esc отменить"
             : selector
-              ? "Поиск · ↑↓ выбрать · Enter · Esc назад"
-              : "↑↓ / Enter · Tab раздел · Ctrl+S сохранить";
+              ? "Поиск | Up/Down выбрать | Enter | Esc назад"
+              : "Up/Down / Enter | Tab раздел | Ctrl+S сохранить";
   return (
     <OpenTuiDialog
       id="settings"
@@ -780,7 +813,7 @@ export function OpenTuiSettings({
         </text>
         <DialogAction
           id="settings-close"
-          label="Esc ×"
+          label="Esc x"
           palette={palette}
           onSelect={close}
           disabled={
@@ -825,6 +858,18 @@ export function OpenTuiSettings({
           onSelect={() => changePage("permissions")}
         />
       </box>
+      {page === "appearance" && (
+        <box height={1} flexShrink={0} flexDirection="row">
+          <DialogAction
+            id="settings-decoration-toggle"
+            label={`Графика: [${decorative ? "x" : " "}] Ctrl+G`}
+            palette={palette}
+            active={decorative}
+            disabled={!!busy || !onUnicodeDecorationsChange}
+            onSelect={toggleDecoration}
+          />
+        </box>
+      )}
       <box
         height={bodyHeight}
         flexShrink={0}
@@ -833,14 +878,14 @@ export function OpenTuiSettings({
         overflow="hidden"
       >
         {page === "permissions" ? (
-          <scrollbox width="100%" height="100%">
+          <TerminalScrollbox width="100%" height="100%">
             <box flexDirection="column" gap={roomy ? 1 : 0}>
               <text height={1} fg={palette.accent}>
                 <strong>Доступ к Bypass</strong>
               </text>
               <DialogAction
                 id="settings-bypass-toggle"
-                label={`[${bypassAllowed ? "● Вкл" : "○ Выкл"}] Разрешить Bypass`}
+                label={`[${bypassAllowed ? "* Вкл" : "o Выкл"}] Разрешить Bypass`}
                 palette={palette}
                 active={bypassAllowed}
                 disabled={!!busy || !onBypassAvailabilityChange}
@@ -867,7 +912,7 @@ export function OpenTuiSettings({
                 скиллы не могут её включить.
               </text>
             </box>
-          </scrollbox>
+          </TerminalScrollbox>
         ) : page === "appearance" ? (
           <box flexDirection="row" height="100%" width="100%">
             <box
@@ -909,14 +954,14 @@ export function OpenTuiSettings({
                         height={1}
                         fg={active ? palette.accent : palette.text}
                       >
-                        {(active ? "❯ " : "  ") +
+                        {(active ? "> " : "  ") +
                           colors.label +
-                          (name === savedTheme ? " ✓" : "")}
+                          (name === savedTheme ? " +" : "")}
                       </text>
                       <text height={1} fg={colors.accent} selectable={false}>
-                        <span fg={colors.bg}>■ </span>
-                        <span fg={colors.surface}>■ </span>
-                        <span fg={colors.accent}>■</span>
+                        <span fg={colors.bg}># </span>
+                        <span fg={colors.surface}># </span>
+                        <span fg={colors.accent}>#</span>
                       </text>
                     </box>
                     {roomy && (
@@ -947,14 +992,20 @@ export function OpenTuiSettings({
                   backgroundColor={palette.bg}
                   border
                   borderStyle="rounded"
+                  customBorderChars={borderChars}
                   borderColor={palette.border}
                   paddingLeft={1}
                   flexDirection="column"
                 >
-                  <text fg={palette.muted}>❯ Проверь мой проект</text>
-                  <text fg={palette.accent}>◆ Помощник</text>
+                  <text fg={palette.muted}>{">"} Проверь мой проект</text>
+                  <text fg={palette.accent}>* Помощник</text>
                   <text fg={palette.text}>Готов к следующей задаче.</text>
                 </box>
+                <text marginTop={1} fg={palette.muted}>
+                  {decorative
+                    ? "Coder Mini и округлые рамки. Шрифт должен поддерживать графические символы."
+                    : "ASCII-логотип и рамки совместимы с обычными шрифтами. Графика включается отдельно."}
+                </text>
                 <text marginTop={1} fg={palette.muted}>
                   Стрелки показывают тему во всём интерфейсе. Примените
                   понравившийся вариант или нажмите Esc, чтобы вернуться.
@@ -973,6 +1024,7 @@ export function OpenTuiSettings({
               marginTop={roomy ? 1 : 0}
               border={roomy ? true : []}
               borderStyle="rounded"
+              customBorderChars={borderChars}
               borderColor={palette.accent}
               backgroundColor={palette.raised}
               paddingLeft={1}
@@ -1036,7 +1088,7 @@ export function OpenTuiSettings({
                   id="settings-search"
                   value={query}
                   focused
-                  placeholder={`${labels[screen]} · поиск…`}
+                  placeholder={`${labels[screen]} | поиск...`}
                   backgroundColor={palette.raised}
                   focusedBackgroundColor={palette.raised}
                   textColor={palette.text}
@@ -1072,7 +1124,7 @@ export function OpenTuiSettings({
                 {page === "connection" && !loaded ? (
                   <text fg={palette.muted}>
                     {busy
-                      ? "Загружаем подключение…"
+                      ? "Загружаем подключение..."
                       : "Не удалось загрузить настройки"}
                   </text>
                 ) : (
@@ -1125,8 +1177,8 @@ export function OpenTuiSettings({
                               : palette.text
                           }
                         >
-                          {terminalSafeText(
-                            (first + offset === index ? "❯ " : "  ") +
+                          {terminalLine(
+                            (first + offset === index ? "> " : "  ") +
                               item.label +
                               (!roomy && !selector
                                 ? `: ${safeValue(item.hint ?? "")}`
@@ -1136,7 +1188,7 @@ export function OpenTuiSettings({
                         </text>
                         {roomy && (
                           <text height={1} fg={palette.muted}>
-                            {terminalSafeText(
+                            {terminalLine(
                               safeValue(item.hint ?? ""),
                               listWidth - 2,
                             )}
@@ -1201,7 +1253,7 @@ export function OpenTuiSettings({
                 : palette.muted
           }
         >
-          {terminalSafeText(safeValue(notice), innerWidth)}
+          {terminalLine(safeValue(notice), innerWidth)}
         </text>
       )}
       <box
@@ -1216,7 +1268,7 @@ export function OpenTuiSettings({
             id="settings-bypass-action"
             label={
               busy === "permissions"
-                ? "Сохраняем…"
+                ? "Сохраняем..."
                 : bypassAllowed
                   ? "Выключить Bypass"
                   : "Включить Bypass"
@@ -1228,7 +1280,7 @@ export function OpenTuiSettings({
         ) : page === "appearance" ? (
           <DialogAction
             id="settings-apply-theme"
-            label={busy === "theme" ? "Сохраняем…" : "Применить тему"}
+            label={busy === "theme" ? "Сохраняем..." : "Применить тему"}
             primary
             palette={palette}
             disabled={!!busy}
@@ -1238,7 +1290,7 @@ export function OpenTuiSettings({
           <>
             <DialogAction
               id="settings-back"
-              label="← Назад"
+              label="< Назад"
               palette={palette}
               onSelect={back}
               disabled={busy === "save"}
@@ -1261,7 +1313,7 @@ export function OpenTuiSettings({
               id="settings-check"
               label={
                 busy === "check"
-                  ? "Проверяем…"
+                  ? "Проверяем..."
                   : !loaded && !busy
                     ? "Повторить"
                     : "Проверить"
@@ -1272,7 +1324,7 @@ export function OpenTuiSettings({
             />
             <DialogAction
               id="settings-save"
-              label={busy === "save" ? "Сохраняем…" : "Сохранить"}
+              label={busy === "save" ? "Сохраняем..." : "Сохранить"}
               primary
               palette={palette}
               disabled={!!busy || !loaded}
@@ -1286,10 +1338,10 @@ export function OpenTuiSettings({
           {terminalSafeText(
             busy
               ? busy === "models"
-                ? "Загружаем модели… · Esc назад"
+                ? "Загружаем модели... | Esc назад"
                 : busy === "check"
-                  ? "Проверяем подключение… · Esc закрыть"
-                  : "Подождите…"
+                  ? "Проверяем подключение... | Esc закрыть"
+                  : "Подождите..."
               : hints,
             innerWidth,
           )}

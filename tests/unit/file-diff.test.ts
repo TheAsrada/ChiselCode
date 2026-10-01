@@ -104,4 +104,16 @@ describe("file diff model", () => {
     );
     expect(model.lines[1]?.text).toBe("red");
   });
+  test("long diff lines preserve complete emoji and combining characters", () => {
+    for (const tail of ["😀", "e\u0301", "👩‍💻"]) {
+      const original = `${"x".repeat(MAX_DIFF_LINE_CHARS - 4)}${tail}more`;
+      const diff = buildFileDiff("unicode.ts", null, original);
+      const patch = diff.patch;
+      const text = diffRenderModel(diff).lines[1]?.text ?? "";
+      expect(text).not.toMatch(/\p{Cs}/u);
+      expect(text.endsWith("...")).toBe(true);
+      expect(text.slice(0, -3)).toBe("x".repeat(MAX_DIFF_LINE_CHARS - 4));
+      expect(diff.patch).toBe(patch);
+    }
+  });
 });

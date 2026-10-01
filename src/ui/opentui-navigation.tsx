@@ -2,8 +2,14 @@
 import type { ReactNode } from "react";
 import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
-import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
-import { terminalSafeText } from "./opentui-transcript.js";
+import {
+  ASCII_LOGO,
+  ASCII_LOGO_WIDTH,
+  LOGO_WIDTH,
+  renderLogoRows,
+} from "./logo.js";
+import { useTerminalDecoration } from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
 
 function TabAction({
@@ -19,6 +25,7 @@ function TabAction({
   palette: Palette;
   onSelect: () => void;
 }) {
+  const { borderChars } = useTerminalDecoration();
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Tab controls have keyboard equivalents.
     <box
@@ -28,6 +35,7 @@ function TabAction({
       flexShrink={0}
       border
       borderStyle="rounded"
+      customBorderChars={borderChars}
       borderColor={palette.border}
       backgroundColor={palette.surface}
       alignItems="center"
@@ -52,6 +60,7 @@ export function SessionTabs({
   width: number;
   palette: Palette;
 }) {
+  const { borderChars } = useTerminalDecoration();
   if (!workspace.tabs.length) return null;
   const overflow = workspace.tabs.length * 20 + 5 > width;
   const controls = overflow ? 11 : 5;
@@ -83,7 +92,7 @@ export function SessionTabs({
     >
       {overflow && (
         <TabAction
-          label="‹"
+          label="<"
           width={3}
           palette={palette}
           onSelect={() => workspace.cycle(-1)}
@@ -103,6 +112,7 @@ export function SessionTabs({
             flexShrink={0}
             border
             borderStyle="rounded"
+            customBorderChars={borderChars}
             borderColor={active ? palette.accent : palette.border}
             backgroundColor={active ? palette.surface : palette.bg}
             flexDirection="row"
@@ -117,8 +127,8 @@ export function SessionTabs({
               height={1}
               selectable={false}
             >
-              {terminalSafeText(
-                `${busy ? "● " : ""}${title}`,
+              {terminalLine(
+                `${busy ? "* " : ""}${title}`,
                 Math.max(1, tabWidth - 6),
               )}
             </text>
@@ -135,7 +145,7 @@ export function SessionTabs({
                 fg={busy ? palette.border : palette.muted}
                 selectable={false}
               >
-                ×
+                x
               </text>
             </box>
           </box>
@@ -150,7 +160,7 @@ export function SessionTabs({
       />
       {overflow && (
         <TabAction
-          label="›"
+          label=">"
           width={3}
           palette={palette}
           onSelect={() => workspace.cycle(1)}
@@ -175,7 +185,10 @@ export function OpenTuiHome({
   children: ReactNode;
   feedback?: ReactNode;
 }) {
-  const fullLogo = width >= LOGO_WIDTH + 4 && height >= 18;
+  const { unicode } = useTerminalDecoration();
+  const logoWidth = unicode ? LOGO_WIDTH : ASCII_LOGO_WIDTH;
+  const logoRows = unicode ? renderLogoRows() : ASCII_LOGO;
+  const fullLogo = width >= logoWidth + 4 && height >= 18;
   const contentWidth = Math.max(1, Math.min(86, width - (width >= 40 ? 4 : 0)));
   return (
     <box
@@ -197,12 +210,12 @@ export function OpenTuiHome({
         {fullLogo ? (
           <box
             id="welcome-logo"
-            width={LOGO_WIDTH}
+            width={logoWidth}
             height={5}
             flexShrink={0}
             flexDirection="column"
           >
-            {renderLogoRows().map((row) => (
+            {logoRows.map((row) => (
               <text key={row} height={1} selectable={false}>
                 <span fg={palette.accent}>{row.slice(0, 15)}</span>
                 <span fg={palette.text}>{row.slice(15)}</span>
@@ -234,7 +247,7 @@ export function OpenTuiHome({
           justifyContent="space-between"
         >
           <text fg={palette.muted} height={1}>
-            {terminalSafeText(projectPath, Math.max(1, width - 22))}
+            {terminalLine(projectPath, Math.max(1, width - 22))}
           </text>
           <text fg={palette.muted} height={1}>
             ChiselCode {VERSION}

@@ -20,6 +20,18 @@ export function renderLogoRows(): string[] {
   return [...LOGO_ART_LINES];
 }
 
+/** Plain ASCII wordmark for fonts without box drawing or block glyphs. */
+export const ASCII_LOGO = [
+  "       ____ _     _          _  ____          _",
+  " <i>  / ___| |__ (_)___  ___| |/ ___|___   __| | ___",
+  "     | |   | '_ \\| / __|/ _ \\ | |   / _ \\ / _` |/ _ \\",
+  "     | |___| | | | \\__ \\  __/ | |__| (_) | (_| |  __/",
+  "      \\____|_| |_|_|___/\\___|_|\\____\\___/ \\__,_|\\___|",
+];
+export const ASCII_LOGO_WIDTH = Math.max(
+  ...ASCII_LOGO.map((line) => line.length),
+);
+
 /** Ширина логотипа в клетках (максимум по строкам). */
 export const LOGO_WIDTH: number = Math.max(
   ...LOGO_ART_LINES.map((line) => [...line].length),

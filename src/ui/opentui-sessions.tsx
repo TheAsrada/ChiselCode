@@ -1,12 +1,14 @@
 /** @jsxImportSource @opentui/react */
 
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, usePaste } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { filterSessions } from "./session-filter.js";
+import { clipText, terminalLine } from "./terminal-text.js";
 
 export interface OpenTuiSessionsActions {
   load(): Promise<SessionSummary[]>;
@@ -133,12 +135,12 @@ export function OpenTuiSessions({
           setMode("search");
         });
       else if (name === "backspace" || name === "delete")
-        setDraft((value) => value.slice(0, -1));
+        setDraft((value) => clipText(value, value.length - 1));
       else if (
         !key.ctrl &&
         !key.meta &&
-        key.sequence.length === 1 &&
-        key.sequence.charCodeAt(0) >= 32
+        [...key.sequence].length === 1 &&
+        cleanSettingsInput(key.sequence)
       )
         setDraft((value) => value + key.sequence);
       return;
@@ -169,15 +171,26 @@ export function OpenTuiSessions({
             setPreview(item);
         });
     } else if (name === "backspace" || name === "delete") {
-      setQuery((value) => value.slice(0, -1));
+      setQuery((value) => clipText(value, value.length - 1));
       changeSelection(0);
     } else if (
       !key.ctrl &&
       !key.meta &&
-      key.sequence.length === 1 &&
-      key.sequence.charCodeAt(0) >= 32
+      [...key.sequence].length === 1 &&
+      cleanSettingsInput(key.sequence)
     ) {
       setQuery((value) => value + key.sequence);
+      changeSelection(0);
+    }
+  });
+
+  usePaste((event) => {
+    event.preventDefault();
+    if (busy || mode === "delete") return;
+    const text = cleanSettingsInput(new TextDecoder().decode(event.bytes));
+    if (mode === "rename") setDraft((value) => value + text);
+    else {
+      setQuery((value) => value + text);
       changeSelection(0);
     }
   });
@@ -200,7 +213,7 @@ export function OpenTuiSessions({
       backgroundColor={palette.bg}
     >
       <text fg={palette.accent}>Возобновить сессию</text>
-      <text fg={palette.text}>Поиск: {terminalSafeText(query, 120)}▏</text>
+      <text fg={palette.text}>Поиск: {terminalSafeText(query, 120)}|</text>
       <text fg={palette.muted}>{filtered.length} сессий</text>
       <box height={listHeight} flexDirection="column">
         {filtered.length === 0 && (
@@ -211,19 +224,19 @@ export function OpenTuiSessions({
             key={item.id}
             fg={start + index === selection ? palette.accent : palette.muted}
           >
-            {start + index === selection ? "❯ " : "  "}
-            {terminalSafeText(item.title, Math.max(8, width - 29)).replace(
-              /\s+/g,
-              " ",
+            {start + index === selection ? "> " : "  "}
+            {terminalLine(
+              item.title.replace(/\s+/g, " "),
+              Math.max(8, width - 29),
             )}{" "}
-            · {item.messageCount} сообщ.{" "}
-            {item.id === actions.activeId() ? "●" : ""}
+            | {item.messageCount} сообщ.{" "}
+            {item.id === actions.activeId() ? "*" : ""}
           </text>
         ))}
       </box>
       {selected && (
         <text fg={palette.muted}>
-          {terminalSafeText(selected.model, 60)} · {selected.providerId} ·{" "}
+          {terminalSafeText(selected.model, 60)} | {selected.providerId} |{" "}
           {selected.totalTokens.inputTokens + selected.totalTokens.outputTokens}{" "}
           токенов
         </text>
@@ -236,19 +249,19 @@ export function OpenTuiSessions({
         ))}
       {mode === "rename" && (
         <text fg={palette.yellow}>
-          Новое название: {terminalSafeText(draft, 120)}▏
+          Новое название: {terminalSafeText(draft, 120)}|
         </text>
       )}
       {mode === "delete" && (
         <text fg={palette.yellow}>
-          Удалить «{terminalSafeText(selected?.title ?? "", 80)}»? [y/N]
+          Удалить '{terminalSafeText(selected?.title ?? "", 80)}'? [y/N]
         </text>
       )}
       {error && <text fg={palette.red}>{terminalSafeText(error, 200)}</text>}
       <text fg={palette.muted}>
         {width < 80
-          ? "↑/↓ выбор · Enter · Space · Ctrl+R/D · Esc"
-          : "↑/↓ выбор · Enter продолжить · Space просмотр · Ctrl+R имя · Ctrl+D удалить · Esc"}
+          ? "Up/Down выбор | Enter | Space | Ctrl+R/D | Esc"
+          : "Up/Down выбор | Enter продолжить | Space просмотр | Ctrl+R имя | Ctrl+D удалить | Esc"}
       </text>
     </box>
   );

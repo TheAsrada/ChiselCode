@@ -3,15 +3,22 @@ import type { InputRenderable } from "@opentui/core";
 import { useKeyboard, usePaste } from "@opentui/react";
 import { useLayoutEffect, useRef } from "react";
 import type { Palette } from "./appearance.js";
+import { clipText } from "./terminal-text.js";
 
 export const cleanSettingsInput = (value: string) =>
-  [...value]
-    .filter((char) => {
-      const code = char.codePointAt(0) ?? 0;
-      return code >= 32 && (code < 127 || code > 159);
-    })
-    .slice(0, 4096)
-    .join("");
+  clipText(
+    [...value]
+      .filter((char) => {
+        const code = char.codePointAt(0) ?? 0;
+        return (
+          code >= 32 &&
+          (code < 127 || code > 159) &&
+          !(code >= 0xd800 && code <= 0xdfff)
+        );
+      })
+      .join(""),
+    4096,
+  );
 
 /** OpenTUI 0.5.12 has no password input: its native buffer receives only bullets. */
 export function SettingsSecretInput({
@@ -42,7 +49,7 @@ export function SettingsSecretInput({
     }
     secret.current = next;
     if (input.current) {
-      input.current.value = "•".repeat([...next].length);
+      input.current.value = "*".repeat([...next].length);
       input.current.clearSelection();
       input.current.cursorOffset = cursor;
     }
@@ -51,7 +58,7 @@ export function SettingsSecretInput({
   useLayoutEffect(() => {
     const editor = input.current;
     if (!editor) return;
-    const mask = "•".repeat([...value].length);
+    const mask = "*".repeat([...value].length);
     if (editor.value !== mask) editor.value = mask;
   }, [value]);
   const insert = (text: string) => {
@@ -150,9 +157,9 @@ export function SettingsSecretInput({
     <input
       id="settings-secret"
       ref={input}
-      value={"•".repeat([...value].length)}
+      value={"*".repeat([...value].length)}
       focused
-      placeholder="Вставьте API-ключ…"
+      placeholder="Вставьте API-ключ..."
       backgroundColor={palette.raised}
       focusedBackgroundColor={palette.raised}
       textColor={palette.text}

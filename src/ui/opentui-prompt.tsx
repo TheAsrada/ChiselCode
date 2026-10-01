@@ -6,7 +6,9 @@ import {
   type ApprovalMode,
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
-import { terminalSafeText } from "./opentui-transcript.js";
+import { useTerminalDecoration } from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
+import { ENTER_KEY } from "./theme.js";
 
 /** Shared composer surface; the native textarea keeps ownership of editing. */
 export function OpenTuiPrompt({
@@ -42,6 +44,7 @@ export function OpenTuiPrompt({
   onModelSelect?: () => void;
   onSubmit: () => void;
 }) {
+  const { borderChars } = useTerminalDecoration();
   const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
   const differentRun =
     !!runningMode &&
@@ -51,14 +54,14 @@ export function OpenTuiPrompt({
     ? !runningMode
       ? "в очереди"
       : differentRun
-        ? `сейчас ${AGENT_MODE_LABELS[runningMode]}${runningApprovalMode ? ` · ${APPROVAL_MODE_LABELS[runningApprovalMode]}` : ""}`
+        ? `сейчас ${AGENT_MODE_LABELS[runningMode]}${runningApprovalMode ? ` | ${APPROVAL_MODE_LABELS[runningApprovalMode]}` : ""}`
         : agentMode === "plan"
           ? "планирует"
           : "отвечает"
     : "";
   const caption = (busy && differentRun ? [activity, model] : [model, activity])
     .filter(Boolean)
-    .join(" · ");
+    .join(" | ");
   return (
     <box
       id="prompt"
@@ -66,6 +69,7 @@ export function OpenTuiPrompt({
       flexShrink={0}
       border
       borderStyle="rounded"
+      customBorderChars={borderChars}
       borderColor={focused ? modeColor : palette.border}
       backgroundColor={palette.surface}
       title={hasDraft ? " Черновик " : " Сообщение "}
@@ -130,12 +134,13 @@ export function OpenTuiPrompt({
                 : width < 45 && approvalMode === "dontAsk"
                   ? "Allowed"
                   : APPROVAL_MODE_LABELS[approvalMode]}{" "}
-              ▾
+              v
             </text>
           </box>
         </box>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: Enter also submits the message. */}
         <box
+          id="prompt-send"
           flexShrink={0}
           paddingLeft={1}
           paddingRight={1}
@@ -150,7 +155,7 @@ export function OpenTuiPrompt({
             height={1}
             selectable={false}
           >
-            {width >= 60 ? "Отправить ↵" : "↵"}
+            {width >= 60 ? `Отправить | ${ENTER_KEY}` : ENTER_KEY}
           </text>
         </box>
       </box>
@@ -165,8 +170,8 @@ export function OpenTuiPrompt({
           onModelSelect?.();
         }}
       >
-        {terminalSafeText(
-          `${caption || "Модель не выбрана"}${onModelSelect ? " ▾" : ""}`,
+        {terminalLine(
+          `${caption || "Модель не выбрана"}${onModelSelect ? " v" : ""}`,
           Math.max(1, width - 6),
         )}
       </text>

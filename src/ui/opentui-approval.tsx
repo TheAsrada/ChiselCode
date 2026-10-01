@@ -7,6 +7,7 @@ import type { ApprovalRequest } from "../security/approval.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { diffViewForWidth, terminalSafeText } from "./opentui-transcript.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 
 /** A modal decision surface with its own bounded, scrollable preview. */
 export function OpenTuiApproval({
@@ -69,10 +70,10 @@ export function OpenTuiApproval({
       </text>
       <text fg={palette.muted} height={1}>
         {terminalSafeText(request.tool, innerWidth)}
-        {diffs.length > 1 ? ` · файлов: ${diffs.length}` : ""}
+        {diffs.length > 1 ? ` | файлов: ${diffs.length}` : ""}
       </text>
       {popupHeight >= 5 && (
-        <scrollbox
+        <TerminalScrollbox
           id="approval-preview"
           ref={preview}
           flexGrow={1}
@@ -88,7 +89,7 @@ export function OpenTuiApproval({
                 flexShrink={0}
               >
                 <text fg={palette.muted}>
-                  {terminalSafeText(diff.path, 180)} · +{diff.additions} −
+                  {terminalSafeText(diff.path, 180)} | +{diff.additions} -
                   {diff.deletions}
                 </text>
                 <diff
@@ -103,7 +104,7 @@ export function OpenTuiApproval({
               {terminalSafeText(request.preview, 100_000)}
             </text>
           )}
-        </scrollbox>
+        </TerminalScrollbox>
       )}
       <box flexDirection="row" height={1} gap={1} flexShrink={0}>
         <DialogAction
@@ -124,8 +125,8 @@ export function OpenTuiApproval({
         <text height={1} fg={palette.muted}>
           {terminalSafeText(
             innerWidth < 48
-              ? "Y / Н — да · N / Т / Esc — нет"
-              : "Y / Н — один раз · N / Т / Esc — отказ",
+              ? "Y / Н - да | N / Т / Esc - нет"
+              : "Y / Н - один раз | N / Т / Esc - отказ",
             innerWidth,
           )}
         </text>

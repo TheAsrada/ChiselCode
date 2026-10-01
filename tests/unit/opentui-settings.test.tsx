@@ -9,6 +9,7 @@ import {
   matchingCommands,
   parseSlashCommand,
 } from "../../src/ui/commands.js";
+import { renderLogoRows } from "../../src/ui/logo.js";
 import {
   OpenTuiSettings,
   type OpenTuiSettingsActions,
@@ -16,6 +17,78 @@ import {
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import type { TuiSettingsValues } from "../../src/ui/settings.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
+import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+
+test("graphics toggle saves, redraws and survives tab changes while preserving the composer", async () => {
+  const workspace = new TuiWorkspace(process.cwd());
+  const persisted: boolean[] = [];
+  const setup = await testRender(
+    <OpenTuiSpike
+      workspace={workspace}
+      onExit={() => {}}
+      onSubmit={async () => {}}
+      onUnicodeDecorationsChange={async (value) => {
+        persisted.push(value);
+      }}
+    />,
+    { width: 120, height: 36 },
+  );
+  try {
+    await frame(setup);
+    expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
+    await paste(setup, "черновик 😀");
+    const editor = setup.renderer.currentFocusedEditor;
+    await key(setup, "t", true);
+    await key(setup, "g", true);
+    expect(persisted).toEqual([true]);
+    expect(setup.captureCharFrame()).toContain("╭");
+    await key(setup, "ESCAPE");
+    expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
+    expect(setup.renderer.currentFocusedEditor).toBe(editor);
+    expect(editor?.plainText).toBe("черновик 😀");
+    await act(async () => {
+      workspace.newTab();
+      workspace.newDraft();
+    });
+    await frame(setup);
+    expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
+    await key(setup, "t", true);
+    await click(setup, "settings-decoration-toggle");
+    expect(persisted).toEqual([true, false]);
+    await key(setup, "ESCAPE");
+    expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
+  } finally {
+    destroy(setup);
+    workspace.dispose();
+  }
+});
+
+test("failed graphics persistence keeps compatible borders and an unsent draft", async () => {
+  const setup = await testRender(
+    <OpenTuiSpike
+      onExit={() => {}}
+      onSubmit={async () => {}}
+      onUnicodeDecorationsChange={async () => {
+        throw new Error("Save failed");
+      }}
+    />,
+    { width: 40, height: 12 },
+  );
+  try {
+    await frame(setup);
+    await paste(setup, "черновик");
+    const editor = setup.renderer.currentFocusedEditor;
+    await key(setup, "t", true);
+    await click(setup, "settings-decoration-toggle");
+    expect(setup.captureCharFrame()).toContain("Save failed");
+    expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
+    await key(setup, "ESCAPE");
+    expect(setup.renderer.currentFocusedEditor).toBe(editor);
+    expect(editor?.plainText).toBe("черновик");
+  } finally {
+    destroy(setup);
+  }
+});
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
 function api(overrides: Partial<OpenTuiSettingsActions> = {}) {
@@ -40,7 +113,7 @@ function api(overrides: Partial<OpenTuiSettingsActions> = {}) {
       saved.push(values);
       return "saved";
     },
-    check: async () => "✓ Соединение работает",
+    check: async () => "+ Соединение работает",
     models: async () => ({
       ok: true,
       models: [{ id: "claude-opus-5" }, { id: "claude-sonnet-5" }],
@@ -154,7 +227,7 @@ test("secret input masks its native buffer and edits at cursor with undo/redo", 
     const input = setup.renderer.root.findDescendantById(
       "settings-secret",
     ) as InputRenderable;
-    expect(input.value).toBe("•".repeat(12));
+    expect(input.value).toBe("*".repeat(12));
     expect(setup.captureCharFrame()).not.toContain("sk-секрет123");
     await key(setup, "HOME");
     await key(setup, "RIGHT");
@@ -164,7 +237,7 @@ test("secret input masks its native buffer and edits at cursor with undo/redo", 
     await key(setup, "Z");
     await key(setup, "z", true);
     await key(setup, "y", true);
-    expect(input.value).toMatch(/^•+$/);
+    expect(input.value).toMatch(/^\*+$/);
     await key(setup, "ENTER");
     await key(setup, "s", true);
     expect(saved[0]?.apiKey).toBe("sk-секрет123Z");
@@ -185,7 +258,7 @@ test("masked selection replacement changes only the selected secret characters",
     ) as InputRenderable;
     act(() => input.setSelection(1, 4));
     await paste(setup, "Ж");
-    expect(input.value).toBe("••••");
+    expect(input.value).toBe("****");
     await key(setup, "ENTER");
     await key(setup, "s", true);
     expect(saved[0]?.apiKey).toBe("aЖef");
@@ -555,7 +628,7 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
       expect(setup.renderer.currentFocusedEditor).toBe(editor);
       expect(editor?.plainText).toBe("черновик\nвторая строка");
       await key(setup, "t", true);
-      expect(setup.captureCharFrame()).toContain("✓");
+      expect(setup.captureCharFrame()).toContain("+");
     } finally {
       destroy(setup);
     }
@@ -594,7 +667,7 @@ test("cancelled preview and failed persistence restore the saved theme", async (
       "settings-theme-paper",
     );
     expect(paper).toBeDefined();
-    expect(setup.captureCharFrame()).toContain("❯ Paper");
+    expect(setup.captureCharFrame()).toContain("> Paper");
   } finally {
     destroy(setup);
   }

@@ -23,6 +23,68 @@ const base: SessionSummary = {
   totalTokens: { inputTokens: 30, outputTokens: 10 },
 };
 
+test("session rename and search paste/delete whole emoji and combining graphemes", async () => {
+  const original = "Проект 👩‍💻e\u0301";
+  const entries = [
+    { ...base, title: original },
+    { ...base, id: "00000000-0000-4000-8000-000000000002", title: "Другой" },
+  ];
+  const renamed: string[] = [];
+  const actions: OpenTuiSessionsActions = {
+    load: async () => entries,
+    preview: async () =>
+      createSession(process.cwd(), "anthropic", "claude-opus-5"),
+    resume: async () => {},
+    rename: async (_id, title) => {
+      renamed.push(title);
+      entries[0] = { ...base, title };
+    },
+    delete: async () => {},
+    activeId: () => base.id,
+  };
+  let setup!: Awaited<ReturnType<typeof testRender>>;
+  const frame = () =>
+    act(async () => {
+      await setup.renderOnce();
+      await setup.renderOnce();
+    });
+  await act(async () => {
+    setup = await testRender(
+      <OpenTuiSessions
+        actions={actions}
+        width={80}
+        height={24}
+        onClose={() => {}}
+      />,
+      { width: 80, height: 24 },
+    );
+  });
+  try {
+    await frame();
+    await act(async () => setup.mockInput.pressKey("r", { ctrl: true }));
+    await act(async () => setup.mockInput.pressBackspace());
+    await frame();
+    expect(setup.captureCharFrame()).toContain("Новое название: Проект 👩‍💻");
+    await act(async () => setup.mockInput.pressBackspace());
+    await act(async () => setup.mockInput.pasteBracketedText("😀e\u0301"));
+    await act(async () => setup.mockInput.pressBackspace());
+    await frame();
+    expect(entries[0]?.title).toBe(original);
+    await act(async () => setup.mockInput.pressEnter());
+    await frame();
+    expect(renamed).toEqual(["Проект 😀"]);
+    await act(async () => setup.mockInput.pasteBracketedText("😀"));
+    await frame();
+    expect(setup.captureCharFrame()).toContain("1 сессий");
+    await act(async () => setup.mockInput.pressBackspace());
+    await frame();
+    expect(setup.captureCharFrame()).toContain("2 сессий");
+    expect(setup.captureCharFrame()).not.toMatch(/[\ufffd\p{Cs}]/u);
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
+
 test("session picker searches, previews and resumes without losing the composer", async () => {
   const second = {
     ...base,

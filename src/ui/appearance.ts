@@ -2,7 +2,7 @@
 export const THEMES = {
   obsidian: {
     label: "Obsidian",
-    description: "чёрный · мятный акцент",
+    description: "чёрный | мятный акцент",
     bg: "#080a0b",
     surface: "#121719",
     raised: "#1b2224",
@@ -16,7 +16,7 @@ export const THEMES = {
   },
   graphite: {
     label: "Graphite",
-    description: "угольный · голубой акцент",
+    description: "угольный | голубой акцент",
     bg: "#11151c",
     surface: "#1b222c",
     raised: "#26313d",
@@ -30,7 +30,7 @@ export const THEMES = {
   },
   ember: {
     label: "Ember",
-    description: "тёплый · янтарный акцент",
+    description: "тёплый | янтарный акцент",
     bg: "#120e0c",
     surface: "#221916",
     raised: "#30231d",
@@ -44,7 +44,7 @@ export const THEMES = {
   },
   paper: {
     label: "Paper",
-    description: "светлый · индиго акцент",
+    description: "светлый | индиго акцент",
     bg: "#f3f1e9",
     surface: "#e7e5dd",
     raised: "#dcdcd3",

@@ -33,7 +33,13 @@ import {
   describeTerminalSize,
   formatTerminalSizeLine,
 } from "./ui/terminal-size.js";
-import { paint, supportsColor } from "./ui/theme.js";
+import {
+  FAIL_MARK,
+  OK_MARK,
+  paint,
+  supportsColor,
+  WARN_MARK,
+} from "./ui/theme.js";
 import { VERSION } from "./version.js";
 
 const program = new Command();
@@ -143,7 +149,7 @@ program
   .action(async () => {
     const color = supportsColor(process.stdout);
     process.stdout.write(
-      `${paint("◈ ChiselCode", "cyan", color)} ${paint(`v${VERSION}`, "gray", color)} — проверка настройки\n`,
+      `${paint("[i] ChiselCode", "cyan", color)} ${paint(`v${VERSION}`, "gray", color)} - проверка настройки\n`,
     );
     const config = await loadGlobalConfig();
     const catalog = await getProviderCatalog();
@@ -185,9 +191,9 @@ program
     } catch {}
     const ready = keyReady && endpointReady && Boolean(model);
     const mark = (ok: boolean): string =>
-      paint(ok ? "✓" : "✗", ok ? "green" : "red", color);
+      paint(ok ? OK_MARK : FAIL_MARK, ok ? "green" : "red", color);
     process.stdout.write(
-      `${mark(Boolean(definition))} Сервис: ${definition?.label ?? selected.profile.providerId} · профиль ${selected.profileId}\n`,
+      `${mark(Boolean(definition))} Сервис: ${definition?.label ?? selected.profile.providerId} | профиль ${selected.profileId}\n`,
     );
     process.stdout.write(
       `${mark(Boolean(model))} Модель: ${model ?? "не выбрана"}\n`,
@@ -219,7 +225,7 @@ program
   .option("--json", "вывести результат проверки одним JSON-объектом")
   .action(async (raw: Record<string, unknown>) => {
     // Commander возвращает сабкоманде {}, если флаг совпадает с корневым
-    // (update --json, setup --provider), — смотрим напрямую в argv.
+    // (update --json, setup --provider), - смотрим напрямую в argv.
     const json = Boolean(raw.json) || process.argv.includes("--json");
     const color = supportsColor(process.stdout) && !json;
     const result = await checkForUpdates(VERSION);
@@ -230,7 +236,7 @@ program
     }
     if (result.error) {
       process.stdout.write(
-        `${paint("⚠", "yellow", color)} Не удалось проверить обновление: ${result.error}\n`,
+        `${paint(WARN_MARK, "yellow", color)} Не удалось проверить обновление: ${result.error}\n`,
       );
       process.stdout.write(`Релизы вручную: ${RELEASES_PAGE_URL}\n`);
       process.exitCode = 1;
@@ -238,14 +244,14 @@ program
     }
     if (result.updateAvailable) {
       process.stdout.write(
-        `${paint("◈ ChiselCode", "cyan", color)}: доступна новая версия ${paint(`v${result.latest}`, "green", color)} (у вас v${result.current})\n`,
+        `${paint("[i] ChiselCode", "cyan", color)}: доступна новая версия ${paint(`v${result.latest}`, "green", color)} (у вас v${result.current})\n`,
       );
       process.stdout.write(
         `Скачайте ${installerAssetHint(result.latest ?? result.current)} со страницы:\n  ${result.latestUrl}\n`,
       );
     } else {
       process.stdout.write(
-        `${paint(`✓ У вас последняя версия ChiselCode v${result.current}`, "green", color)}\n`,
+        `${paint(`+ У вас последняя версия ChiselCode v${result.current}`, "green", color)}\n`,
       );
     }
   });

@@ -5,13 +5,15 @@ import type { ProviderId } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
-import { terminalSafeText } from "./opentui-transcript.js";
 import {
   filterModelOptions,
   type ModelListResult,
   type ModelOption,
   sortModelOptions,
 } from "./settings-values.js";
+import { useTerminalDecoration } from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
+import { WARN_MARK } from "./theme.js";
 
 export interface ModelSelection {
   provider: ProviderId;
@@ -60,6 +62,7 @@ export function OpenTuiModels({
   onSettings(): void;
 }) {
   const layout = dialogLayout(width, height, 26);
+  const { borderChars } = useTerminalDecoration();
   const wide = layout.innerWidth >= 76 && layout.roomy;
   const [current, setCurrent] = useState<ModelSelection>();
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
@@ -155,7 +158,7 @@ export function OpenTuiModels({
             .map((item) => ({
               id: item.key,
               title: item.label,
-              hint: `${item.providerLabel} · ${item.selection.profileId ?? "текущая конфигурация"}`,
+              hint: `${item.providerLabel} | ${item.selection.profileId ?? "текущая конфигурация"}`,
             }))
         : filterModelOptions(models, query).map((item) => ({
             ...item,
@@ -276,7 +279,7 @@ export function OpenTuiModels({
     }
   });
   const text = (value: string, limit = layout.innerWidth) =>
-    terminalSafeText(value, Math.max(1, limit));
+    terminalLine(value, Math.max(1, limit));
   const selectedModel =
     page === "models"
       ? models.find((item) => item.id === chosen?.id)
@@ -303,7 +306,7 @@ export function OpenTuiModels({
         <text fg={palette.accent}>Выбор модели</text>
         <DialogAction
           id="models-close"
-          label="×"
+          label="x"
           palette={palette}
           onSelect={close}
         />
@@ -328,7 +331,7 @@ export function OpenTuiModels({
         />
         <DialogAction
           id="models-profiles-tab"
-          label={`Профили · ${profiles.length}`}
+          label={`Профили | ${profiles.length}`}
           active={page === "profiles"}
           palette={palette}
           onSelect={() => changePage("profiles")}
@@ -338,7 +341,7 @@ export function OpenTuiModels({
         <text height={1} fg={palette.muted}>
           {text(
             profile
-              ? `${profile.providerLabel} · ${profile.label}`
+              ? `${profile.providerLabel} | ${profile.label}`
               : "Подключение не выбрано",
           )}
         </text>
@@ -346,6 +349,7 @@ export function OpenTuiModels({
       <box
         border={layout.roomy ? true : []}
         borderStyle="rounded"
+        customBorderChars={borderChars}
         borderColor={palette.border}
         height={layout.roomy ? 3 : 1}
         flexShrink={0}
@@ -360,10 +364,10 @@ export function OpenTuiModels({
           value={page === "manual" ? manual : query}
           placeholder={
             page === "manual"
-              ? "Введите точный ID модели…"
+              ? "Введите точный ID модели..."
               : page === "profiles"
-                ? "Найти профиль или провайдера…"
-                : "Найти модель по имени или ID…"
+                ? "Найти профиль или провайдера..."
+                : "Найти модель по имени или ID..."
           }
           textColor={palette.text}
           backgroundColor={palette.surface}
@@ -452,14 +456,14 @@ export function OpenTuiModels({
                     fg={selected ? palette.accent : palette.text}
                   >
                     {text(
-                      `${selected ? "›" : " "} ${active ? "✓" : " "} ${item.title}`,
+                      `${selected ? ">" : " "} ${active ? "+" : " "} ${item.title}`,
                       listWidth - 2,
                     )}
                   </text>
                   {rowHeight === 2 && (
                     <text height={1} selectable={false} fg={palette.muted}>
                       {text(
-                        `    ${page === "profiles" ? item.hint : item.id}${active ? " · текущая" : ""}`,
+                        `    ${page === "profiles" ? item.hint : item.id}${active ? " | текущая" : ""}`,
                         listWidth - 2,
                       )}
                     </text>
@@ -470,7 +474,7 @@ export function OpenTuiModels({
           ) : (
             <text fg={palette.muted} height={1}>
               {loading
-                ? "Получаю каталог…"
+                ? "Получаю каталог..."
                 : !profiles.length
                   ? "Добавьте профиль в настройках"
                   : "Ничего не найдено"}
@@ -482,6 +486,7 @@ export function OpenTuiModels({
             width={28}
             paddingLeft={2}
             border={["left"]}
+            customBorderChars={borderChars}
             borderColor={palette.border}
             flexDirection="column"
           >
@@ -489,10 +494,10 @@ export function OpenTuiModels({
               {page === "profiles" ? "Подключение" : "Модель"}
             </text>
             <text fg={palette.text}>
-              {text(page === "manual" ? manual : (chosen?.id ?? "—"), 24)}
+              {text(page === "manual" ? manual : (chosen?.id ?? "-"), 24)}
             </text>
             <text fg={palette.muted} marginTop={1}>
-              {text(detailProfile?.providerLabel ?? "—", 24)}
+              {text(detailProfile?.providerLabel ?? "-", 24)}
             </text>
             {selectedModel?.contextWindow && (
               <text fg={palette.muted}>
@@ -523,14 +528,14 @@ export function OpenTuiModels({
       >
         {text(
           error
-            ? `⚠ ${error}`
+            ? `${WARN_MARK} ${error}`
             : saving
-              ? "Сохраняю выбор…"
+              ? "Сохраняю выбор..."
               : loading
-                ? "Обновляю каталог… · можно выбрать ID вручную"
+                ? "Обновляю каталог... | можно выбрать ID вручную"
                 : page === "manual"
-                  ? "Enter выбрать · Esc назад"
-                  : `${choices.length ? `${start + 1}–${Math.min(start + capacity, choices.length)} / ${choices.length}` : "0 результатов"} · ${layout.roomy ? "✓ текущая" : "↑↓ ↵ · Tab · Esc"}`,
+                  ? "Enter выбрать | Esc назад"
+                  : `${choices.length ? `${start + 1}-${Math.min(start + capacity, choices.length)} / ${choices.length}` : "0 результатов"} | ${layout.roomy ? "+ текущая" : "Up/Down Enter | Tab | Esc"}`,
         )}
       </text>
       <box
@@ -558,7 +563,7 @@ export function OpenTuiModels({
         />
         <DialogAction
           id="models-settings"
-          label={layout.innerWidth < 45 ? "⚙" : "Настройки"}
+          label={layout.innerWidth < 45 ? "API" : "Настройки"}
           palette={palette}
           disabled={saving}
           onSelect={onSettings}
@@ -568,8 +573,8 @@ export function OpenTuiModels({
         <text height={1} flexShrink={0} fg={palette.muted}>
           {text(
             layout.innerWidth >= 90
-              ? "↑↓ выбор · Enter принять · Tab профили · Ctrl+N ID · Ctrl+R обновить · Esc"
-              : "↑↓ выбор · Enter · Tab профили · Ctrl+N ID · Ctrl+R ↻ · Esc",
+              ? "Up/Down выбор | Enter принять | Tab профили | Ctrl+N ID | Ctrl+R обновить | Esc"
+              : "Up/Down выбор | Enter | Tab профили | Ctrl+N ID | Ctrl+R обн. | Esc",
           )}
         </text>
       )}

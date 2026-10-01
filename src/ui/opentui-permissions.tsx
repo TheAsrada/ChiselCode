@@ -9,10 +9,11 @@ import {
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 
 const summaries: Record<ApprovalMode, string> = {
   default: "Подтверждать правки и команды",
-  acceptEdits: "Правки автоматически · команды с подтверждением",
+  acceptEdits: "Правки автоматически | команды с подтверждением",
   dontAsk: "Только чтение и заранее разрешённые действия",
   bypassPermissions: "Правки и команды без подтверждений",
 };
@@ -81,11 +82,11 @@ export function OpenTuiPermissions({
         <text fg={palette.accent} height={1}>
           <strong>Разрешения</strong>
         </text>
-        <DialogAction label="Esc ×" palette={palette} onSelect={onClose} />
+        <DialogAction label="Esc x" palette={palette} onSelect={onClose} />
       </box>
       {roomy && (
         <text fg={palette.muted} height={1}>
-          Выбор для следующего запроса · Plan/Build сохраняется
+          Выбор для следующего запроса | Plan/Build сохраняется
         </text>
       )}
       <box
@@ -123,9 +124,9 @@ export function OpenTuiPermissions({
                     : palette.text
               }
             >
-              {index === selected ? "› " : "  "}
+              {index === selected ? "> " : "  "}
               {APPROVAL_MODE_LABELS[item]}
-              {item === mode ? "  ✓" : ""}
+              {item === mode ? "  +" : ""}
             </text>
             {popupHeight >= 14 && (
               <text height={1} fg={palette.muted} selectable={false}>
@@ -135,16 +136,16 @@ export function OpenTuiPermissions({
           </box>
         ))}
         {popupHeight >= 14 && (
-          <scrollbox flexGrow={1} minHeight={0} marginTop={1}>
+          <TerminalScrollbox flexGrow={1} minHeight={0} marginTop={1}>
             <text fg={palette.muted}>
               {APPROVAL_MODE_DESCRIPTIONS[modes[selected] ?? "default"]}
             </text>
             {!allowBypassPermissions && (
               <text fg={palette.muted}>
-                Bypass доступен после включения в Settings → Разрешения.
+                Bypass доступен после включения в Settings / Разрешения.
               </text>
             )}
-          </scrollbox>
+          </TerminalScrollbox>
         )}
       </box>
       <box
@@ -155,8 +156,8 @@ export function OpenTuiPermissions({
       >
         <text height={1} fg={palette.muted}>
           {innerWidth >= 45
-            ? "↑↓ выбрать · Enter применить"
-            : "↑↓ · Enter · Esc"}
+            ? "Up/Down выбрать | Enter применить"
+            : "Up/Down | Enter | Esc"}
         </text>
         <DialogAction
           id="permissions-settings"

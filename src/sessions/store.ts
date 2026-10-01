@@ -4,6 +4,7 @@ import type { CostEstimate } from "../providers/contracts.js";
 import { estimateProviderCost } from "../providers/cost.js";
 import { builtinDefinitions } from "../providers/definitions/index.js";
 import type { Session } from "../types/domain.js";
+import { clipText } from "../utils/text.js";
 import { legacyProfileId, withSessionCompatibility } from "./migrate.js";
 import { assertSessionId, projectSessionStore } from "./project-store.js";
 
@@ -93,7 +94,7 @@ export function shortSessionId(id: string): string {
 /** Название сессии из промпта: первая строка, до 60 символов. */
 export function sessionTitleForPrompt(prompt: string): string {
   const first = prompt.split("\n", 1)[0]?.trim() ?? "";
-  return first.length > 60 ? `${first.slice(0, 60)}…` : first;
+  return first.length > 60 ? `${clipText(first, 60)}...` : first;
 }
 
 function formatSessionDate(iso: string): string {

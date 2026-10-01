@@ -52,7 +52,7 @@ test("native sidebar shows observed usage and current Git changes", async () => 
     expect(frame).toContain("Последний запрос:");
     expect(frame).toContain("120 /");
     expect(frame).toContain("12%");
-    expect(frame).toContain("example.ts +4 −2");
+    expect(frame).toContain("example.ts +4 -2");
     expect(frame).toContain("токенов");
   } finally {
     act(() => {

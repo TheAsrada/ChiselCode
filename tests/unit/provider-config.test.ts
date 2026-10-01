@@ -11,6 +11,31 @@ import {
 } from "../../src/providers/profiles.js";
 import { createBuiltinProviderRegistry } from "../../src/providers/runtime.js";
 
+test("terminal graphics default off and persist without replacing other UI preferences", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "chisel-glyph-config-"));
+  const path = join(dir, "config.json");
+  try {
+    const original = await loadGlobalConfig(path);
+    expect(original.ui?.unicodeDecorations ?? false).toBe(false);
+    for (const unicodeDecorations of [true, false]) {
+      await saveGlobalConfig(
+        {
+          ...original,
+          ui: { theme: "paper", sidebarMode: "hide", unicodeDecorations },
+        },
+        path,
+      );
+      expect((await loadGlobalConfig(path)).ui).toEqual({
+        theme: "paper",
+        sidebarMode: "hide",
+        unicodeDecorations,
+      });
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Bypass opt-in persists in user settings, defaults off and rejects invalid values without overwriting config", async () => {
   const dir = await mkdtemp(join(tmpdir(), "chisel-permission-config-"));
   const path = join(dir, "config.json");

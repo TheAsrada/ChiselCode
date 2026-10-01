@@ -246,9 +246,9 @@ try {
       .filter((item) => item.id.startsWith("session-tab-")).length,
   ).toBe(2);
   expect(setup.captureCharFrame()).toContain("В очереди: 1");
-  expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build");
+  expect(setup.captureCharFrame()).toContain("В очереди: 1 | Build");
   expect(setup.captureCharFrame()).toContain(
-    "В очереди: 1 · Build · Accept edits",
+    "В очереди: 1 | Build | Accept edits",
   );
   expect(setup.captureCharFrame()).toContain("в очереди");
   await chooseModel("later-model", "anthropic-default");

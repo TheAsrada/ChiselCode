@@ -1,9 +1,11 @@
 import type { AgentResult, ToolExecutionResult } from "../types/domain.js";
 import {
+  FAIL_MARK,
   formatToolSummary,
   paint,
   supportsColor,
   toolDisplay,
+  WARN_MARK,
 } from "./theme.js";
 
 export interface OneShotRendererOptions {
@@ -35,14 +37,14 @@ export class OneShotRenderer {
     if (this.options.json) return;
     const meta = toolDisplay(name);
     this.stderr.write(
-      `\n${paint("◆", "cyan", this.color)} ${paint(`[${meta.icon}] ${meta.label}`, "bold", this.color)} ${paint(formatToolSummary(name, input), "gray", this.color)}\n`,
+      `\n${paint("*", "cyan", this.color)} ${paint(`[${meta.icon}] ${meta.label}`, "bold", this.color)} ${paint(formatToolSummary(name, input), "gray", this.color)}\n`,
     );
   }
 
   toolResult(name: string, result: ToolExecutionResult): void {
     if (this.options.json || !result.isError) return;
     this.stderr.write(
-      `${paint(`✗ ${name}`, "red", this.color)}: ${result.output}\n`,
+      `${paint(`${FAIL_MARK} ${name}`, "red", this.color)}: ${result.output}\n`,
     );
   }
 
@@ -75,17 +77,17 @@ export class OneShotRenderer {
       result.session.totalTokens.outputTokens;
     if (result.status === "completed") {
       this.stderr.write(
-        `${paint(`✓ Готово · ${tokens} токенов · сессия ${result.session.id.slice(0, 8)}`, "green", this.color)}\n`,
+        `${paint(`+ Готово | ${tokens} токенов | сессия ${result.session.id.slice(0, 8)}`, "green", this.color)}\n`,
       );
     }
     if (result.status === "approval_required") {
       this.stderr.write(
-        `${paint("⚠ Нужно подтверждение. Предпросмотр изменений:", "yellow", this.color)}\n${result.pendingApproval?.preview ?? "(нет preview)"}\n`,
+        `${paint(`${WARN_MARK} Нужно подтверждение. Предпросмотр изменений:`, "yellow", this.color)}\n${result.pendingApproval?.preview ?? "(нет preview)"}\n`,
       );
     }
     if (result.error)
       this.stderr.write(
-        `${paint(`✗ ChiselCode: ${result.error}`, "red", this.color)}\n`,
+        `${paint(`${FAIL_MARK} ChiselCode: ${result.error}`, "red", this.color)}\n`,
       );
   }
 }

@@ -6,7 +6,7 @@ import { act } from "react";
 import { createSession } from "../../src/sessions/store.js";
 import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { THEMES } from "../../src/ui/appearance.js";
-import { LOGO_WIDTH, renderLogoRows } from "../../src/ui/logo.js";
+import { ASCII_LOGO, ASCII_LOGO_WIDTH } from "../../src/ui/logo.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { createTuiApprovalResolver } from "../../src/ui/tui-contract.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
@@ -482,8 +482,8 @@ for (const [width, height] of [
       const logo = setup.renderer.root.findDescendantById("welcome-logo");
       const prompt = setup.renderer.root.findDescendantById("prompt");
       expect(prompt?.y).toBe((logo?.y ?? 0) + (logo?.height ?? 0) + 1);
-      if (width >= LOGO_WIDTH + 4 && height >= 18)
-        expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
+      if (width >= ASCII_LOGO_WIDTH + 4 && height >= 18)
+        expect(setup.captureCharFrame()).toContain(ASCII_LOGO[2]);
       else expect(setup.captureCharFrame()).toContain("<i> ChiselCode");
       await act(async () => {
         await setup.mockInput.pasteBracketedText("Первая задача");
@@ -559,15 +559,12 @@ test("native multiline input survives resize and clicking send creates only one 
     );
     const prompt = setup.renderer.root.findDescendantById("prompt");
     expect((prompt?.y ?? 0) + (prompt?.height ?? 0)).toBeLessThanOrEqual(12);
-    const lines = setup.captureCharFrame().split("\n"),
-      y = lines.findIndex(
-        (line) => line.includes("Build") && line.includes("↵"),
-      );
-    const sendColumn = lines[y]?.lastIndexOf("↵");
-    if (sendColumn === undefined || sendColumn < 0)
-      throw new Error("Send action is missing");
+    const send = setup.renderer.root.findDescendantById("prompt-send");
+    if (!send) throw new Error("Send action is missing");
+    expect(send.x + send.width).toBeLessThanOrEqual(40);
+    expect(send.y + send.height).toBeLessThanOrEqual(12);
     await act(async () => {
-      await setup.mockMouse.click(sendColumn, y);
+      await setup.mockMouse.click(send.x + 1, send.y);
     });
     await frame(setup);
     expect(submitted).toEqual(["Проверь API\nи обработку ошибок"]);
@@ -749,7 +746,7 @@ for (const [theme, palette] of Object.entries(THEMES)) {
     );
     try {
       await frame(setup);
-      expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
+      expect(setup.captureCharFrame()).toContain(ASCII_LOGO[2]);
       const accent = RGBA.fromHex(palette.accent).toInts();
       expect(
         setup

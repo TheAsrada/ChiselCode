@@ -289,7 +289,7 @@ test("slash suggestions keep the selected command visible past the first page", 
         setup.mockInput.pressArrow("down");
     });
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("❯ /sessions");
+    expect(setup.captureCharFrame()).toContain("> /sessions");
   } finally {
     act(() => setup.renderer.destroy());
   }
@@ -343,7 +343,7 @@ test("Tab reaches the inline sidebar and Esc restores composer focus", async () 
     act(() => setup.mockInput.pressTab());
     await setup.renderOnce();
     expect(controller.snapshot.focus).toBe("sidebar");
-    expect(setup.captureCharFrame()).toContain("› Контекст");
+    expect(setup.captureCharFrame()).toContain("> Контекст");
     await act(async () => {
       setup.mockInput.pressEscape();
       await new Promise((resolve) => setTimeout(resolve, 120));

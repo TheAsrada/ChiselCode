@@ -184,6 +184,22 @@ describe("project session storage", () => {
     expect(await store.list()).toHaveLength(0);
     expect(await readdir(store.directory)).toContain("project.json");
   });
+  test("stored Unicode titles and index previews never split a grapheme", async () => {
+    const store = await projectSessionStore(join(root, "unicode"));
+    const session = store.create("anthropic", "test");
+    session.messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: `${"x".repeat(299)}👩‍💻` }],
+      },
+    ];
+    await store.save(session);
+    await store.rename(session.id, `${"x".repeat(119)}😀`);
+    expect((await store.load(session.id)).title).toBe("x".repeat(119));
+    expect((await store.getSummary(session.id))?.lastUserMessage).toBe(
+      "x".repeat(299),
+    );
+  });
   test("two stores merge index changes instead of losing another session", async () => {
     const a = await projectSessionStore(join(root, "work"));
     const b = await projectSessionStore(join(root, "work"));

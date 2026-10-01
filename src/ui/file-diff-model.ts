@@ -1,6 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 import { parsePatch } from "diff";
 import type { FileDiff } from "../types/domain.js";
+import { terminalSafeText } from "./terminal-text.js";
 import { truncate } from "./theme.js";
 export const MAX_DIFF_LINES = 200;
 export const MAX_DIFF_LINE_CHARS = 1000;
@@ -74,9 +75,10 @@ export function diffRenderModel(diff: FileDiff, full = false): DiffRenderModel {
 }
 
 function displayText(text: string): string {
-  return stripVTControlCharacters(truncate(text, MAX_DIFF_LINE_CHARS))
+  const clean = stripVTControlCharacters(text)
     .replace(/\t/g, "  ")
     .replace(/[\p{Cc}]/gu, "");
+  return truncate(terminalSafeText(clean), MAX_DIFF_LINE_CHARS);
 }
 
 export function fileDiffTitle(diff: FileDiff): string {

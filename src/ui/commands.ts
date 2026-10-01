@@ -57,7 +57,7 @@ export interface CommandSuggestion {
   description: string;
 }
 
-/** Сколько подсказок показываем под вводом: остальные — счётчиком «…и ещё N». */
+/** Сколько подсказок показываем под вводом: остальные - счётчиком '...и ещё N'. */
 export const MAX_VISIBLE_SUGGESTIONS = 6;
 
 export function isSlashInput(input: string): boolean {
@@ -85,7 +85,7 @@ export function matchingCommands(
 }
 
 /**
- * «Возможно, вы имели в виду»: ближайшая команда к опечатке.
+ * 'Возможно, вы имели в виду': ближайшая команда к опечатке.
  * Возвращает имя со слэшем или undefined, если ничего похожего нет.
  */
 export function suggestSimilarCommand(
@@ -109,8 +109,8 @@ export function suggestSimilarCommand(
     }
   }
   if (best === undefined) return undefined;
-  // Допуск — две правки (транспозиция соседних букв считается за две):
-  // опечатки вроде /hlep и /sessons ловятся, чушь — нет.
+  // Допуск - две правки (транспозиция соседних букв считается за две):
+  // опечатки вроде /hlep и /sessons ловятся, чушь - нет.
   return bestScore <= 2 ? `/${best}` : undefined;
 }
 
@@ -153,18 +153,18 @@ export function commandHelpText(skills: CommandSuggestion[] = []): string {
     ...SLASH_COMMANDS.map((c) => c.name.length),
     ...extra.map((c) => c.name.length + 1),
   );
-  const lines = ["◈ ChiselCode — быстрые команды"];
+  const lines = ["[i] ChiselCode - быстрые команды"];
   for (const group of HELP_GROUPS) {
-    lines.push("", `── ${group.title} ──`);
+    lines.push("", `-- ${group.title} --`);
     for (const name of group.commands) {
-      lines.push(`  ${name.padEnd(width, " ")} — ${byName.get(name) ?? ""}`);
+      lines.push(`  ${name.padEnd(width, " ")} - ${byName.get(name) ?? ""}`);
     }
   }
   if (extra.length > 0) {
-    lines.push("", "── Скиллы ──");
+    lines.push("", "-- Скиллы --");
     for (const command of extra) {
       lines.push(
-        `  ${`/${command.name}`.padEnd(width, " ")} — ${command.description}`,
+        `  ${`/${command.name}`.padEnd(width, " ")} - ${command.description}`,
       );
     }
     lines.push(
@@ -173,24 +173,24 @@ export function commandHelpText(skills: CommandSuggestion[] = []): string {
   }
   lines.push(
     "",
-    "Обычный текст отправляется помощнику. Shift+Enter — новая строка.",
-    "Shift+Tab — Plan / Build для следующего запроса; модель сохраняется.",
+    "Обычный текст отправляется помощнику. Shift+Enter - новая строка.",
+    "Shift+Tab - Plan / Build для следующего запроса; модель сохраняется.",
     "Plan читает проект и составляет план; Build выполняет работу с обычными разрешениями.",
-    "F4 — следующий режим разрешений; нажатие на метку или /permissions открывает меню.",
+    "F4 - следующий режим разрешений; нажатие на метку или /permissions открывает меню.",
     "Manual спрашивает; Accept edits разрешает правки; Dont ask отклоняет всё без выданного разрешения.",
-    "Bypass доступен только после включения в Settings → Разрешения и выбирается отдельно.",
+    "Bypass доступен только после включения в Settings / Разрешения и выбирается отдельно.",
     "Чтение и явно разрешённые правилами действия выполняются сразу; запреты и Plan сохраняются.",
-    "Alt+N / Ctrl+Shift+N — новая вкладка; Alt+←/→ / Ctrl+Tab — переключить.",
-    "Ctrl+G — главная; Ctrl+W — закрыть вкладку без удаления сохранённой сессии.",
-    "Лента листается клавишами PgUp/PgDn (пол-экрана) и Ctrl+U/D (±10 строк),",
-    "колесом мыши (скорость CHISEL_SCROLL_SPEED 1..20, дефолт 3; Shift+колесо — рывок),",
-    "Home — верх, End — возврат к вводу. Скролл вверх держит вид на месте,",
+    "Alt+N / Ctrl+Shift+N - новая вкладка; Alt+Left/Right / Ctrl+Tab - переключить.",
+    "Ctrl+G - главная; Ctrl+W - закрыть вкладку без удаления сохранённой сессии.",
+    "Лента листается клавишами PgUp/PgDn (пол-экрана) и Ctrl+U/D (+/-10 строк),",
+    "колесом мыши (скорость CHISEL_SCROLL_SPEED 1..20, дефолт 3; Shift+колесо - рывок),",
+    "Home - верх, End - возврат к вводу. Скролл вверх держит вид на месте,",
     "Ввод закреплён снизу; дальше последнего сообщения прокрутки нет.",
     "В классическом режиме (CHISEL_ALT_SCREEN=0) листает сам терминал,",
-    "колесо и выделение текста — нативные.",
-    "Ctrl+O — транскрипт: j/k, g/G, {/} по промптам, / + n/N поиск, q — назад.",
-    "С захваченной мышью нативное выделение — через Shift.",
-    "Windows: правая кнопка — вставить. Shift+выделение — копировать средствами терминала.",
+    "колесо и выделение текста - нативные.",
+    "Ctrl+O - транскрипт: j/k, g/G, {/} по промптам, / + n/N поиск, q - назад.",
+    "С захваченной мышью нативное выделение - через Shift.",
+    "Windows: правая кнопка - вставить. Shift+выделение - копировать средствами терминала.",
     "Диффы в чате свёрнуты до 5 строк; Ctrl+O раскрывает все изменения.",
     "При запросе изменения нажмите y (разрешить) или n / Esc (отклонить).",
   );

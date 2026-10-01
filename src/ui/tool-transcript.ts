@@ -2,7 +2,7 @@ import type { AgentEventHandlers } from "../core/agent-loop.js";
 import { stripActiveSkillsBlock } from "../skills/skills.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
 import { fileDiffStats, fileDiffTitle } from "./file-diff-model.js";
-import { formatToolSummary } from "./theme.js";
+import { FAIL_MARK, formatToolSummary } from "./theme.js";
 import type { TuiTranscript } from "./tui-contract.js";
 
 const fileTools = new Set([
@@ -18,12 +18,12 @@ export function appendToolResult(
   result: ToolExecutionResult,
 ): void {
   if (result.isError || result.requiresApproval) {
-    view.append(`✗ ${name}: ${result.output}`, "error");
+    view.append(`${FAIL_MARK} ${name}: ${result.output}`, "error");
   } else if (result.diffs?.length || result.fileDiff) {
     for (const diff of result.diffs ??
       (result.fileDiff ? [result.fileDiff] : []))
       view.append(
-        `${fileDiffTitle(diff)} · ${fileDiffStats(diff)}`,
+        `${fileDiffTitle(diff)} | ${fileDiffStats(diff)}`,
         "tool",
         diff,
       );
@@ -73,7 +73,7 @@ export function replaySessionIntoTranscript(
     : session.messages.slice(-REPLAY_MESSAGE_LIMIT);
   if (session.messages.length > tail.length)
     target.append(
-      `… показаны последние ${tail.length} из ${session.messages.length} сообщений сессии.`,
+      `... показаны последние ${tail.length} из ${session.messages.length} сообщений сессии.`,
       "info",
     );
   const names = new Map(

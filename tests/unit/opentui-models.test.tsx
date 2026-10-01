@@ -123,7 +123,9 @@ for (const [width, height] of [
     const setup = await picker(actions, width, height, () => closed++);
     try {
       expect(setup.captureCharFrame()).toContain("Выбор модели");
-      expect(setup.captureCharFrame()).toContain("✓");
+      expect(setup.captureCharFrame()).toContain("+ model-current");
+      expect(setup.captureCharFrame()).not.toMatch(/[⚙↻⚠↵\ufffd]/u);
+      if (width === 40) expect(setup.captureCharFrame()).toContain("API");
       for (const id of [
         "models-search",
         "models-row-0",

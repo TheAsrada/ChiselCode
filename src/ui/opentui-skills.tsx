@@ -9,6 +9,12 @@ import {
   OpenTuiDialog,
 } from "./opentui-dialog.js";
 import { terminalSafeText } from "./opentui-transcript.js";
+import {
+  TerminalScrollbox,
+  useTerminalDecoration,
+} from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
+import { ENTER_KEY, SKILL_MARK } from "./theme.js";
 
 export interface OpenTuiSkillsActions {
   load(): Skill[];
@@ -53,6 +59,7 @@ export function OpenTuiSkills({
   onCreate?: () => void;
   onEdit?: (skill: Skill) => void;
 }) {
+  const { borderChars } = useTerminalDecoration();
   const { skills, error: loadError } = useMemo(
     () => readCatalog(actions),
     [actions],
@@ -172,9 +179,9 @@ export function OpenTuiSkills({
         justifyContent="space-between"
       >
         <text fg={palette.accent}>
-          <strong>✦ Скиллы</strong>
+          <strong>{SKILL_MARK} Скиллы</strong>
         </text>
-        <Action label="Esc ×" palette={palette} onSelect={onClose} />
+        <Action label="Esc x" palette={palette} onSelect={onClose} />
       </box>
       {roomy && (
         <text fg={palette.muted} height={1}>
@@ -187,6 +194,7 @@ export function OpenTuiSkills({
         marginTop={roomy ? 1 : 0}
         border={roomy ? true : []}
         borderStyle="rounded"
+        customBorderChars={borderChars}
         borderColor={instructions ? palette.border : palette.accent}
         backgroundColor={palette.raised}
         paddingLeft={1}
@@ -196,7 +204,7 @@ export function OpenTuiSkills({
           id="skills-search"
           value={query}
           focused={!instructions}
-          placeholder="Поиск по названию или описанию…"
+          placeholder="Поиск по названию или описанию..."
           backgroundColor={palette.raised}
           focusedBackgroundColor={palette.raised}
           textColor={palette.text}
@@ -239,9 +247,9 @@ export function OpenTuiSkills({
         {instructions && current ? (
           <box width="100%" height="100%" flexDirection="column">
             <text height={1} fg={palette.accent}>
-              Инструкции · /{current.name}
+              Инструкции | /{current.name}
             </text>
-            <scrollbox
+            <TerminalScrollbox
               id="skills-instructions"
               flexGrow={1}
               focused
@@ -251,7 +259,7 @@ export function OpenTuiSkills({
               <text fg={palette.text} selectable>
                 {terminalSafeText(current.instructions)}
               </text>
-            </scrollbox>
+            </TerminalScrollbox>
           </box>
         ) : (
           <>
@@ -322,16 +330,16 @@ export function OpenTuiSkills({
                         >
                           {page === "pin"
                             ? active.includes(skill.name)
-                              ? "● "
-                              : "○ "
+                              ? "* "
+                              : "o "
                             : ""}
-                          {terminalSafeText(
+                          {terminalLine(
                             `${skill.userInvocable === false ? "" : "/"}${skill.name}`,
                             Math.max(1, listWidth - 4),
                           )}
                         </text>
                         <text height={1} fg={palette.muted}>
-                          {terminalSafeText(
+                          {terminalLine(
                             skill.description.replace(/\s+/g, " "),
                             Math.max(1, listWidth - 4),
                           )}
@@ -364,9 +372,9 @@ export function OpenTuiSkills({
                     {current.source === "bundled"
                       ? "Встроенный"
                       : "Пользовательский"}{" "}
-                    · {invocationLabel(current)}
+                    | {invocationLabel(current)}
                   </text>
-                  <scrollbox
+                  <TerminalScrollbox
                     flexGrow={1}
                     marginTop={1}
                     viewportCulling
@@ -384,7 +392,7 @@ export function OpenTuiSkills({
                             : "Этот навык доступен агенту. Опишите задачу обычным сообщением."
                           : "Примените к одному сообщению. После выбора можно добавить задачу и отправить её."}
                     </text>
-                  </scrollbox>
+                  </TerminalScrollbox>
                   <Action
                     label="Ctrl+O  Инструкции"
                     palette={palette}
@@ -405,7 +413,7 @@ export function OpenTuiSkills({
         >
           <box height={1} flexDirection="row" gap={1}>
             <Action
-              label={`↵ ${primary}`}
+              label={`${ENTER_KEY} | ${primary}`}
               primary
               disabled={disabled}
               palette={palette}
@@ -427,13 +435,13 @@ export function OpenTuiSkills({
             )}
           </box>
           <text height={1} fg={palette.muted}>
-            {terminalSafeText(
+            {terminalLine(
               error ||
                 (page === "pin"
-                  ? "На каждое сообщение этой вкладки · Tab библиотека · Esc закрыть"
+                  ? "На каждое сообщение этой вкладки | Tab библиотека | Esc закрыть"
                   : roomy
-                    ? `↑↓ выбрать · Tab закрепление · Ctrl+O инструкции · ${filtered.length} найдено`
-                    : "↑↓ выбрать · Tab закрепление · Ctrl+O текст"),
+                    ? `Up/Down выбрать | Tab закрепление | Ctrl+O инструкции | ${filtered.length} найдено`
+                    : "Up/Down выбрать | Tab закрепление | Ctrl+O текст"),
               innerWidth,
             )}
           </text>
@@ -441,7 +449,7 @@ export function OpenTuiSkills({
       )}
       {tiny && (
         <text height={1} fg={palette.muted}>
-          Enter выбрать · Esc закрыть
+          Enter выбрать | Esc закрыть
         </text>
       )}
     </OpenTuiDialog>

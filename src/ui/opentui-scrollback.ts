@@ -110,7 +110,7 @@ export function scrollbackRows(
 ): string[] {
   const diff = entry.fileDiff;
   const content = diff
-    ? `${terminalSafeText(diff.path, 180)} · +${diff.additions} −${diff.deletions}\n${changedLinePreview(diff).join("\n")}`
+    ? `${terminalSafeText(diff.path, 180)} | +${diff.additions} -${diff.deletions}\n${changedLinePreview(diff).join("\n")}`
     : terminalSafeText(entry.text, 20_000);
   const rows: string[] = [];
   const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });

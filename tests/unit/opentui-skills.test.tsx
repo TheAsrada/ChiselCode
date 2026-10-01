@@ -177,7 +177,7 @@ test("pinning is an explicit separate tab and Enter there does not choose a one-
     await press(setup, "RETURN");
     expect(active.has("code-review")).toBe(true);
     expect(chosen).toBe(0);
-    expect(setup.captureCharFrame()).toContain("● /code-review");
+    expect(setup.captureCharFrame()).toContain("* /code-review");
     await press(setup, "RETURN");
     expect(active.size).toBe(0);
   } finally {
@@ -427,7 +427,7 @@ for (const [width, height] of [
       await frame(setup);
       await open(setup);
       expect(setup.captureCharFrame()).toContain("Применить к задаче");
-      expect(setup.captureCharFrame()).toContain("↑↓ выбрать");
+      expect(setup.captureCharFrame()).toContain("Up/Down выбрать");
       await act(async () => {
         await setup.mockInput.typeText("skill-creator");
         setup.resize(100, 30);

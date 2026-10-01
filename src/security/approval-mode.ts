@@ -72,7 +72,7 @@ export function resolveApprovalMode(
   if (mode === "bypassPermissions" && !options.allowBypassPermissions) {
     if (options.approvalMode === "bypassPermissions")
       throw new Error(
-        "Bypass выключен. Включите «Разрешить Bypass» в Settings → Разрешения, затем выберите режим.",
+        "Bypass выключен. Включите 'Разрешить Bypass' в Settings / Разрешения, затем выберите режим.",
       );
     return DEFAULT_APPROVAL_MODE;
   }

@@ -118,7 +118,8 @@ for (const width of [40, 80, 120]) {
         const start = rows.findIndex((row) => row.includes(header)) + 1;
         expect(start).toBeGreaterThan(0);
         expect(rows[start]?.trim()).not.toBe("");
-        const end = rows.findIndex((row) => row.includes("╭─ Сообщение"));
+        const prompt = setup.renderer.root.findDescendantById("prompt");
+        const end = prompt?.y ?? rows.length;
         const body = rows.slice(start, end);
         while (body.length && !body.at(-1)?.trim()) body.pop();
         expect(body.every((row) => !!row.trim())).toBe(true);
@@ -131,7 +132,7 @@ for (const width of [40, 80, 120]) {
         await act(async () => {
           await setup.renderOnce();
         });
-        contiguous("Build · отвечает");
+        contiguous("Build | отвечает");
       }
       expect(controller.snapshot.streaming).toBe(source);
       await act(async () => {

@@ -79,7 +79,10 @@ describe("session helpers", () => {
     expect(sessionTitleForPrompt("первая строка\nвторая строка")).toBe(
       "первая строка",
     );
-    expect(sessionTitleForPrompt("x".repeat(100))).toBe(`${"x".repeat(60)}…`);
+    expect(sessionTitleForPrompt("x".repeat(100))).toBe(`${"x".repeat(60)}...`);
+    expect(sessionTitleForPrompt(`${"x".repeat(59)}👩‍💻`)).toBe(
+      `${"x".repeat(59)}...`,
+    );
     expect(sessionTitleForPrompt("")).toBe("");
   });
 

@@ -15,6 +15,7 @@ import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { Session } from "../types/domain.js";
+import { clipText } from "../utils/text.js";
 import { withLock } from "./lock.js";
 import {
   legacyProfileId,
@@ -189,11 +190,15 @@ function toSummary(session: Session): SessionSummary {
     gitBranch: session.gitBranch,
     messageCount: session.messages.length,
     totalTokens: session.totalTokens,
-    lastUserMessage: last?.content
-      .filter((item) => item.type === "text")
-      .map((item) => item.text)
-      .join(" ")
-      .slice(0, 300),
+    lastUserMessage: last
+      ? clipText(
+          last.content
+            .filter((item) => item.type === "text")
+            .map((item) => item.text)
+            .join(" "),
+          300,
+        )
+      : undefined,
   };
 }
 export class ProjectSessionStore {
@@ -362,7 +367,7 @@ export class ProjectSessionStore {
     const trimmed = title.trim();
     if (!trimmed) throw new Error("Название сессии не может быть пустым.");
     const session = await this.load(id);
-    session.title = trimmed.slice(0, 120);
+    session.title = clipText(trimmed, 120);
     session.titleSource = "user";
     await this.save(session);
   }

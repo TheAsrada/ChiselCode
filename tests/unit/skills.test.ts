@@ -429,9 +429,9 @@ describe("skill completion and help", () => {
 
   test("help lists skills in their own section", () => {
     const plain = commandHelpText();
-    expect(plain).not.toContain("── Скиллы ──");
+    expect(plain).not.toContain("-- Скиллы --");
     const extended = commandHelpText(skills);
-    expect(extended).toContain("── Скиллы ──");
+    expect(extended).toContain("-- Скиллы --");
     expect(extended).toContain("/review");
     expect(extended).toContain("Ревью diff");
   });

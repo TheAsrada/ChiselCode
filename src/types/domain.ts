@@ -183,6 +183,7 @@ export interface GlobalConfig {
   ui?: {
     sidebarMode?: "auto" | "show" | "hide";
     theme?: "obsidian" | "graphite" | "ember" | "paper";
+    unicodeDecorations?: boolean;
     accent?: string;
   };
 }

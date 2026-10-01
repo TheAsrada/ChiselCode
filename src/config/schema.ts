@@ -23,6 +23,7 @@ export const GlobalConfigV2Schema = z.looseObject({
     .looseObject({
       sidebarMode: z.enum(["auto", "show", "hide"]).optional(),
       theme: z.enum(["obsidian", "graphite", "ember", "paper"]).optional(),
+      unicodeDecorations: z.boolean().optional(),
       accent: z
         .string()
         .regex(/^#[0-9a-fA-F]{6}$/)

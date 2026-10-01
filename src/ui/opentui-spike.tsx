@@ -65,6 +65,11 @@ import {
   toggleSidebarMode,
 } from "./sidebar-layout.js";
 import { skillCommandDraft, skillEditDraft } from "./skill-draft.js";
+import {
+  TerminalScrollbox,
+  UnicodeDecorationContext,
+} from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
 import type { TuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
@@ -82,6 +87,9 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
   const [, refresh] = useState(0);
   const [theme, setTheme] = useState(props.initialTheme ?? "obsidian");
   const [mode, setMode] = useState(props.initialMode ?? "auto");
+  const [unicodeDecorations, setUnicodeDecorations] = useState(
+    props.initialUnicodeDecorations ?? false,
+  );
   const [setupOpen, setSetupOpen] = useState(props.initialSettingsOpen);
   const [bypassAllowed, setBypassAllowed] = useState(
     props.allowBypassPermissions ?? false,
@@ -92,37 +100,44 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
   );
   const controller = props.workspace?.controller ?? props.controller;
   return (
-    <OpenTuiScreen
-      key={
-        props.workspace
-          ? (props.workspace.activeKey ??
-            `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
-          : "probe"
-      }
-      {...props}
-      controller={controller}
-      initialTheme={theme}
-      initialMode={mode}
-      initialSettingsOpen={setupOpen}
-      allowBypassPermissions={bypassAllowed}
-      onBypassAvailabilityChange={
-        props.onBypassAvailabilityChange
-          ? async (allowed) => {
-              await props.onBypassAvailabilityChange?.(allowed);
-              setBypassAllowed(allowed);
-            }
-          : undefined
-      }
-      onInitialSettingsComplete={() => setSetupOpen(false)}
-      onThemeChange={async (next) => {
-        await props.onThemeChange?.(next);
-        setTheme(next);
-      }}
-      onModeChange={(next) => {
-        setMode(next);
-        props.onModeChange?.(next);
-      }}
-    />
+    <UnicodeDecorationContext value={unicodeDecorations}>
+      <OpenTuiScreen
+        key={
+          props.workspace
+            ? (props.workspace.activeKey ??
+              `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
+            : "probe"
+        }
+        {...props}
+        controller={controller}
+        initialTheme={theme}
+        initialUnicodeDecorations={unicodeDecorations}
+        onUnicodeDecorationsChange={async (next) => {
+          await props.onUnicodeDecorationsChange?.(next);
+          setUnicodeDecorations(next);
+        }}
+        initialMode={mode}
+        initialSettingsOpen={setupOpen}
+        allowBypassPermissions={bypassAllowed}
+        onBypassAvailabilityChange={
+          props.onBypassAvailabilityChange
+            ? async (allowed) => {
+                await props.onBypassAvailabilityChange?.(allowed);
+                setBypassAllowed(allowed);
+              }
+            : undefined
+        }
+        onInitialSettingsComplete={() => setSetupOpen(false)}
+        onThemeChange={async (next) => {
+          await props.onThemeChange?.(next);
+          setTheme(next);
+        }}
+        onModeChange={(next) => {
+          setMode(next);
+          props.onModeChange?.(next);
+        }}
+      />
+    </UnicodeDecorationContext>
   );
 }
 
@@ -150,6 +165,8 @@ function OpenTuiScreen({
   initialTheme = "obsidian",
   accent,
   onThemeChange,
+  initialUnicodeDecorations = false,
+  onUnicodeDecorationsChange,
 }: {
   onExit: () => void;
   controller?: TuiController;
@@ -174,6 +191,8 @@ function OpenTuiScreen({
   initialTheme?: ThemeName;
   accent?: string;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
+  initialUnicodeDecorations?: boolean;
+  onUnicodeDecorationsChange?: (value: boolean) => Promise<void>;
 }) {
   const { width, height } = useTerminalDimensions();
   const editor = React.useRef<TextareaRenderable>(null);
@@ -187,7 +206,7 @@ function OpenTuiScreen({
   const nextId = React.useRef(1);
   const [draft, setDraft] = useState(controller?.snapshot.draft ?? "");
   const [lines, setLines] = useState([
-    { id: 0, text: "ChiselCode · OpenTUI compatibility probe" },
+    { id: 0, text: "ChiselCode | OpenTUI compatibility probe" },
   ]);
   const [mode, setMode] = useState<SidebarMode>(initialMode);
   const [overlayDismissed, setOverlayDismissed] = useState(false);
@@ -366,7 +385,7 @@ function OpenTuiScreen({
     height -
       editorHeight -
       tabRows -
-      (workspace ? 6 : showLogo ? 10 : 8) -
+      (workspace ? 6 : showLogo ? (initialUnicodeDecorations ? 10 : 9) : 8) -
       visibleSuggestions.length,
   );
   let newestDiffId: number | undefined;
@@ -788,7 +807,7 @@ function OpenTuiScreen({
         }
       } else {
         controller?.append(
-          "/permissions открывает выбор. Режимы: default, acceptEdits, dontAsk, bypassPermissions. Bypass включается в Settings → Разрешения. F4 переключает следующий запрос.",
+          "/permissions открывает выбор. Режимы: default, acceptEdits, dontAsk, bypassPermissions. Bypass включается в Settings / Разрешения. F4 переключает следующий запрос.",
           "info",
         );
       }
@@ -847,10 +866,10 @@ function OpenTuiScreen({
         controller?.append(String(error), "error"),
       );
     else {
-      controller?.append(`❯ ${value}`, "user");
+      controller?.append(`> ${value}`, "user");
       setLines((current) => [
         ...current,
-        { id: nextId.current++, text: `❯ ${value}` },
+        { id: nextId.current++, text: `> ${value}` },
       ]);
     }
     clearInput();
@@ -883,6 +902,8 @@ function OpenTuiScreen({
         setup={setupPending}
         onThemePreview={setTheme}
         onThemeChange={onThemeChange}
+        unicodeDecorations={initialUnicodeDecorations}
+        onUnicodeDecorationsChange={onUnicodeDecorationsChange}
         allowBypassPermissions={bypassAllowed}
         onBypassAvailabilityChange={
           onBypassAvailabilityChange ? changeBypassAvailability : undefined
@@ -933,8 +954,8 @@ function OpenTuiScreen({
               : palette.muted
           }
         >
-          {terminalSafeText(
-            `${index + suggestionStart === selectedSuggestionIndex ? "❯" : " "} ${command.name} · ${command.description}`,
+          {terminalLine(
+            `${index + suggestionStart === selectedSuggestionIndex ? ">" : " "} ${command.name} | ${command.description}`,
             Math.max(8, composerWidth - 3),
           )}
         </text>
@@ -982,7 +1003,7 @@ function OpenTuiScreen({
           textColor={palette.text}
           focusedTextColor={palette.text}
           placeholderColor={palette.muted}
-          placeholder="Опишите задачу…"
+          placeholder="Опишите задачу..."
           cursorColor={palette.accent}
           selectionBg={palette.raised}
           selectionFg={palette.text}
@@ -1017,12 +1038,12 @@ function OpenTuiScreen({
         />
       </OpenTuiPrompt>
       <text fg={palette.muted} height={1}>
-        {terminalSafeText(
+        {terminalLine(
           composerWidth >= 70
-            ? "Enter отправить · Shift+Enter строка · Shift+Tab режим · F4 разрешения"
+            ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
             : composerWidth >= 45
-              ? "Enter ↵ · Shift+Tab режим · F4 разрешения"
-              : "Shift+Tab режим · F4 доступ · ↵",
+              ? "Enter отправить | Shift+Tab режим | F4 разрешения"
+              : "Shift+Tab режим | F4 доступ | Enter",
           composerWidth,
         )}
       </text>
@@ -1049,7 +1070,7 @@ function OpenTuiScreen({
               palette={palette}
               feedback={
                 view.transcript.length > 0 && !visibleSuggestions.length ? (
-                  <scrollbox
+                  <TerminalScrollbox
                     ref={transcript}
                     height={Math.min(
                       6,
@@ -1072,7 +1093,7 @@ function OpenTuiScreen({
                       contentWidth={composerWidth - 2}
                       palette={palette}
                     />
-                  </scrollbox>
+                  </TerminalScrollbox>
                 ) : undefined
               }
             >
@@ -1089,15 +1110,18 @@ function OpenTuiScreen({
               {!workspace && (
                 <>
                   {showLogo &&
-                    COMPACT_LOGO.map((row) => (
+                    (initialUnicodeDecorations
+                      ? COMPACT_LOGO
+                      : ["<i> ChiselCode"]
+                    ).map((row) => (
                       <text key={row} fg={palette.accent}>
                         {row}
                       </text>
                     ))}
                   <text fg={palette.accent}>
                     {onSubmit
-                      ? `◈ ${showLogo ? "" : "ChiselCode  ·  "}${terminalSafeText(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  ·  ${theme}`
-                      : `◈ ChiselCode · probe · ${width}×${height} · ${theme}`}
+                      ? `[i] ${showLogo ? "" : "ChiselCode  |  "}${terminalLine(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  |  ${theme}`
+                      : `[i] ChiselCode | probe | ${width}x${height} | ${theme}`}
                   </text>
                   <box
                     width="100%"
@@ -1125,7 +1149,7 @@ function OpenTuiScreen({
                 </>
               )}
               {height >= 12 && (
-                <scrollbox
+                <TerminalScrollbox
                   ref={transcript}
                   height={feedHeight}
                   stickyScroll={!home}
@@ -1167,7 +1191,7 @@ function OpenTuiScreen({
                         </text>
                       ))}
                       <text fg={palette.muted}>
-                        example.ts · +1 −1 · Ctrl+D: diff
+                        example.ts | +1 -1 | Ctrl+D: diff
                       </text>
                       {expanded && (
                         <diff
@@ -1187,12 +1211,12 @@ function OpenTuiScreen({
                             : palette.accent
                         }
                       >
-                        ◆{" "}
+                        *{" "}
                         {AGENT_MODE_LABELS[view.runningMode ?? view.agentMode]}{" "}
-                        ·{" "}
+                        |{" "}
                         {view.runningMode === "plan"
-                          ? "составляет план…"
-                          : "отвечает…"}
+                          ? "составляет план..."
+                          : "отвечает..."}
                       </text>
                       <FormattedMessage
                         content={view.streaming}
@@ -1205,7 +1229,7 @@ function OpenTuiScreen({
                       {terminalSafeText(view.toolActivity, 2_000)}
                     </text>
                   )}
-                </scrollbox>
+                </TerminalScrollbox>
               )}
               {composer}
             </box>

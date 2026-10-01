@@ -3,6 +3,7 @@ import { RGBA } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { type ReactNode, useRef } from "react";
 import { type Palette, THEMES } from "./appearance.js";
+import { useTerminalDecoration } from "./terminal-decoration.js";
 
 export function dialogLayout(width: number, height: number, maxHeight = 30) {
   const popupWidth = Math.max(1, Math.min(104, width - (width >= 50 ? 4 : 2)));
@@ -40,6 +41,7 @@ export function OpenTuiDialog({
   maxHeight?: number;
 }) {
   const renderer = useRenderer();
+  const { borderChars } = useTerminalDecoration();
   const dismiss = useRef(false);
   const { popupWidth, popupHeight, left, top, roomy, tiny } = dialogLayout(
     width,
@@ -88,6 +90,7 @@ export function OpenTuiDialog({
         height={popupHeight}
         border={tiny ? [] : true}
         borderStyle="rounded"
+        customBorderChars={borderChars}
         borderColor={palette.border}
         backgroundColor={palette.surface}
         paddingLeft={1}
