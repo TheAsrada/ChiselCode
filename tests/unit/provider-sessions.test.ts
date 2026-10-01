@@ -108,6 +108,7 @@ test("mode selection persists separately from the completed request and preserve
   await fixture(async (store) => {
     const session = store.create("anthropic", "original-model");
     session.mode = "plan";
+    session.approvalMode = "ask";
     await store.save(session);
     const latest = await store.load(session.id);
     latest.messages.push({
@@ -115,16 +116,24 @@ test("mode selection persists separately from the completed request and preserve
       content: [{ type: "text", text: "Plan completed" }],
     });
     if (latest.runtime) latest.runtime.turnMode = "plan";
+    if (latest.runtime) latest.runtime.turnApprovalMode = "ask";
     await store.save(latest);
     const before = await store.load(session.id);
-    await store.setMode(session.id, "build");
+    await store.setExecutionModes(session.id, {
+      mode: "build",
+      approvalMode: "auto",
+    });
     const restored = await store.load(session.id);
     expect(restored.mode).toBe("build");
     expect(restored.runtime?.turnMode).toBe("plan");
+    expect(restored.approvalMode).toBe("auto");
+    expect(restored.runtime?.turnApprovalMode).toBe("ask");
     expect(restored.messages).toEqual(before.messages);
     expect(restored.updatedAt).toBe(before.updatedAt);
     expect(restored.model).toBe("original-model");
     expect((await store.list())[0]?.messageCount).toBe(1);
+    await store.setMode(session.id, "plan");
+    expect((await store.load(session.id)).approvalMode).toBe("auto");
   });
 });
 
@@ -137,10 +146,17 @@ test("legacy sessions default to Build and invalid persisted modes leave the sou
     delete raw.mode;
     await writeFile(file, JSON.stringify(raw));
     expect((await store.load(session.id)).mode).toBe("build");
+    expect((await store.load(session.id)).approvalMode).toBeUndefined();
     raw.mode = "unknown";
     const invalid = JSON.stringify(raw);
     await writeFile(file, invalid);
     await expect(store.load(session.id)).rejects.toThrow("Invalid session");
     expect(await readFile(file, "utf8")).toBe(invalid);
+    delete raw.mode;
+    raw.approvalMode = "unknown";
+    const badPermissions = JSON.stringify(raw);
+    await writeFile(file, badPermissions);
+    await expect(store.load(session.id)).rejects.toThrow("Invalid session");
+    expect(await readFile(file, "utf8")).toBe(badPermissions);
   });
 });

@@ -1,5 +1,9 @@
 import { resolve } from "node:path";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
+import {
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+} from "../security/approval-mode.js";
 import type {
   ContextSnapshot,
   FileDiff,
@@ -20,6 +24,8 @@ export interface TranscriptEntry {
 export interface TuiViewState {
   agentMode: AgentMode;
   runningMode?: AgentMode;
+  approvalMode: ApprovalMode;
+  runningApprovalMode?: ApprovalMode;
   sessionId?: string;
   sessionTitle?: string;
   projectPath: string;
@@ -56,9 +62,14 @@ export class TuiController implements TuiTranscript {
   private gitSource = new GitChangesSource();
   private state: TuiViewState;
 
-  constructor(projectPath: string, agentMode: AgentMode = DEFAULT_AGENT_MODE) {
+  constructor(
+    projectPath: string,
+    agentMode: AgentMode = DEFAULT_AGENT_MODE,
+    approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
+  ) {
     this.state = {
       agentMode,
+      approvalMode,
       projectPath,
       transcript: [],
       streaming: "",
@@ -175,6 +186,12 @@ export class TuiController implements TuiTranscript {
   setRunningMode(runningMode?: AgentMode): void {
     this.update({ runningMode });
   }
+  setApprovalMode(approvalMode: ApprovalMode): void {
+    this.update({ approvalMode });
+  }
+  setRunningApprovalMode(runningApprovalMode?: ApprovalMode): void {
+    this.update({ runningApprovalMode });
+  }
 
   setSessionUsage(session: Session): void {
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
@@ -232,7 +249,7 @@ export class TuiController implements TuiTranscript {
   /** Invalidates responses from the previous project or session immediately. */
   switchSession(
     session?: Pick<Session, "id" | "projectPath"> &
-      Partial<Pick<Session, "title" | "mode">>,
+      Partial<Pick<Session, "title" | "mode" | "approvalMode">>,
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.generation++;
@@ -244,6 +261,9 @@ export class TuiController implements TuiTranscript {
       agentMode: session
         ? (session.mode ?? DEFAULT_AGENT_MODE)
         : this.state.agentMode,
+      approvalMode: session
+        ? (session.approvalMode ?? DEFAULT_APPROVAL_MODE)
+        : this.state.approvalMode,
       projectPath,
       sessionId: session?.id,
       sessionTitle: session?.title,

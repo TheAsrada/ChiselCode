@@ -1,5 +1,6 @@
 import type { ProjectConfig } from "../types/domain.js";
 import type { ApprovalOptions, ApprovalRequest } from "./approval.js";
+import { type ApprovalMode, resolveApprovalMode } from "./approval-mode.js";
 import { analyzeShell, commandMatches, simpleCommand } from "./shell-policy.js";
 export type PermissionDecision = "allow" | "ask" | "deny";
 export class PermissionPolicy {
@@ -7,7 +8,18 @@ export class PermissionPolicy {
     private readonly config: ProjectConfig,
     private readonly options: ApprovalOptions,
   ) {}
-  decide(request: ApprovalRequest, effect: string): PermissionDecision {
+  get approvalMode(): ApprovalMode {
+    return resolveApprovalMode({
+      approvalMode: this.options.approvalMode,
+      yes: this.options.autoApprove,
+      autoApprove: this.config.autoApprove,
+    });
+  }
+  decide(
+    request: ApprovalRequest,
+    effect: string,
+    approvalMode = this.approvalMode,
+  ): PermissionDecision {
     if (effect === "read") return "allow";
     if (request.command) {
       const analysis = analyzeShell(request.command);
@@ -32,11 +44,7 @@ export class PermissionPolicy {
         return "allow";
       // Broad explicit tool approval can still authorize complex shell; prefix rules cannot.
     }
-    if (
-      this.options.autoApprove ||
-      this.config.autoApprove ||
-      this.options.allowedTools.has(request.tool)
-    )
+    if (approvalMode === "auto" || this.options.allowedTools.has(request.tool))
       return "allow";
     return "ask";
   }

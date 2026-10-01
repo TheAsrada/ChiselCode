@@ -4,6 +4,7 @@ import { sessionsRootDir } from "../paths/home.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { RuntimeEventBus } from "../runtime/events.js";
 import type { ApprovalGate } from "../security/approval.js";
+import type { ApprovalMode } from "../security/approval-mode.js";
 import { HostSandboxExecutor } from "../security/sandbox.js";
 import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { initializeSessionState } from "../sessions/migrations.js";
@@ -23,6 +24,7 @@ export function createLocalToolRuntime(
   skills: readonly Skill[] = [],
   options: {
     mode?: AgentMode;
+    approvalMode?: ApprovalMode;
     events?: RuntimeEventBus;
     signal?: AbortSignal;
     checkpoint?: () => Promise<void>;
@@ -48,6 +50,7 @@ export function createLocalToolRuntime(
     catalog.register(handler);
   const context: ToolContext = {
     mode: options.mode,
+    approvalMode: options.approvalMode,
     session,
     workspace,
     editing: new EditingService(
@@ -71,5 +74,10 @@ export function createLocalToolRuntime(
     options.maxInlineTokens,
   );
   const scheduler = new ToolScheduler(executor, options.maxParallelReads);
-  return { catalog, executor, scheduler, context };
+  const getApprovalMode = () =>
+    options.approvalMode ??
+    session.runtime?.turnApprovalMode ??
+    session.approvalMode ??
+    gate.policy.approvalMode;
+  return { catalog, executor, scheduler, context, getApprovalMode };
 }

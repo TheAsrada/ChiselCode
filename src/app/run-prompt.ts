@@ -22,6 +22,10 @@ import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
+import {
+  type ApprovalMode,
+  resolveApprovalMode,
+} from "../security/approval-mode.js";
 import { CredentialStore } from "../security/credentials.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession, sessionTitleForPrompt } from "../sessions/store.js";
@@ -47,6 +51,7 @@ export interface RunEventHandlers {
 
 export interface RunOptions {
   mode?: AgentMode;
+  approvalMode?: ApprovalMode;
   /** Internal harness override; not a CLI flag. */
   configPath?: string;
   provider?: ProviderId;
@@ -319,6 +324,12 @@ export async function runPrompt(
     previous ?? createSession(projectRoot, selected.profile.providerId, model);
   const mode = options.mode ?? session.mode ?? DEFAULT_AGENT_MODE;
   session.mode = mode;
+  const approvalMode = resolveApprovalMode({
+    ...options,
+    saved: session.approvalMode,
+    autoApprove: config.autoApprove,
+  });
+  session.approvalMode = approvalMode;
   if (
     session.model !== model ||
     session.providerId !== selected.profile.providerId
@@ -357,6 +368,7 @@ export async function runPrompt(
     config,
     {
       autoApprove: Boolean(options.yes),
+      approvalMode,
       allowedTools: parseAllowedTools(options.allow),
       nonInteractive: !process.stdin.isTTY,
     },
@@ -385,6 +397,7 @@ export async function runPrompt(
     {
       events: eventBus,
       mode,
+      approvalMode,
       signal,
       maxInlineTokens: config.context?.maxInlineToolResultTokens,
       maxParallelReads: config.tools?.maxParallelReads,
@@ -403,6 +416,7 @@ export async function runPrompt(
     provider,
     new ContextManager(config.context, eventBus),
     {
+      getApprovalMode: tools.getApprovalMode,
       selectForTurn: () => tools.catalog.selectForTurn(),
       execute: (calls, signal) => tools.scheduler.execute(calls, signal),
     },
@@ -413,6 +427,7 @@ export async function runPrompt(
   try {
     result = await runtime.run(session, prompt, {
       mode,
+      approvalMode,
       signal,
       onCheckpoint: (current) => sessionStore.save(current),
     });

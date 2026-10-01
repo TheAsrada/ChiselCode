@@ -1,6 +1,11 @@
 /** @jsxImportSource @opentui/react */
 import type { ReactNode } from "react";
 import { AGENT_MODE_LABELS, type AgentMode } from "../runtime/agent-mode.js";
+import {
+  APPROVAL_MODE_LABELS,
+  APPROVAL_MODES,
+  type ApprovalMode,
+} from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 
@@ -15,7 +20,10 @@ export function OpenTuiPrompt({
   model,
   agentMode,
   runningMode,
+  approvalMode,
+  runningApprovalMode,
   onToggleMode,
+  onApprovalModeChange,
   onSubmit,
 }: {
   children: ReactNode;
@@ -27,24 +35,27 @@ export function OpenTuiPrompt({
   model?: string;
   agentMode: AgentMode;
   runningMode?: AgentMode;
+  approvalMode: ApprovalMode;
+  runningApprovalMode?: ApprovalMode;
   onToggleMode: () => void;
+  onApprovalModeChange: (mode: ApprovalMode) => void;
   onSubmit: () => void;
 }) {
   const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
+  const differentRun =
+    !!runningMode &&
+    (runningMode !== agentMode ||
+      (!!runningApprovalMode && runningApprovalMode !== approvalMode));
   const activity = busy
     ? !runningMode
       ? "в очереди"
-      : runningMode !== agentMode
-        ? `сейчас ${AGENT_MODE_LABELS[runningMode]}`
+      : differentRun
+        ? `сейчас ${AGENT_MODE_LABELS[runningMode]}${runningApprovalMode ? ` · ${APPROVAL_MODE_LABELS[runningApprovalMode]}` : ""}`
         : agentMode === "plan"
           ? "планирует"
           : "отвечает"
     : "";
-  const caption = (
-    busy && runningMode && runningMode !== agentMode
-      ? [activity, model]
-      : [model, activity]
-  )
+  const caption = (busy && differentRun ? [activity, model] : [model, activity])
     .filter(Boolean)
     .join(" · ");
   return (
@@ -71,7 +82,7 @@ export function OpenTuiPrompt({
         flexDirection="row"
         justifyContent="space-between"
       >
-        <box flexDirection="row" height={1} flexGrow={1} minWidth={0}>
+        <box flexDirection="row" height={1} flexGrow={1} minWidth={0} gap={1}>
           {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+Tab also switches modes. */}
           <box
             id="prompt-agent-mode"
@@ -89,11 +100,50 @@ export function OpenTuiPrompt({
               <strong>{AGENT_MODE_LABELS[agentMode]}</strong>
             </text>
           </box>
-          <text height={1} fg={palette.muted}>
-            {caption
-              ? ` · ${terminalSafeText(caption, Math.max(1, width - (width >= 60 ? 30 : 20)))}`
-              : ""}
-          </text>
+          <box flexDirection="row" height={1} gap={1}>
+            {APPROVAL_MODES.filter(
+              (mode) => width >= 35 || mode === approvalMode,
+            ).map((mode) => (
+              // biome-ignore lint/a11y/noStaticElementInteractions: F4 also switches permission modes.
+              <box
+                key={mode}
+                id={`prompt-approval-${mode}`}
+                height={1}
+                flexShrink={0}
+                paddingLeft={1}
+                paddingRight={1}
+                backgroundColor={
+                  mode === approvalMode ? palette.raised : palette.surface
+                }
+                onMouseUp={(event) => {
+                  event.stopPropagation();
+                  onApprovalModeChange(
+                    width < 35 ? (mode === "ask" ? "auto" : "ask") : mode,
+                  );
+                }}
+              >
+                <text
+                  height={1}
+                  selectable={false}
+                  fg={
+                    mode === approvalMode
+                      ? mode === "auto"
+                        ? palette.yellow
+                        : palette.text
+                      : palette.muted
+                  }
+                >
+                  {mode === "ask"
+                    ? width >= 60
+                      ? "С подтверждением"
+                      : width >= 35
+                        ? "Спрашивать"
+                        : "Ask"
+                    : "Авто"}
+                </text>
+              </box>
+            ))}
+          </box>
         </box>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: Enter also submits the message. */}
         <box
@@ -115,6 +165,12 @@ export function OpenTuiPrompt({
           </text>
         </box>
       </box>
+      <text id="prompt-model" height={1} fg={palette.muted}>
+        {terminalSafeText(
+          caption || "Модель не выбрана",
+          Math.max(1, width - 6),
+        )}
+      </text>
     </box>
   );
 }

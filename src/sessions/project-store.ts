@@ -13,6 +13,7 @@ import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
+import type { ApprovalMode } from "../security/approval-mode.js";
 import type { Session } from "../types/domain.js";
 import { withLock } from "./lock.js";
 import {
@@ -367,6 +368,12 @@ export class ProjectSessionStore {
   }
   /** Update only the selection under the same lock as checkpoints, preserving history. */
   async setMode(id: string, mode: AgentMode): Promise<void> {
+    await this.setExecutionModes(id, { mode });
+  }
+  async setExecutionModes(
+    id: string,
+    modes: { mode?: AgentMode; approvalMode?: ApprovalMode },
+  ): Promise<void> {
     await this.list();
     await withLock(this.indexPath, async () => {
       const session = await this.load(id);
@@ -374,7 +381,7 @@ export class ProjectSessionStore {
       const persisted = persistedSessionSchema.parse({
         ...fields,
         schemaVersion: 3,
-        mode,
+        ...modes,
       });
       const index = indexSchema.parse(await readJson(this.indexPath));
       await atomicJson(this.file(id), persisted);

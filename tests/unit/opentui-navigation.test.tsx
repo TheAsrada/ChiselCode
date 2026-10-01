@@ -4,9 +4,11 @@ import { RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { createSession } from "../../src/sessions/store.js";
+import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { THEMES } from "../../src/ui/appearance.js";
 import { LOGO_WIDTH, renderLogoRows } from "../../src/ui/logo.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
+import { createTuiApprovalResolver } from "../../src/ui/tui-contract.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
@@ -49,12 +51,34 @@ for (const [width, height] of [
     try {
       await frame(setup);
       expect(setup.captureCharFrame()).toContain("Shift+Tab режим");
+      expect(setup.captureCharFrame()).toContain("F4");
       await act(async () => {
         await setup.mockInput.pasteBracketedText("/bu");
         setup.mockInput.pressTab({ shift: true });
       });
       await frame(setup);
       expect(workspace.controller.snapshot.agentMode).toBe("plan");
+      await act(async () => setup.mockInput.pressKey("F4"));
+      await frame(setup);
+      expect(workspace.controller.snapshot.approvalMode).toBe("auto");
+      expect(workspace.controller.snapshot.agentMode).toBe("plan");
+      const confirm = setup.renderer.root.findDescendantById(
+        "prompt-approval-ask",
+      );
+      if (!confirm) throw new Error("Permission selector is missing");
+      await act(async () => setup.mockMouse.click(confirm.x + 2, confirm.y));
+      await frame(setup);
+      expect(workspace.controller.snapshot.approvalMode).toBe("ask");
+      expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/bu");
+      const automatic = setup.renderer.root.findDescendantById(
+        "prompt-approval-auto",
+      );
+      if (!automatic) throw new Error("Auto option is missing");
+      await act(async () =>
+        setup.mockMouse.click(automatic.x + 2, automatic.y),
+      );
+      await frame(setup);
+      expect(workspace.controller.snapshot.approvalMode).toBe("auto");
       expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/bu");
       expect(setup.captureCharFrame()).toContain("test-model");
       expect(submitted).toBe(false);
@@ -106,6 +130,21 @@ test("mode commands stay local; modes belong to tabs, resume restores them and a
     }
     expect(submitted).toEqual([]);
     expect(workspace.tabs).toHaveLength(0);
+    for (const [command, expected] of [
+      ["/auto", "auto"],
+      ["/ask", "ask"],
+      ["/permissions auto", "auto"],
+    ]) {
+      await act(async () => {
+        await setup.mockInput.pasteBracketedText(command ?? "");
+        setup.mockInput.pressEnter();
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.approvalMode).toBe(expected);
+      expect(workspace.controller.snapshot.agentMode).toBe("plan");
+    }
+    expect(submitted).toEqual([]);
+    expect(workspace.tabs).toHaveLength(0);
     let firstKey: string | undefined;
     act(() => {
       workspace.newTab();
@@ -115,18 +154,22 @@ test("mode commands stay local; modes belong to tabs, resume restores them and a
     });
     await frame(setup);
     expect(workspace.home.snapshot.agentMode).toBe("build");
+    expect(workspace.home.snapshot.approvalMode).toBe("auto");
     const session = createSession(process.cwd(), "anthropic", "test-model");
     session.mode = "plan";
+    session.approvalMode = "ask";
     act(() => {
       workspace.openSession(session);
     });
     await frame(setup);
     expect(workspace.controller.snapshot.agentMode).toBe("plan");
+    expect(workspace.controller.snapshot.approvalMode).toBe("ask");
     act(() => {
       workspace.select(firstKey);
     });
     await frame(setup);
     expect(workspace.controller.snapshot.agentMode).toBe("build");
+    expect(workspace.controller.snapshot.approvalMode).toBe("auto");
     const legacy = createSession(process.cwd(), "anthropic", "test-model");
     act(() => {
       workspace.openSession(legacy);
@@ -178,9 +221,11 @@ test("Shift+Tab belongs to the open popup and does not change the agent mode", a
       expect(workspace.controller.snapshot.focus).toBe("modal");
       await act(async () => {
         setup.mockInput.pressTab({ shift: true });
+        setup.mockInput.pressKey("F4");
       });
       await frame(setup);
       expect(workspace.controller.snapshot.agentMode).toBe("build");
+      expect(workspace.controller.snapshot.approvalMode).toBe("ask");
       await act(async () => {
         setup.mockInput.pressEscape();
         await Bun.sleep(120);
@@ -192,6 +237,136 @@ test("Shift+Tab belongs to the open popup and does not change the agent mode", a
     }
   } finally {
     act(() => {
+      setup.renderer.destroy();
+      workspace.dispose();
+    });
+  }
+});
+
+test("approval shows every file in an atomic patch and scrolls beyond 200 lines", async () => {
+  const resolver = createTuiApprovalResolver();
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} approvalResolver={resolver} />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await frame(setup);
+    const diffs = [
+      buildFileDiff("first.txt", null, "first change\n"),
+      buildFileDiff(
+        "second.txt",
+        null,
+        Array.from({ length: 230 }, (_, i) => `change ${i}`).join("\n"),
+      ),
+    ];
+    let pending: Promise<string> | undefined;
+    await act(async () => {
+      pending = resolver.requestApproval({
+        tool: "apply_patch",
+        preview: diffs.map((diff) => diff.patch).join("\n"),
+        fileDiff: diffs[0],
+        diffs,
+      });
+    });
+    await frame(setup);
+    expect(setup.captureCharFrame()).toContain("файлов: 2");
+    expect(setup.captureCharFrame()).toContain("first.txt");
+    expect(setup.captureCharFrame()).toContain("second.txt");
+    await act(async () => setup.mockInput.pressKey("END"));
+    await frame(setup);
+    expect(setup.captureCharFrame()).toContain("change 229");
+    await act(async () => {
+      setup.mockInput.pressEscape();
+      await Bun.sleep(120);
+    });
+    expect(await pending).toBe("denied");
+  } finally {
+    act(() => {
+      resolver.dispose();
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("approval takes priority over skills, settings and session picker; Escape cannot approve a background action", async () => {
+  const workspace = new TuiWorkspace(process.cwd());
+  const resolver = createTuiApprovalResolver();
+  const setup = await testRender(
+    <OpenTuiSpike
+      workspace={workspace}
+      onExit={() => {}}
+      approvalResolver={resolver}
+      skillsActions={{
+        load: () => [],
+        activeNames: () => [],
+        toggle: () => {},
+      }}
+      settingsActions={{
+        load: async () => ({
+          values: { provider: "anthropic", model: "test-model" },
+          hasKey: true,
+        }),
+        hasKey: async () => true,
+        save: async () => "saved",
+        check: async () => "ok",
+        models: async () => ({ ok: true, models: [] }),
+      }}
+      sessionPicker={{
+        load: async () => [],
+        preview: async () =>
+          createSession(process.cwd(), "anthropic", "test-model"),
+        resume: async () => {},
+        rename: async () => {},
+        delete: async () => {},
+        activeId: () => undefined,
+      }}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await frame(setup);
+    for (const command of ["/skills", "/settings", "/sessions"]) {
+      await act(async () => {
+        await setup.mockInput.pasteBracketedText(command);
+        setup.mockInput.pressEnter();
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.focus).toBe("modal");
+      let pending: Promise<string> | undefined;
+      await act(async () => {
+        pending = resolver.requestApproval({
+          tool: "run_shell",
+          preview: "Background command",
+        });
+      });
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("approval-popup"),
+      ).toBeTruthy();
+      expect(setup.captureCharFrame()).toContain("Background command");
+      expect(
+        setup.renderer.root.findDescendantById("settings-popup"),
+      ).toBeFalsy();
+      expect(
+        setup.renderer.root.findDescendantById("skills-popup"),
+      ).toBeFalsy();
+      await act(async () => {
+        setup.mockInput.pressEscape();
+        await Bun.sleep(120);
+      });
+      expect(await pending).toBe("denied");
+      await frame(setup);
+      expect(workspace.controller.snapshot.focus).toBe("modal");
+      await act(async () => {
+        setup.mockInput.pressEscape();
+        await Bun.sleep(120);
+      });
+      await frame(setup);
+      expect(workspace.controller.snapshot.focus).toBe("composer");
+    }
+  } finally {
+    act(() => {
+      resolver.dispose();
       setup.renderer.destroy();
       workspace.dispose();
     });
@@ -416,6 +591,84 @@ test("command feedback and suggestions fit the welcome screen without creating a
     workspace.dispose();
   }
 });
+
+for (const [width, height] of [
+  [40, 12],
+  [80, 24],
+]) {
+  test(`approval popup supports mouse, preview scrolling and fail-closed dismissal at ${width}×${height}`, async () => {
+    const workspace = new TuiWorkspace(process.cwd());
+    const resolver = createTuiApprovalResolver();
+    const setup = await testRender(
+      <OpenTuiSpike
+        workspace={workspace}
+        onExit={() => {}}
+        approvalResolver={resolver}
+        getDefaultModel={() => "test-model"}
+      />,
+      { width, height },
+    );
+    try {
+      await frame(setup);
+      await act(async () =>
+        setup.mockInput.pasteBracketedText("Keep my draft"),
+      );
+      for (const action of ["approve", "deny", "escape", "backdrop"] as const) {
+        let pending: Promise<string> | undefined;
+        await act(async () => {
+          pending = resolver.requestApproval({
+            tool: "write_file",
+            preview: Array.from(
+              { length: 60 },
+              (_, i) => `preview line ${i}`,
+            ).join("\n"),
+          });
+        });
+        await frame(setup);
+        const popup = setup.renderer.root.findDescendantById("approval-popup");
+        expect(popup).toBeTruthy();
+        expect((popup?.y ?? 0) + (popup?.height ?? 0)).toBeLessThanOrEqual(
+          height,
+        );
+        await act(async () => {
+          setup.mockInput.pressKey("F4");
+          setup.mockInput.pressTab({ shift: true });
+          setup.mockInput.pressKey("END");
+        });
+        await frame(setup);
+        expect(workspace.controller.snapshot.approvalMode).toBe("ask");
+        expect(workspace.controller.snapshot.agentMode).toBe("build");
+        expect(setup.captureCharFrame()).toContain("preview line 59");
+        await act(async () => {
+          if (action === "escape") {
+            setup.mockInput.pressEscape();
+            await Bun.sleep(120);
+          } else if (action === "backdrop") await setup.mockMouse.click(0, 0);
+          else {
+            const button = setup.renderer.root.findDescendantById(
+              `approval-${action}`,
+            );
+            if (!button) throw new Error("Approval button is missing");
+            await setup.mockMouse.click(button.x + 2, button.y);
+          }
+        });
+        expect(await pending).toBe(
+          action === "approve" ? "approved" : "denied",
+        );
+        await frame(setup);
+        expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+          "Keep my draft",
+        );
+      }
+    } finally {
+      act(() => {
+        resolver.dispose();
+        setup.renderer.destroy();
+        workspace.dispose();
+      });
+    }
+  });
+}
 
 for (const [theme, palette] of Object.entries(THEMES)) {
   test(`welcome and prompt use the ${theme} palette`, async () => {

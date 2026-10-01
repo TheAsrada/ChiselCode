@@ -34,7 +34,8 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 | `--base-url <url>` | Адрес совместимого API |
 | `--resume <session-id>` | Полный ID или однозначный префикс сессии текущего проекта |
 | `--allow <tools>` | Разрешить перечисленные через запятую инструменты без вопроса |
-| `--yes` | Разрешить изменяющие инструменты без вопроса; запреты shell из конфигурации сохраняются |
+| `--approval <ask\|auto>` | Порядок подтверждений независимо от Plan/Build; resume восстанавливает сохранённый выбор |
+| `--yes` | Совместимый выбор Авто; явный `--approval ask` имеет приоритет |
 | `--json` | Вывести итог запроса одним JSON-объектом |
 | `--pause` / `--no-pause` | Ждать / не ждать Enter перед выходом |
 
@@ -55,6 +56,8 @@ chisel --mode build --cwd ./my-project --resume <session-id> "Выполни п�
 
 ## JSON и коды завершения
 
+`--approval auto` выполняет обычные действия без диалогов; `deniedCommands`, path/revision checks и ограничения Plan сохраняются. Приоритет: `--approval` → `--yes` → сохранённый выбор → `.chiselrc.autoApprove` → Ask. Явный Ask заменяет широкое автоматическое разрешение, сохраняя grants `--allow` и `allowedCommands`. Подробнее: [разрешения](permissions.md).
+
 ```bash
 chisel --cwd ./my-project --json "Объясни структуру проекта" > result.json
 ```
@@ -65,6 +68,7 @@ chisel --cwd ./my-project --json "Объясни структуру проект
 | `text` | Итоговый текст |
 | `sessionId` | ID сохранённой сессии |
 | `mode` | `build` или `plan` для выполненного запроса |
+| `approvalMode` | `ask` или `auto` для выполненного запроса |
 | `totalTokens` | Счётчики `inputTokens`, `outputTokens` и необязательные счётчики кэша |
 | `totalCost` | Optional известная estimated стоимость; отсутствует при unknown pricing |
 | `costEstimate` | source=provider/estimated/unknown, optional usd; не заменяет billing |

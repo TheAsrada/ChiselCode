@@ -54,6 +54,7 @@ export class OneShotRenderer {
           text: result.text,
           sessionId: result.session.id,
           mode: result.session.mode ?? "build",
+          approvalMode: result.session.approvalMode ?? "ask",
           totalTokens: result.session.totalTokens,
           totalCost:
             result.session.costEstimate?.source === "unknown"

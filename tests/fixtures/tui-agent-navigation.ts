@@ -7,6 +7,7 @@ import * as run from "../../src/commands/run.js";
 import * as config from "../../src/config/load.js";
 import type { AgentEventHandlers } from "../../src/core/agent-loop.js";
 import type { AgentMode } from "../../src/runtime/agent-mode.js";
+import type { ApprovalMode } from "../../src/security/approval-mode.js";
 import * as projects from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { stripActiveSkillsBlock } from "../../src/skills/skills.js";
@@ -49,12 +50,17 @@ mock.module("../../src/config/load.js", () => ({
   saveGlobalConfig: async () => {},
 }));
 const storedModes: AgentMode[] = [];
+const storedApprovals: ApprovalMode[] = [];
 mock.module("../../src/sessions/project-store.js", () => ({
   ...projects,
   projectSessionStore: async () => ({
     list: async () => [],
-    setMode: async (_id: string, mode: AgentMode) => {
-      storedModes.push(mode);
+    setExecutionModes: async (
+      _id: string,
+      modes: { mode: AgentMode; approvalMode: ApprovalMode },
+    ) => {
+      storedModes.push(modes.mode);
+      storedApprovals.push(modes.approvalMode);
     },
   }),
   SessionProjectRegistry: class {
@@ -67,6 +73,7 @@ let releaseFirst: (() => void) | undefined;
 let calls = 0;
 const prompts: string[] = [];
 const modes: Array<AgentMode | undefined> = [];
+const approvals: Array<ApprovalMode | undefined> = [];
 mock.module("../../src/commands/run.js", () => ({
   ...run,
   hasApiKey: async () => true,
@@ -77,14 +84,21 @@ mock.module("../../src/commands/run.js", () => ({
     options: RunOptions,
     _approval: unknown,
     callbacks: AgentEventHandlers,
+    signal?: AbortSignal,
   ) => {
     calls++;
     prompts.push(prompt);
     modes.push(options.mode);
+    approvals.push(options.approvalMode);
     const task = stripActiveSkillsBlock(prompt);
     if (calls === 1)
       await new Promise<void>((resolve) => {
         releaseFirst = resolve;
+      });
+    if (calls === 3)
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
       });
     callbacks.onText?.(`answer: ${task}`);
     const session = createSession(
@@ -94,6 +108,7 @@ mock.module("../../src/commands/run.js", () => ({
     );
     session.title = task;
     session.mode = options.mode;
+    session.approvalMode = options.approvalMode;
     return { result: { session, text: `answer: ${task}` } };
   },
 }));
@@ -135,11 +150,13 @@ try {
   });
   expect(calls).toBe(1);
   expect(modes).toEqual(["plan"]);
+  expect(approvals).toEqual(["ask"]);
   expect(prompts[0]).toContain("code-review");
   await frame();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeFalsy();
   await act(async () => {
     setup.mockInput.pressTab({ shift: true });
+    setup.mockInput.pressKey("F4");
   });
   await frame();
   expect(setup.captureCharFrame()).toContain("сейчас Plan");
@@ -157,6 +174,7 @@ try {
   expect(setup.renderer.root.findDescendantById("welcome")).toBeTruthy();
   expect(setup.captureCharFrame()).toContain("Build");
   expect(setup.captureCharFrame()).toContain("test-model");
+  expect(approvals).toEqual(["ask"]);
   expect(
     setup.renderer.root
       .findDescendantById("session-tabs")
@@ -177,9 +195,11 @@ try {
   ).toBe(2);
   expect(setup.captureCharFrame()).toContain("В очереди: 1");
   expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build");
+  expect(setup.captureCharFrame()).toContain("В очереди: 1 · Build · Авто");
   expect(setup.captureCharFrame()).toContain("в очереди");
   await act(async () => {
     setup.mockInput.pressTab({ shift: true });
+    setup.mockInput.pressKey("F4");
   });
   await act(async () => {
     releaseFirst?.();
@@ -190,6 +210,7 @@ try {
   expect(calls).toBe(2);
   expect(prompts[1]).toBe("second task");
   expect(modes).toEqual(["plan", "build"]);
+  expect(approvals).toEqual(["ask", "auto"]);
   expect(setup.captureCharFrame()).toContain("Plan");
   expect(setup.captureCharFrame()).toContain("answer: second task");
   expect(setup.captureCharFrame()).not.toContain("answer: first task");
@@ -200,10 +221,27 @@ try {
   expect(setup.captureCharFrame()).toContain("answer: first task");
   expect(setup.captureCharFrame()).not.toContain("answer: second task");
   await act(async () => {
+    await setup.mockInput.pasteBracketedText("third task");
+    setup.mockInput.pressEnter();
+  });
+  expect(calls).toBe(3);
+  await act(async () => setup.mockInput.pressKey("F4"));
+  await frame();
+  await act(async () => {
+    await setup.mockInput.pasteBracketedText("cancelled queued task");
+    setup.mockInput.pressEnter();
+  });
+  await waitForFrame(() =>
+    setup.captureCharFrame().includes("cancelled queued task"),
+  );
+  await act(async () => {
     setup.mockInput.pressCtrlC();
   });
   await running;
+  expect(calls).toBe(3);
+  expect(storedApprovals.at(-1)).toBe("ask");
   expect(storedModes).toContain("plan");
+  expect(storedApprovals).toContain("ask");
   process.stdout.write("Agent navigation and queued output verified\n");
 } finally {
   setup.renderer.destroy();

@@ -129,13 +129,20 @@ export class ToolExecutor {
         preview: plan.preview,
         command: plan.command,
         fileDiff: plan.diffs?.[0],
+        diffs: plan.diffs,
       };
       const permission =
         handler.spec.effect === "workspace_write" &&
         plan.diffs?.length === 0 &&
         plan.resources.length === 0
           ? "allow"
-          : this.gate.policy.decide(request, handler.spec.effect);
+          : this.gate.policy.decide(
+              request,
+              handler.spec.effect,
+              context.approvalMode ??
+                runtime.turnApprovalMode ??
+                context.session.approvalMode,
+            );
       if (permission === "deny")
         throw new RuntimeError(
           "PERMISSION_DENIED",

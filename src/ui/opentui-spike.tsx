@@ -14,6 +14,12 @@ import {
   nextAgentMode,
 } from "../runtime/agent-mode.js";
 import type { ApprovalRequest } from "../security/approval.js";
+import {
+  APPROVAL_MODES,
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+  nextApprovalMode,
+} from "../security/approval-mode.js";
 import { invocableSkills } from "../skills/skills.js";
 import { type ThemeName, themePalette } from "./appearance.js";
 import {
@@ -117,6 +123,7 @@ function OpenTuiScreen({
   settingsActions,
   getDefaultModel,
   onAgentModeChange,
+  onApprovalModeChange,
   initialSettingsOpen = false,
   onSetupComplete,
   onInitialSettingsComplete,
@@ -137,6 +144,7 @@ function OpenTuiScreen({
   settingsActions?: OpenTuiSettingsActions;
   getDefaultModel?: () => string;
   onAgentModeChange?: (mode: AgentMode) => void;
+  onApprovalModeChange?: (mode: ApprovalMode) => void;
   initialSettingsOpen?: boolean;
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
@@ -184,6 +192,7 @@ function OpenTuiScreen({
       controller?.snapshot ?? {
         projectPath: process.cwd(),
         agentMode: DEFAULT_AGENT_MODE,
+        approvalMode: DEFAULT_APPROVAL_MODE,
         transcript: [],
         streaming: "",
         draft: "",
@@ -274,14 +283,14 @@ function OpenTuiScreen({
     (fullHomeLogo ? 5 : 1) +
     (homeCompact ? 1 : 2) +
     (homeHeight >= 10 ? 1 : 0) +
-    4;
+    5;
   const editorLimit = Math.max(
     1,
     Math.min(
       6,
       height -
         tabRows -
-        (home ? homeFixedRows + (view.transcript.length ? 2 : 0) : 7),
+        (home ? homeFixedRows + (view.transcript.length ? 2 : 0) : 8),
     ),
   );
   const editorHeight = workspace
@@ -302,7 +311,7 @@ function OpenTuiScreen({
             ),
         ),
       )
-    : Math.min(4, Math.max(2, height - 7));
+    : Math.min(4, Math.max(2, height - 8));
   const suggestions =
     height >= 12 &&
     isSlashInput(draft) &&
@@ -313,7 +322,7 @@ function OpenTuiScreen({
       : [];
   const suggestionLimit = Math.min(
     MAX_VISIBLE_SUGGESTIONS,
-    Math.max(0, height - tabRows - editorHeight - (home ? homeFixedRows : 6)),
+    Math.max(0, height - tabRows - editorHeight - (home ? homeFixedRows : 7)),
   );
   const selectedSuggestionIndex = suggestions.length
     ? suggestionIndex % suggestions.length
@@ -332,7 +341,7 @@ function OpenTuiScreen({
     height -
       editorHeight -
       tabRows -
-      (workspace ? 5 : showLogo ? 9 : 7) -
+      (workspace ? 6 : showLogo ? 10 : 8) -
       visibleSuggestions.length,
   );
   let newestDiffId: number | undefined;
@@ -372,6 +381,11 @@ function OpenTuiScreen({
     changeAgentMode(
       nextAgentMode(controller?.snapshot.agentMode ?? view.agentMode),
     );
+  const changeApprovalMode = (next: ApprovalMode) => {
+    if (controller) controller.setApprovalMode(next);
+    else setView((current) => ({ ...current, approvalMode: next }));
+    onApprovalModeChange?.(next);
+  };
 
   const browseHistory = (direction: -1 | 1) => {
     const input = editor.current;
@@ -449,6 +463,23 @@ function OpenTuiScreen({
       return;
     }
     if (pickerOpen || settingsOpen || skillsOpen) return;
+    if (
+      key.name === "f4" &&
+      !key.ctrl &&
+      !key.shift &&
+      !key.meta &&
+      !key.option &&
+      focus === "editor" &&
+      !contextOnly
+    ) {
+      key.preventDefault();
+      changeApprovalMode(
+        nextApprovalMode(
+          controller?.snapshot.approvalMode ?? view.approvalMode,
+        ),
+      );
+      return;
+    }
     if (
       key.name === "tab" &&
       key.shift &&
@@ -625,6 +656,22 @@ function OpenTuiScreen({
       setDraft("");
     };
     const parsed = parseSlashCommand(value);
+    if (parsed && ["/permissions", "/auto", "/ask"].includes(parsed.name)) {
+      const requested =
+        parsed.name === "/permissions" ? parsed.args : parsed.name.slice(1);
+      if (
+        APPROVAL_MODES.includes(requested as ApprovalMode) &&
+        (parsed.name === "/permissions" || !parsed.args)
+      )
+        changeApprovalMode(requested as ApprovalMode);
+      else
+        controller?.append(
+          "Разрешения: /permissions ask|auto, /ask или /auto. F4 переключает следующий запрос. С подтверждением — спрашивать перед изменениями и командами; Авто — разрешать действия без диалога. Запреты и ограничения Plan сохраняются.",
+          "info",
+        );
+      clearInput();
+      return;
+    }
     if (parsed && ["/plan", "/build", "/mode"].includes(parsed.name)) {
       const requested =
         parsed.name === "/mode" ? parsed.args : parsed.name.slice(1);
@@ -682,16 +729,7 @@ function OpenTuiScreen({
     clearInput();
   };
 
-  if (approval)
-    return (
-      <OpenTuiApproval
-        request={approval}
-        width={width}
-        height={height}
-        palette={palette}
-      />
-    );
-  if (pickerOpen && sessionPicker)
+  if (pickerOpen && sessionPicker && !approval)
     return (
       <OpenTuiSessions
         actions={sessionPicker}
@@ -705,29 +743,30 @@ function OpenTuiScreen({
         }}
       />
     );
-  const settingsDialog = settingsOpen ? (
-    <OpenTuiSettings
-      actions={settingsActions}
-      width={width}
-      height={height}
-      palette={palette}
-      initialSelection={settingsSelection}
-      initialPage={settingsPage}
-      theme={initialTheme}
-      setup={setupPending}
-      onThemePreview={setTheme}
-      onThemeChange={onThemeChange}
-      onClose={(outcome) => {
-        if (setupPending && outcome !== "saved") return onExit();
-        if (setupPending && outcome === "saved") onSetupComplete?.();
-        onInitialSettingsComplete?.();
-        setSetupPending(false);
-        setSettingsOpen(false);
-        controller?.setOverlay();
-        controller?.setFocus(focus === "editor" ? "composer" : focus);
-      }}
-    />
-  ) : undefined;
+  const settingsDialog =
+    settingsOpen && !approval ? (
+      <OpenTuiSettings
+        actions={settingsActions}
+        width={width}
+        height={height}
+        palette={palette}
+        initialSelection={settingsSelection}
+        initialPage={settingsPage}
+        theme={initialTheme}
+        setup={setupPending}
+        onThemePreview={setTheme}
+        onThemeChange={onThemeChange}
+        onClose={(outcome) => {
+          if (setupPending && outcome !== "saved") return onExit();
+          if (setupPending && outcome === "saved") onSetupComplete?.();
+          onInitialSettingsComplete?.();
+          setSetupPending(false);
+          setSettingsOpen(false);
+          controller?.setOverlay();
+          controller?.setFocus(focus === "editor" ? "composer" : focus);
+        }}
+      />
+    ) : undefined;
   if (setupPending && settingsOpen)
     return (
       <box width={width} height={height} backgroundColor={palette.bg}>
@@ -772,20 +811,27 @@ function OpenTuiScreen({
       <OpenTuiPrompt
         palette={palette}
         width={composerWidth}
-        focused={focus === "editor" && !skillsOpen && !settingsOpen}
+        focused={
+          focus === "editor" && !skillsOpen && !settingsOpen && !approval
+        }
         hasDraft={!!draft.trim()}
         busy={view.busy}
         model={view.usage?.model ?? getDefaultModel?.()}
         agentMode={view.agentMode}
         runningMode={view.runningMode}
+        approvalMode={view.approvalMode}
+        runningApprovalMode={view.runningApprovalMode}
         onToggleMode={toggleAgentMode}
+        onApprovalModeChange={changeApprovalMode}
         onSubmit={() => submit()}
       >
         <textarea
           id="prompt-editor"
           ref={editor}
           height={editorHeight}
-          focused={focus === "editor" && !skillsOpen && !settingsOpen}
+          focused={
+            focus === "editor" && !skillsOpen && !settingsOpen && !approval
+          }
           initialValue={draft}
           backgroundColor={palette.surface}
           focusedBackgroundColor={palette.surface}
@@ -828,9 +874,11 @@ function OpenTuiScreen({
       </OpenTuiPrompt>
       <text fg={palette.muted} height={1}>
         {terminalSafeText(
-          composerWidth >= 56
-            ? "Enter отправить · Shift+Enter строка · Shift+Tab режим"
-            : "Enter ↵ · Shift+Tab режим",
+          composerWidth >= 70
+            ? "Enter отправить · Shift+Enter строка · Shift+Tab режим · F4 разрешения"
+            : composerWidth >= 45
+              ? "Enter ↵ · Shift+Tab режим · F4 разрешения"
+              : "Shift+Tab режим · F4 доступ · ↵",
           composerWidth,
         )}
       </text>
@@ -1038,7 +1086,17 @@ function OpenTuiScreen({
         )}
       </box>
       {settingsDialog}
-      {skillsOpen && skillsActions && (
+      {approval && (
+        <OpenTuiApproval
+          request={approval}
+          width={width}
+          height={height}
+          palette={palette}
+          onApprove={() => approvalResolver?.resolve("approved")}
+          onDeny={() => approvalResolver?.resolve("denied")}
+        />
+      )}
+      {skillsOpen && skillsActions && !approval && (
         <OpenTuiSkills
           actions={skillsActions}
           width={width}

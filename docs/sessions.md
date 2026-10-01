@@ -25,6 +25,8 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи разбор �
 
 ## Технический формат v3
 
+Сессия также сохраняет workflow `mode` и порядок подтверждений `approvalMode`; runtime хранит отдельные снимки выполняющегося запроса. Вкладки и очередь сохраняют собственные значения. Metadata меняется под общим lock без перезаписи истории. Для legacy approvalMode default разрешается из конфигурации проекта. Подробнее: [разрешения](permissions.md).
+
 Project session сохраняет schemaVersion=3, providerId (open string), profileId и model. Полный transcript, runtime/context, summary/checkpoint, undo и structured UI diffs сохраняются. v2 с provider мигрирует в памяти в providerId и `${provider}-default` (namespace slash заменяется дефисом в legacy profile ID). Файл не переписывается при чтении. Следующий checkpoint/save/rename атомарно сохраняет v3. Отдельный session backup автоматически не создаётся; config backup описан в migration notes.
 
 Unknown/removed provider не мешает чтению history и summary. Запрос блокируется controlled provider unavailable; выберите доступный profile явно. Missing profile также требует явного выбора. Session index schemaVersion=2 — rebuildable cache: старый/повреждённый index восстанавливается из session files без перезаписи самих sessions. Старый project registry schemaVersion=1 не меняется. Non-persisted compatibility alias provider сохраняется для старых callers; durable identity не зависит от enum.

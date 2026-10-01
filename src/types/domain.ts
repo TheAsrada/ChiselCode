@@ -15,6 +15,7 @@ import type {
 import type { ProviderErrorCode } from "../providers/errors.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { TurnState } from "../runtime/turn-state.js";
+import type { ApprovalMode } from "../security/approval-mode.js";
 import type { ToolInvocationRecord } from "../tools/invocation.js";
 export interface FileRevision {
   sha256: string;
@@ -23,6 +24,7 @@ export interface FileRevision {
 export interface SessionRuntimeState {
   turnId?: string;
   turnMode?: AgentMode;
+  turnApprovalMode?: ApprovalMode;
   state?: TurnState;
   invocations: Record<string, ToolInvocationRecord>;
   workspaceObservations: Record<string, FileRevision>;
@@ -200,6 +202,8 @@ export interface Session {
   model: string;
   /** Selected workflow for subsequent requests; old sessions default to Build. */
   mode?: AgentMode;
+  /** Selected permission interaction; omitted in legacy records. */
+  approvalMode?: ApprovalMode;
   providerId: string;
   profileId: string;
   /** @deprecated Non-persisted alias for providerId. */

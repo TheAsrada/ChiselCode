@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { ContextManager } from "../context/context-manager.js";
 import { partitionTranscript } from "../context/partition.js";
 import { ProviderError } from "../providers/errors.js";
+import {
+  type ApprovalMode,
+  approvalModeInstructions,
+} from "../security/approval-mode.js";
 import { attachSessionRecorder } from "../sessions/checkpoints.js";
 import { initializeSessionState } from "../sessions/migrations.js";
 import type {
@@ -22,6 +26,7 @@ import type { RuntimeEventBus } from "./events.js";
 import { TurnRunner } from "./turn-runner.js";
 import type { TurnState } from "./turn-state.js";
 export interface RuntimeTools {
+  getApprovalMode?(): ApprovalMode;
   selectForTurn(): ToolDefinition[] | Promise<ToolDefinition[]>;
   execute(
     calls: ToolCall[],
@@ -30,6 +35,7 @@ export interface RuntimeTools {
 }
 export interface RuntimeOptions {
   mode?: AgentMode;
+  approvalMode?: ApprovalMode;
   maxIterations?: number;
   maxTokens?: number;
   signal?: AbortSignal;
@@ -55,7 +61,13 @@ export class AgentRuntime {
     const mode = options.mode ?? session.mode ?? DEFAULT_AGENT_MODE;
     session.mode = mode;
     runtime.turnMode = mode;
-    const system = `${this.system}\n\n${agentModeInstructions(mode)}`;
+    const approvalMode =
+      options.approvalMode ??
+      session.approvalMode ??
+      this.tools.getApprovalMode?.();
+    runtime.turnApprovalMode = approvalMode;
+    if (approvalMode) session.approvalMode = approvalMode;
+    const system = `${this.system}\n\n${agentModeInstructions(mode)}${approvalMode ? `\n\n${approvalModeInstructions(approvalMode)}` : ""}`;
     this.events.turnId = runtime.turnId;
     const detach = attachSessionRecorder(session, this.events);
     let finalText = "";

@@ -16,6 +16,60 @@ const resolver = {
 };
 
 describe("ApprovalGate", () => {
+  test("explicit Ask overrides broad --yes and config autoApprove, but retains narrow grants and hard denies", async () => {
+    const gate = new ApprovalGate(
+      { ...config, autoApprove: true },
+      {
+        approvalMode: "ask",
+        autoApprove: true,
+        allowedTools: new Set(["edit_file", "run_shell"]),
+        nonInteractive: true,
+      },
+      resolver,
+    );
+    expect(await gate.decide({ tool: "write_file", preview: "" })).toBe(
+      "unavailable",
+    );
+    expect(await gate.decide({ tool: "edit_file", preview: "" })).toBe(
+      "approved",
+    );
+    expect(
+      await gate.decide({
+        tool: "run_shell",
+        preview: "",
+        command: "bun test",
+      }),
+    ).toBe("approved");
+    expect(
+      await gate.decide({
+        tool: "run_shell",
+        preview: "",
+        command: "echo ok && rm -rf build",
+      }),
+    ).toBe("denied");
+  });
+  test("Auto allows ordinary writes in noninteractive execution but denied commands still win", async () => {
+    const gate = new ApprovalGate(
+      config,
+      {
+        approvalMode: "auto",
+        autoApprove: false,
+        allowedTools: new Set(),
+        nonInteractive: true,
+      },
+      resolver,
+    );
+    expect(await gate.decide({ tool: "create_skill", preview: "" })).toBe(
+      "approved",
+    );
+    expect(
+      await gate.decide({
+        tool: "run_shell",
+        preview: "",
+        command: "echo ok && rm -rf build",
+      }),
+    ).toBe("denied");
+  });
   test("auto approves read-only tools", async () => {
     const gate = new ApprovalGate(
       config,

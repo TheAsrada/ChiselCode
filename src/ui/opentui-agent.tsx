@@ -21,13 +21,22 @@ import {
   planSelfUpdate,
   RELEASES_PAGE_URL,
 } from "../commands/update.js";
-import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
+import {
+  loadGlobalConfig,
+  loadProjectConfig,
+  saveGlobalConfig,
+} from "../config/load.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import {
   AGENT_MODE_LABELS,
   type AgentMode,
   DEFAULT_AGENT_MODE,
 } from "../runtime/agent-mode.js";
+import {
+  APPROVAL_MODE_LABELS,
+  type ApprovalMode,
+  resolveApprovalMode,
+} from "../security/approval-mode.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { shortSessionId } from "../sessions/store.js";
 import {
@@ -66,11 +75,19 @@ export async function runOpenTuiAgent(
   setupOnly = false,
 ): Promise<void> {
   let activeOptions = { ...options, resume: undefined };
+  const projectConfig = await loadProjectConfig(options.cwd ?? process.cwd());
+  const initialApprovalMode = resolveApprovalMode({
+    ...options,
+    saved: initialSession?.approvalMode,
+    autoApprove: projectConfig.autoApprove,
+  });
   const workspace = new TuiWorkspace(
     options.cwd ?? process.cwd(),
     options.mode ?? DEFAULT_AGENT_MODE,
+    initialApprovalMode,
   );
   if (initialSession) workspace.openSession(initialSession);
+  workspace.controller.setApprovalMode(initialApprovalMode);
   if (options.mode) workspace.controller.setAgentMode(options.mode);
   const currentController = () => workspace.controller;
   const approvalResolver = createTuiApprovalResolver();
@@ -120,6 +137,7 @@ export async function runOpenTuiAgent(
     input: string;
     controller: TuiController;
     mode: AgentMode;
+    approvalMode: ApprovalMode;
   }> = [];
   const skillNames = new WeakMap<
     TuiController,
@@ -137,14 +155,18 @@ export async function runOpenTuiAgent(
     return entry.names;
   };
   let pendingSave: Promise<void> = Promise.resolve();
-  const persistAgentMode = (controller: TuiController) => {
+  const persistExecutionModes = (controller: TuiController) => {
     if (!controller.snapshot.sessionId || controller.snapshot.busy) return;
     pendingSave = pendingSave
       .then(async () => {
-        const { sessionId, projectPath, agentMode, busy } = controller.snapshot;
+        const { sessionId, projectPath, agentMode, approvalMode, busy } =
+          controller.snapshot;
         if (!sessionId || busy) return;
         const store = await projectSessionStore(projectPath);
-        await store.setMode(sessionId, agentMode);
+        await store.setExecutionModes(sessionId, {
+          mode: agentMode,
+          approvalMode,
+        });
       })
       .catch((error) =>
         controller.append(
@@ -153,13 +175,21 @@ export async function runOpenTuiAgent(
         ),
       );
   };
-  if (initialSession && options.mode) persistAgentMode(workspace.controller);
+  if (initialSession && (options.mode || options.approvalMode || options.yes))
+    persistExecutionModes(workspace.controller);
   let finish: (() => void) | undefined;
   const finished = new Promise<void>((resolve) => {
     finish = resolve;
   });
   const shutdown = () => {
     abort.abort();
+    pendingPrompts.length = 0;
+    for (const { controller } of workspace.tabs) {
+      if (!controller.snapshot.runningMode) {
+        controller.setBusy(false);
+        persistExecutionModes(controller);
+      }
+    }
     approvalResolver.dispose();
     finish?.();
   };
@@ -168,6 +198,12 @@ export async function runOpenTuiAgent(
   const resume = async (ref: string): Promise<void> => {
     const store = await sessionStore();
     const session = await store.load((await store.resolve(ref)).id);
+    if (!session.approvalMode) {
+      const project = await loadProjectConfig(session.projectPath);
+      session.approvalMode = resolveApprovalMode({
+        autoApprove: project.autoApprove,
+      });
+    }
     workspace.openSession(session);
   };
   const sessionPicker: OpenTuiSessionsActions = {
@@ -417,6 +453,7 @@ export async function runOpenTuiAgent(
     input: string,
     target = currentController(),
     turnMode = target.snapshot.agentMode,
+    turnApprovalMode = target.snapshot.approvalMode,
   ): Promise<void> => {
     let controller = target;
     if (abort.signal.aborted) return;
@@ -517,7 +554,11 @@ export async function runOpenTuiAgent(
     if (controller === workspace.home) {
       const selectedSkills = activeSkills(controller);
       const inputHistory = controller.presentation.history;
-      controller = workspace.newTab(controller.snapshot.projectPath, turnMode);
+      controller = workspace.newTab(
+        controller.snapshot.projectPath,
+        turnMode,
+        turnApprovalMode,
+      );
       controller.setSessionTitle(
         input.split("\n", 1)[0]?.slice(0, 120) ?? input.slice(0, 120),
       );
@@ -528,16 +569,22 @@ export async function runOpenTuiAgent(
       });
     }
     if (activeRun) {
-      pendingPrompts.push({ input, controller, mode: turnMode });
+      pendingPrompts.push({
+        input,
+        controller,
+        mode: turnMode,
+        approvalMode: turnApprovalMode,
+      });
       controller.setBusy(true);
       controller.append(
-        `В очереди: ${pendingPrompts.length} · ${AGENT_MODE_LABELS[turnMode]} · ${input}`,
+        `В очереди: ${pendingPrompts.length} · ${AGENT_MODE_LABELS[turnMode]} · ${APPROVAL_MODE_LABELS[turnApprovalMode]} · ${input}`,
         "info",
       );
       return;
     }
     controller.setBusy(true);
     controller.setRunningMode(turnMode);
+    controller.setRunningApprovalMode(turnApprovalMode);
     controller.append(`❯ ${input}`, "user");
     const expanded = skill
       ? expandSkill(skill, input.slice(command.length).trim())
@@ -558,6 +605,7 @@ export async function runOpenTuiAgent(
             cwd: controller.snapshot.projectPath,
             resume: controller.snapshot.sessionId,
             mode: turnMode,
+            approvalMode: turnApprovalMode,
           },
           approvalResolver,
           {
@@ -597,13 +645,19 @@ export async function runOpenTuiAgent(
       } finally {
         activeRun = undefined;
         controller.setRunningMode();
+        controller.setRunningApprovalMode();
         controller.setBusy(
           pendingPrompts.some((item) => item.controller === controller),
         );
-        persistAgentMode(controller);
+        persistExecutionModes(controller);
         const next = pendingPrompts.shift();
         if (next && !abort.signal.aborted)
-          void submit(next.input, next.controller, next.mode);
+          void submit(
+            next.input,
+            next.controller,
+            next.mode,
+            next.approvalMode,
+          );
       }
     })();
     activeRun = work;
@@ -621,7 +675,8 @@ export async function runOpenTuiAgent(
         sessionPicker,
         settingsActions,
         getDefaultModel: () => defaultModel,
-        onAgentModeChange: () => persistAgentMode(currentController()),
+        onAgentModeChange: () => persistExecutionModes(currentController()),
+        onApprovalModeChange: () => persistExecutionModes(currentController()),
         skillsActions,
         initialSettingsOpen: setupRequired || setupOnly,
         onSetupComplete: setupOnly ? shutdown : undefined,

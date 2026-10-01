@@ -4,11 +4,11 @@ import { useRenderer } from "@opentui/react";
 import { type ReactNode, useRef } from "react";
 import { type Palette, THEMES } from "./appearance.js";
 
-export function dialogLayout(width: number, height: number) {
+export function dialogLayout(width: number, height: number, maxHeight = 30) {
   const popupWidth = Math.max(1, Math.min(104, width - (width >= 50 ? 4 : 2)));
   const popupHeight = Math.max(
     1,
-    Math.min(30, height - (height >= 12 ? 2 : 0)),
+    Math.min(maxHeight, height - (height >= 12 ? 2 : 0)),
   );
   return {
     popupWidth,
@@ -29,6 +29,7 @@ export function OpenTuiDialog({
   palette,
   onClose,
   children,
+  maxHeight,
 }: {
   id: string;
   width: number;
@@ -36,12 +37,14 @@ export function OpenTuiDialog({
   palette: Palette;
   onClose: () => void;
   children: ReactNode;
+  maxHeight?: number;
 }) {
   const renderer = useRenderer();
   const dismiss = useRef(false);
   const { popupWidth, popupHeight, left, top, roomy, tiny } = dialogLayout(
     width,
     height,
+    maxHeight,
   );
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape also dismisses the dialog.

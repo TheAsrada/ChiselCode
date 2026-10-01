@@ -1,5 +1,9 @@
 import { resolve } from "node:path";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
+import {
+  type ApprovalMode,
+  DEFAULT_APPROVAL_MODE,
+} from "../security/approval-mode.js";
 import type { Session } from "../types/domain.js";
 import { createEditorState } from "./editor.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
@@ -19,8 +23,12 @@ export class TuiWorkspace {
   private listeners = new Set<() => void>();
   private subscriptions = new Map<string, () => void>();
 
-  constructor(projectPath: string, mode: AgentMode = DEFAULT_AGENT_MODE) {
-    this.home = new TuiController(projectPath, mode);
+  constructor(
+    projectPath: string,
+    mode: AgentMode = DEFAULT_AGENT_MODE,
+    approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
+  ) {
+    this.home = new TuiController(projectPath, mode, approvalMode);
   }
 
   get controller(): TuiController {
@@ -38,11 +46,13 @@ export class TuiWorkspace {
   /** A new conversation starts on the welcome screen, without allocating a tab. */
   newDraft(projectPath = this.controller.snapshot.projectPath): TuiController {
     const mode = this.controller.snapshot.agentMode;
+    const approvalMode = this.controller.snapshot.approvalMode;
     if (this.activeKey || projectPath !== this.home.snapshot.projectPath) {
       this.home.switchSession(undefined, projectPath);
       this.home.presentation.history = createEditorState();
     }
     this.home.setAgentMode(mode);
+    this.home.setApprovalMode(approvalMode);
     this.select();
     return this.home;
   }
@@ -50,8 +60,9 @@ export class TuiWorkspace {
   newTab(
     projectPath = this.controller.snapshot.projectPath,
     mode = this.controller.snapshot.agentMode,
+    approvalMode = this.controller.snapshot.approvalMode,
   ): TuiController {
-    const controller = new TuiController(projectPath, mode);
+    const controller = new TuiController(projectPath, mode, approvalMode);
     const key = `tab-${++this.serial}`;
     this.tabs = [...this.tabs, { key, controller }];
     this.subscriptions.set(

@@ -1,4 +1,5 @@
 import type { FileDiff, ProjectConfig, ToolName } from "../types/domain.js";
+import type { ApprovalMode } from "./approval-mode.js";
 import { PermissionPolicy } from "./permission-policy.js";
 
 const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
@@ -23,6 +24,8 @@ export interface ApprovalRequest {
   preview: string;
   command?: string;
   fileDiff?: FileDiff;
+  /** All files covered by this one atomic action; fileDiff remains compatible. */
+  diffs?: FileDiff[];
 }
 
 export interface ApprovalResolver {
@@ -30,6 +33,7 @@ export interface ApprovalResolver {
 }
 
 export interface ApprovalOptions {
+  approvalMode?: ApprovalMode;
   autoApprove: boolean;
   allowedTools: Set<ToolName>;
   nonInteractive: boolean;

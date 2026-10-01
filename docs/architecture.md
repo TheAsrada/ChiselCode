@@ -34,6 +34,10 @@ flowchart TD
 
 `session.mode` хранит выбранный режим; `session.runtime.turnMode` фиксирует режим запроса. В TUI `agentMode` принадлежит контроллеру вкладки, `runningMode` показывает выполняющийся запрос. Очередь захватывает режим при отправке. Переключение UI не меняет runtime текущего запроса. Сохранение выбора после idle использует metadata update под тем же lock, что checkpoints; полный transcript не перезаписывается устаревшей копией. Подробнее о решениях и источниках: [режимы агента](agent-modes.md).
 
+## Политика подтверждений
+
+Порядок подтверждений задаётся отдельно через `ApprovalMode` (`ask/auto`). `session.approvalMode` хранит выбор, `runtime.turnApprovalMode` — снимок запроса. TUI и очередь захватывают его вместе с workflow; `run-prompt` передаёт в runtime и executor. PermissionPolicy сохраняет hard denies и narrow allow rules, а Auto разрешает обычные действия без диалога. `setExecutionModes` сохраняет обе настройки атомарно без замены истории. Схема старых сессий оставляет отсутствующий approvalMode неопределённым для совместимости с `autoApprove`. Подробнее: [архитектурный отчёт разрешений](permissions.md).
+
 ## Три вида состояния
 
 | Сущность | Содержимое | Поведение при compaction |
