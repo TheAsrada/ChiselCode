@@ -41,7 +41,7 @@ describe("self update helpers", () => {
         }),
       )) as unknown as typeof fetch;
     const check = await checkForUpdates("0.5.35", { fetchImpl });
-    const plan = planSelfUpdate(check, "0.5.35", "win32");
+    const plan = planSelfUpdate(check, "0.5.35", "win32", "x64");
     expect(plan.assetReady).toBe(true);
     expect(plan.url).toBe("https://example.test/real-installer.exe");
     expect(plan.assetSize).toBe(payload.byteLength);
@@ -60,6 +60,7 @@ describe("self update helpers", () => {
       await checkForUpdates("0.5.35", { fetchImpl }),
       "0.5.35",
       "win32",
+      "x64",
     );
     expect(plan.updateAvailable).toBe(true);
     expect(plan.assetReady).toBe(false);
@@ -81,6 +82,7 @@ describe("self update helpers", () => {
       },
       "0.5.35",
       "win32",
+      "x64",
     );
     expect(plan.error).toContain("SHA-256");
   });
@@ -137,6 +139,7 @@ describe("self update helpers", () => {
       { current: "0.2.21", latest: "0.2.21", updateAvailable: false },
       "0.2.21",
       "win32",
+      "x64",
     );
     expect(plan.updateAvailable).toBe(false);
     expect(plan.error).toBeUndefined();
@@ -152,6 +155,7 @@ describe("self update helpers", () => {
       },
       "0.2.21",
       "win32",
+      "x64",
     );
     expect(plan.updateAvailable).toBe(true);
     expect(plan.asset).toBe("ChiselCode-Setup-0.2.22.exe");
@@ -167,6 +171,7 @@ describe("self update helpers", () => {
       },
       "0.2.21",
       "win32",
+      "x64",
     );
     expect(plan.latest).toBe("0.2.22");
     expect(plan.asset).toBe("ChiselCode-Setup-0.2.22.exe");
@@ -179,6 +184,7 @@ describe("self update helpers", () => {
       { current: "0.2.21", error: "Нет соединения" },
       "0.2.21",
       "win32",
+      "x64",
     );
     expect(plan.updateAvailable).toBe(false);
     expect(plan.error).toBe("Нет соединения");

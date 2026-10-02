@@ -131,7 +131,7 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as ThemeName[]) {
           expect(setup.captureCharFrame()).toContain("50%");
           expect(setup.captureCharFrame()).toContain("16,0 / 32,0 МБ");
           expect(api.launches).toBe(0);
-          act(() => api.finish());
+          await act(async () => api.finish());
           await frame(setup);
           expect(setup.captureCharFrame()).toContain("Перезапустить");
           expect(api.launches).toBe(0);
