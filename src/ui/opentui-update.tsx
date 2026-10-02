@@ -2,11 +2,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useEffect, useState } from "react";
 import type { Palette } from "./appearance.js";
-import {
-  DialogAction,
-  dialogLayout,
-  OpenTuiDialog,
-} from "./opentui-dialog.js";
+import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import type { UpdateController, UpdateState } from "./update-controller.js";
@@ -270,9 +266,11 @@ export function OpenTuiUpdate({
             <text fg={palette.muted}>
               Установите пакет, затем перезапустите ChiselCode:
             </text>
-            <text fg={palette.text} backgroundColor={palette.raised}>
-              {terminalSafeText(plan?.manualCommand ?? downloaded?.path ?? "")}
-            </text>
+            <box backgroundColor={palette.raised} width="100%">
+              <text fg={palette.text}>
+                {terminalSafeText(plan?.manualCommand ?? downloaded?.path ?? "")}
+              </text>
+            </box>
           </box>
         )}
         {plan?.updateAvailable && !plan.installedBinary && (
