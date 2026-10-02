@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import { lstatSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import React from "react";
@@ -60,11 +60,7 @@ import {
   settingsKeyReady,
 } from "./provider-settings.js";
 
-import {
-  FAIL_MARK,
-  formatStatusDashboard,
-  OK_MARK,
-} from "./theme.js";
+import { FAIL_MARK, formatStatusDashboard, OK_MARK } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController } from "./tui-controller.js";
@@ -592,7 +588,7 @@ export async function runOpenTuiAgent(
       const { projectPath, sessionId } = currentController().snapshot;
       await launchWindowsInstaller(
         downloaded.path,
-        windowsUpdateArguments(projectPath, sessionId),
+        windowsUpdateArguments(resolve(projectPath), sessionId),
       );
       shutdown();
     },
