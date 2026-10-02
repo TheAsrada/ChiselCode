@@ -265,7 +265,11 @@ export class UpdateController {
     this.listeners.clear();
     await Promise.allSettled(this.tasks);
     // Manual package installation may happen after closing the application.
-    if (this.state.downloaded && !this.handedOff && this.state.plan?.autoInstall)
+    if (
+      this.state.downloaded &&
+      !this.handedOff &&
+      this.state.plan?.autoInstall
+    )
       await this.dependencies.remove(this.state.downloaded).catch(() => {});
   }
 

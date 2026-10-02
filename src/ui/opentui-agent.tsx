@@ -64,7 +64,6 @@ import {
   FAIL_MARK,
   formatStatusDashboard,
   OK_MARK,
-  WARN_MARK,
 } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";

@@ -53,13 +53,13 @@ import {
   type OpenTuiSettingsActions,
 } from "./opentui-settings.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
-import { OpenTuiUpdate, updateNotice } from "./opentui-update.js";
 import {
   FormattedMessage,
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
   terminalSafeText,
 } from "./opentui-transcript.js";
+import { OpenTuiUpdate, updateNotice } from "./opentui-update.js";
 import {
   parseSidebarMode,
   type SidebarMode,

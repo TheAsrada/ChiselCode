@@ -462,7 +462,6 @@ export function windowsUpdateArguments(
   projectPath: string,
   sessionId?: string,
 ): string[] {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: Windows restart arguments cannot contain control characters.
   if (/["\r\n\0]/.test(projectPath))
     throw new Error("Недопустимый путь проекта для перезапуска.");
   if (sessionId && !/^[\w-]+$/.test(sessionId))

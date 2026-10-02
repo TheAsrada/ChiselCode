@@ -490,7 +490,9 @@ describe("update progress and cancellation", () => {
       "/CHISEL_CWD=C:\\projects",
     ]);
     expect(() => windowsUpdateArguments('C:\\bad"path')).toThrow("путь");
-    expect(() => windowsUpdateArguments("C:\\projects", 'bad"id')).toThrow("ID");
+    expect(() => windowsUpdateArguments("C:\\projects", 'bad"id')).toThrow(
+      "ID",
+    );
   });
 
   test("rejects unsupported installer architectures", () => {

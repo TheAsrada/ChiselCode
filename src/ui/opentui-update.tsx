@@ -268,7 +268,9 @@ export function OpenTuiUpdate({
             </text>
             <box backgroundColor={palette.raised} width="100%">
               <text fg={palette.text}>
-                {terminalSafeText(plan?.manualCommand ?? downloaded?.path ?? "")}
+                {terminalSafeText(
+                  plan?.manualCommand ?? downloaded?.path ?? "",
+                )}
               </text>
             </box>
           </box>
