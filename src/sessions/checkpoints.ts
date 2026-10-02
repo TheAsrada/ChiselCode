@@ -7,6 +7,12 @@ export function attachSessionRecorder(
   events: RuntimeEventBus,
 ): () => void {
   return events.subscribe((event) => {
+    if (
+      (event.type === "context_summary_usage" ||
+        event.type === "provider_failed") &&
+      event.usage
+    )
+      addUsage(session, event.usage);
     if (event.type === "context_updated" && event.contextSnapshot)
       session.contextSnapshot = event.contextSnapshot;
     if (event.type === "turn_state" && session.runtime)

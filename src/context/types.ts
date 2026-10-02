@@ -1,4 +1,10 @@
-import type { ChatMessage, ToolDefinition } from "../types/domain.js";
+import type { ModelCapabilities } from "../providers/capabilities.js";
+import type {
+  ChatMessage,
+  ProviderAdapter,
+  TokenUsage,
+  ToolDefinition,
+} from "../types/domain.js";
 export interface StructuredSummary {
   goal: string;
   userConstraints: string[];
@@ -18,7 +24,35 @@ export interface ContextCheckpoint {
   throughMessageIndex: number;
   createdAt: string;
   estimatedTokens: number;
+  preservedUserMessageIndex?: number;
+  source?: "model" | "evidence";
 }
+export interface ContextCompactionRecord {
+  id: string;
+  afterMessage: number;
+  beforeTokens: number;
+  afterTokens: number;
+  estimated: boolean;
+  durationMs: number;
+  reason: "auto" | "overflow";
+  source: "model" | "evidence";
+  createdAt: string;
+}
+export interface ContextSummaryRequest {
+  model: string;
+  provider: ProviderAdapter;
+  capabilities: ModelCapabilities;
+  contextWindow?: number;
+  messages: ChatMessage[];
+  currentRequest?: ChatMessage;
+  prior?: StructuredSummary;
+  targetTokens: number;
+  signal?: AbortSignal;
+  onUsage(usage: TokenUsage): Promise<void>;
+}
+export type ContextSummarizer = (
+  input: ContextSummaryRequest,
+) => Promise<StructuredSummary | undefined>;
 export interface ContextBudget {
   contextWindow?: number;
   reservedOutputTokens: number;

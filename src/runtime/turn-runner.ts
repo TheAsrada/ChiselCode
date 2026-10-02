@@ -3,6 +3,7 @@ import type {
   ProviderAdapter,
   ProviderRequest,
   StreamEvent,
+  TokenUsage,
 } from "../types/domain.js";
 import type { RuntimeEventBus } from "./events.js";
 export type AssistantTurn = Extract<StreamEvent, { type: "turn_complete" }>;
@@ -16,6 +17,7 @@ export class TurnRunner {
     estimatedInputTokens: number,
   ): Promise<AssistantTurn> {
     const started = performance.now();
+    let observedUsage: TokenUsage | undefined;
     await this.events.emit({
       type: "provider_request_started",
       estimatedInputTokens,
@@ -26,11 +28,13 @@ export class TurnRunner {
       for await (const event of this.provider.streamChat(request)) {
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
-        if (event.type === "error")
+        if (event.type === "error") {
+          observedUsage = event.usage;
           throw new ProviderError(
             event.code ?? normalizeProviderError(new Error(event.message)).code,
             event.message,
           );
+        }
         if (event.type === "text_delta")
           await this.events.emit({
             type: "provider_text_delta",
@@ -48,6 +52,7 @@ export class TurnRunner {
               "Multiple terminal messages in one stream.",
             );
           completed = event;
+          observedUsage = event.usage;
         }
       }
       if (completed?.message.role !== "assistant")
@@ -73,6 +78,7 @@ export class TurnRunner {
         type: "provider_failed",
         errorCode: failure.code,
         text: failure.message,
+        usage: observedUsage,
         durationMs: performance.now() - started,
       });
       throw failure;

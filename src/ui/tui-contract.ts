@@ -20,6 +20,7 @@ export type TranscriptTone =
   | "error"
   | "success"
   | "dim"
+  | "context"
   | "logo";
 
 export interface TuiTranscriptLine {

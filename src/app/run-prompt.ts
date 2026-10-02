@@ -5,6 +5,7 @@ import {
   loadProjectInstructions,
 } from "../config/load.js";
 import { ContextManager } from "../context/context-manager.js";
+import { modelSummarizer } from "../context/model-summary.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
 import { resolveCredential } from "../providers/auth.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
@@ -409,6 +410,12 @@ export async function runPrompt(
   const eventBus = new RuntimeEventBus(session.id);
   const detachEvents = eventBus.subscribe(async (event) => {
     await events.onEvent?.(event);
+    if (
+      !events.onEvent &&
+      event.type === "context_compaction_completed" &&
+      event.compaction
+    )
+      renderer.compaction(event.compaction);
     if (event.type === "provider_text_delta") onText(event.text ?? "");
     if (event.type === "provider_thinking_delta") onThinking(event.text ?? "");
     if (event.type === "tool_started")
@@ -456,6 +463,7 @@ export async function runPrompt(
           options.baseUrl ?? selected.profile.baseUrl,
         ),
       ]),
+      modelSummarizer,
     ),
     {
       getApprovalMode: tools.getApprovalMode,

@@ -113,6 +113,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
   }
 
   async *streamChat(request: ProviderRequest): AsyncIterable<StreamEvent> {
+    let observedUsage: TokenUsage | undefined;
     try {
       const stream = await this.createCompletionStream(request, false);
       const toolCalls = new Map<
@@ -128,7 +129,10 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       for await (const chunk of stream) {
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
-        if (chunk.usage) usage = normalizeOpenAIUsage(chunk.usage);
+        if (chunk.usage) {
+          usage = normalizeOpenAIUsage(chunk.usage);
+          observedUsage = usage;
+        }
         const choice = chunk.choices[0];
         if (!choice) continue;
         if (choice.finish_reason) terminated = true;
@@ -229,6 +233,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         type: "error",
         message: formatOpenAIError(error),
         code: failure.code,
+        usage: observedUsage,
       };
     }
   }

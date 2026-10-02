@@ -55,6 +55,56 @@ export function attachTranscriptScrollback(
         });
         let height = 0;
         for (const entry of batch) {
+          if (entry.tone === "context") {
+            const [title = "", ...details] = entry.text.split("\n");
+            const titleRows = scrollbackRows(
+              { ...entry, text: title },
+              Math.max(1, width - 3),
+            );
+            const detailRows = scrollbackRows(
+              { ...entry, text: details.join("\n") },
+              Math.max(1, width - 3),
+            );
+            const cardHeight = titleRows.length + detailRows.length;
+            const card = new BoxRenderable(renderContext, {
+              width,
+              height: cardHeight,
+              flexDirection: "row",
+              backgroundColor: palette().surface,
+            });
+            card.add(
+              new BoxRenderable(renderContext, {
+                width: 1,
+                height: cardHeight,
+                backgroundColor: palette().accent,
+              }),
+            );
+            const content = new BoxRenderable(renderContext, {
+              width: Math.max(1, width - 1),
+              height: cardHeight,
+              flexDirection: "column",
+              paddingLeft: 1,
+              paddingRight: 1,
+            });
+            content.add(
+              new TextRenderable(renderContext, {
+                content: titleRows.join("\n"),
+                height: titleRows.length,
+                fg: palette().accent,
+              }),
+            );
+            content.add(
+              new TextRenderable(renderContext, {
+                content: detailRows.join("\n"),
+                height: detailRows.length,
+                fg: palette().muted,
+              }),
+            );
+            card.add(content);
+            root.add(card);
+            height += cardHeight;
+            continue;
+          }
           const lines = scrollbackRows(entry, Math.max(1, width - 2));
           root.add(
             new TextRenderable(renderContext, {
@@ -94,6 +144,7 @@ function scrollbackColor(
     case "user":
       return palette.text;
     case "logo":
+    case "context":
       return palette.accent;
     case "tool":
     case "dim":

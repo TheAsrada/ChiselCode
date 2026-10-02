@@ -187,6 +187,13 @@ test("Plan survives skill instructions, a changed selection and emergency compac
     dir: root,
   };
   const { session, tools, runtime } = setup(root, undefined, true, [skill]);
+  session.messages = [
+    { role: "user", content: [{ type: "text", text: "Keep the API stable" }] },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "Old analysis ".repeat(4000) }],
+    },
+  ];
   const requests: ProviderRequest[] = [];
   const provider: ProviderAdapter = {
     kind: "anthropic",

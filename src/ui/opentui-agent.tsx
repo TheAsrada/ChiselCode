@@ -846,6 +846,22 @@ export async function runOpenTuiAgent(
           approvalResolver,
           {
             onEvent: (event) => {
+              if (!controller.isCurrent(requestGeneration)) return;
+              if (
+                event.type === "context_compaction_started" &&
+                event.compactionId
+              )
+                controller.beginCompaction(event.compactionId);
+              if (
+                event.type === "context_compaction_completed" &&
+                event.compaction
+              )
+                controller.finishCompaction(event.compaction);
+              if (
+                event.type === "context_compaction_failed" &&
+                event.compactionId
+              )
+                controller.abortCompaction(event.compactionId);
               if (
                 controller.isCurrent(requestGeneration) &&
                 event.type === "context_updated" &&

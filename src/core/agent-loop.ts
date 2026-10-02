@@ -1,4 +1,5 @@
 import { ContextManager } from "../context/context-manager.js";
+import { modelSummarizer } from "../context/model-summary.js";
 import { AgentRuntime, type RuntimeOptions } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
 import type { ToolRegistry } from "../tools/registry.js";
@@ -49,7 +50,7 @@ export class AgentLoop {
     }
     const runtime = new AgentRuntime(
       this.provider,
-      new ContextManager({}, events),
+      new ContextManager({}, events, undefined, modelSummarizer),
       {
         getApprovalMode: local?.getApprovalMode,
         selectForTurn: () => this.tools.getDefinitions(),

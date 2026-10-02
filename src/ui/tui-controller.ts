@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { ContextCompactionRecord } from "../context/types.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { catalogModelLimits } from "../providers/model-metadata.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
@@ -13,6 +14,7 @@ import type {
   Session,
   TokenUsage,
 } from "../types/domain.js";
+import { compactionNotice } from "./context-compaction.js";
 import { createEditorState } from "./editor.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
 import type { ModelSelection } from "./opentui-models.js";
@@ -40,6 +42,7 @@ export interface TuiViewState {
   transcript: readonly TranscriptEntry[];
   streaming: string;
   toolActivity?: string;
+  compaction?: { id: string };
   draft: string;
   focus: "composer" | "transcript" | "sidebar" | "modal";
   overlay?: string;
@@ -68,6 +71,7 @@ export class TuiController implements TuiTranscript {
   private listeners = new Set<(state: TuiViewState) => void>();
   private serial = 0;
   private generation = 0;
+  private compactionNotices = new Set<string>();
   private gitSource = new GitChangesSource();
   private state: TuiViewState;
 
@@ -142,6 +146,28 @@ export class TuiController implements TuiTranscript {
     this.update({ streaming: "", toolActivity: undefined });
   }
 
+  beginCompaction(id: string): void {
+    this.update({
+      compaction: { id },
+      transcript: this.withStreaming(),
+      streaming: "",
+      toolActivity: undefined,
+    });
+  }
+
+  finishCompaction(record: ContextCompactionRecord): void {
+    if (this.state.compaction?.id === record.id)
+      this.update({ compaction: undefined });
+    if (this.compactionNotices.has(record.id)) return;
+    this.compactionNotices.add(record.id);
+    this.append(compactionNotice(record), "context");
+  }
+
+  abortCompaction(id: string): void {
+    if (this.state.compaction?.id === id)
+      this.update({ compaction: undefined });
+  }
+
   setToolActivity(text?: string): void {
     this.update({
       toolActivity: text,
@@ -166,6 +192,7 @@ export class TuiController implements TuiTranscript {
       })),
       streaming: "",
       toolActivity: undefined,
+      compaction: undefined,
     });
     if (this.renderer?.replace) this.renderer.replace(entries);
     else if (this.renderer) {
@@ -176,7 +203,13 @@ export class TuiController implements TuiTranscript {
   }
 
   clear(): void {
-    this.update({ transcript: [], streaming: "", toolActivity: undefined });
+    this.compactionNotices.clear();
+    this.update({
+      transcript: [],
+      streaming: "",
+      toolActivity: undefined,
+      compaction: undefined,
+    });
     this.renderer?.clear();
   }
 
@@ -202,6 +235,7 @@ export class TuiController implements TuiTranscript {
       busy: true,
       requestStartedAt: this.now(),
       toolActivity: undefined,
+      compaction: undefined,
     });
   }
 
@@ -225,6 +259,7 @@ export class TuiController implements TuiTranscript {
       streaming: "",
       toolActivity: undefined,
       requestStartedAt: undefined,
+      compaction: undefined,
     });
     this.renderer?.setToolActivity();
     this.renderer?.append(text, "dim");
@@ -246,6 +281,8 @@ export class TuiController implements TuiTranscript {
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
       return;
     if (this.state.sessionId && this.state.sessionId !== session.id) return;
+    for (const record of session.context?.compactions ?? [])
+      this.compactionNotices.add(record.id);
     const selected = this.state.modelSelection ?? {
       provider: session.providerId,
       profileId: session.profileId,
@@ -362,6 +399,7 @@ export class TuiController implements TuiTranscript {
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.generation++;
+    this.compactionNotices.clear();
     this.presentation.windowEnd = undefined;
     this.presentation.expanded = false;
     this.presentation.scrollTop = undefined;

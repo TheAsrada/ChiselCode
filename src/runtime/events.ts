@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ContextCompactionRecord } from "../context/types.js";
 import type { ToolInvocationState } from "../tools/invocation.js";
 import type {
   ChatMessage,
@@ -19,6 +20,8 @@ export type RuntimeEventType =
   | "context_compaction_started"
   | "context_updated"
   | "context_compaction_completed"
+  | "context_compaction_failed"
+  | "context_summary_usage"
   | "overflow_recovery"
   | "tool_queued"
   | "tool_prepared"
@@ -47,6 +50,8 @@ export interface RuntimeEvent {
   estimatedInputTokens?: number;
   maxOutputTokens?: number;
   contextSnapshot?: ContextSnapshot;
+  compactionId?: string;
+  compaction?: ContextCompactionRecord;
 }
 export class RuntimeEventBus {
   private listeners = new Set<(event: RuntimeEvent) => void | Promise<void>>();

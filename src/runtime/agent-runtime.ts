@@ -202,13 +202,24 @@ export class AgentRuntime {
           if (
             error instanceof ProviderError &&
             error.code === "context_overflow" &&
-            !overflowRecovered
+            !overflowRecovered &&
+            this.context.options.autoCompact
           ) {
             overflowRecovered = true;
-            await this.context.emergencyCompact(session);
+            const changed = await this.context.emergencyCompact(session, {
+              session,
+              system: frame.system,
+              tools: frame.tools,
+              provider: this.provider,
+              capabilities,
+              signal: options.signal,
+              requestedOutput: options.maxTokens,
+            });
             await checkpoint();
-            iteration--;
-            continue;
+            if (changed) {
+              iteration--;
+              continue;
+            }
           }
           throw error;
         }

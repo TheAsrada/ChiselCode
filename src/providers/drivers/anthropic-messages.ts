@@ -51,6 +51,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
   }
 
   async *streamChat(request: ProviderRequest): AsyncIterable<StreamEvent> {
+    let usage: Anthropic.Usage | undefined;
     try {
       const maxTokens =
         request.maxTokens ??
@@ -73,7 +74,8 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           // Новые параметры (adaptive thinking, effort) шлём только
           // официальному API: совместимые шлюзы их часто не знают и
           // отвечают 400 на весь запрос.
-          ...(this.options.adaptiveThinking
+          ...(this.options.adaptiveThinking &&
+          request.purpose !== "context_summary"
             ? {
                 thinking: { type: "adaptive" },
                 output_config: { effort: "high" },
@@ -87,7 +89,6 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         number,
         { block: Anthropic.ContentBlock; json: string }
       >();
-      let usage: Anthropic.Usage | undefined;
       let stopReason: string | undefined;
       let terminated = false;
       for await (const event of stream) {
@@ -216,6 +217,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         type: "error",
         message: formatAnthropicError(error),
         code: failure.code,
+        usage: usage ? normalizeAnthropicUsage(usage) : undefined,
       };
     }
   }

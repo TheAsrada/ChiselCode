@@ -200,6 +200,13 @@ test("token budget compacts large outputs without changing transcript and counts
 test("provider overflow performs exactly one recovery, unknown model window stays unknown", async () => {
   const root = await fixture();
   const { run, session, events } = setup(root);
+  session.messages = [
+    { role: "user", content: [{ type: "text", text: "Keep the API stable" }] },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "Old analysis ".repeat(4000) }],
+    },
+  ];
   let requests = 0;
   let recoveries = 0;
   events.subscribe((event) => {

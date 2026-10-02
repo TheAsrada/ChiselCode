@@ -1,6 +1,7 @@
 import type { AgentEventHandlers } from "../core/agent-loop.js";
 import { stripActiveSkillsBlock } from "../skills/skills.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
+import { compactionNotice } from "./context-compaction.js";
 import { fileDiffStats, fileDiffTitle } from "./file-diff-model.js";
 import { requestCompletion } from "./request-timing.js";
 import { FAIL_MARK, formatToolSummary } from "./theme.js";
@@ -91,9 +92,23 @@ export function replaySessionIntoTranscript(
     timings.set(timing.afterMessage, group);
   }
   const appendTimings = (afterMessage: number) => {
+    for (const record of compactions.get(afterMessage) ?? [])
+      target.append(compactionNotice(record), "context");
     for (const timing of timings.get(afterMessage) ?? [])
       target.append(requestCompletion(timing.status, timing.elapsedMs), "dim");
   };
+  const compactions = new Map<
+    number,
+    NonNullable<Session["context"]>["compactions"]
+  >();
+  const seenCompactions = new Set<string>();
+  for (const record of session.context?.compactions ?? []) {
+    if (seenCompactions.has(record.id)) continue;
+    seenCompactions.add(record.id);
+    const group = compactions.get(record.afterMessage) ?? [];
+    group.push(record);
+    compactions.set(record.afterMessage, group);
+  }
   const start = session.messages.length - tail.length;
   if (start === 0) appendTimings(0);
   for (const [index, message] of tail.entries()) {

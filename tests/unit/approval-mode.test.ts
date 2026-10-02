@@ -383,6 +383,13 @@ test("permission snapshot survives selection, skills and overflow recovery; the 
       },
     ],
   );
+  app.session.messages = [
+    { role: "user", content: [{ type: "text", text: "Keep the API stable" }] },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "Old analysis ".repeat(4000) }],
+    },
+  ];
   const provider: ProviderAdapter = {
     kind: "anthropic",
     providerId: "anthropic",

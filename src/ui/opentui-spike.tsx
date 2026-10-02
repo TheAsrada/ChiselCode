@@ -38,6 +38,7 @@ import {
 } from "./editor.js";
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
+import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPermissions } from "./opentui-permissions.js";
@@ -1215,6 +1216,14 @@ function OpenTuiScreen({
                     <text fg={palette.muted}>
                       {terminalSafeText(view.toolActivity, 2_000)}
                     </text>
+                  )}
+                  {controller && view.compaction && (
+                    <ContextCompactionMessage
+                      text={
+                        "Сжимаю контекст...\nСохраняю задачу, решения и результаты работы"
+                      }
+                      palette={palette}
+                    />
                   )}
                   {controller && view.requestStartedAt !== undefined && (
                     <OpenTuiRequestStatus

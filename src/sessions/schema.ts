@@ -102,7 +102,24 @@ export const SessionContextSchema = z.object({
       throughMessageIndex: z.number().int().nonnegative(),
       createdAt: z.string(),
       estimatedTokens: z.number().nonnegative(),
+      preservedUserMessageIndex: z.number().int().nonnegative().optional(),
+      source: z.enum(["model", "evidence"]).optional(),
     })
+    .optional(),
+  compactions: z
+    .array(
+      z.object({
+        id: z.string(),
+        afterMessage: z.number().int().nonnegative(),
+        beforeTokens: z.number().nonnegative(),
+        afterTokens: z.number().nonnegative(),
+        estimated: z.boolean(),
+        durationMs: z.number().nonnegative(),
+        reason: z.enum(["auto", "overflow"]),
+        source: z.enum(["model", "evidence"]),
+        createdAt: z.string(),
+      }),
+    )
     .optional(),
 });
 

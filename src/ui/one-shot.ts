@@ -1,4 +1,6 @@
+import type { ContextCompactionRecord } from "../context/types.js";
 import type { AgentResult, ToolExecutionResult } from "../types/domain.js";
+import { compactionNotice } from "./context-compaction.js";
 import {
   FAIL_MARK,
   formatToolSummary,
@@ -31,6 +33,13 @@ export class OneShotRenderer {
 
   thinking(): void {
     // Internal reasoning is not rendered in the non-interactive UI.
+  }
+
+  compaction(record: ContextCompactionRecord): void {
+    if (!this.options.json)
+      this.stderr.write(
+        `\n${paint(compactionNotice(record), "cyan", this.color)}\n`,
+      );
   }
 
   toolStart(name: string, input: Record<string, unknown>): void {

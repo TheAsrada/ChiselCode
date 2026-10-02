@@ -2,6 +2,7 @@
 import React from "react";
 import type { FileDiff } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { FormattedMessage } from "./opentui-message.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import type { TranscriptEntry } from "./tui-controller.js";
@@ -65,6 +66,14 @@ export function OpenTuiTranscript({
       )}
       {visible.entries.map((entry) => {
         const diff = entry.fileDiff;
+        if (!diff && entry.tone === "context")
+          return (
+            <ContextCompactionMessage
+              key={entry.id}
+              text={entry.text}
+              palette={palette}
+            />
+          );
         if (!diff && entry.tone === "assistant")
           return (
             <FormattedMessage

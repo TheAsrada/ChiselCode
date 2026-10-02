@@ -7,7 +7,10 @@ export type {
 } from "../providers/contracts.js";
 
 import { z } from "zod";
-import type { ContextCheckpoint } from "../context/types.js";
+import type {
+  ContextCheckpoint,
+  ContextCompactionRecord,
+} from "../context/types.js";
 import type {
   ModelCapabilities,
   TokenCountRequest,
@@ -33,6 +36,7 @@ export interface SessionRuntimeState {
 }
 export interface SessionContextState {
   activeCheckpoint?: ContextCheckpoint;
+  compactions?: ContextCompactionRecord[];
 }
 
 /** @deprecated Use ProviderId; persisted identity is an open string. */
@@ -132,6 +136,8 @@ export interface ProviderRequest {
   /** Omit for protocols that can use their own output maximum. */
   maxTokens?: number;
   signal?: AbortSignal;
+  /** Internal auxiliary request; adapters may avoid expensive reasoning. */
+  purpose?: "context_summary";
 }
 
 export type StreamEvent =
@@ -144,7 +150,12 @@ export type StreamEvent =
       stopReason: string;
       usage: TokenUsage;
     }
-  | { type: "error"; message: string; code?: ProviderErrorCode };
+  | {
+      type: "error";
+      message: string;
+      code?: ProviderErrorCode;
+      usage?: TokenUsage;
+    };
 
 export interface ProviderAdapter {
   /** @deprecated Drivers expose this alias for legacy constructors. */
