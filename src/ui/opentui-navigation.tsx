@@ -177,6 +177,8 @@ export function OpenTuiHome({
   palette,
   children,
   feedback,
+  updateNotice,
+  onUpdate,
 }: {
   projectPath: string;
   width: number;
@@ -184,6 +186,8 @@ export function OpenTuiHome({
   palette: Palette;
   children: ReactNode;
   feedback?: ReactNode;
+  updateNotice?: string;
+  onUpdate?: () => void;
 }) {
   const { unicode } = useTerminalDecoration();
   const logoWidth = unicode ? LOGO_WIDTH : ASCII_LOGO_WIDTH;
@@ -235,6 +239,23 @@ export function OpenTuiHome({
         )}
         <box height={height >= 12 ? 1 : 0} flexShrink={0} />
         {children}
+        {updateNotice && (
+          // biome-ignore lint/a11y/noStaticElementInteractions: /update also opens the updater.
+          <box
+            id="welcome-update"
+            width="100%"
+            height={1}
+            flexShrink={0}
+            flexDirection="row"
+            backgroundColor={palette.raised}
+            onMouseUp={onUpdate}
+          >
+            <box width={1} height={1} backgroundColor={palette.accent} />
+            <text fg={palette.accent} height={1} paddingLeft={1}>
+              {terminalLine(updateNotice, Math.max(1, contentWidth - 3))}
+            </text>
+          </box>
+        )}
         {feedback}
       </box>
       <box flexGrow={1.3} minHeight={0} />

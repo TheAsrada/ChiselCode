@@ -1,17 +1,18 @@
 /**
  * Проверка обновлений ChiselCode через GitHub Releases + самообновление:
- * `/update` в TUI скачивает установщик нового релиза и запускает его тихо
- * (/S, без окон — установщик сам перезапускает приложение).
+ * `/update` в TUI показывает проверку и скачивание в отдельном диалоге.
+ * Windows-установщик запускается только после выбора перезапуска.
  * Чистая логика + тонкий сетевой слой с таймаутом, чтобы `chisel update`
  * никогда не висел в плохом сетевом окружении.
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 export const RELEASES_LATEST_URL =
   "https://api.github.com/repos/TheAsrada/ChiselCode/releases/latest";
@@ -38,6 +39,7 @@ export interface ReleaseAsset {
 export interface UpdateCheckOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 /**
@@ -91,7 +93,9 @@ export async function checkForUpdates(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetchImpl(RELEASES_LATEST_URL, {
-      signal: controller.signal,
+      signal: options.signal
+        ? AbortSignal.any([controller.signal, options.signal])
+        : controller.signal,
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": `chiselcode/${current}`,
@@ -109,6 +113,8 @@ export async function checkForUpdates(
       return { current, error: `GitHub API вернул ${response.status}.` };
     const data = (await response.json()) as {
       tag_name?: string;
+      draft?: boolean;
+      prerelease?: boolean;
       html_url?: string;
       assets?: Array<{
         name?: string;
@@ -118,8 +124,10 @@ export async function checkForUpdates(
       }>;
     };
     const latest = (data.tag_name ?? "").trim().replace(/^v/i, "");
-    if (!latest)
+    if (!/^\d+\.\d+\.\d+(?:-[\da-z.-]+)?(?:\+[\da-z.-]+)?$/i.test(latest))
       return { current, error: "Не удалось прочитать версию релиза." };
+    if (data.draft || data.prerelease)
+      return { current, error: "Стабильный релиз пока не опубликован." };
     return {
       current,
       latest,
@@ -230,6 +238,7 @@ export function isInstalledBinary(execPath = process.execPath): boolean {
 
 export interface SelfUpdatePlan {
   current: string;
+  platform?: NodeJS.Platform;
   latest?: string;
   latestUrl?: string;
   updateAvailable: boolean;
@@ -254,22 +263,32 @@ export function planSelfUpdate(
   check: UpdateCheckResult,
   current: string,
   platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch,
+  execPath = process.execPath,
 ): SelfUpdatePlan {
   const latest = normalizeVersion(check.latest ?? current);
-  const asset = installerAssetName(latest, platform);
+  const asset = installerAssetName(latest, platform, arch);
   const publishedAsset = check.assets?.find((item) => item.name === asset);
   const digestError =
     check.updateAvailable && publishedAsset && !publishedAsset.sha256
       ? "GitHub не сообщил SHA-256 установщика. Автоматическое обновление остановлено."
       : undefined;
-  const installedBinary = isInstalledBinary();
+  const supported =
+    ((platform === "win32" || platform === "linux") && arch === "x64") ||
+    (platform === "darwin" && (arch === "x64" || arch === "arm64"));
+  const platformError =
+    check.updateAvailable && !supported
+      ? `Для ${platform}/${arch} готовый установщик не опубликован.`
+      : undefined;
+  const installedBinary = isInstalledBinary(execPath);
   const autoInstall = installedBinary && platform === "win32";
   return {
     current,
+    platform,
     latest: check.latest === undefined ? undefined : latest,
     latestUrl: check.latestUrl,
     updateAvailable: check.updateAvailable ?? false,
-    error: check.error ?? digestError,
+    error: check.error ?? platformError ?? digestError,
     asset,
     url: publishedAsset?.url ?? releaseDownloadUrl(latest, asset),
     assetReady: check.assets ? Boolean(publishedAsset) : undefined,
@@ -294,12 +313,20 @@ export function manualInstallCommand(
   return undefined;
 }
 
+export interface DownloadProgress {
+  phase: "downloading" | "verifying";
+  bytes: number;
+  totalBytes?: number;
+}
+
 export interface DownloadOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   destDir?: string;
   expectedBytes?: number;
   expectedSha256?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: DownloadProgress) => void;
 }
 
 export interface DownloadedAsset {
@@ -316,69 +343,90 @@ export async function downloadReleaseAsset(
   asset: string,
   options: DownloadOptions = {},
 ): Promise<DownloadedAsset> {
+  if (!/^[\w.+-]+$/.test(asset) || asset === "." || asset === "..")
+    throw new Error("Недопустимое имя файла установщика.");
   const fetchImpl = options.fetchImpl ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 300_000;
   const controller = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([controller.signal, options.signal])
+    : controller.signal;
+  signal.throwIfAborted();
   const temporaryDir =
     options.destDir ?? (await mkdtemp(join(tmpdir(), "chisel-update-")));
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? 300_000,
+  );
   const path = join(temporaryDir, asset);
   let started = false;
   try {
-    const response = await fetchImpl(url, { signal: controller.signal });
+    const response = await fetchImpl(url, { signal });
+    signal.throwIfAborted();
     if (!response.ok)
       throw new Error(
         `Сервер вернул ${response.status} при скачивании ${asset}.`,
       );
+    const length = Number(response.headers?.get("content-length"));
+    const totalBytes =
+      options.expectedBytes ??
+      (Number.isSafeInteger(length) && length > 0 ? length : undefined);
+    let bytes = 0;
+    const hash = createHash("sha256");
+    const progress = (phase: DownloadProgress["phase"]) =>
+      options.onProgress?.({ phase, bytes, totalBytes });
+    const accept = (chunk: Uint8Array | string) => {
+      signal.throwIfAborted();
+      bytes +=
+        typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.byteLength;
+      if (options.expectedBytes !== undefined && bytes > options.expectedBytes)
+        throw new Error(
+          "Размер скачанного установщика не совпадает с релизом.",
+        );
+      hash.update(chunk);
+      progress("downloading");
+    };
+    progress("downloading");
     const body = response.body as unknown as AsyncIterable<
       Uint8Array | string
     > | null;
     if (!body || typeof body[Symbol.asyncIterator] !== "function") {
-      // Мокнутый/нестандартный ответ без потокового тела — по-старому.
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      const payload = new Uint8Array(await response.arrayBuffer());
+      accept(payload);
       started = true;
-      await writeFile(path, bytes);
-      verifyDownload(
-        bytes.byteLength,
-        createHash("sha256").update(bytes).digest("hex"),
-        options,
-      );
-      return { path, bytes: bytes.byteLength };
-    }
-    let bytes = 0;
-    const hash = createHash("sha256");
-    started = true;
-    const file = createWriteStream(path);
-    try {
-      for await (const chunk of body) {
-        hash.update(chunk);
-        bytes +=
-          typeof chunk === "string"
-            ? Buffer.byteLength(chunk)
-            : chunk.byteLength;
-        // once() отваливается и по 'error': битый диск не повесит скачивание.
-        if (!file.write(chunk)) await once(file, "drain");
-      }
-    } catch (error) {
-      await new Promise<void>((resolve) => {
-        if (file.closed) resolve();
-        else file.once("close", resolve);
-        file.destroy();
+      await writeFile(path, payload, { signal });
+    } else {
+      started = true;
+      const counter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          try {
+            accept(chunk);
+            callback(null, chunk);
+          } catch (error) {
+            callback(error instanceof Error ? error : new Error(String(error)));
+          }
+        },
       });
-      throw error;
+      const input =
+        typeof response.body?.getReader === "function"
+          ? Readable.fromWeb(
+              response.body as unknown as Parameters<
+                typeof Readable.fromWeb
+              >[0],
+            )
+          : Readable.from(body);
+      await pipeline(input, counter, createWriteStream(path), { signal });
     }
-    await new Promise<void>((resolve, reject) => {
-      file.on("error", reject);
-      file.end(() => resolve());
-    });
+    signal.throwIfAborted();
+    progress("verifying");
     verifyDownload(bytes, hash.digest("hex"), options);
     return { path, bytes };
   } catch (error) {
-    // Не тащим за собой оборванный файл: следующая попытка качнёт заново.
     if (started) await unlink(path).catch(() => {});
     if (!options.destDir)
       await rm(temporaryDir, { recursive: true, force: true }).catch(() => {});
-    if (error instanceof Error && error.name === "AbortError")
+    if (options.signal?.aborted)
+      throw new DOMException("Обновление отменено.", "AbortError");
+    if (controller.signal.aborted)
       throw new Error("Превышено время ожидания скачивания установщика.");
     throw error instanceof Error ? error : new Error(String(error));
   } finally {
@@ -408,6 +456,23 @@ function verifyDownload(
  * установщик сам перезапускает приложение (см. chiselcode.nsi).
  */
 export const NSIS_SILENT_ARGS: readonly string[] = ["/S"];
+
+/** Keep the selected project and saved conversation after a silent update. */
+export function windowsUpdateArguments(
+  projectPath: string,
+  sessionId?: string,
+): string[] {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Windows restart arguments cannot contain control characters.
+  if (/["\r\n\0]/.test(projectPath))
+    throw new Error("Недопустимый путь проекта для перезапуска.");
+  if (sessionId && !/^[\w-]+$/.test(sessionId))
+    throw new Error("Недопустимый ID сессии для перезапуска.");
+  return [
+    ...NSIS_SILENT_ARGS,
+    `/CHISEL_CWD=${projectPath}`,
+    ...(sessionId ? [`/CHISEL_RESUME=${sessionId}`] : []),
+  ];
+}
 
 export function launchWindowsInstaller(
   assetPath: string,

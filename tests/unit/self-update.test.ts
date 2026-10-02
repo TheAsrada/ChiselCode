@@ -7,6 +7,7 @@ import {
   checkAssetAvailable,
   checkForUpdates,
   compareVersions,
+  type DownloadProgress,
   downloadReleaseAsset,
   installerAssetName,
   isInstalledBinary,
@@ -16,6 +17,7 @@ import {
   normalizeVersion,
   planSelfUpdate,
   releaseDownloadUrl,
+  windowsUpdateArguments,
 } from "../../src/commands/update.js";
 
 describe("self update helpers", () => {
@@ -324,5 +326,184 @@ describe("self update helpers", () => {
     await expect(
       launchWindowsInstaller(process.execPath, ["--version"]),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("update progress and cancellation", () => {
+  test("reports real streamed bytes and verifies only after downloading", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chisel-progress-"));
+    const payload = new TextEncoder().encode("x".repeat(1024));
+    const progress: DownloadProgress[] = [];
+    const fetchImpl = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(payload.slice(0, 256));
+            controller.enqueue(payload.slice(256, 768));
+            controller.enqueue(payload.slice(768));
+            controller.close();
+          },
+        }),
+      )) as unknown as typeof fetch;
+    try {
+      const result = await downloadReleaseAsset(
+        "https://example.test/a",
+        "a.exe",
+        {
+          fetchImpl,
+          destDir: directory,
+          expectedBytes: 1024,
+          expectedSha256: createHash("sha256").update(payload).digest("hex"),
+          onProgress: (value) => progress.push(value),
+        },
+      );
+      expect(result.bytes).toBe(1024);
+      expect(progress.map((value) => value.bytes)).toEqual([
+        0, 256, 768, 1024, 1024,
+      ]);
+      expect(progress.every((value) => value.totalBytes === 1024)).toBe(true);
+      expect(progress.at(-1)?.phase).toBe("verifying");
+      expect(await readFile(result.path)).toEqual(Buffer.from(payload));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("cancels a partially downloaded installer and removes it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chisel-cancel-"));
+    const abort = new AbortController();
+    const fetchImpl = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(1024));
+          },
+        }),
+      )) as unknown as typeof fetch;
+    try {
+      await expect(
+        downloadReleaseAsset("https://example.test/a", "a.exe", {
+          fetchImpl,
+          destDir: directory,
+          signal: abort.signal,
+          onProgress: (value) => {
+            if (value.bytes > 0) abort.abort();
+          },
+        }),
+      ).rejects.toThrow("Обновление отменено");
+      await expect(readFile(join(directory, "a.exe"))).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an oversized stream before reporting successful verification", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chisel-oversize-"));
+    const progress: DownloadProgress[] = [];
+    const fetchImpl = (async () =>
+      new Response("too many bytes")) as unknown as typeof fetch;
+    try {
+      await expect(
+        downloadReleaseAsset("https://example.test/a", "a.exe", {
+          fetchImpl,
+          destDir: directory,
+          expectedBytes: 4,
+          onProgress: (value) => progress.push(value),
+        }),
+      ).rejects.toThrow("Размер");
+      expect(progress.some((value) => value.phase === "verifying")).toBe(false);
+      await expect(readFile(join(directory, "a.exe"))).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("an unknown download size stays unknown", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chisel-unknown-"));
+    const progress: DownloadProgress[] = [];
+    const fetchImpl = (async () =>
+      new Response("payload")) as unknown as typeof fetch;
+    try {
+      await downloadReleaseAsset("https://example.test/a", "a.exe", {
+        fetchImpl,
+        destDir: directory,
+        onProgress: (value) => progress.push(value),
+      });
+      expect(progress.at(-1)?.bytes).toBe(7);
+      expect(progress.every((value) => value.totalBytes === undefined)).toBe(
+        true,
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("aborted requests never start a download", async () => {
+    const abort = new AbortController();
+    abort.abort();
+    let called = false;
+    const fetchImpl = (async () => {
+      called = true;
+      return new Response("payload");
+    }) as unknown as typeof fetch;
+    await expect(
+      downloadReleaseAsset("https://example.test/a", "a.exe", {
+        fetchImpl,
+        signal: abort.signal,
+      }),
+    ).rejects.toThrow();
+    expect(called).toBe(false);
+  });
+
+  test("an unwritable destination fails without hanging", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chisel-disk-"));
+    const fetchImpl = (async () =>
+      new Response("payload")) as unknown as typeof fetch;
+    try {
+      await expect(
+        downloadReleaseAsset("https://example.test/a", "a.exe", {
+          fetchImpl,
+          destDir: join(directory, "missing"),
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves Windows project paths with spaces without a shell", () => {
+    expect(
+      windowsUpdateArguments("C:\\Users\\user\\My project", "saved-123"),
+    ).toEqual([
+      "/S",
+      "/CHISEL_CWD=C:\\Users\\user\\My project",
+      "/CHISEL_RESUME=saved-123",
+    ]);
+    expect(windowsUpdateArguments("C:\\projects")).toEqual([
+      "/S",
+      "/CHISEL_CWD=C:\\projects",
+    ]);
+    expect(() => windowsUpdateArguments('C:\\bad"path')).toThrow("путь");
+    expect(() => windowsUpdateArguments("C:\\projects", 'bad"id')).toThrow("ID");
+  });
+
+  test("rejects unsupported installer architectures", () => {
+    const plan = planSelfUpdate(
+      { current: "0.6.11", latest: "0.6.12", updateAvailable: true },
+      "0.6.11",
+      "linux",
+      "arm64",
+      "/usr/local/bin/chisel",
+    );
+    expect(plan.error).toContain("linux/arm64");
+    const mac = planSelfUpdate(
+      { current: "0.6.11", latest: "0.6.12", updateAvailable: true },
+      "0.6.11",
+      "darwin",
+      "arm64",
+      "/usr/local/bin/chisel",
+    );
+    expect(mac.asset).toContain("macos-arm64");
+    expect(mac.error).toBeUndefined();
   });
 });

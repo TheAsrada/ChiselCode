@@ -32,6 +32,7 @@
 !include "LogicLib.nsh"
 !include "StrFunc.nsh"
 !include "WinMessages.nsh"
+!include "FileFunc.nsh"
 
 ${Using:StrFunc} StrStr
 
@@ -96,8 +97,13 @@ Var WasUpdate
 ; Set when the main binary could not be replaced (still locked after retries):
 ; silent relaunch must not start the stale copy then.
 Var InstallFailed
+Var RestartCwd
+Var RestartSession
 
 Function .onInit
+  ${GetParameters} $R0
+  ${GetOptions} $R0 "/CHISEL_CWD=" $RestartCwd
+  ${GetOptions} $R0 "/CHISEL_RESUME=" $RestartSession
   StrCpy $InstallFailed "0"
   IfFileExists "$INSTDIR\${EXENAME}" 0 done
     StrCpy $WasUpdate "1"
@@ -184,7 +190,16 @@ Section "-RelaunchAfterSilentUpdate"
   IfSilent 0 relaunch_done
   ${If} $WasUpdate == "1"
   ${AndIf} $InstallFailed == "0"
-    Exec "$INSTDIR\${EXENAME}"
+    ${If} $RestartCwd != ""
+      SetOutPath "$RestartCwd"
+      ${If} $RestartSession != ""
+        Exec '"$INSTDIR\${EXENAME}" --cwd "$RestartCwd" --resume "$RestartSession"'
+      ${Else}
+        Exec '"$INSTDIR\${EXENAME}" --cwd "$RestartCwd"'
+      ${EndIf}
+    ${Else}
+      Exec '"$INSTDIR\${EXENAME}"'
+    ${EndIf}
   ${EndIf}
   relaunch_done:
 SectionEnd

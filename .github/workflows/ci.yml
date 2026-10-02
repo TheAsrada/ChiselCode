@@ -83,6 +83,22 @@ jobs:
           "$binary" doctor > doctor-output.txt || status=$?
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' doctor-output.txt
+      - name: Validate Windows updater installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "NSIS installation failed" }
+            $env:PATH += ';C:\Program Files (x86)\NSIS'
+          }
+          New-Item -ItemType Directory -Force dist/release | Out-Null
+          Copy-Item dist/chisel.exe dist/release/chisel-windows-x64.exe
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $num = ($ver -replace '-.*$', '') + '.0'
+          makensis "/V2" "/DVERSION=$ver" "/DVERSION_NUMERIC=$num" installer/chiselcode.nsi
+          if ($LASTEXITCODE -ne 0) { throw "Windows updater installer validation failed" }
       - name: Stage interactive binaries for terminal checks
         uses: actions/upload-artifact@v4
         with:

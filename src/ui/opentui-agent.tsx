@@ -14,13 +14,8 @@ import {
   runPrompt,
 } from "../commands/run.js";
 import {
-  checkAssetAvailable,
-  checkForUpdates,
-  downloadReleaseAsset,
   launchWindowsInstaller,
-  NSIS_SILENT_ARGS,
-  planSelfUpdate,
-  RELEASES_PAGE_URL,
+  windowsUpdateArguments,
 } from "../commands/update.js";
 import {
   loadGlobalConfig,
@@ -75,6 +70,7 @@ import { toolTranscriptHandlers } from "./tool-transcript.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController } from "./tui-controller.js";
 import { TuiWorkspace } from "./tui-workspace.js";
+import { UpdateController } from "./update-controller.js";
 
 /** The sole interactive terminal renderer. */
 export async function runOpenTuiAgent(
@@ -217,7 +213,6 @@ export async function runOpenTuiAgent(
   const root = createRoot(renderer);
   const abort = new AbortController();
   let activeRun: Promise<void> | undefined;
-  let selfUpdateRunning = false;
   const pendingPrompts: Array<{
     input: string;
     controller: TuiController;
@@ -587,91 +582,22 @@ export async function runOpenTuiAgent(
       totalCost: diagnostic ? undefined : usage?.totalCost,
     });
   };
-  const selfUpdate = async (controller: TuiController): Promise<void> => {
-    if (selfUpdateRunning) {
-      controller.append(
-        "Обновление уже выполняется, дождитесь завершения.",
-        "warn",
+  const updater = new UpdateController(VERSION, {
+    canRestart: () => !activeRun && pendingPrompts.length === 0,
+    launch: async (downloaded) => {
+      await pendingSave;
+      if (abort.signal.aborted)
+        throw new DOMException("Обновление отменено.", "AbortError");
+      if (activeRun || pendingPrompts.length)
+        throw new Error("Дождитесь завершения запроса перед перезапуском.");
+      const { projectPath, sessionId } = currentController().snapshot;
+      await launchWindowsInstaller(
+        downloaded.path,
+        windowsUpdateArguments(projectPath, sessionId),
       );
-      return;
-    }
-    selfUpdateRunning = true;
-    controller.append("Проверяю обновления ChiselCode...", "info");
-    try {
-      const plan = planSelfUpdate(await checkForUpdates(VERSION), VERSION);
-      if (abort.signal.aborted) return;
-      if (plan.error) {
-        controller.append(
-          `${WARN_MARK} Не удалось проверить обновление: ${plan.error}\n${RELEASES_PAGE_URL}`,
-          "warn",
-        );
-        return;
-      }
-      if (!plan.updateAvailable) {
-        controller.append(
-          `+ У вас последняя версия ChiselCode v${plan.current}`,
-          "success",
-        );
-        return;
-      }
-      const version = plan.latest ?? plan.current;
-      if (plan.assetReady === false) {
-        controller.append(
-          `Установщик ${plan.asset} ещё собирается: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
-          "warn",
-        );
-        return;
-      }
-      if (!plan.installedBinary) {
-        controller.append(
-          `Доступна версия v${version}. Запущено из исходников; установите вручную: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
-          "info",
-        );
-        return;
-      }
-      const decision = await approvalResolver.requestApproval({
-        tool: "self_update",
-        preview: `Установить ChiselCode v${version}? Сейчас v${plan.current}.\nФайл: ${plan.asset}`,
-      });
-      if (abort.signal.aborted) return;
-      if (decision !== "approved") {
-        controller.append("Обновление отменено.", "info");
-        return;
-      }
-      if (plan.assetReady !== true && !(await checkAssetAvailable(plan.url))) {
-        controller.append(
-          `Файл ${plan.asset} ещё не опубликован: ${plan.latestUrl ?? RELEASES_PAGE_URL}`,
-          "warn",
-        );
-        return;
-      }
-      if (abort.signal.aborted) return;
-      controller.append(`Скачиваю ${plan.asset}...`, "info");
-      const downloaded = await downloadReleaseAsset(plan.url, plan.asset, {
-        expectedBytes: plan.assetSize,
-        expectedSha256: plan.sha256,
-      });
-      if (abort.signal.aborted) return;
-      controller.append(
-        `Скачано ${(downloaded.bytes / 1024 / 1024).toFixed(1)} МБ: ${downloaded.path}`,
-        "info",
-      );
-      if (!plan.autoInstall) {
-        controller.append(
-          `Завершите установку вручную: ${plan.manualCommand ?? plan.url}`,
-          "info",
-        );
-        return;
-      }
-      await launchWindowsInstaller(downloaded.path, NSIS_SILENT_ARGS);
-      controller.append("Установщик запущен. Закрываю ChiselCode...", "info");
       shutdown();
-    } catch (error) {
-      controller.append(`Ошибка обновления: ${String(error)}`, "error");
-    } finally {
-      selfUpdateRunning = false;
-    }
-  };
+    },
+  });
   const submit = async (
     input: string,
     target = currentController(),
@@ -686,8 +612,8 @@ export async function runOpenTuiAgent(
       allowBypassPermissions: bypassAvailable,
     });
     if (input === "/exit") return shutdown();
-    if (selfUpdateRunning) {
-      controller.append("Дождитесь завершения обновления.", "warn");
+    if (updater.snapshot.phase === "launching") {
+      controller.append("Дождитесь перезапуска ChiselCode.", "warn");
       return;
     }
     if (input === "/home") return workspace.select();
@@ -713,16 +639,7 @@ export async function runOpenTuiAgent(
       }
       return;
     }
-    if (input === "/update") {
-      if (activeRun) {
-        controller.append(
-          "Дождитесь завершения запроса перед обновлением.",
-          "warn",
-        );
-        return;
-      }
-      return selfUpdate(controller);
-    }
+    if (input === "/update") return updater.check();
     if (input === "/sessions") {
       const sessions = await sessionPicker.load();
       controller.append(
@@ -959,6 +876,7 @@ export async function runOpenTuiAgent(
         approvalResolver,
         sessionPicker,
         settingsActions,
+        updater,
         getModelsActions,
         getDefaultModel: () => defaultModel,
         onAgentModeChange: () => persistExecutionModes(currentController()),
@@ -1037,6 +955,7 @@ export async function runOpenTuiAgent(
         },
       }),
     );
+    void updater.check();
     await finished;
     await activeRun;
   } finally {
@@ -1045,6 +964,7 @@ export async function runOpenTuiAgent(
     abort.abort();
     approvalResolver.dispose();
     root.unmount();
+    await updater.dispose();
     detachScrollback?.();
     detachWorkspace();
     for (const detach of scrollbackDetachments.values()) detach();

@@ -5,8 +5,16 @@ import { type ReactNode, useRef } from "react";
 import { type Palette, THEMES } from "./appearance.js";
 import { useTerminalDecoration } from "./terminal-decoration.js";
 
-export function dialogLayout(width: number, height: number, maxHeight = 30) {
-  const popupWidth = Math.max(1, Math.min(104, width - (width >= 50 ? 4 : 2)));
+export function dialogLayout(
+  width: number,
+  height: number,
+  maxHeight = 30,
+  maxWidth = 104,
+) {
+  const popupWidth = Math.max(
+    1,
+    Math.min(maxWidth, width - (width >= 50 ? 4 : 2)),
+  );
   const popupHeight = Math.max(
     1,
     Math.min(maxHeight, height - (height >= 12 ? 2 : 0)),
@@ -31,6 +39,7 @@ export function OpenTuiDialog({
   onClose,
   children,
   maxHeight,
+  maxWidth,
 }: {
   id: string;
   width: number;
@@ -39,6 +48,7 @@ export function OpenTuiDialog({
   onClose: () => void;
   children: ReactNode;
   maxHeight?: number;
+  maxWidth?: number;
 }) {
   const renderer = useRenderer();
   const { borderChars } = useTerminalDecoration();
@@ -47,6 +57,7 @@ export function OpenTuiDialog({
     width,
     height,
     maxHeight,
+    maxWidth,
   );
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape also dismisses the dialog.

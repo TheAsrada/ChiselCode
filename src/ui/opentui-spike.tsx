@@ -53,6 +53,7 @@ import {
   type OpenTuiSettingsActions,
 } from "./opentui-settings.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
+import { OpenTuiUpdate, updateNotice } from "./opentui-update.js";
 import {
   FormattedMessage,
   OpenTuiTranscript,
@@ -74,6 +75,7 @@ import { terminalLine } from "./terminal-text.js";
 import type { TuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
+import type { UpdateController } from "./update-controller.js";
 
 const PATCH = `diff --git a/example.ts b/example.ts
 --- a/example.ts
@@ -153,6 +155,7 @@ function OpenTuiScreen({
   onSubmit,
   sessionPicker,
   settingsActions,
+  updater,
   getModelsActions,
   getDefaultModel,
   onAgentModeChange,
@@ -179,6 +182,7 @@ function OpenTuiScreen({
   onSubmit?: (prompt: string) => Promise<void>;
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
+  updater?: UpdateController;
   getModelsActions?: () => OpenTuiModelsActions;
   getDefaultModel?: () => string;
   onAgentModeChange?: (mode: AgentMode) => void;
@@ -219,6 +223,9 @@ function OpenTuiScreen({
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [modelsActions, setModelsActions] = useState<OpenTuiModelsActions>();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [update, setUpdate] = useState(updater?.snapshot);
+  useEffect(() => updater?.subscribe(setUpdate), [updater]);
   const [bypassAllowed, setBypassAllowed] = useState(allowBypassPermissions);
   const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -324,7 +331,9 @@ function OpenTuiScreen({
   const homeHeight = height - tabRows;
   const fullHomeLogo = home && textWidth >= LOGO_WIDTH + 4 && homeHeight >= 18;
   const homeCompact = homeHeight < 12;
+  const notice = homeHeight >= 12 ? updateNotice(update) : undefined;
   const homeFixedRows =
+    (notice ? 1 : 0) +
     (fullHomeLogo ? 5 : 1) +
     (homeCompact ? 1 : 2) +
     (homeHeight >= 10 ? 1 : 0) +
@@ -477,6 +486,7 @@ function OpenTuiScreen({
       !skillsOpen &&
       !modelsActions &&
       !permissionsOpen &&
+      !updateOpen &&
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
@@ -490,6 +500,7 @@ function OpenTuiScreen({
     skillsOpen,
     modelsActions,
     permissionsOpen,
+    updateOpen,
     contextOnly,
     focus,
   ]);
@@ -517,7 +528,14 @@ function OpenTuiScreen({
     controller?.setFocus(focus === "editor" ? "composer" : focus);
   };
   const openPermissions = () => {
-    if (approval || pickerOpen || settingsOpen || skillsOpen || modelsActions)
+    if (
+      approval ||
+      pickerOpen ||
+      settingsOpen ||
+      skillsOpen ||
+      modelsActions ||
+      updateOpen
+    )
       return;
     editor.current?.blur();
     setPermissionsOpen(true);
@@ -554,13 +572,33 @@ function OpenTuiScreen({
       settingsOpen ||
       skillsOpen ||
       modelsActions ||
-      permissionsOpen
+      permissionsOpen ||
+      updateOpen
     )
       return;
     editor.current?.blur();
     setModelsActions(getModelsActions());
     controller?.setOverlay("models");
     controller?.setFocus("modal");
+  };
+
+  const openUpdate = () => {
+    if (
+      !updater ||
+      approval ||
+      pickerOpen ||
+      settingsOpen ||
+      skillsOpen ||
+      modelsActions ||
+      permissionsOpen ||
+      updateOpen
+    )
+      return;
+    editor.current?.blur();
+    setUpdateOpen(true);
+    controller?.setOverlay("update");
+    controller?.setFocus("modal");
+    void updater.check();
   };
 
   useKeyboard((key) => {
@@ -578,7 +616,8 @@ function OpenTuiScreen({
       settingsOpen ||
       skillsOpen ||
       modelsActions ||
-      permissionsOpen
+      permissionsOpen ||
+      updateOpen
     )
       return;
     if (
@@ -758,7 +797,8 @@ function OpenTuiScreen({
       settingsOpen ||
       pickerOpen ||
       modelsActions ||
-      permissionsOpen
+      permissionsOpen ||
+      updateOpen
     )
       return;
     const value = command ?? editor.current?.plainText.trim();
@@ -847,6 +887,11 @@ function OpenTuiScreen({
     if (getModelsActions && value === "/model") {
       openModels();
       clearInput();
+      return;
+    }
+    if (updater && value === "/update") {
+      clearInput();
+      openUpdate();
       return;
     }
     if (settingsActions && value === "/settings") {
@@ -970,6 +1015,7 @@ function OpenTuiScreen({
           !settingsOpen &&
           !modelsActions &&
           !permissionsOpen &&
+          !updateOpen &&
           !approval
         }
         hasDraft={!!draft.trim()}
@@ -996,6 +1042,7 @@ function OpenTuiScreen({
             !settingsOpen &&
             !modelsActions &&
             !permissionsOpen &&
+            !updateOpen &&
             !approval
           }
           initialValue={draft}
@@ -1069,6 +1116,8 @@ function OpenTuiScreen({
               width={textWidth}
               height={height - tabRows}
               palette={palette}
+              updateNotice={notice}
+              onUpdate={openUpdate}
               feedback={
                 view.transcript.length > 0 && !visibleSuggestions.length ? (
                   <TerminalScrollbox
@@ -1258,6 +1307,19 @@ function OpenTuiScreen({
         )}
       </box>
       {settingsDialog}
+      {updateOpen && updater && !approval && (
+        <OpenTuiUpdate
+          updater={updater}
+          width={width}
+          height={height}
+          palette={palette}
+          onClose={() => {
+            setUpdateOpen(false);
+            controller?.setOverlay();
+            controller?.setFocus(focus === "editor" ? "composer" : focus);
+          }}
+        />
+      )}
       {permissionsOpen && !approval && (
         <OpenTuiPermissions
           width={width}
