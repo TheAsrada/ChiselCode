@@ -218,7 +218,7 @@ export class TerminalClipboardController {
       await this.writeQueue;
       if (abort.signal.aborted) return;
       const result = await this.service().read({
-        preferredTypes: ["text/plain;charset=utf-8", "text/plain"],
+        preferredTypes: ["text/plain"],
         signal: abort.signal,
       });
       if (
