@@ -182,7 +182,9 @@ test("onboarding cancellation closes the actual startup process and never saves 
       }
     });
   });
-  await Bun.sleep(30);
+  // A session process can be spawned after the disposable negotiation probe.
+  // Catch that late process too, including a child still loading its entry point.
+  await Bun.sleep(250);
   expect(await readFile(marker, "utf8")).toBe(settledMarker);
   await expect(controller.save(draft, DEFAULT_MCP_PERMISSIONS)).rejects.toThrow(
     "Сначала проверьте",

@@ -31,6 +31,23 @@ import type {
 import type { McpRedactor } from "./redaction.js";
 import type { McpServerEntry } from "./storage.js";
 
+/** SDK error cleanup and application cancellation must await the same close. */
+function coalesceTransportClose(transport: Transport): void {
+  const close = transport.close.bind(transport);
+  let closing: Promise<void> | undefined;
+  transport.close = () => {
+    if (closing) return closing;
+    const task = close();
+    closing = task;
+    void task
+      .finally(() => {
+        if (closing === task) closing = undefined;
+      })
+      .catch(() => {});
+    return task;
+  };
+}
+
 /** All SDK/protocol/transport choices stay behind this connection boundary. */
 class SdkMcpConnection implements McpConnection {
   private discovered = new Map<string, Tool>();
@@ -131,6 +148,8 @@ class SdkMcpConnection implements McpConnection {
         },
       );
     }
+    coalesceTransportClose(this.transport);
+    signal?.throwIfAborted();
     await this.client.connect(this.transport, {
       signal,
       timeout: config.startupTimeoutMs,
@@ -225,6 +244,9 @@ class SdkMcpConnection implements McpConnection {
   }
   async close(): Promise<void> {
     this.discovered.clear();
+    // During version negotiation the SDK has not attached the session transport
+    // to Client yet. Closing it directly also cancels its disposable probe.
+    await this.transport?.close();
     await this.client.close();
   }
   private flushStderr(): void {
