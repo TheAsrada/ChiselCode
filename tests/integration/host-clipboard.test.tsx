@@ -21,8 +21,11 @@ test.skipIf(process.platform !== "win32" && process.platform !== "darwin")(
         preferredTypes: ["text/plain"],
       });
       expect(read.status).toBe("read");
+      // CF_UNICODETEXT uses CRLF; the ChiselCode editor must normalize it to LF.
       if (read.status === "read")
-        expect(new TextDecoder().decode(read.representation.bytes)).toBe(text);
+        expect(new TextDecoder().decode(read.representation.bytes)).toBe(
+          process.platform === "win32" ? text.replace(/\n/g, "\r\n") : text,
+        );
       setup = await testRender(
         <OpenTuiClipboard palette={themePalette("obsidian")}>
           <textarea id="native-clipboard-editor" focused height={3} />
@@ -68,6 +71,14 @@ test.skipIf(process.platform !== "win32" && process.platform !== "darwin")(
           "Привет",
         );
       expect(editor.plainText).toBe(text);
+      const noticeDeadline = Date.now() + 2000;
+      while (
+        !rendered.captureCharFrame().includes("Скопировано") &&
+        Date.now() < noticeDeadline
+      ) {
+        await act(async () => Bun.sleep(20));
+        await act(async () => rendered.renderOnce());
+      }
       expect(rendered.captureCharFrame()).toContain("Скопировано");
     } finally {
       if (setup) act(() => setup?.renderer.destroy());
