@@ -64,6 +64,29 @@ export const SessionRuntimeSchema = z.object({
     z.object({
       id: z.string(),
       name: z.string(),
+      toolSource: z
+        .discriminatedUnion("type", [
+          z.object({ type: z.literal("local") }),
+          z.object({ type: z.literal("skill") }),
+          z.object({
+            type: z.literal("mcp"),
+            serverId: z.string(),
+            originalName: z.string(),
+            serverTitle: z.string(),
+            title: z.string().optional(),
+            category: z.enum(["read", "write", "destructive", "unknown"]),
+            classificationReason: z.string(),
+            annotations: z
+              .object({
+                readOnlyHint: z.boolean().optional(),
+                destructiveHint: z.boolean().optional(),
+                idempotentHint: z.boolean().optional(),
+                openWorldHint: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
       input: z.record(z.string(), z.unknown()),
       fingerprint: z.string(),
       state: z.enum([

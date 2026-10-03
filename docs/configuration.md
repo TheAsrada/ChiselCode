@@ -53,6 +53,46 @@ Shell allow rules сопоставляются с нормализованным
 
 `autoCompact` по умолчанию включён. Перед исчерпанием рабочего budget выбранная модель составляет краткое резюме старой истории без вызова инструментов; текущий запрос и недавние сообщения сохраняются. При недоступности резюме используется извлечение наблюдаемых фактов. Новое резюме применяется только если освобождает место; полная история и карточки сжатия сохраняются в сессии. Вспомогательный запрос учитывается в расходе токенов. При `autoCompact: false` сжатие и повтор после переполнения отключены.
 
+## MCP
+
+Обычный способ настройки — `/mcp`: URL или команда, тест, обнаруженные tools и разрешения перед сохранением. Глобальный сервер хранится в пользовательском config v2; проектный — в `.chiselrc` и требует доверия. Оба используют вложенный `mcp.schemaVersion: 1`. Старые config без `mcp` продолжают работать и мигрируют прежним способом.
+
+```json
+{
+  "mcp": {
+    "schemaVersion": 1,
+    "servers": {
+      "github": {
+        "enabled": true,
+        "transport": { "type": "http", "url": "https://example.com/mcp" },
+        "auth": { "token": { "envRef": "GITHUB_MCP_TOKEN" } },
+        "permissions": {
+          "categories": { "read": "allow", "write": "ask", "destructive": "ask", "unknown": "ask" },
+          "tools": { "merge_pull_request": "deny" }
+        },
+        "pinnedTools": ["search_code"]
+      },
+      "database": {
+        "transport": { "type": "stdio", "command": "node", "args": ["/opt/mcp/database-server.js"], "cwd": "/home/me/project" },
+        "env": {
+          "DATABASE_URL": { "secretRef": "mcp/database/url" },
+          "API_TOKEN": { "envRef": "DATABASE_API_TOKEN" },
+          "REGION": { "literal": "eu-west-1" }
+        },
+        "startupTimeoutMs": 15000,
+        "callTimeoutMs": 120000
+      }
+    }
+  }
+}
+```
+
+Поля MCP строгие: неизвестные настройки отклоняются. До 64 серверов, до 64 env/header entries, до 32 закреплённых tools на сервер. HTTP headers используют те же `secretRef`/`envRef`/несекретный `literal`, что stdio env. Bearer token задаётся в `auth.token`. Credentials в URL, аргументах с secret flags и literal в чувствительных env/header полях запрещены. Таймаут запуска — 100–120000 мс, вызова — 100–600000 мс.
+
+Отсутствующие permissions означают `ask`; мастер и CLI add предлагают read allow, остальные ask. Проектные allows не предоставляют пользовательские права. Невалидный сервер отключается и показывается в `/mcp`/`mcp doctor`; валидные серверы остаются доступными. Исправьте ошибки перед сохранением нового сервера: приложение не перезаписывает повреждённую конфигурацию исправленной частичной копией.
+
+Доверие хранится рядом с пользовательским config в `mcp-trust.json`; секреты — в `credentials.enc`, независимо от `.chiselrc`. Рабочая папка stdio по умолчанию — корень выбранного проекта. [Подключение MCP и диагностика](mcp.md).
+
 ## Инструкции проекта
 
 Корневые `CLAUDE.md`, `AGENTS.md` и `CHISEL.md` добавляются к инструкции агента; при конфликте `CHISEL.md` имеет приоритет. Например:

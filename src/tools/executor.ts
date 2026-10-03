@@ -6,6 +6,7 @@ import type { ApprovalGate } from "../security/approval.js";
 import { initializeSessionState } from "../sessions/migrations.js";
 import type { ToolCall, ToolExecutionResult } from "../types/domain.js";
 import type { ToolCatalog } from "./catalog.js";
+import { changesWorkspace, isReadEffect } from "./effects.js";
 import { canonicalInput, type ToolInvocationRecord } from "./invocation.js";
 import { failure, normalizeResult } from "./result.js";
 import type { ToolContext } from "./types.js";
@@ -92,6 +93,10 @@ export class ToolExecutor {
         state: "queued",
       });
       const handler = this.catalog.get(call.name);
+      record.toolSource = handler.spec.source;
+      const writesWorkspace =
+        changesWorkspace(handler.spec.effect) ||
+        handler.spec.workspaceAccess === "write";
       const mode =
         context.mode ??
         context.session.runtime?.turnMode ??
@@ -157,6 +162,8 @@ export class ToolExecutor {
         command: plan.command,
         fileDiff: plan.diffs?.[0],
         diffs: plan.diffs,
+        mcp: plan.approval,
+        mcpPermissions: handler.permissions?.(),
       };
       const approvalMode =
         context.approvalMode ??
@@ -175,8 +182,9 @@ export class ToolExecutor {
           "Action denied by permission policy.",
         );
       if (permission === "ask") {
+        const displayed = context.sanitizeApproval?.(request) ?? request;
         record.state = "awaiting_approval";
-        record.approvalPreview = plan.preview;
+        record.approvalPreview = displayed.preview;
         await context.events.emit({
           type: "turn_state",
           state: "awaiting_approval",
@@ -187,10 +195,10 @@ export class ToolExecutor {
           invocationId: call.id,
           name: call.name,
           state: "awaiting_approval",
-          text: plan.preview,
+          text: displayed.preview,
         });
         const decision = await abortable(
-          this.gate.resolve(request),
+          this.gate.resolve(displayed),
           context.signal,
         );
         if (decision === "unavailable")
@@ -198,14 +206,20 @@ export class ToolExecutor {
             output:
               "APPROVAL_UNAVAILABLE: approval is pending; resume interactively to continue.",
             requiresApproval: true,
-            preview: plan.preview,
+            preview: displayed.preview,
             errorCode: "APPROVAL_UNAVAILABLE",
           };
-        if (decision !== "approved")
+        if (decision !== "approved" && decision !== "approved_always")
           throw new RuntimeError(
             "PERMISSION_DENIED",
             "User denied this action.",
           );
+        if (
+          decision === "approved_always" &&
+          request.mcp &&
+          !request.mcp.destructive
+        )
+          await handler.rememberApproval?.();
       }
       cancelled(context.signal);
       await context.events.emit({
@@ -217,6 +231,7 @@ export class ToolExecutor {
       await context.checkpoint();
       await context.events.emit({
         type: "tool_started",
+        toolSource: handler.spec.source,
         invocationId: call.id,
         name: call.name,
         input: call.input,
@@ -232,51 +247,70 @@ export class ToolExecutor {
         const executionSignal = context.signal
           ? AbortSignal.any([context.signal, timeout.signal])
           : timeout.signal;
-        result = await workspaceCoordinator.withAccess(
-          executionScope,
-          handler.spec.effect === "read" ? "read" : "write",
-          executionSignal,
-          async () => {
-            this.observeWorkspace(scope);
-            if (
-              (handler.spec.effect === "process" ||
-                handler.spec.effect === "git_write") &&
-              workspaceCoordinator.revision(scope) !== preparedRevision
-            )
-              throw new RuntimeError(
-                "STALE_WORKSPACE",
-                "Another tab changed this workspace after preparation. Inspect the current files or staged changes and submit a fresh tool call; the old approved action was not executed.",
-              );
-            if (
-              permission === "allow" &&
-              approvalMode === "bypassPermissions" &&
-              !this.gate.policy.bypassAllowed &&
-              this.gate.policy.decide(
-                request,
-                handler.spec.effect,
-                approvalMode,
-              ) !== "allow"
-            )
-              throw new RuntimeError(
-                "PERMISSION_DENIED",
-                "Bypass was disabled before execution. Retry under Manual permissions.",
-              );
-            try {
-              return await handler.execute(
-                { ...context, signal: executionSignal },
-                plan,
-              );
-            } finally {
-              // Shell errors and interrupted patches may also have changed files.
-              // Notify peers before releasing the lease, including on failure.
-              if (handler.spec.effect !== "read") {
-                workspaceCoordinator.changed(executionScope);
-                this.observedWorkspaceRevision =
-                  workspaceCoordinator.revision(scope);
-              }
+        const execute = async () => {
+          this.observeWorkspace(scope);
+          if (
+            (handler.spec.effect === "process" ||
+              handler.spec.effect === "git_write") &&
+            workspaceCoordinator.revision(scope) !== preparedRevision
+          )
+            throw new RuntimeError(
+              "STALE_WORKSPACE",
+              "Another tab changed this workspace after preparation. Inspect the current files or staged changes and submit a fresh tool call; the old approved action was not executed.",
+            );
+          if (
+            permission === "allow" &&
+            approvalMode === "bypassPermissions" &&
+            !this.gate.policy.bypassAllowed &&
+            this.gate.policy.decide(
+              request,
+              handler.spec.effect,
+              approvalMode,
+            ) !== "allow"
+          )
+            throw new RuntimeError(
+              "PERMISSION_DENIED",
+              "Bypass was disabled before execution. Retry under Manual permissions.",
+            );
+          if (
+            request.mcp &&
+            this.gate.policy.decide(
+              { ...request, mcpPermissions: handler.permissions?.() },
+              handler.spec.effect,
+              approvalMode,
+            ) === "deny"
+          )
+            throw new RuntimeError(
+              "PERMISSION_DENIED",
+              "MCP permission was revoked before execution.",
+            );
+          try {
+            return await handler.execute(
+              { ...context, signal: executionSignal },
+              plan,
+            );
+          } finally {
+            // Shell errors and interrupted patches may also have changed files.
+            // Notify peers before releasing the lease, including on failure.
+            if (writesWorkspace) {
+              workspaceCoordinator.changed(executionScope);
+              this.observedWorkspaceRevision =
+                workspaceCoordinator.revision(scope);
             }
-          },
-        );
+          }
+        };
+        result =
+          writesWorkspace ||
+          handler.spec.workspaceAccess === "read" ||
+          (isReadEffect(handler.spec.effect) &&
+            handler.spec.source?.type !== "mcp")
+            ? await workspaceCoordinator.withAccess(
+                executionScope,
+                isReadEffect(handler.spec.effect) ? "read" : "write",
+                executionSignal,
+                execute,
+              )
+            : await execute();
       } catch (error) {
         if (context.signal?.aborted)
           throw new RuntimeError("CANCELLED", "Tool execution cancelled.");
@@ -289,13 +323,13 @@ export class ToolExecutor {
       if (timeout.signal.aborted)
         throw new RuntimeError("TOOL_TIMEOUT", "Tool execution timed out.");
       result = await normalizeResult(
-        result,
+        context.sanitizeResult?.(result) ?? result,
         context.artifacts,
         handler.spec.outputPolicy?.maxInlineTokens ?? this.maxInlineTokens,
       );
       record.result = result;
       record.state = result.isError ? "failed" : "succeeded";
-      if (handler.spec.effect !== "read" && !result.isError) {
+      if (writesWorkspace && !result.isError) {
         runtime.workspaceVersion = (runtime.workspaceVersion ?? 0) + 1;
         await context.events.emit({
           type: "workspace_changed",
@@ -318,7 +352,16 @@ export class ToolExecutor {
       return result;
     } catch (error) {
       let result = failure(error);
+      if (record.toolSource?.type === "mcp")
+        result.details = {
+          ...result.details,
+          mcp: {
+            server: record.toolSource.serverTitle,
+            tool: record.toolSource.title ?? record.toolSource.originalName,
+          },
+        };
       try {
+        result = context.sanitizeResult?.(result) ?? result;
         result = await normalizeResult(result, context.artifacts, outputLimit);
       } catch {
         result = {
@@ -328,7 +371,7 @@ export class ToolExecutor {
       }
       record.result = result;
       record.state =
-        result.errorCode === "CANCELLED"
+        result.errorCode === "CANCELLED" || result.errorCode === "MCP_CANCELLED"
           ? "cancelled"
           : result.errorCode === "PERMISSION_DENIED" ||
               result.errorCode === "MODE_RESTRICTION"

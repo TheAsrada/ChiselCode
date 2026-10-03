@@ -171,6 +171,8 @@ export interface ProviderAdapter {
 }
 
 export interface ProjectConfig {
+  mcp?: import("../mcp/schema.js").McpConfig;
+  mcpDiagnostics?: import("../mcp/configuration.js").McpConfigDiagnostic[];
   context?: Partial<import("../context/types.js").ContextOptions>;
   tools?: { maxParallelReads?: number };
   editing?: { requireFreshRead?: boolean };
@@ -191,6 +193,8 @@ export interface GlobalConfig {
   schemaVersion: 2;
   defaultProfileId?: string;
   profiles: Record<string, import("../providers/contracts.js").ProviderProfile>;
+  mcp?: import("../mcp/schema.js").McpConfig;
+  mcpDiagnostics?: import("../mcp/configuration.js").McpConfigDiagnostic[];
   permissions?: { allowBypassPermissions?: boolean };
   [key: string]: unknown;
   /** @deprecated Non-persisted accessor. Use defaultProfileId. */

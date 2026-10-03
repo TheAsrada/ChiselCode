@@ -25,6 +25,8 @@ export class SkillsToolProvider implements ToolProvider {
   readonly handlers;
   constructor(skills: readonly Skill[]) {
     this.handlers = skillHandlers([...skills]);
+    for (const handler of this.handlers)
+      handler.spec.source = { type: "skill" };
   }
   async listTools() {
     return this.handlers.map((handler) => handler.spec);

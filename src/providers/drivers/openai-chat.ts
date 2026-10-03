@@ -15,6 +15,7 @@ import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import { parseToolArguments } from "../tool-arguments.js";
+import { ProviderToolNames } from "../tool-names.js";
 
 export interface OpenAIAdapterOptions {
   maxRetries?: number;
@@ -113,9 +114,15 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
   }
 
   async *streamChat(request: ProviderRequest): AsyncIterable<StreamEvent> {
+    const names = new ProviderToolNames(request.tools, request.messages);
+    const wireRequest = {
+      ...request,
+      tools: names.tools(request.tools),
+      messages: names.messages(request.messages),
+    };
     let observedUsage: TokenUsage | undefined;
     try {
-      const stream = await this.createCompletionStream(request, false);
+      const stream = await this.createCompletionStream(wireRequest, false);
       const toolCalls = new Map<
         number,
         { id: string; name: string; arguments: string }
@@ -198,7 +205,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       for (const [, call] of [...toolCalls.entries()].sort(
         ([a], [b]) => a - b,
       )) {
-        const parsedName = ToolNameSchema.safeParse(call.name);
+        const parsedName = ToolNameSchema.safeParse(names.domain(call.name));
         if (!parsedName.success || !call.id || ids.has(call.id))
           throw new ProviderError(
             "transport",

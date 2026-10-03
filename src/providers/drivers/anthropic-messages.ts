@@ -16,6 +16,7 @@ import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import { parseToolArguments } from "../tool-arguments.js";
+import { ProviderToolNames } from "../tool-names.js";
 
 export interface AnthropicAdapterOptions {
   apiKey?: string | null;
@@ -51,6 +52,12 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
   }
 
   async *streamChat(request: ProviderRequest): AsyncIterable<StreamEvent> {
+    const names = new ProviderToolNames(request.tools, request.messages);
+    const wireRequest = {
+      ...request,
+      tools: names.tools(request.tools),
+      messages: names.messages(request.messages),
+    };
     let usage: Anthropic.Usage | undefined;
     try {
       const maxTokens =
@@ -69,8 +76,8 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           model: request.model,
           max_tokens: maxTokens,
           system: request.system,
-          messages: toAnthropicMessages(request.messages),
-          tools: toAnthropicTools(request.tools),
+          messages: toAnthropicMessages(wireRequest.messages),
+          tools: toAnthropicTools(wireRequest.tools),
           // Новые параметры (adaptive thinking, effort) шлём только
           // официальному API: совместимые шлюзы их часто не знают и
           // отвечают 400 на весь запрос.
@@ -184,7 +191,11 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
             block.input = parseToolArguments(json, block.name);
           return block;
         });
-      const normalized = fromAnthropicContent(content);
+      const normalized = fromAnthropicContent(content).map((block) =>
+        block.type === "tool_use"
+          ? { ...block, name: names.domain(block.name) }
+          : block,
+      );
       const ids = new Set<string>();
       for (const content of normalized) {
         if (content.type === "tool_use") {
@@ -265,12 +276,13 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
   async countTokens(request: TokenCountRequest): Promise<number | undefined> {
     if (!this.options.nativeTokenCounting) return undefined;
     try {
+      const names = new ProviderToolNames(request.tools, request.messages);
       const result = await this.client.messages.countTokens(
         {
           model: request.model,
           system: request.system,
-          messages: toAnthropicMessages(request.messages),
-          tools: toAnthropicTools(request.tools),
+          messages: toAnthropicMessages(names.messages(request.messages)),
+          tools: toAnthropicTools(names.tools(request.tools)),
         },
         { signal: request.signal, timeout: 5000, maxRetries: 0 },
       );

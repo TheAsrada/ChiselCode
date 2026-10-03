@@ -6,6 +6,7 @@ import type {
 } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
+import type { OpenTuiMcpActions } from "../mcp/controller.js";
 import {
   AGENT_MODES,
   type AgentMode,
@@ -39,6 +40,7 @@ import {
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
+import { OpenTuiMcp } from "./opentui-mcp.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPermissions } from "./opentui-permissions.js";
@@ -173,6 +175,7 @@ function OpenTuiScreen({
   onSetupComplete,
   onInitialSettingsComplete,
   skillsActions,
+  getMcpActions,
   initialTheme = "obsidian",
   accent,
   onThemeChange,
@@ -201,6 +204,7 @@ function OpenTuiScreen({
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
+  getMcpActions?: () => OpenTuiMcpActions;
   initialTheme?: ThemeName;
   accent?: string;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
@@ -229,6 +233,7 @@ function OpenTuiScreen({
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const palette = themePalette(theme, accent);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [mcpActions, setMcpActions] = useState<OpenTuiMcpActions>();
   const [modelsActions, setModelsActions] = useState<OpenTuiModelsActions>();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -507,6 +512,7 @@ function OpenTuiScreen({
       !pickerOpen &&
       !settingsOpen &&
       !skillsOpen &&
+      !mcpActions &&
       !modelsActions &&
       !permissionsOpen &&
       !updateOpen &&
@@ -521,6 +527,7 @@ function OpenTuiScreen({
     pickerOpen,
     settingsOpen,
     skillsOpen,
+    mcpActions,
     modelsActions,
     permissionsOpen,
     updateOpen,
@@ -556,6 +563,7 @@ function OpenTuiScreen({
       pickerOpen ||
       settingsOpen ||
       skillsOpen ||
+      mcpActions ||
       modelsActions ||
       updateOpen
     )
@@ -594,6 +602,7 @@ function OpenTuiScreen({
       pickerOpen ||
       settingsOpen ||
       skillsOpen ||
+      mcpActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen
@@ -612,6 +621,7 @@ function OpenTuiScreen({
       pickerOpen ||
       settingsOpen ||
       skillsOpen ||
+      mcpActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen
@@ -636,6 +646,7 @@ function OpenTuiScreen({
       (pickerOpen ||
         settingsOpen ||
         skillsOpen ||
+        mcpActions ||
         modelsActions ||
         permissionsOpen ||
         updateOpen)
@@ -686,6 +697,7 @@ function OpenTuiScreen({
       pickerOpen ||
       settingsOpen ||
       skillsOpen ||
+      mcpActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen
@@ -834,6 +846,7 @@ function OpenTuiScreen({
     if (
       approval ||
       skillsOpen ||
+      mcpActions ||
       settingsOpen ||
       pickerOpen ||
       modelsActions ||
@@ -948,6 +961,14 @@ function OpenTuiScreen({
       clearInput();
       return;
     }
+    if (getMcpActions && value === "/mcp") {
+      editor.current?.blur();
+      setMcpActions(getMcpActions());
+      controller?.setOverlay("mcp");
+      controller?.setFocus("modal");
+      clearInput();
+      return;
+    }
     if (onSubmit)
       void onSubmit(value).catch((error) =>
         controller?.append(String(error), "error"),
@@ -1052,6 +1073,7 @@ function OpenTuiScreen({
         focused={
           focus === "editor" &&
           !skillsOpen &&
+          !mcpActions &&
           !settingsOpen &&
           !modelsActions &&
           !permissionsOpen &&
@@ -1079,6 +1101,7 @@ function OpenTuiScreen({
           focused={
             focus === "editor" &&
             !skillsOpen &&
+            !mcpActions &&
             !settingsOpen &&
             !modelsActions &&
             !permissionsOpen &&
@@ -1414,7 +1437,23 @@ function OpenTuiScreen({
           height={height}
           palette={palette}
           onApprove={() => approvalResolver?.resolve("approved", approval)}
+          onAlwaysApprove={() =>
+            approvalResolver?.resolve("approved_always", approval)
+          }
           onDeny={() => approvalResolver?.resolve("denied", approval)}
+        />
+      )}
+      {mcpActions && !approval && (
+        <OpenTuiMcp
+          actions={mcpActions}
+          width={width}
+          height={height}
+          palette={palette}
+          onClose={() => {
+            setMcpActions(undefined);
+            controller?.setOverlay();
+            controller?.setFocus(focus === "editor" ? "composer" : focus);
+          }}
         />
       )}
       {skillsOpen && skillsActions && !approval && (

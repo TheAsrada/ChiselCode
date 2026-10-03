@@ -30,6 +30,19 @@ export class PermissionPolicy {
     effect: string,
     approvalMode = this.approvalMode,
   ): PermissionDecision {
+    if (request.mcp) {
+      const rules = request.mcpPermissions;
+      const tool = rules?.tools[request.mcp.originalName];
+      const category = rules?.categories[request.mcp.category];
+      const server = rules?.default;
+      if ([tool, category, server].includes("deny")) return "deny";
+      const decision = tool ?? category ?? server ?? "ask";
+      if (decision === "allow" || this.options.allowedTools.has(request.tool))
+        return "allow";
+      if (approvalMode === "bypassPermissions" && this.bypassAllowed)
+        return "allow";
+      return approvalMode === "dontAsk" ? "deny" : "ask";
+    }
     if (effect === "read") return "allow";
     if (request.command) {
       const analysis = analyzeShell(request.command);

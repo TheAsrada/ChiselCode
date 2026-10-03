@@ -2,12 +2,20 @@ import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
+  randomUUID,
   scryptSync,
 } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 const FALLBACK_FILE = "credentials.enc";
+const writes = new Map<string, Promise<void>>();
+
+/** Backends may use an OS keychain without changing callers or MCP config. */
+export interface CredentialStorage {
+  get(name: string): Promise<string | undefined>;
+  set(name: string, secret: string): Promise<void>;
+}
 
 function configDirectory(): string {
   if (process.platform === "win32")
@@ -22,11 +30,15 @@ function configDirectory(): string {
   );
 }
 
-export class CredentialStore {
+export class CredentialStore implements CredentialStorage {
+  constructor(private readonly directory?: string) {}
   async get(name: string): Promise<string | undefined> {
     try {
       const payload = JSON.parse(
-        await readFile(join(configDirectory(), FALLBACK_FILE), "utf8"),
+        await readFile(
+          join(this.directory ?? configDirectory(), FALLBACK_FILE),
+          "utf8",
+        ),
       ) as EncryptedCredentialFile;
       return decrypt(payload)[name];
     } catch (error) {
@@ -38,7 +50,19 @@ export class CredentialStore {
   }
 
   async set(name: string, secret: string): Promise<void> {
-    const directory = configDirectory();
+    const file = join(this.directory ?? configDirectory(), FALLBACK_FILE);
+    const task = (writes.get(file) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => this.write(name, secret));
+    writes.set(file, task);
+    try {
+      await task;
+    } finally {
+      if (writes.get(file) === task) writes.delete(file);
+    }
+  }
+  private async write(name: string, secret: string): Promise<void> {
+    const directory = this.directory ?? configDirectory();
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const file = join(directory, FALLBACK_FILE);
     let credentials: Record<string, string> = {};
@@ -50,10 +74,22 @@ export class CredentialStore {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     credentials[name] = secret;
-    await writeFile(file, `${JSON.stringify(encrypt(credentials))}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    const handle = await open(temporary, "wx", 0o600);
+    try {
+      await handle.writeFile(
+        `${JSON.stringify(encrypt(credentials))}\n`,
+        "utf8",
+      );
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    try {
+      await rename(temporary, file);
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 }
 

@@ -27,7 +27,10 @@ import { TurnRunner } from "./turn-runner.js";
 import type { TurnState } from "./turn-state.js";
 export interface RuntimeTools {
   getApprovalMode?(requested?: ApprovalMode): ApprovalMode;
-  selectForTurn(): ToolDefinition[] | Promise<ToolDefinition[]>;
+  selectForTurn(input?: {
+    prompt?: string;
+    recentTools?: string[];
+  }): ToolDefinition[] | Promise<ToolDefinition[]>;
   execute(
     calls: ToolCall[],
     signal?: AbortSignal,
@@ -157,7 +160,16 @@ export class AgentRuntime {
         const frame = await this.context.build({
           session,
           system: `${system}${responseRecoveryInstructions}`,
-          tools: await this.tools.selectForTurn(),
+          tools: await this.tools.selectForTurn({
+            prompt: typeof input === "string" ? input : input.text,
+            recentTools: session.messages
+              .slice(-6)
+              .flatMap((message) =>
+                message.content.flatMap((block) =>
+                  block.type === "tool_use" ? [block.name] : [],
+                ),
+              ),
+          }),
           provider: this.provider,
           capabilities,
           signal: options.signal,

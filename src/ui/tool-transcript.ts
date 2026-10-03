@@ -31,6 +31,12 @@ export function appendToolResult(
       );
   } else if (fileTools.has(name)) {
     view.append(result.output, "info");
+  } else if (result.details?.mcp) {
+    const display = result.details.mcp as { server: string; tool: string };
+    view.append(
+      `[mcp] ${display.server} · ${display.tool}${result.artifact ? " · полный результат сохранён" : " · готово"}`,
+      "tool",
+    );
   }
 }
 
@@ -39,16 +45,20 @@ export function toolTranscriptHandlers(
   getView: () => TuiTranscript | undefined,
 ): AgentEventHandlers {
   return {
-    onToolStart: (name, input) => {
+    onToolStart: (name, input, source) => {
       const view = getView();
-      if (fileTools.has(name))
+      if (source?.type === "mcp")
+        view?.setToolActivity(
+          `[mcp] ${source.serverTitle} · ${source.title ?? source.originalName}`,
+        );
+      else if (fileTools.has(name))
         view?.setToolActivity(`[chisel] ${name} ${String(input.path ?? "")}`);
       else view?.append(`[chisel] ${formatToolSummary(name, input)}`, "tool");
     },
     onToolResult: (name, result) => {
       const view = getView();
       if (!view) return;
-      if (fileTools.has(name)) view.setToolActivity();
+      view.setToolActivity();
       appendToolResult(view, name, result);
     },
   };
@@ -121,6 +131,8 @@ export function replaySessionIntoTranscript(
         if (text)
           target.append(text, message.role === "user" ? "user" : "assistant");
       } else if (block.type === "tool_use") {
+        const source = session.runtime?.invocations[block.id]?.toolSource;
+        if (source?.type === "mcp") continue;
         if (!session.fileDiffs?.[block.id])
           target.append(
             `[chisel] ${formatToolSummary(block.name, block.input)}`,
@@ -130,6 +142,8 @@ export function replaySessionIntoTranscript(
         appendToolResult(target, names.get(block.toolUseId) ?? "tool", {
           output: block.content,
           isError: block.isError,
+          details:
+            session.runtime?.invocations[block.toolUseId]?.result?.details,
           fileDiff: session.fileDiffs?.[block.toolUseId],
           diffs:
             session.runtime?.invocations[block.toolUseId]?.result?.diffs ??

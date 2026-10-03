@@ -31,6 +31,7 @@ export const SLASH_COMMANDS = [
     name: "/auto",
     description: "Accept edits: разрешать правки файлов проекта",
   },
+  { name: "/mcp", description: "Подключения MCP, инструменты и разрешения" },
 ] as const;
 
 export type SlashCommandName = (typeof SLASH_COMMANDS)[number]["name"];
@@ -140,7 +141,15 @@ const HELP_GROUPS: { title: string; commands: string[] }[] = [
   { title: "Проект", commands: ["/cwd", "/status", "/doctor"] },
   {
     title: "Приложение",
-    commands: ["/settings", "/model", "/skills", "/update", "/help", "/exit"],
+    commands: [
+      "/settings",
+      "/model",
+      "/skills",
+      "/mcp",
+      "/update",
+      "/help",
+      "/exit",
+    ],
   },
 ];
 

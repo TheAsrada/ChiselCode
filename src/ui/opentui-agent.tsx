@@ -22,6 +22,9 @@ import {
   loadProjectConfig,
   saveGlobalConfig,
 } from "../config/load.js";
+import { McpController } from "../mcp/controller.js";
+import { McpConnectionManager } from "../mcp/manager.js";
+import { McpConfigStore } from "../mcp/storage.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import { selectProfile } from "../providers/profiles.js";
 import {
@@ -57,7 +60,6 @@ import {
   settingsDraft,
   settingsKeyReady,
 } from "./provider-settings.js";
-
 import { FAIL_MARK, formatStatusDashboard, OK_MARK } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import type { TuiController } from "./tui-controller.js";
@@ -90,6 +92,19 @@ export async function runOpenTuiAgent(
   workspace.controller.setApprovalMode(initialApprovalMode);
   if (options.mode) workspace.controller.setAgentMode(options.mode);
   const currentController = () => workspace.controller;
+  const mcpProjects = new Map<string, McpController>();
+  const getMcpController = (projectRoot: string) => {
+    let controller = mcpProjects.get(projectRoot);
+    if (!controller) {
+      controller = new McpController(
+        new McpConnectionManager(
+          new McpConfigStore(projectRoot, { globalPath: options.configPath }),
+        ),
+      );
+      mcpProjects.set(projectRoot, controller);
+    }
+    return controller;
+  };
   const catalog = await getProviderCatalog();
   const homeModel = settingsDraft(config, catalog.registry, activeOptions);
   workspace.home.setActiveModel(
@@ -747,6 +762,8 @@ export async function runOpenTuiAgent(
             mode: turnMode,
             approvalMode: turnApprovalMode,
             isBypassAllowed: () => bypassAvailable,
+            mcpManager: getMcpController(controller.snapshot.projectPath)
+              .manager,
           },
           execution.approvalResolver,
           {
@@ -755,6 +772,10 @@ export async function runOpenTuiAgent(
                 return;
               if (event.type === "checkpoint_saved")
                 controller.setSessionId(event.sessionId);
+              if (event.type === "tool_progress")
+                controller.setToolActivity(
+                  `${event.name ?? "MCP"} · ${event.text ?? "Выполняется"}${event.total ? ` ${Math.min(100, Math.round(((event.progress ?? 0) / event.total) * 100))}%` : ""}`,
+                );
               if (
                 event.type === "context_compaction_started" &&
                 event.compactionId
@@ -800,10 +821,10 @@ export async function runOpenTuiAgent(
               hasText = true;
             },
             onThinking: () => {},
-            onToolStart: (name, input) => {
+            onToolStart: (name, input, source) => {
               if (!controller.isCurrent(requestGeneration) || signal.aborted)
                 return;
-              tools.onToolStart?.(name, input);
+              tools.onToolStart?.(name, input, source);
             },
             onToolResult: (name, outcome) => {
               if (!controller.isCurrent(requestGeneration) || signal.aborted)
@@ -921,6 +942,8 @@ export async function runOpenTuiAgent(
           return saved;
         },
         skillsActions,
+        getMcpActions: () =>
+          getMcpController(currentController().snapshot.projectPath),
         initialSettingsOpen: setupRequired || setupOnly,
         onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
@@ -975,6 +998,12 @@ export async function runOpenTuiAgent(
     await workspace.waitForRuns();
     root.unmount();
     await updater.dispose();
+    await Promise.all(
+      [...mcpProjects.values()].map(async (controller) => {
+        await controller.discard();
+        await controller.manager.dispose();
+      }),
+    );
     detachScrollback?.();
     detachWorkspace();
     for (const detach of scrollbackDetachments.values()) detach();

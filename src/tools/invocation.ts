@@ -11,6 +11,7 @@ export type ToolInvocationState =
 export interface ToolInvocationRecord {
   id: string;
   name: string;
+  toolSource?: import("./types.js").ToolSource;
   input: JsonObject;
   fingerprint: string;
   state: ToolInvocationState;

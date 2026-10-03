@@ -3,7 +3,7 @@ import { ToolResultStore } from "../context/tool-result-store.js";
 import { sessionsRootDir } from "../paths/home.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { RuntimeEventBus } from "../runtime/events.js";
-import type { ApprovalGate } from "../security/approval.js";
+import type { ApprovalGate, ApprovalRequest } from "../security/approval.js";
 import {
   type ApprovalMode,
   resolveApprovalMode,
@@ -12,7 +12,7 @@ import { HostSandboxExecutor } from "../security/sandbox.js";
 import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { initializeSessionState } from "../sessions/migrations.js";
 import type { Skill } from "../skills/skills.js";
-import type { Session } from "../types/domain.js";
+import type { Session, ToolExecutionResult } from "../types/domain.js";
 import { ToolCatalog } from "./catalog.js";
 import { EditingService } from "./editing/service.js";
 import { ToolExecutor } from "./executor.js";
@@ -31,6 +31,8 @@ export function createLocalToolRuntime(
     events?: RuntimeEventBus;
     signal?: AbortSignal;
     checkpoint?: () => Promise<void>;
+    sanitizeResult?: (result: ToolExecutionResult) => ToolExecutionResult;
+    sanitizeApproval?: (request: ApprovalRequest) => ApprovalRequest;
     artifactDirectory?: string;
     maxInlineTokens?: number;
     maxParallelReads?: number;
@@ -69,6 +71,8 @@ export function createLocalToolRuntime(
     events: options.events ?? new RuntimeEventBus(session.id),
     signal: options.signal,
     checkpoint: options.checkpoint ?? (async () => {}),
+    sanitizeResult: options.sanitizeResult,
+    sanitizeApproval: options.sanitizeApproval,
   };
   const executor = new ToolExecutor(
     catalog,

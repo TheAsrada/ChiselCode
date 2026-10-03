@@ -13,7 +13,11 @@ export interface AgentEventHandlers {
   onEvent?(event: RuntimeEvent): void;
   onText?(text: string): void;
   onThinking?(text: string): void;
-  onToolStart?(name: string, input: Record<string, unknown>): void;
+  onToolStart?(
+    name: string,
+    input: Record<string, unknown>,
+    source?: import("../tools/types.js").ToolSource,
+  ): void;
   onToolResult?(name: string, result: ToolExecutionResult): void;
 }
 export type AgentLoopOptions = RuntimeOptions;
@@ -34,7 +38,11 @@ export class AgentLoop {
       if (event.type === "provider_thinking_delta")
         this.handlers.onThinking?.(event.text ?? "");
       if (event.type === "tool_started")
-        this.handlers.onToolStart?.(event.name ?? "", event.input ?? {});
+        this.handlers.onToolStart?.(
+          event.name ?? "",
+          event.input ?? {},
+          event.toolSource,
+        );
       if (
         (event.type === "tool_completed" || event.type === "tool_failed") &&
         event.result

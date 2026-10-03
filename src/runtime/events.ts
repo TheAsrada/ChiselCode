@@ -27,6 +27,7 @@ export type RuntimeEventType =
   | "tool_prepared"
   | "tool_approval_requested"
   | "tool_started"
+  | "tool_progress"
   | "tool_completed"
   | "tool_failed"
   | "workspace_changed"
@@ -47,6 +48,9 @@ export interface RuntimeEvent {
   state?: TurnState | ToolInvocationState;
   errorCode?: string;
   durationMs?: number;
+  progress?: number;
+  total?: number;
+  toolSource?: import("../tools/types.js").ToolSource;
   estimatedInputTokens?: number;
   maxOutputTokens?: number;
   contextSnapshot?: ContextSnapshot;
@@ -54,6 +58,7 @@ export interface RuntimeEvent {
   compaction?: ContextCompactionRecord;
 }
 export class RuntimeEventBus {
+  sanitize?: (event: RuntimeEvent) => RuntimeEvent;
   private listeners = new Set<(event: RuntimeEvent) => void | Promise<void>>();
   constructor(
     readonly sessionId: string,
@@ -75,6 +80,7 @@ export class RuntimeEventBus {
       turnId: this.turnId,
       timestamp: new Date().toISOString(),
     };
-    for (const listener of this.listeners) await listener(record);
+    const safe = this.sanitize?.(record) ?? record;
+    for (const listener of this.listeners) await listener(safe);
   }
 }

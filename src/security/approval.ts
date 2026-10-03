@@ -12,7 +12,21 @@ const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "apply_patch",
 ]);
 
-export type ApprovalDecision = "approved" | "denied" | "unavailable";
+export type ApprovalDecision =
+  | "approved"
+  | "approved_always"
+  | "denied"
+  | "unavailable";
+export interface McpApprovalPreview {
+  serverId: string;
+  serverTitle: string;
+  originalName: string;
+  title: string;
+  category: import("../tools/types.js").McpToolCategory;
+  fields: Array<{ label: string; value: string }>;
+  consequence: string;
+  destructive: boolean;
+}
 
 export interface ApprovalRequest {
   /**
@@ -26,6 +40,8 @@ export interface ApprovalRequest {
   fileDiff?: FileDiff;
   /** All files covered by this one atomic action; fileDiff remains compatible. */
   diffs?: FileDiff[];
+  mcp?: McpApprovalPreview;
+  mcpPermissions?: import("../mcp/schema.js").McpPermissions;
 }
 
 export interface ApprovalResolver {

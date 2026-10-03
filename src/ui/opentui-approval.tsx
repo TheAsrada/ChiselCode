@@ -17,6 +17,7 @@ export function OpenTuiApproval({
   height,
   palette = THEMES.obsidian,
   onApprove = () => {},
+  onAlwaysApprove,
   onDeny = () => {},
 }: {
   request: ApprovalRequest;
@@ -24,6 +25,7 @@ export function OpenTuiApproval({
   height: number;
   palette?: Palette;
   onApprove?: () => void;
+  onAlwaysApprove?: () => void;
   onDeny?: () => void;
 }) {
   const diffs = request.diffs ?? (request.fileDiff ? [request.fileDiff] : []);
@@ -67,10 +69,16 @@ export function OpenTuiApproval({
       onClose={onDeny}
     >
       <text fg={palette.yellow} height={1}>
-        <strong>Разрешить действие?</strong>
+        <strong>
+          {request.mcp?.destructive
+            ? "Подтвердить опасное действие?"
+            : request.mcp
+              ? request.mcp.serverTitle
+              : "Разрешить действие?"}
+        </strong>
       </text>
       <text fg={palette.muted} height={1}>
-        {terminalSafeText(request.tool, innerWidth)}
+        {terminalSafeText(request.mcp?.title ?? request.tool, innerWidth)}
         {diffs.length > 1 ? ` | файлов: ${diffs.length}` : ""}
       </text>
       {popupHeight >= 5 && (
@@ -92,6 +100,25 @@ export function OpenTuiApproval({
                 palette={palette}
               />
             ))
+          ) : request.mcp ? (
+            <box flexDirection="column" gap={1}>
+              <text fg={palette.muted}>
+                {request.mcp.serverId}.{request.mcp.originalName}
+              </text>
+              {request.mcp.fields.map((field) => (
+                <box key={field.label} flexDirection="column">
+                  <text fg={palette.muted}>
+                    {terminalSafeText(field.label)}
+                  </text>
+                  <text fg={palette.text} selectable>
+                    {terminalSafeText(field.value)}
+                  </text>
+                </box>
+              ))}
+              <text fg={request.mcp.destructive ? palette.red : palette.yellow}>
+                {terminalSafeText(request.mcp.consequence)}
+              </text>
+            </box>
           ) : (
             <text fg={palette.text} selectable>
               {terminalSafeText(request.preview, 100_000)}
@@ -113,6 +140,17 @@ export function OpenTuiApproval({
           onSelect={onDeny}
           palette={palette}
         />
+        {request.mcp &&
+          !request.mcp.destructive &&
+          onAlwaysApprove &&
+          innerWidth >= 50 && (
+            <DialogAction
+              id="approval-always"
+              label="Всегда этот tool"
+              onSelect={onAlwaysApprove}
+              palette={palette}
+            />
+          )}
       </box>
       {!tiny && (
         <text height={1} fg={palette.muted}>

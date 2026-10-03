@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { stdin as nodeStdin, stdout as nodeStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
+import { registerMcpCommands } from "./commands/mcp.js";
 import {
   hasApiKey,
   nonInteractiveResolver,
@@ -320,6 +321,7 @@ auth
   });
 
 try {
+  registerMcpCommands(program);
   await program.parseAsync();
 } catch (error: unknown) {
   process.stderr.write(

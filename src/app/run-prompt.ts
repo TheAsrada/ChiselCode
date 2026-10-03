@@ -22,6 +22,9 @@ import type { GlobalConfig } from "../types/domain.js";
 
 export { MissingApiKeyError } from "../providers/runtime.js";
 
+import { McpConnectionManager } from "../mcp/manager.js";
+import { McpRuntimeBinding } from "../mcp/runtime.js";
+import { McpConfigStore } from "../mcp/storage.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
@@ -49,11 +52,17 @@ export interface RunEventHandlers {
   onEvent?(event: RuntimeEvent): void | Promise<void>;
   onText?(text: string): void;
   onThinking?(text: string): void;
-  onToolStart?(name: string, input: Record<string, unknown>): void;
+  onToolStart?(
+    name: string,
+    input: Record<string, unknown>,
+    source?: import("../tools/types.js").ToolSource,
+  ): void;
   onToolResult?(name: string, result: ToolExecutionResult): void;
 }
 
 export interface RunOptions {
+  /** Shared across TUI turns/tabs of a project; headless runs own their manager. */
+  mcpManager?: McpConnectionManager;
   mode?: AgentMode;
   approvalMode?: ApprovalModeInput;
   /** Internal live revocation hook; user config must also permit Bypass. */
@@ -408,6 +417,32 @@ export async function runPrompt(
   );
   const skills = loadSkills(projectRoot);
   const eventBus = new RuntimeEventBus(session.id);
+  const mcp =
+    global.mcp || config.mcp || options.mcpManager?.list().length
+      ? (options.mcpManager ??
+        new McpConnectionManager(
+          new McpConfigStore(projectRoot, { globalPath: options.configPath }),
+        ))
+      : undefined;
+  if (mcp) eventBus.sanitize = (event) => mcp.redactor.value(event);
+  const saveCheckpoint = () => {
+    if (mcp) {
+      session.messages = mcp.redactor.value(session.messages);
+      if (session.title) session.title = mcp.redactor.text(session.title);
+      if (session.context?.activeCheckpoint)
+        Object.assign(
+          session.context.activeCheckpoint.summary,
+          mcp.redactor.value(session.context.activeCheckpoint.summary),
+        );
+      for (const record of Object.values(session.runtime?.invocations ?? {})) {
+        record.input = mcp.redactor.value(record.input);
+        if (record.result) record.result = mcp.redactor.value(record.result);
+        if (record.approvalPreview)
+          record.approvalPreview = mcp.redactor.text(record.approvalPreview);
+      }
+    }
+    return sessionStore.save(session);
+  };
   const detachEvents = eventBus.subscribe(async (event) => {
     await events.onEvent?.(event);
     if (
@@ -419,7 +454,7 @@ export async function runPrompt(
     if (event.type === "provider_text_delta") onText(event.text ?? "");
     if (event.type === "provider_thinking_delta") onThinking(event.text ?? "");
     if (event.type === "tool_started")
-      onToolStart(event.name ?? "", event.input ?? {});
+      onToolStart(event.name ?? "", event.input ?? {}, event.toolSource);
     if (
       (event.type === "tool_completed" || event.type === "tool_failed") &&
       event.result
@@ -440,51 +475,79 @@ export async function runPrompt(
       maxInlineTokens: config.context?.maxInlineToolResultTokens,
       maxParallelReads: config.tools?.maxParallelReads,
       requireFreshRead: config.editing?.requireFreshRead,
-      checkpoint: () => sessionStore.save(session),
+      checkpoint: saveCheckpoint,
+      sanitizeResult: mcp ? (result) => mcp.redactor.value(result) : undefined,
+      sanitizeApproval: mcp
+        ? (request) => mcp.redactor.value(request)
+        : undefined,
     },
   );
   const dynamic = await collectDynamicContext(projectRoot);
+  const mcpBinding = mcp
+    ? new McpRuntimeBinding(mcp, tools.catalog)
+    : undefined;
   session.gitBranch = dynamic.gitBranch;
   const system = buildSystemPrompt(
     await loadProjectInstructions(projectRoot),
     dynamic,
     skills,
   );
-  const runtime = new AgentRuntime(
-    provider,
-    new ContextManager(
-      config.context,
-      eventBus,
-      JSON.stringify([
-        selected.profile.providerId,
-        selected.profileId,
-        resolveEndpoint(
-          definition,
-          options.baseUrl ?? selected.profile.baseUrl,
-        ),
-      ]),
-      modelSummarizer,
-    ),
-    {
-      getApprovalMode: tools.getApprovalMode,
-      selectForTurn: () => tools.catalog.selectForTurn(),
-      execute: (calls, signal) => tools.scheduler.execute(calls, signal),
-    },
-    system,
-    eventBus,
-  );
   let result: AgentResult;
   try {
-    result = await runtime.run(session, prompt, {
-      mode,
-      approvalMode,
-      signal,
-      onCheckpoint: (current) => sessionStore.save(current),
-    });
+    // Resolve known credentials before the first transcript checkpoint or model request.
+    await mcpBinding?.refresh(signal);
+    const runtime = new AgentRuntime(
+      provider,
+      new ContextManager(
+        config.context,
+        eventBus,
+        JSON.stringify([
+          selected.profile.providerId,
+          selected.profileId,
+          resolveEndpoint(
+            definition,
+            options.baseUrl ?? selected.profile.baseUrl,
+          ),
+        ]),
+        modelSummarizer,
+      ),
+      {
+        getApprovalMode: tools.getApprovalMode,
+        selectForTurn: async (input) => {
+          await mcpBinding?.refresh(signal);
+          return tools.catalog.selectForTurn(input);
+        },
+        execute: (calls, signal) =>
+          tools.scheduler.execute(
+            mcp ? mcp.redactor.value(calls) : calls,
+            signal,
+          ),
+      },
+      mcp ? mcp.redactor.text(system) : system,
+      eventBus,
+    );
+    result = await runtime.run(
+      session,
+      mcp ? mcp.redactor.text(prompt) : prompt,
+      {
+        mode,
+        approvalMode,
+        signal,
+        onCheckpoint: saveCheckpoint,
+      },
+    );
   } finally {
     detachEvents();
+    mcpBinding?.dispose();
+    if (mcp && !options.mcpManager) await mcp.dispose();
   }
   result.elapsedMs = Math.max(0, performance.now() - startedAt);
+  if (mcp) {
+    result.text = mcp.redactor.text(result.text);
+    if (result.error) result.error = mcp.redactor.text(result.error);
+    if (result.pendingApproval)
+      result.pendingApproval = mcp.redactor.value(result.pendingApproval);
+  }
   result.session.requestTimings ??= [];
   result.session.requestTimings.push({
     afterMessage: result.session.messages.length,

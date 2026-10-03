@@ -3,6 +3,8 @@ import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { InstructionResolver } from "../context/instructions.js";
+import { readMcpConfig } from "../mcp/configuration.js";
+import { McpConfigSchema } from "../mcp/schema.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
 import {
   migrateConfig,
@@ -11,6 +13,7 @@ import {
 } from "./migrate.js";
 
 const ProjectConfigSchema = z.object({
+  mcp: McpConfigSchema.optional(),
   context: z
     .object({
       autoCompact: z.boolean().optional(),
@@ -49,12 +52,19 @@ export async function loadProjectConfig(
   let raw: unknown;
   try {
     raw = JSON.parse(source);
-  } catch (error) {
-    throw new Error(
-      `Invalid .chiselrc JSON: ${error instanceof Error ? error.message : "unknown error"}`,
-    );
+  } catch {
+    throw new Error("Invalid .chiselrc JSON; original file was not changed.");
   }
-  return ProjectConfigSchema.parse(raw);
+  const mcp = readMcpConfig((raw as { mcp?: unknown }).mcp);
+  const config = ProjectConfigSchema.parse({
+    ...(raw as Record<string, unknown>),
+    mcp: mcp.config,
+  });
+  Object.defineProperty(config, "mcpDiagnostics", {
+    value: mcp.diagnostics,
+    enumerable: false,
+  });
+  return config;
 }
 
 export async function loadProjectInstructions(
@@ -78,9 +88,16 @@ export async function loadGlobalConfig(
 ): Promise<GlobalConfig> {
   const source = await readOptional(path);
   try {
-    return withLegacyAccessors(
-      migrateConfig(source ? JSON.parse(source) : { providers: {} }),
+    const raw = source ? JSON.parse(source) : { providers: {} };
+    const mcp = readMcpConfig(raw.mcp);
+    const config = withLegacyAccessors(
+      migrateConfig({ ...raw, mcp: mcp.config }),
     );
+    Object.defineProperty(config, "mcpDiagnostics", {
+      value: mcp.diagnostics,
+      enumerable: false,
+    });
+    return config;
   } catch {
     throw new Error(
       `Invalid ChiselCode config at ${path}; original file was not changed.`,

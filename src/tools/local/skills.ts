@@ -50,7 +50,7 @@ export function skillHandlers(skills: readonly Skill[]) {
         name: "create_skill",
         description:
           "Create or update a user skill in the managed library. Provide SKILL.md and optional references/scripts/assets; reserved names are rejected.",
-        effect: "external",
+        effect: "library_write",
         permission: "skills",
         parallelSafe: false,
       },

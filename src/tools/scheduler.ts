@@ -1,4 +1,5 @@
 import type { ToolCall, ToolExecutionResult } from "../types/domain.js";
+import { isReadEffect } from "./effects.js";
 import type { ToolExecutor } from "./executor.js";
 export class ToolScheduler {
   constructor(
@@ -13,7 +14,7 @@ export class ToolScheduler {
     const readOnly = calls.every((call) => {
       try {
         const spec = this.executor.catalog.get(call.name).spec;
-        return spec.effect === "read" && spec.parallelSafe;
+        return isReadEffect(spec.effect) && spec.parallelSafe;
       } catch {
         return false;
       }
