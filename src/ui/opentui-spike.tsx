@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 import type {
   BoxRenderable,
+  ClipboardService,
   ScrollBoxRenderable,
   TextareaRenderable,
 } from "@opentui/core";
@@ -39,6 +40,7 @@ import {
 } from "./editor.js";
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
+import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
@@ -88,7 +90,9 @@ const PATCH = `diff --git a/example.ts b/example.ts
 `;
 
 /** The regular agent supplies a workspace; standalone probes keep their fixture. */
-export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
+export function OpenTuiSpike(
+  props: Parameters<typeof OpenTuiScreen>[0] & { clipboard?: ClipboardService },
+) {
   const [, refresh] = useState(0);
   const [theme, setTheme] = useState(props.initialTheme ?? "obsidian");
   const [mode, setMode] = useState(props.initialMode ?? "auto");
@@ -106,48 +110,53 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
   const controller = props.workspace?.controller ?? props.controller;
   return (
     <UnicodeDecorationContext value={unicodeDecorations}>
-      <OpenTuiScreen
-        key={
-          props.workspace
-            ? (props.workspace.activeKey ??
-              `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
-            : "probe"
-        }
-        {...props}
-        controller={controller}
-        approvalResolver={
-          props.approvalResolver ??
-          (controller
-            ? props.workspace?.execution(controller).approvalResolver
-            : undefined)
-        }
-        initialTheme={theme}
-        initialUnicodeDecorations={unicodeDecorations}
-        onUnicodeDecorationsChange={async (next) => {
-          await props.onUnicodeDecorationsChange?.(next);
-          setUnicodeDecorations(next);
-        }}
-        initialMode={mode}
-        initialSettingsOpen={setupOpen}
-        allowBypassPermissions={bypassAllowed}
-        onBypassAvailabilityChange={
-          props.onBypassAvailabilityChange
-            ? async (allowed) => {
-                await props.onBypassAvailabilityChange?.(allowed);
-                setBypassAllowed(allowed);
-              }
-            : undefined
-        }
-        onInitialSettingsComplete={() => setSetupOpen(false)}
-        onThemeChange={async (next) => {
-          await props.onThemeChange?.(next);
-          setTheme(next);
-        }}
-        onModeChange={(next) => {
-          setMode(next);
-          props.onModeChange?.(next);
-        }}
-      />
+      <OpenTuiClipboard
+        palette={themePalette(theme, props.accent)}
+        clipboard={props.clipboard}
+      >
+        <OpenTuiScreen
+          key={
+            props.workspace
+              ? (props.workspace.activeKey ??
+                `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
+              : "probe"
+          }
+          {...props}
+          controller={controller}
+          approvalResolver={
+            props.approvalResolver ??
+            (controller
+              ? props.workspace?.execution(controller).approvalResolver
+              : undefined)
+          }
+          initialTheme={theme}
+          initialUnicodeDecorations={unicodeDecorations}
+          onUnicodeDecorationsChange={async (next) => {
+            await props.onUnicodeDecorationsChange?.(next);
+            setUnicodeDecorations(next);
+          }}
+          initialMode={mode}
+          initialSettingsOpen={setupOpen}
+          allowBypassPermissions={bypassAllowed}
+          onBypassAvailabilityChange={
+            props.onBypassAvailabilityChange
+              ? async (allowed) => {
+                  await props.onBypassAvailabilityChange?.(allowed);
+                  setBypassAllowed(allowed);
+                }
+              : undefined
+          }
+          onInitialSettingsComplete={() => setSetupOpen(false)}
+          onThemeChange={async (next) => {
+            await props.onThemeChange?.(next);
+            setTheme(next);
+          }}
+          onModeChange={(next) => {
+            setMode(next);
+            props.onModeChange?.(next);
+          }}
+        />
+      </OpenTuiClipboard>
     </UnicodeDecorationContext>
   );
 }
@@ -634,8 +643,26 @@ function OpenTuiScreen({
     void updater.check();
   };
 
+  useClipboardComposer(() => {
+    if (
+      approval ||
+      pickerOpen ||
+      settingsOpen ||
+      skillsOpen ||
+      mcpActions ||
+      modelsActions ||
+      permissionsOpen ||
+      updateOpen
+    )
+      return null;
+    setFocus("editor");
+    controller?.setFocus("composer");
+    editor.current?.focus();
+    return editor.current;
+  });
+
   useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") {
+    if (key.ctrl && key.name === "c" && !key.shift) {
       key.preventDefault();
       onCancel?.();
       return;
@@ -1256,7 +1283,8 @@ function OpenTuiScreen({
                       backgroundColor={palette.raised}
                       paddingLeft={1}
                       paddingRight={1}
-                      onMouseUp={() => {
+                      onMouseUp={(event) => {
+                        if (event.button !== 0) return;
                         openSettings("connection");
                       }}
                     >

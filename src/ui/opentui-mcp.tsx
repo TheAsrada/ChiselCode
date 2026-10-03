@@ -1118,6 +1118,7 @@ export function OpenTuiMcp({
                   backgroundColor={active ? palette.raised : palette.surface}
                   flexDirection="column"
                   onMouseUp={(event) => {
+                    if (event.button !== 0) return;
                     event.stopPropagation();
                     if (!busy) {
                       select(start + index);

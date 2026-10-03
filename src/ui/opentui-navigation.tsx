@@ -40,6 +40,7 @@ function TabAction({
       backgroundColor={palette.surface}
       alignItems="center"
       onMouseUp={(event) => {
+        if (event.button !== 0) return;
         event.stopPropagation();
         onSelect();
       }}
@@ -126,7 +127,9 @@ export function SessionTabs({
             gap={1}
             paddingLeft={1}
             paddingRight={1}
-            onMouseUp={() => workspace.select(tab.key)}
+            onMouseUp={(event) => {
+              if (event.button === 0) workspace.select(tab.key);
+            }}
           >
             <text
               fg={
@@ -150,6 +153,7 @@ export function SessionTabs({
               width={1}
               height={1}
               onMouseUp={(event) => {
+                if (event.button !== 0) return;
                 event.stopPropagation();
                 if (!busy) workspace.close(tab.key);
               }}
@@ -261,7 +265,9 @@ export function OpenTuiHome({
             flexShrink={0}
             flexDirection="row"
             backgroundColor={palette.raised}
-            onMouseUp={onUpdate}
+            onMouseUp={(event) => {
+              if (event.button === 0) onUpdate?.();
+            }}
           >
             <box width={1} height={1} backgroundColor={palette.accent} />
             <text fg={palette.accent} height={1} paddingLeft={1}>

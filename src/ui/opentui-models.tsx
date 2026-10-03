@@ -446,6 +446,7 @@ export function OpenTuiModels({
                   paddingRight={1}
                   backgroundColor={selected ? palette.raised : palette.surface}
                   onMouseUp={(event) => {
+                    if (event.button !== 0) return;
                     event.stopPropagation();
                     choose(item.id);
                   }}

@@ -312,7 +312,8 @@ export function OpenTuiSkills({
                       backgroundColor={
                         selectedRow ? palette.raised : palette.surface
                       }
-                      onMouseUp={() => {
+                      onMouseUp={(event) => {
+                        if (event.button !== 0) return;
                         setSelected(start + offset);
                       }}
                     >

@@ -95,6 +95,7 @@ export function OpenTuiPrompt({
             paddingRight={1}
             backgroundColor={palette.raised}
             onMouseUp={(event) => {
+              if (event.button !== 0) return;
               event.stopPropagation();
               onToggleMode();
             }}
@@ -112,6 +113,7 @@ export function OpenTuiPrompt({
             paddingRight={1}
             backgroundColor={palette.raised}
             onMouseUp={(event) => {
+              if (event.button !== 0) return;
               event.stopPropagation();
               onPermissionsSelect();
             }}
@@ -144,6 +146,7 @@ export function OpenTuiPrompt({
           paddingRight={1}
           backgroundColor={hasDraft ? palette.raised : palette.surface}
           onMouseUp={(event) => {
+            if (event.button !== 0) return;
             event.stopPropagation();
             if (hasDraft) onSubmit();
           }}
@@ -164,6 +167,7 @@ export function OpenTuiPrompt({
         fg={palette.muted}
         selectable={!onModelSelect}
         onMouseUp={(event) => {
+          if (event.button !== 0) return;
           event.stopPropagation();
           onModelSelect?.();
         }}

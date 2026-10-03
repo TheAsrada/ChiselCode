@@ -938,6 +938,7 @@ export function OpenTuiSettings({
                     paddingRight={1}
                     backgroundColor={active ? palette.raised : palette.surface}
                     onMouseUp={(event) => {
+                      if (event.button !== 0) return;
                       event.stopPropagation();
                       if (!busy) {
                         setThemeIndex(THEME_NAMES.indexOf(name));
@@ -1154,6 +1155,7 @@ export function OpenTuiSettings({
                         }
                         flexDirection="column"
                         onMouseUp={(event) => {
+                          if (event.button !== 0) return;
                           event.stopPropagation();
                           if (
                             busy &&

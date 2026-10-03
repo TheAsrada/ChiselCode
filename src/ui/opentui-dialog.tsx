@@ -75,10 +75,12 @@ export function OpenTuiDialog({
         0,
         palette.bg === THEMES.paper.bg ? 65 : 150,
       )}
-      onMouseDown={() => {
+      onMouseDown={(event) => {
+        if (event.button !== 0) return;
         dismiss.current = !renderer.getSelection()?.getSelectedText();
       }}
-      onMouseUp={() => {
+      onMouseUp={(event) => {
+        if (event.button !== 0) return;
         if (dismiss.current && !renderer.getSelection()?.getSelectedText())
           onClose();
       }}
@@ -150,6 +152,7 @@ export function DialogAction({
             : palette.surface
       }
       onMouseUp={(event) => {
+        if (event.button !== 0) return;
         event.stopPropagation();
         if (!disabled) onSelect();
       }}

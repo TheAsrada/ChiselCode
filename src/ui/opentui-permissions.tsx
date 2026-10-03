@@ -109,6 +109,7 @@ export function OpenTuiPermissions({
               index === selected ? palette.raised : palette.surface
             }
             onMouseUp={(event) => {
+              if (event.button !== 0) return;
               event.stopPropagation();
               choose(index);
             }}
