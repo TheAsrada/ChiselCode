@@ -17,6 +17,7 @@ for (const [width, height] of [
     const setup = await testRender(<OpenTuiSpike onExit={() => exited++} />, {
       width,
       height,
+      exitOnCtrlC: false,
     });
     try {
       await setup.renderOnce();
@@ -54,7 +55,7 @@ for (const [width, height] of [
       await setup.renderOnce();
       expect(setup.captureCharFrame()).toContain("Привет");
       setup.mockInput.pressCtrlC();
-      expect(exited).toBe(1);
+      expect(exited).toBe(0);
     } finally {
       act(() => {
         setup.renderer.destroy();
@@ -70,7 +71,7 @@ test("large transcript pages backwards and returns to newest messages", async ()
   );
   const setup = await testRender(
     <OpenTuiSpike onExit={() => {}} controller={controller} />,
-    { width: 80, height: 24 },
+    { width: 80, height: 24, exitOnCtrlC: false },
   );
   try {
     await setup.renderOnce();
@@ -298,7 +299,7 @@ test("slash suggestions keep the selected command visible past the first page", 
   }
 });
 
-test("Ctrl+D exits the developer composer when the draft is empty", async () => {
+test("Ctrl+D and Escape never exit the developer composer; /exit closes it", async () => {
   let exits = 0;
   const setup = await testRender(
     <OpenTuiSpike onExit={() => exits++} onSubmit={async () => {}} />,
@@ -307,17 +308,31 @@ test("Ctrl+D exits the developer composer when the draft is empty", async () => 
   try {
     await setup.renderOnce();
     act(() => setup.mockInput.pressKey("d", { ctrl: true }));
+    act(() => setup.mockInput.pressEscape());
+    expect(exits).toBe(0);
+    await act(async () => {
+      await setup.mockInput.pasteBracketedText("/exit");
+      setup.mockInput.pressEnter();
+    });
     expect(exits).toBe(1);
   } finally {
     act(() => setup.renderer.destroy());
   }
 });
 
-test("Ctrl+C remains available while an approval owns keyboard focus", async () => {
+test("Ctrl+C cancels without exiting while an approval owns keyboard focus", async () => {
   const resolver = createTuiApprovalResolver();
   let exits = 0;
+  let cancellations = 0;
   const setup = await testRender(
-    <OpenTuiSpike onExit={() => exits++} approvalResolver={resolver} />,
+    <OpenTuiSpike
+      onExit={() => exits++}
+      onCancel={() => {
+        cancellations++;
+        resolver.cancel();
+      }}
+      approvalResolver={resolver}
+    />,
     { width: 80, height: 24 },
   );
   try {
@@ -325,7 +340,8 @@ test("Ctrl+C remains available while an approval owns keyboard focus", async () 
       void resolver.requestApproval({ tool: "run_shell", preview: "command" });
     });
     act(() => setup.mockInput.pressCtrlC());
-    expect(exits).toBe(1);
+    expect(exits).toBe(0);
+    expect(cancellations).toBe(1);
   } finally {
     resolver.dispose();
     act(() => setup.renderer.destroy());

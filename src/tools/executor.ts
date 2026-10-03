@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 import { allowsToolInMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { ApprovalGate } from "../security/approval.js";
@@ -8,9 +9,12 @@ import type { ToolCatalog } from "./catalog.js";
 import { canonicalInput, type ToolInvocationRecord } from "./invocation.js";
 import { failure, normalizeResult } from "./result.js";
 import type { ToolContext } from "./types.js";
+import { workspaceCoordinator } from "./workspace-coordinator.js";
 
 export class ToolExecutor {
   private inFlight = new Map<string, Promise<ToolExecutionResult>>();
+  private workspaceScope?: Promise<string[]>;
+  private observedWorkspaceRevision = 0;
   constructor(
     readonly catalog: ToolCatalog,
     private readonly gate: ApprovalGate,
@@ -106,17 +110,40 @@ export class ToolExecutor {
       } catch (error) {
         throw new RuntimeError("INVALID_TOOL_INPUT", String(error));
       }
-      const failed = runtime.failedCalls[fingerprint];
-      if (
-        failed &&
-        failed.count >= 3 &&
-        failed.workspaceVersion === (runtime.workspaceVersion ?? 0)
-      )
-        throw new RuntimeError(
-          "REPEATED_CALL_DETECTED",
-          "Three identical calls failed without a workspace change. Read fresh evidence or choose a different strategy.",
-        );
-      const plan = await handler.prepare(context, input);
+      this.workspaceScope ??= workspaceCoordinator.scope(
+        context.workspace.root,
+      );
+      const scope = await this.workspaceScope;
+      const { plan, preparedRevision } = await workspaceCoordinator.withAccess(
+        scope,
+        "read",
+        context.signal,
+        async () => {
+          this.observeWorkspace(scope);
+          const failed = runtime.failedCalls[fingerprint];
+          if (
+            failed &&
+            failed.count >= 3 &&
+            failed.workspaceVersion === (runtime.workspaceVersion ?? 0)
+          )
+            throw new RuntimeError(
+              "REPEATED_CALL_DETECTED",
+              "Three identical calls failed without a workspace change. Read fresh evidence or choose a different strategy.",
+            );
+          return {
+            plan: await handler.prepare(context, input),
+            preparedRevision: workspaceCoordinator.revision(scope),
+          };
+        },
+      );
+      const executionScope = [
+        ...new Set([
+          ...scope,
+          ...(await workspaceCoordinator.resources(
+            plan.resources.map((path) => resolve(context.workspace.root, path)),
+          )),
+        ]),
+      ];
       record.state = "prepared";
       await context.events.emit({
         type: "tool_prepared",
@@ -202,28 +229,53 @@ export class ToolExecutor {
       );
       let result: ToolExecutionResult;
       try {
-        if (
-          permission === "allow" &&
-          approvalMode === "bypassPermissions" &&
-          !this.gate.policy.bypassAllowed &&
-          this.gate.policy.decide(
-            request,
-            handler.spec.effect,
-            approvalMode,
-          ) !== "allow"
-        )
-          throw new RuntimeError(
-            "PERMISSION_DENIED",
-            "Bypass was disabled before execution. Retry under Manual permissions.",
-          );
-        result = await handler.execute(
-          {
-            ...context,
-            signal: context.signal
-              ? AbortSignal.any([context.signal, timeout.signal])
-              : timeout.signal,
+        const executionSignal = context.signal
+          ? AbortSignal.any([context.signal, timeout.signal])
+          : timeout.signal;
+        result = await workspaceCoordinator.withAccess(
+          executionScope,
+          handler.spec.effect === "read" ? "read" : "write",
+          executionSignal,
+          async () => {
+            this.observeWorkspace(scope);
+            if (
+              (handler.spec.effect === "process" ||
+                handler.spec.effect === "git_write") &&
+              workspaceCoordinator.revision(scope) !== preparedRevision
+            )
+              throw new RuntimeError(
+                "STALE_WORKSPACE",
+                "Another tab changed this workspace after preparation. Inspect the current files or staged changes and submit a fresh tool call; the old approved action was not executed.",
+              );
+            if (
+              permission === "allow" &&
+              approvalMode === "bypassPermissions" &&
+              !this.gate.policy.bypassAllowed &&
+              this.gate.policy.decide(
+                request,
+                handler.spec.effect,
+                approvalMode,
+              ) !== "allow"
+            )
+              throw new RuntimeError(
+                "PERMISSION_DENIED",
+                "Bypass was disabled before execution. Retry under Manual permissions.",
+              );
+            try {
+              return await handler.execute(
+                { ...context, signal: executionSignal },
+                plan,
+              );
+            } finally {
+              // Shell errors and interrupted patches may also have changed files.
+              // Notify peers before releasing the lease, including on failure.
+              if (handler.spec.effect !== "read") {
+                workspaceCoordinator.changed(executionScope);
+                this.observedWorkspaceRevision =
+                  workspaceCoordinator.revision(scope);
+              }
+            }
           },
-          plan,
         );
       } catch (error) {
         if (context.signal?.aborted)
@@ -295,6 +347,15 @@ export class ToolExecutor {
         durationMs: performance.now() - started,
       });
       return result;
+    }
+  }
+  private observeWorkspace(scope: readonly string[]): void {
+    const revision = workspaceCoordinator.revision(scope);
+    if (revision !== this.observedWorkspaceRevision) {
+      const runtime = this.context.session.runtime;
+      if (runtime)
+        runtime.workspaceVersion = (runtime.workspaceVersion ?? 0) + 1;
+      this.observedWorkspaceRevision = revision;
     }
   }
   private failureCount(

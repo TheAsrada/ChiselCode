@@ -47,6 +47,7 @@ export interface TuiViewState {
   focus: "composer" | "transcript" | "sidebar" | "modal";
   overlay?: string;
   busy?: boolean;
+  awaitingApproval?: boolean;
   requestStartedAt?: number;
   gitChanges?: GitWorkingState;
   usage?: {
@@ -219,6 +220,9 @@ export class TuiController implements TuiTranscript {
   setSessionTitle(title: string): void {
     this.update({ sessionTitle: title });
   }
+  setSessionId(sessionId: string): void {
+    if (!this.state.sessionId) this.update({ sessionId });
+  }
   setFocus(focus: TuiViewState["focus"]): void {
     this.update({ focus });
   }
@@ -227,6 +231,9 @@ export class TuiController implements TuiTranscript {
   }
   setBusy(busy: boolean): void {
     this.update({ busy });
+  }
+  setAwaitingApproval(awaitingApproval: boolean): void {
+    this.update({ awaitingApproval });
   }
 
   /** A queued prompt starts counting only when it actually begins execution. */

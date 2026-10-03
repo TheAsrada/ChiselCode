@@ -7,7 +7,8 @@ import type { FileDiff } from "../types/domain.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
   bind(setter?: (request: ApprovalRequest | undefined) => void): void;
-  resolve(decision: ApprovalDecision): void;
+  resolve(decision: ApprovalDecision, request?: ApprovalRequest): void;
+  cancel(): void;
   dispose(): void;
 }
 
@@ -44,33 +45,48 @@ export interface TuiTranscript {
   clear(): void;
 }
 
-export function createTuiApprovalResolver(): TuiApprovalResolver {
+export function createTuiApprovalResolver(
+  options: {
+    allowUnbound?: boolean;
+    onChange?: (request: ApprovalRequest | undefined) => void;
+  } = {},
+): TuiApprovalResolver {
   let resolvePending: ((decision: ApprovalDecision) => void) | undefined;
   let pendingRequest: ApprovalRequest | undefined;
   let setRequest: ((request: ApprovalRequest | undefined) => void) | undefined;
+  let disposed = false;
+  const settle = (decision: ApprovalDecision) => {
+    resolvePending?.(decision);
+    resolvePending = undefined;
+    pendingRequest = undefined;
+    setRequest?.(undefined);
+    options.onChange?.(undefined);
+  };
   return {
     async requestApproval(request) {
-      if (!setRequest || resolvePending) return "unavailable";
+      if (disposed || (!setRequest && !options.allowUnbound) || resolvePending)
+        return "unavailable";
       return new Promise((resolve) => {
         resolvePending = resolve;
         pendingRequest = request;
         setRequest?.(request);
+        options.onChange?.(request);
       });
     },
     bind(setter) {
       setRequest = setter;
       setter?.(pendingRequest);
     },
-    resolve(decision) {
-      resolvePending?.(decision);
-      resolvePending = undefined;
-      pendingRequest = undefined;
-      setRequest?.(undefined);
+    resolve(decision, request) {
+      if (request && request !== pendingRequest) return;
+      settle(decision);
+    },
+    cancel() {
+      settle("unavailable");
     },
     dispose() {
-      resolvePending?.("unavailable");
-      resolvePending = undefined;
-      pendingRequest = undefined;
+      disposed = true;
+      settle("unavailable");
       setRequest = undefined;
     },
   } as TuiApprovalResolver;

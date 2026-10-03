@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 
-test("agent keeps queued prompts and background answers in their originating tabs", async () => {
+test("agent runs tabs concurrently with sequential follow-ups and independent cancellation", async () => {
   const result = Bun.spawnSync(
     [process.execPath, "tests/fixtures/tui-agent-navigation.ts"],
     {
@@ -14,6 +14,6 @@ test("agent keeps queued prompts and background answers in their originating tab
   expect(new TextDecoder().decode(result.stderr)).not.toContain("error:");
   expect(result.exitCode).toBe(0);
   expect(new TextDecoder().decode(result.stdout)).toContain(
-    "Agent navigation and queued output verified",
+    "Parallel tabs, sequential follow-ups and independent cancellation verified",
   );
 });

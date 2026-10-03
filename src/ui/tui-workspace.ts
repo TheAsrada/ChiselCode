@@ -9,6 +9,7 @@ import { createEditorState } from "./editor.js";
 import type { ModelSelection } from "./opentui-models.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
 import { TuiController } from "./tui-controller.js";
+import { TuiTabExecution } from "./tui-tab-execution.js";
 
 export interface SessionTab {
   key: string;
@@ -23,6 +24,7 @@ export class TuiWorkspace {
   private serial = 0;
   private listeners = new Set<() => void>();
   private subscriptions = new Map<string, () => void>();
+  private executions = new Map<TuiController, TuiTabExecution>();
 
   constructor(
     projectPath: string,
@@ -30,6 +32,27 @@ export class TuiWorkspace {
     approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
   ) {
     this.home = new TuiController(projectPath, mode, approvalMode);
+    this.executions.set(this.home, new TuiTabExecution(this.home));
+  }
+
+  execution(controller = this.controller): TuiTabExecution {
+    const execution = this.executions.get(controller);
+    if (!execution) throw new Error("Conversation is no longer open.");
+    return execution;
+  }
+
+  get busy(): boolean {
+    return [...this.executions.values()].some((execution) => execution.busy);
+  }
+
+  cancelAll(): void {
+    for (const execution of this.executions.values()) execution.cancel();
+  }
+
+  async waitForRuns(): Promise<void> {
+    await Promise.allSettled(
+      [...this.executions.values()].map((execution) => execution.activeRun),
+    );
   }
 
   get controller(): TuiController {
@@ -76,6 +99,7 @@ export class TuiWorkspace {
     model: ModelSelection | undefined = this.controller.snapshot.modelSelection,
   ): TuiController {
     const controller = new TuiController(projectPath, mode, approvalMode);
+    this.executions.set(controller, new TuiTabExecution(controller));
     if (model)
       controller.setActiveModel(
         model.provider,
@@ -137,9 +161,16 @@ export class TuiWorkspace {
   close(key = this.activeKey): boolean {
     const index = this.tabs.findIndex((tab) => tab.key === key);
     const tab = this.tabs[index];
-    if (!tab || tab.controller.snapshot.busy) return false;
+    if (
+      !tab ||
+      tab.controller.snapshot.busy ||
+      this.execution(tab.controller).busy
+    )
+      return false;
     this.subscriptions.get(tab.key)?.();
     this.subscriptions.delete(tab.key);
+    this.execution(tab.controller).dispose();
+    this.executions.delete(tab.controller);
     tab.controller.dispose();
     this.tabs = this.tabs.filter((item) => item !== tab);
     if (this.activeKey === key)
@@ -149,6 +180,8 @@ export class TuiWorkspace {
   }
 
   dispose(): void {
+    for (const execution of this.executions.values()) execution.dispose();
+    this.executions.clear();
     for (const unsubscribe of this.subscriptions.values()) unsubscribe();
     for (const tab of this.tabs) tab.controller.dispose();
     this.home.dispose();

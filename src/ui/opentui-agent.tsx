@@ -26,12 +26,10 @@ import { getProviderCatalog } from "../providers/catalog.js";
 import { selectProfile } from "../providers/profiles.js";
 import {
   AGENT_MODE_LABELS,
-  type AgentMode,
   DEFAULT_AGENT_MODE,
 } from "../runtime/agent-mode.js";
 import {
   APPROVAL_MODE_LABELS,
-  type ApprovalMode,
   resolveApprovalMode,
 } from "../security/approval-mode.js";
 import { projectSessionStore } from "../sessions/project-store.js";
@@ -62,7 +60,6 @@ import {
 
 import { FAIL_MARK, formatStatusDashboard, OK_MARK } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
-import { createTuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController } from "./tui-controller.js";
 import { TuiWorkspace } from "./tui-workspace.js";
 import { UpdateController } from "./update-controller.js";
@@ -93,7 +90,6 @@ export async function runOpenTuiAgent(
   workspace.controller.setApprovalMode(initialApprovalMode);
   if (options.mode) workspace.controller.setAgentMode(options.mode);
   const currentController = () => workspace.controller;
-  const approvalResolver = createTuiApprovalResolver();
   const catalog = await getProviderCatalog();
   const homeModel = settingsDraft(config, catalog.registry, activeOptions);
   workspace.home.setActiveModel(
@@ -207,14 +203,6 @@ export async function runOpenTuiAgent(
     : undefined;
   const root = createRoot(renderer);
   const abort = new AbortController();
-  let activeRun: Promise<void> | undefined;
-  const pendingPrompts: Array<{
-    input: string;
-    controller: TuiController;
-    mode: AgentMode;
-    approvalMode: ApprovalMode;
-    modelOptions: RunOptions;
-  }> = [];
   const skillNames = new WeakMap<
     TuiController,
     { generation: number; names: Set<string> }
@@ -278,16 +266,16 @@ export async function runOpenTuiAgent(
   });
   const shutdown = () => {
     abort.abort();
-    pendingPrompts.length = 0;
+    workspace.cancelAll();
     for (const { controller } of workspace.tabs) {
       if (!controller.snapshot.runningMode) {
         controller.setBusy(false);
         persistExecutionModes(controller);
       }
     }
-    approvalResolver.dispose();
     finish?.();
   };
+  const cancel = () => workspace.execution().cancel();
   const sessionStore = () =>
     projectSessionStore(currentController().snapshot.projectPath);
   const resume = async (ref: string): Promise<void> => {
@@ -578,12 +566,12 @@ export async function runOpenTuiAgent(
     });
   };
   const updater = new UpdateController(VERSION, {
-    canRestart: () => !activeRun && pendingPrompts.length === 0,
+    canRestart: () => !workspace.busy,
     launch: async (downloaded) => {
       await pendingSave;
       if (abort.signal.aborted)
         throw new DOMException("Обновление отменено.", "AbortError");
-      if (activeRun || pendingPrompts.length)
+      if (workspace.busy)
         throw new Error("Дождитесь завершения запроса перед перезапуском.");
       const { projectPath, sessionId } = currentController().snapshot;
       await launchWindowsInstaller(
@@ -710,22 +698,26 @@ export async function runOpenTuiAgent(
         names: new Set(selectedSkills),
       });
     }
-    if (activeRun) {
-      pendingPrompts.push({
+    const execution = workspace.execution(controller);
+    if (execution.activeRun) {
+      execution.pendingPrompts.push({
         input,
-        controller,
         mode: turnMode,
         approvalMode: turnApprovalMode,
         modelOptions: turnModelOptions,
+        generation: controller.currentGeneration,
       });
       controller.setBusy(true);
       controller.append(
-        `В очереди: ${pendingPrompts.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
+        `В очереди: ${execution.pendingPrompts.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
         "info",
       );
       return;
     }
     const requestGeneration = controller.currentGeneration;
+    const turnAbort = new AbortController();
+    execution.abort = turnAbort;
+    const signal = AbortSignal.any([abort.signal, turnAbort.signal]);
     controller.startRequest();
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
@@ -738,7 +730,8 @@ export async function runOpenTuiAgent(
       expanded,
     );
     const tools = toolTranscriptHandlers(() => controller);
-    const work = (async () => {
+    // Install the owner before any provider callback can complete the request.
+    const work = Promise.resolve().then(async () => {
       let status: "completed" | "failed" | "cancelled" | "approval_required" =
         "failed";
       let elapsedMs: number | undefined;
@@ -755,10 +748,13 @@ export async function runOpenTuiAgent(
             approvalMode: turnApprovalMode,
             isBypassAllowed: () => bypassAvailable,
           },
-          approvalResolver,
+          execution.approvalResolver,
           {
             onEvent: (event) => {
-              if (!controller.isCurrent(requestGeneration)) return;
+              if (!controller.isCurrent(requestGeneration) || signal.aborted)
+                return;
+              if (event.type === "checkpoint_saved")
+                controller.setSessionId(event.sessionId);
               if (
                 event.type === "context_compaction_started" &&
                 event.compactionId
@@ -798,29 +794,40 @@ export async function runOpenTuiAgent(
               }
             },
             onText: (text) => {
+              if (!controller.isCurrent(requestGeneration) || signal.aborted)
+                return;
               controller.appendToLast(text);
               hasText = true;
             },
             onThinking: () => {},
-            onToolStart: tools.onToolStart,
+            onToolStart: (name, input) => {
+              if (!controller.isCurrent(requestGeneration) || signal.aborted)
+                return;
+              tools.onToolStart?.(name, input);
+            },
             onToolResult: (name, outcome) => {
+              if (!controller.isCurrent(requestGeneration) || signal.aborted)
+                return;
               tools.onToolResult?.(name, outcome);
               if (
                 [
                   "write_file",
                   "edit_file",
+                  "apply_patch",
                   "delete_file",
                   "run_shell",
                   "git_commit",
                 ].includes(name)
               )
-                controller.refreshGitChanges();
+                for (const tab of workspace.tabs)
+                  tab.controller.refreshGitChanges();
             },
           },
-          abort.signal,
+          signal,
         );
-        status = result.status;
+        status = signal.aborted ? "cancelled" : result.status;
         elapsedMs = result.elapsedMs;
+        if (!controller.isCurrent(requestGeneration)) return;
         controller.setSessionUsage(result.session, {
           provider: result.session.providerId,
           profileId: result.session.profileId,
@@ -828,47 +835,53 @@ export async function runOpenTuiAgent(
           baseUrl: turnModelOptions.baseUrl,
         });
         controller.setToolActivity();
-        if (result.error) controller.append(result.error, "error");
-        else if (!hasText)
+        if (result.error && !signal.aborted)
+          controller.append(result.error, "error");
+        else if (!hasText && !signal.aborted)
           controller.append(
             result.text || "Запрос завершён без текстового ответа",
             "assistant",
           );
       } catch (error) {
-        status = abort.signal.aborted ? "cancelled" : "failed";
-        if (!abort.signal.aborted) controller.append(String(error), "error");
+        status = signal.aborted ? "cancelled" : "failed";
+        if (!signal.aborted && controller.isCurrent(requestGeneration))
+          controller.append(String(error), "error");
       } finally {
-        controller.finishRequest(status, elapsedMs);
-        activeRun = undefined;
-        controller.setRunningMode();
-        controller.setRunningApprovalMode();
-        controller.setBusy(
-          pendingPrompts.some((item) => item.controller === controller),
-        );
-        persistExecutionModes(controller);
-        const next = pendingPrompts.shift();
+        execution.activeRun = undefined;
+        execution.abort = undefined;
+        execution.approvalResolver.cancel();
+        if (controller.isCurrent(requestGeneration)) {
+          controller.finishRequest(status, elapsedMs);
+          controller.setRunningMode();
+          controller.setRunningApprovalMode();
+          controller.setBusy(execution.pendingPrompts.length > 0);
+          persistExecutionModes(controller);
+        }
+        let next = execution.pendingPrompts.shift();
+        while (next && !controller.isCurrent(next.generation))
+          next = execution.pendingPrompts.shift();
         if (next && !abort.signal.aborted)
           void submit(
             next.input,
-            next.controller,
+            controller,
             next.mode,
             next.approvalMode,
             next.modelOptions,
           );
       }
-    })();
-    activeRun = work;
+    });
+    execution.activeRun = work;
     await work;
   };
-  process.once("SIGINT", shutdown);
+  process.on("SIGINT", cancel);
   process.once("SIGTERM", shutdown);
   try {
     root.render(
       React.createElement(OpenTuiSpike, {
         onExit: shutdown,
+        onCancel: cancel,
         workspace,
         classic,
-        approvalResolver,
         sessionPicker,
         settingsActions,
         updater,
@@ -889,13 +902,14 @@ export async function runOpenTuiAgent(
             });
             bypassAvailable = allowed;
             if (!allowed) {
-              for (const queued of pendingPrompts)
-                if (queued.approvalMode === "bypassPermissions")
-                  queued.approvalMode = "default";
               for (const controller of [
                 workspace.home,
                 ...workspace.tabs.map((tab) => tab.controller),
               ]) {
+                for (const queued of workspace.execution(controller)
+                  .pendingPrompts)
+                  if (queued.approvalMode === "bypassPermissions")
+                    queued.approvalMode = "default";
                 if (controller.snapshot.approvalMode === "bypassPermissions") {
                   controller.setApprovalMode("default");
                   persistExecutionModes(controller);
@@ -952,12 +966,13 @@ export async function runOpenTuiAgent(
     );
     void updater.check();
     await finished;
-    await activeRun;
+    await workspace.waitForRuns();
   } finally {
-    process.off("SIGINT", shutdown);
+    process.off("SIGINT", cancel);
     process.off("SIGTERM", shutdown);
     abort.abort();
-    approvalResolver.dispose();
+    workspace.cancelAll();
+    await workspace.waitForRuns();
     root.unmount();
     await updater.dispose();
     detachScrollback?.();

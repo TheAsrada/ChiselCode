@@ -113,6 +113,12 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
         }
         {...props}
         controller={controller}
+        approvalResolver={
+          props.approvalResolver ??
+          (controller
+            ? props.workspace?.execution(controller).approvalResolver
+            : undefined)
+        }
         initialTheme={theme}
         initialUnicodeDecorations={unicodeDecorations}
         onUnicodeDecorationsChange={async (next) => {
@@ -146,6 +152,7 @@ export function OpenTuiSpike(props: Parameters<typeof OpenTuiScreen>[0]) {
 
 function OpenTuiScreen({
   onExit,
+  onCancel,
   controller,
   workspace,
   classic = false,
@@ -173,6 +180,7 @@ function OpenTuiScreen({
   onUnicodeDecorationsChange,
 }: {
   onExit: () => void;
+  onCancel?: () => void;
   controller?: TuiController;
   workspace?: TuiWorkspace;
   classic?: boolean;
@@ -602,13 +610,61 @@ function OpenTuiScreen({
   };
 
   useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") return onExit();
+    if (key.ctrl && key.name === "c") {
+      key.preventDefault();
+      onCancel?.();
+      return;
+    }
+    // A pending approval belongs to its tab; users can visit another tab first.
+    if (
+      !approval &&
+      (pickerOpen ||
+        settingsOpen ||
+        skillsOpen ||
+        modelsActions ||
+        permissionsOpen ||
+        updateOpen)
+    )
+      return;
+    if (
+      workspace &&
+      (key.option || key.meta) &&
+      (key.name === "left" || key.name === "right" || key.name === "n")
+    ) {
+      key.preventDefault();
+      if (key.name === "n") workspace.newDraft();
+      else workspace.cycle(key.name === "left" ? -1 : 1);
+      return;
+    }
+    if (workspace && key.ctrl) {
+      if (key.name === "tab") {
+        key.preventDefault();
+        workspace.cycle(key.shift ? -1 : 1);
+        return;
+      }
+      if (key.name === "w") {
+        key.preventDefault();
+        workspace.close();
+        return;
+      }
+      if (key.name === "g") {
+        key.preventDefault();
+        workspace.select();
+        return;
+      }
+      if (key.name === "n" && key.shift) {
+        key.preventDefault();
+        workspace.newDraft();
+        return;
+      }
+    }
     if (approval) {
+      if (key.ctrl || key.meta || key.option) return;
       const answer = key.name.toLowerCase();
       if (answer === "y" || answer === "н")
-        approvalResolver?.resolve("approved");
+        approvalResolver?.resolve("approved", approval);
       if (answer === "n" || answer === "т" || answer === "escape")
-        approvalResolver?.resolve("denied");
+        approvalResolver?.resolve("denied", approval);
       return;
     }
     if (
@@ -664,38 +720,6 @@ function OpenTuiScreen({
       openSettings(key.name === "t" ? "appearance" : "connection");
       return;
     }
-    if (
-      workspace &&
-      (key.option || key.meta) &&
-      (key.name === "left" || key.name === "right" || key.name === "n")
-    ) {
-      key.preventDefault();
-      if (key.name === "n") workspace.newDraft();
-      else workspace.cycle(key.name === "left" ? -1 : 1);
-      return;
-    }
-    if (workspace && key.ctrl) {
-      if (key.name === "tab") {
-        key.preventDefault();
-        workspace.cycle(key.shift ? -1 : 1);
-        return;
-      }
-      if (key.name === "w") {
-        key.preventDefault();
-        workspace.close();
-        return;
-      }
-      if (key.name === "g") {
-        key.preventDefault();
-        workspace.select();
-        return;
-      }
-      if (key.name === "n" && key.shift) {
-        key.preventDefault();
-        workspace.newDraft();
-        return;
-      }
-    }
     if (suggestions.length > 0 && focus === "editor" && !contextOnly) {
       if (key.name === "escape") {
         key.preventDefault();
@@ -724,7 +748,6 @@ function OpenTuiScreen({
         setFocus("editor");
         controller?.setFocus("composer");
       } else if (workspace && !home) workspace.select();
-      else onExit();
       return;
     }
     if (key.ctrl && key.name === "b")
@@ -747,8 +770,7 @@ function OpenTuiScreen({
     }
     if (key.ctrl && key.name === "d") {
       key.preventDefault();
-      if (onSubmit && focus === "editor" && !draft) onExit();
-      else setExpanded((value) => !value);
+      setExpanded((value) => !value);
       return;
     }
     if (focus === "editor" && !contextOnly && key.ctrl && key.name === "p") {
@@ -803,6 +825,7 @@ function OpenTuiScreen({
       return;
     const value = command ?? editor.current?.plainText.trim();
     if (!value) return;
+    if (value === "/exit") return onExit();
     if (!command && selectedSuggestion && value !== selectedSuggestion.name) {
       acceptSuggestion();
       return;
@@ -955,7 +978,6 @@ function OpenTuiScreen({
           onBypassAvailabilityChange ? changeBypassAvailability : undefined
         }
         onClose={(outcome) => {
-          if (setupPending && outcome !== "saved") return onExit();
           if (setupPending && outcome === "saved") onSetupComplete?.();
           onInitialSettingsComplete?.();
           setSetupPending(false);
@@ -1087,11 +1109,13 @@ function OpenTuiScreen({
       </OpenTuiPrompt>
       <text fg={palette.muted} height={1}>
         {terminalLine(
-          composerWidth >= 70
-            ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
-            : composerWidth >= 45
-              ? "Enter отправить | Shift+Tab режим | F4 разрешения"
-              : "Shift+Tab режим | F4 доступ | Enter",
+          view.busy && onCancel
+            ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
+            : composerWidth >= 70
+              ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
+              : composerWidth >= 45
+                ? "Enter отправить | Shift+Tab режим | F4 разрешения"
+                : "Shift+Tab режим | F4 доступ | Enter",
           composerWidth,
         )}
       </text>
@@ -1361,8 +1385,8 @@ function OpenTuiScreen({
           width={width}
           height={height}
           palette={palette}
-          onApprove={() => approvalResolver?.resolve("approved")}
-          onDeny={() => approvalResolver?.resolve("denied")}
+          onApprove={() => approvalResolver?.resolve("approved", approval)}
+          onDeny={() => approvalResolver?.resolve("denied", approval)}
         />
       )}
       {skillsOpen && skillsActions && !approval && (

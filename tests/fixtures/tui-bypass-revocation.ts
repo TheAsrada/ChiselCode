@@ -10,7 +10,11 @@ import { createSession } from "../../src/sessions/store.js";
 import type { GlobalConfig } from "../../src/types/domain.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-const setup = await createTestRenderer({ width: 80, height: 24 });
+const setup = await createTestRenderer({
+  width: 80,
+  height: 24,
+  exitOnCtrlC: false,
+});
 async function frame() {
   await act(async () => {
     await setup.renderOnce();
@@ -70,14 +74,19 @@ mock.module("../../src/sessions/project-store.js", () => ({
 }));
 const requests: RunOptions[] = [];
 let release: (() => void) | undefined;
+let releaseOther: (() => void) | undefined;
 mock.module("../../src/commands/run.js", () => ({
   ...run,
   hasApiKey: async () => true,
   runPrompt: async (prompt: string, options: RunOptions) => {
     requests.push(options);
-    if (requests.length === 1)
+    if (prompt === "first task")
       await new Promise<void>((resolve) => {
         release = resolve;
+      });
+    if (prompt === "other tab task")
+      await new Promise<void>((resolve) => {
+        releaseOther = resolve;
       });
     const session = createSession(
       options.cwd ?? process.cwd(),
@@ -114,10 +123,16 @@ try {
   await settled(() => requests.length === 1);
   expect(requests[0]?.approvalMode).toBe("bypassPermissions");
   expect(requests[0]?.isBypassAllowed?.()).toBe(true);
-  await command("/new");
   await command("queued task");
   await settled(() => setup.captureCharFrame().includes("В очереди: 1"));
   expect(requests).toHaveLength(1);
+  await command("/new");
+  await command("other tab task");
+  await settled(() => requests.length === 2);
+  expect(requests[1]?.approvalMode).toBe("bypassPermissions");
+  await command("other queued task");
+  await settled(() => setup.captureCharFrame().includes("В очереди: 1"));
+  expect(requests).toHaveLength(2);
   await act(async () => setup.mockInput.pressKey("\u001b[44;5u"));
   await settled(
     () => !!setup.renderer.root.findDescendantById("settings-permissions"),
@@ -126,18 +141,29 @@ try {
   await click("settings-bypass-toggle");
   await settled(() => current.permissions?.allowBypassPermissions === false);
   expect(requests[0]?.isBypassAllowed?.()).toBe(false);
+  expect(requests[1]?.isBypassAllowed?.()).toBe(false);
   await click("settings-close");
+  await act(async () => releaseOther?.());
+  await settled(
+    () =>
+      requests.length === 3 &&
+      setup.captureCharFrame().includes("answer: other queued task"),
+  );
+  expect(requests[2]?.approvalMode).toBe("default");
+  expect(requests[2]?.isBypassAllowed?.()).toBe(false);
+  await act(async () => setup.mockInput.pressKey("ARROW_LEFT", { meta: true }));
+  await frame();
   await act(async () => release?.());
   await settled(
     () =>
-      requests.length === 2 &&
+      requests.length === 4 &&
       setup.captureCharFrame().includes("answer: queued task"),
   );
-  expect(requests[1]?.approvalMode).toBe("default");
-  expect(requests[1]?.isBypassAllowed?.()).toBe(false);
+  expect(requests[3]?.approvalMode).toBe("default");
+  expect(requests[3]?.isBypassAllowed?.()).toBe(false);
   expect(settingsSaves).toEqual([true, false]);
   expect(current.profiles.work?.defaultModel).toBe("test-model");
-  await act(async () => setup.mockInput.pressCtrlC());
+  await command("/exit");
   await running;
   expect(storedModes.at(-1)).toBe("default");
   process.stdout.write(
@@ -145,5 +171,6 @@ try {
   );
 } finally {
   release?.();
+  releaseOther?.();
   setup.renderer.destroy();
 }

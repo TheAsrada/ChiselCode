@@ -101,6 +101,7 @@ export function SessionTabs({
       {visible.map((tab) => {
         const active = workspace.activeKey === tab.key;
         const busy = !!tab.controller.snapshot.busy;
+        const awaitingApproval = !!tab.controller.snapshot.awaitingApproval;
         const title = tab.controller.snapshot.sessionTitle ?? "Новая сессия";
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: Alt+Left/Right also selects tabs.
@@ -113,7 +114,13 @@ export function SessionTabs({
             border
             borderStyle="rounded"
             customBorderChars={borderChars}
-            borderColor={active ? palette.accent : palette.border}
+            borderColor={
+              awaitingApproval
+                ? palette.yellow
+                : active
+                  ? palette.accent
+                  : palette.border
+            }
             backgroundColor={active ? palette.surface : palette.bg}
             flexDirection="row"
             gap={1}
@@ -122,13 +129,19 @@ export function SessionTabs({
             onMouseUp={() => workspace.select(tab.key)}
           >
             <text
-              fg={active ? palette.text : palette.muted}
+              fg={
+                awaitingApproval
+                  ? palette.yellow
+                  : active
+                    ? palette.text
+                    : palette.muted
+              }
               width={Math.max(1, tabWidth - 6)}
               height={1}
               selectable={false}
             >
               {terminalLine(
-                `${busy ? "* " : ""}${title}`,
+                `${awaitingApproval ? "? " : busy ? "* " : ""}${title}`,
                 Math.max(1, tabWidth - 6),
               )}
             </text>
