@@ -278,6 +278,9 @@ function OpenTuiScreen({
   const [expanded, setExpanded] = useState(
     controller?.presentation.expanded ?? false,
   );
+  const [expandedDiffIds, setExpandedDiffIds] = useState<ReadonlySet<number>>(
+    () => new Set(controller?.presentation.expandedDiffIds),
+  );
   const [windowEnd, setWindowEnd] = useState<number | undefined>(
     controller?.presentation.windowEnd,
   );
@@ -295,8 +298,9 @@ function OpenTuiScreen({
     if (controller) {
       controller.presentation.windowEnd = windowEnd;
       controller.presentation.expanded = expanded;
+      controller.presentation.expandedDiffIds = new Set(expandedDiffIds);
     }
-  }, [controller, windowEnd, expanded]);
+  }, [controller, windowEnd, expanded, expandedDiffIds]);
   const previousLocation = React.useRef({
     sessionId: view.sessionId,
     projectPath: view.projectPath,
@@ -309,6 +313,7 @@ function OpenTuiScreen({
     ) {
       setWindowEnd(undefined);
       setExpanded(false);
+      setExpandedDiffIds(new Set());
     }
     previousLocation.current = {
       sessionId: view.sessionId,
@@ -414,6 +419,16 @@ function OpenTuiScreen({
       break;
     }
   }
+
+  const toggleDiff = (id: number) => {
+    transcript.current?.scrollChildIntoView(`file-diff-${id}-toggle`);
+    setExpandedDiffIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const shiftWindow = (direction: "up" | "down") => {
     const total = view.transcript.length;
@@ -743,8 +758,10 @@ function OpenTuiScreen({
     }
     if (key.name === "escape") {
       if (contextOnly) setOverlayDismissed(true);
-      else if (expanded) setExpanded(false);
-      else if (focus !== "editor") {
+      else if (expanded || expandedDiffIds.size) {
+        setExpanded(false);
+        setExpandedDiffIds(new Set());
+      } else if (focus !== "editor") {
         setFocus("editor");
         controller?.setFocus("composer");
       } else if (workspace && !home) workspace.select();
@@ -770,7 +787,8 @@ function OpenTuiScreen({
     }
     if (key.ctrl && key.name === "d") {
       key.preventDefault();
-      setExpanded((value) => !value);
+      if (classic || !controller) setExpanded((value) => !value);
+      else if (newestDiffId !== undefined) toggleDiff(newestDiffId);
       return;
     }
     if (focus === "editor" && !contextOnly && key.ctrl && key.name === "p") {
@@ -1165,6 +1183,8 @@ function OpenTuiScreen({
                     <OpenTuiTranscript
                       entries={view.transcript}
                       contentWidth={composerWidth - 2}
+                      expandedIds={expandedDiffIds}
+                      onToggleDiff={toggleDiff}
                       palette={palette}
                     />
                   </TerminalScrollbox>
@@ -1226,7 +1246,9 @@ function OpenTuiScreen({
                 <TerminalScrollbox
                   ref={transcript}
                   height={feedHeight}
-                  stickyScroll={!home}
+                  stickyScroll={
+                    !home && expandedDiffIds.size === 0 && !expanded
+                  }
                   stickyStart={home ? "top" : "bottom"}
                   viewportCulling
                   onMouseScroll={(event) => {
@@ -1253,7 +1275,13 @@ function OpenTuiScreen({
                           : view.transcript
                       }
                       contentWidth={textWidth - 2}
-                      expandedId={expanded ? newestDiffId : undefined}
+                      expandedId={
+                        classic && expanded ? newestDiffId : undefined
+                      }
+                      expandedIds={classic ? undefined : expandedDiffIds}
+                      onToggleDiff={
+                        classic ? () => setExpanded(false) : toggleDiff
+                      }
                       windowEnd={classic ? undefined : windowEnd}
                       palette={palette}
                     />

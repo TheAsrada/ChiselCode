@@ -1,10 +1,11 @@
 /** @jsxImportSource @opentui/react */
 import React from "react";
-import type { FileDiff } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { diffViewForWidth } from "./file-diff-preview.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
+import { FileDiffCard } from "./opentui-file-diff.js";
 import { FormattedMessage } from "./opentui-message.js";
-import { terminalLine, terminalSafeText } from "./terminal-text.js";
+import { terminalSafeText } from "./terminal-text.js";
 import type { TranscriptEntry } from "./tui-controller.js";
 
 export { terminalSafeText } from "./terminal-text.js";
@@ -23,40 +24,34 @@ export function visibleTranscriptWindow(
   return { start, end, entries: entries.slice(start, end) };
 }
 
-export function changedLinePreview(diff: FileDiff, maxLines = 5): string[] {
-  const result: string[] = [];
-  for (const line of terminalSafeText(diff.patch).split("\n")) {
-    if (
-      (line.startsWith("+") && !line.startsWith("+++")) ||
-      (line.startsWith("-") && !line.startsWith("---"))
-    ) {
-      result.push(terminalLine(line, 240));
-      if (result.length >= maxLines) break;
-    }
-  }
-  return result;
-}
-
-export function diffViewForWidth(width: number): "split" | "unified" {
-  return width >= 100 ? "split" : "unified";
-}
-
 export { FormattedMessage } from "./opentui-message.js";
+export { diffViewForWidth };
 
 export function OpenTuiTranscript({
   entries,
   contentWidth,
   expandedId,
+  expandedIds,
+  onToggleDiff,
   windowEnd,
   palette = THEMES.obsidian,
 }: {
   entries: readonly TranscriptEntry[];
   contentWidth: number;
   expandedId?: number;
+  expandedIds?: ReadonlySet<number>;
+  onToggleDiff?: (id: number) => void;
   windowEnd?: number;
   palette?: Palette;
 }) {
   const visible = visibleTranscriptWindow(entries, windowEnd);
+  let latestDiffId: number | undefined;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    if (entries[index]?.fileDiff) {
+      latestDiffId = entries[index]?.id;
+      break;
+    }
+  }
   return (
     <React.Fragment>
       {visible.start > 0 && (
@@ -142,39 +137,17 @@ export function OpenTuiTranscript({
               {terminalSafeText(entry.text, 20_000)}
             </text>
           );
-        const preview = changedLinePreview(diff);
-        const occurrences = new Map<string, number>();
-        const previewItems = preview.map((line) => {
-          const count = (occurrences.get(line) ?? 0) + 1;
-          occurrences.set(line, count);
-          return { key: `${entry.id}:${line}:${count}`, line };
-        });
         return (
-          <box key={entry.id} width="100%" flexDirection="column">
-            <text fg={palette.accent}>
-              {terminalSafeText(diff.path, 180)} | +{diff.additions} -
-              {diff.deletions} | Ctrl+D
-            </text>
-            {previewItems.map(({ key, line }) => (
-              <text
-                key={key}
-                fg={line.startsWith("+") ? palette.green : palette.red}
-              >
-                {line}
-              </text>
-            ))}
-            {expandedId === entry.id && (
-              <diff
-                diff={terminalSafeText(diff.patch)}
-                view={diffViewForWidth(contentWidth)}
-                height={Math.min(
-                  20,
-                  Math.max(5, diff.patch.split("\n").length),
-                )}
-                showLineNumbers
-              />
-            )}
-          </box>
+          <FileDiffCard
+            key={entry.id}
+            id={`file-diff-${entry.id}`}
+            diff={diff}
+            width={contentWidth}
+            expanded={expandedIds?.has(entry.id) || expandedId === entry.id}
+            latest={entry.id === latestDiffId}
+            onToggle={onToggleDiff ? () => onToggleDiff(entry.id) : undefined}
+            palette={palette}
+          />
         );
       })}
       {visible.end < entries.length && (

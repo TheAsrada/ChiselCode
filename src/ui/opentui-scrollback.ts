@@ -1,7 +1,8 @@
 import { BoxRenderable, type CliRenderer, TextRenderable } from "@opentui/core";
 import stringWidth from "string-width";
 import { type Palette, THEMES } from "./appearance.js";
-import { changedLinePreview, terminalSafeText } from "./opentui-transcript.js";
+import { diffColors, diffPreviewText } from "./file-diff-preview.js";
+import { terminalSafeText } from "./terminal-text.js";
 import type { TranscriptEntry, TuiController } from "./tui-controller.js";
 
 const COMMIT_BATCH = 64;
@@ -55,6 +56,49 @@ export function attachTranscriptScrollback(
         });
         let height = 0;
         for (const entry of batch) {
+          if (entry.fileDiff) {
+            const colors = diffColors(palette());
+            const lines = diffPreviewText(
+              entry.fileDiff,
+              Math.max(1, width - 3),
+            );
+            const card = new BoxRenderable(renderContext, {
+              width,
+              height: lines.length,
+              flexDirection: "column",
+              marginTop: 1,
+              paddingLeft: 1,
+              paddingRight: 1,
+              backgroundColor: palette().surface,
+            });
+            for (const [index, line] of lines.entries()) {
+              const added = /^\s*\d*\s+\d+\s+\+ /.test(line);
+              const removed = /^\s*\d+\s+\d*\s+- /.test(line);
+              card.add(
+                new TextRenderable(renderContext, {
+                  content: line,
+                  height: 1,
+                  fg:
+                    index === 0
+                      ? palette().accent
+                      : added || removed
+                        ? palette().text
+                        : palette().muted,
+                  bg:
+                    index === 0 || index === lines.length - 1
+                      ? palette().raised
+                      : added
+                        ? colors.addedBg
+                        : removed
+                          ? colors.removedBg
+                          : palette().surface,
+                }),
+              );
+            }
+            root.add(card);
+            height += lines.length + 1;
+            continue;
+          }
           if (entry.tone === "context") {
             const [title = "", ...details] = entry.text.split("\n");
             const titleRows = scrollbackRows(
@@ -160,9 +204,8 @@ export function scrollbackRows(
   width: number,
 ): string[] {
   const diff = entry.fileDiff;
-  const content = diff
-    ? `${terminalSafeText(diff.path, 180)} | +${diff.additions} -${diff.deletions}\n${changedLinePreview(diff).join("\n")}`
-    : terminalSafeText(entry.text, 20_000);
+  if (diff) return diffPreviewText(diff, width);
+  const content = terminalSafeText(entry.text, 20_000);
   const rows: string[] = [];
   const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
   for (const line of content.split("\n")) {

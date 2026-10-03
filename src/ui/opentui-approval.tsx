@@ -6,7 +6,8 @@ import { useRef } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
-import { diffViewForWidth, terminalSafeText } from "./opentui-transcript.js";
+import { FileDiffCard } from "./opentui-file-diff.js";
+import { terminalSafeText } from "./opentui-transcript.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 
 /** A modal decision surface with its own bounded, scrollable preview. */
@@ -82,22 +83,14 @@ export function OpenTuiApproval({
         >
           {diffs.length ? (
             diffs.map((diff) => (
-              <box
+              <FileDiffCard
                 key={diff.path}
-                width="100%"
-                flexDirection="column"
-                flexShrink={0}
-              >
-                <text fg={palette.muted}>
-                  {terminalSafeText(diff.path, 180)} | +{diff.additions} -
-                  {diff.deletions}
-                </text>
-                <diff
-                  diff={terminalSafeText(diff.patch)}
-                  view={diffViewForWidth(innerWidth)}
-                  showLineNumbers
-                />
-              </box>
+                id={`approval-diff-${diff.path}`}
+                diff={diff}
+                width={innerWidth}
+                expanded
+                palette={palette}
+              />
             ))
           ) : (
             <text fg={palette.text} selectable>

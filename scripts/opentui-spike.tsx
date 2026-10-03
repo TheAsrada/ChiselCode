@@ -4,6 +4,7 @@ import { createRoot } from "@opentui/react";
 import React from "react";
 import { loadGlobalConfig, saveGlobalConfig } from "../src/config/load.js";
 import type { GlobalConfig } from "../src/types/domain.js";
+import { buildFileDiff } from "../src/tools/file-diff.js";
 import { attachTranscriptScrollback } from "../src/ui/opentui-scrollback.js";
 import { OpenTuiSpike } from "../src/ui/opentui-spike.js";
 import { TuiController } from "../src/ui/tui-controller.js";
@@ -22,6 +23,35 @@ if (process.argv.includes("--version")) {
     if (!setup.captureCharFrame().includes("Контекст")) throw new Error("OpenTUI resize failed");
   } finally {
     act(() => { setup.renderer.destroy(); });
+  }
+  for (const classic of [false, true]) {
+    const controller = new TuiController(process.cwd());
+    controller.append("Changed file", "tool", buildFileDiff("smoke.txt", "old\n", "new\n"));
+    let exited = false;
+    const diffSetup = await testRender(
+      React.createElement(OpenTuiSpike, {
+        controller,
+        classic,
+        onExit: () => { exited = true; },
+        onSubmit: async () => {},
+      }),
+      { width: 80, height: 24, exitOnCtrlC: false },
+    );
+    try {
+      await act(async () => { await diffSetup.flush(); });
+      await act(async () => { diffSetup.mockInput.pressKey("d", { ctrl: true }); });
+      await act(async () => { await diffSetup.flush({ maxPasses: 12 }); });
+      if (exited || !diffSetup.renderer.root.findDescendantById("file-diff-0-full"))
+        throw new Error(`Ctrl+D failed to open the native diff (classic=${classic})`);
+      if (!diffSetup.captureCharFrame().includes("new"))
+        throw new Error("OpenTUI native diff content is empty");
+      await act(async () => { diffSetup.mockInput.pressKey("d", { ctrl: true }); });
+      await act(async () => { await diffSetup.flush(); });
+      if (exited || diffSetup.renderer.root.findDescendantById("file-diff-0-full"))
+        throw new Error("Ctrl+D failed to collapse the native diff");
+    } finally {
+      act(() => { diffSetup.renderer.destroy(); controller.dispose(); });
+    }
   }
   const classicController = new TuiController(process.cwd());
   const classicSetup = await testRender(

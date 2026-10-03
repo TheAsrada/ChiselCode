@@ -66,6 +66,7 @@ export class TuiController implements TuiTranscript {
     history: createEditorState(),
     windowEnd: undefined as number | undefined,
     expanded: false,
+    expandedDiffIds: new Set<number>(),
     scrollTop: undefined as number | undefined,
   };
   private renderer?: TuiTranscript;
@@ -409,6 +410,7 @@ export class TuiController implements TuiTranscript {
     this.compactionNotices.clear();
     this.presentation.windowEnd = undefined;
     this.presentation.expanded = false;
+    this.presentation.expandedDiffIds.clear();
     this.presentation.scrollTop = undefined;
     this.gitSource.dispose();
     this.state = {
