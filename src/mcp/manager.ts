@@ -442,9 +442,14 @@ export class McpConnectionManager {
         "MCP_PROTOCOL_ERROR",
         "Список MCP-инструментов превышает безопасный размер.",
       );
-    const names = new Set<string>();
+    const names = new Map<string, number>();
+    for (const tool of tools)
+      names.set(tool.name, (names.get(tool.name) ?? 0) + 1);
     return tools.flatMap((raw) => {
-      if (!/^[A-Za-z0-9_.:-]{1,95}$/.test(raw.name) || names.has(raw.name)) {
+      if (
+        !/^[A-Za-z0-9_.:-]{1,95}$/.test(raw.name) ||
+        names.get(raw.name) !== 1
+      ) {
         this.log(
           record,
           "warn",
@@ -452,7 +457,6 @@ export class McpConnectionManager {
         );
         return [];
       }
-      names.add(raw.name);
       if (this.redactor.text(raw.name) !== raw.name) {
         this.log(
           record,
@@ -628,6 +632,7 @@ export class McpConnectionManager {
     this.changed();
   }
   private async closeRecord(record: ServerRecord, reset = true): Promise<void> {
+    const connecting = record.connecting;
     ++record.generation;
     record.opening?.abort();
     record.opening = undefined;
@@ -642,6 +647,10 @@ export class McpConnectionManager {
       record.status.state = record.entry.config.enabled
         ? "disconnected"
         : "disabled";
+    await connection?.close().catch(() => {});
+    // SDK negotiation may still own a probe process or attach a transport.
+    // Wait for the aborted startup to settle, then close that late transport too.
+    await connecting?.catch(() => {});
     await connection?.close().catch(() => {});
   }
   async disconnect(id: string): Promise<void> {

@@ -85,17 +85,24 @@ export class ToolCatalog {
         (input?.prompt ?? "").toLowerCase().match(/[\p{L}\p{N}_-]{3,}/gu) ?? [],
       ),
     ];
+    const mentioned = new Set(
+      (input?.prompt ?? "").match(
+        /\b[a-z][a-z0-9_-]{0,31}\.[A-Za-z0-9_.:-]+\b/g,
+      ) ?? [],
+    );
     const score = (handler: ToolHandler) => {
       const { spec } = handler;
       const description = `${spec.name} ${spec.description}`.toLowerCase();
       return (
-        (this.explicit.has(spec.name)
-          ? 5000 + (this.explicit.get(spec.name) ?? 0)
-          : spec.pinned
-            ? 3000
-            : input?.recentTools?.includes(spec.name)
-              ? 2000
-              : 0) +
+        (mentioned.has(spec.name)
+          ? 10000 + this.selectionSequence
+          : this.explicit.has(spec.name)
+            ? 5000 + (this.explicit.get(spec.name) ?? 0)
+            : spec.pinned
+              ? 3000
+              : input?.recentTools?.includes(spec.name)
+                ? 2000
+                : 0) +
         Math.min(
           500,
           words.reduce(

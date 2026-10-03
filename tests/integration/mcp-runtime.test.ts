@@ -299,6 +299,11 @@ test("hundreds of MCP schemas are bounded, relevant and have a discovery fallbac
     initial.filter((tool) => tool.name.includes(".")).length,
   ).toBeLessThanOrEqual(32);
   expect(initial.some((tool) => tool.name === "discover_mcp_tools")).toBe(true);
+  expect(
+    tools.catalog
+      .selectForTurn({ prompt: "Use aws.get_item_299" })
+      .map((tool) => tool.name),
+  ).toContain("aws.get_item_299");
   const found = await tools.executor.execute({
     id: "discovery",
     name: "discover_mcp_tools",
@@ -350,6 +355,14 @@ test("explicit discovery prioritizes a needed schema within the MCP byte budget"
       0,
     );
   expect(bytes).toBeLessThanOrEqual(96 * 1024);
+  await tools.executor.execute({
+    id: "explicit-budget",
+    name: "discover_mcp_tools",
+    input: { server: "github", tools: ["github.get_wide_schema_0"] },
+  });
+  const discovered = tools.catalog.selectForTurn().map((tool) => tool.name);
+  expect(discovered).toContain("github.get_wide_schema_0");
+  expect(discovered).not.toContain("github.get_wide_schema_2");
 });
 test("unsupported oversized MCP schemas are diagnosed while ordinary tools stay usable", async () => {
   const { tools, store, manager, binding } = await setup();

@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { Tool, Transport } from "@modelcontextprotocol/client";
@@ -32,6 +33,7 @@ import type { McpServerEntry } from "./storage.js";
 
 /** All SDK/protocol/transport choices stay behind this connection boundary. */
 class SdkMcpConnection implements McpConnection {
+  private discovered = new Map<string, Tool>();
   private stderrDecoder = new StringDecoder("utf8");
   private stderrPending = "";
   private stderrDiscarding = false;
@@ -73,7 +75,9 @@ class SdkMcpConnection implements McpConnection {
       const transport = new StdioClientTransport({
         command: config.transport.command,
         args: config.transport.args,
-        cwd: resolve(this.entry.projectRoot, config.transport.cwd ?? "."),
+        cwd: await realpath(
+          resolve(this.entry.projectRoot, config.transport.cwd ?? "."),
+        ),
         env: {
           ...getDefaultEnvironment(),
           ...(await this.credentials.values(config.env, this.redactor)),
@@ -146,13 +150,15 @@ class SdkMcpConnection implements McpConnection {
     };
   }
   async listTools(signal?: AbortSignal): Promise<Tool[]> {
-    return (
+    const tools = (
       await this.client.listTools(undefined, {
         signal,
         timeout: this.entry.config.startupTimeoutMs,
         cacheMode: "refresh",
       })
     ).tools;
+    this.discovered = new Map(tools.map((tool) => [tool.name, tool]));
+    return tools;
   }
   async callTool(
     name: string,
@@ -160,6 +166,13 @@ class SdkMcpConnection implements McpConnection {
     signal?: AbortSignal,
     onProgress?: (progress: McpProgress) => void,
   ): Promise<McpCallResult> {
+    const definition = this.discovered.get(name);
+    if (!definition)
+      throw new RuntimeError(
+        "MCP_TOOL_NOT_FOUND",
+        "Инструмент отсутствует в текущем каталоге MCP.",
+        { retryable: false },
+      );
     const result = await this.client.callTool(
       { name, arguments: input },
       {
@@ -167,6 +180,9 @@ class SdkMcpConnection implements McpConnection {
         timeout: this.entry.config.callTimeoutMs,
         onprogress: onProgress,
         allowInputRequired: true,
+        // An exact discovery snapshot avoids hidden metadata lookups and the
+        // SDK's header-mismatch refresh/replay path, including for mutations.
+        toolDefinition: definition,
       },
     );
     if (isInputRequiredResult(result))
@@ -208,6 +224,7 @@ class SdkMcpConnection implements McpConnection {
       .parse(result);
   }
   async close(): Promise<void> {
+    this.discovered.clear();
     await this.client.close();
   }
   private flushStderr(): void {

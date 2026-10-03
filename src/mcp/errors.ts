@@ -57,7 +57,11 @@ export function mcpError(
       "Инструмент больше не доступен на MCP-сервере. Обновите список.",
       { retryable: false },
     );
-  if (/schema|parse|invalid.*response|protocol|json|negotiat/i.test(message))
+  if (
+    /schema|parse|invalid.*(?:response|result)|protocol|json|negotiat|header.*mismatch/i.test(
+      message,
+    )
+  )
     return new RuntimeError(
       "MCP_PROTOCOL_ERROR",
       `Сервер вернул некорректный ответ: ${message}`,

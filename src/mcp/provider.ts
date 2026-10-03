@@ -66,7 +66,9 @@ export class McpToolProvider implements ToolProvider {
     const source: Extract<ToolSource, { type: "mcp" }> = {
       type: "mcp",
       serverId: this.serverId,
-      serverTitle: entry.config.label ?? this.serverId,
+      serverTitle: this.manager.redactor.text(
+        entry.config.label ?? this.serverId,
+      ),
       originalName: tool.name,
       title: tool.title,
       annotations: tool.annotations,

@@ -58,13 +58,14 @@ export class McpRuntimeBinding {
                     .includes(word),
                 )),
           );
+          // Top matches are included automatically, so a single discovery call is enough.
+          catalog.include(tools.slice(0, 12).map((spec) => spec.name));
+          // Explicit choices must outrank automatic matches under the schema budget.
           catalog.include(
             data.tools.filter((name) =>
               allowed.some((spec) => spec.name === name),
             ),
           );
-          // Top matches are included automatically, so a single discovery call is enough.
-          catalog.include(tools.slice(0, 12).map((spec) => spec.name));
           return {
             output: JSON.stringify(
               {
