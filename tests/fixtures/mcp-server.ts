@@ -55,7 +55,12 @@ if (mode === "malformed") {
       server.registerTool(
         "get_input",
         { inputSchema: z.object({}), annotations: { readOnlyHint: true } },
-        async () => inputRequired({ requestState: "pending" }),
+        async (_input, context) => {
+          process.stderr.write(
+            `Input-required fixture dispatched; modern envelope: ${Boolean(context.mcpReq.envelope)}\n`,
+          );
+          return inputRequired({ requestState: "pending" });
+        },
       );
     server.registerTool(
       "get_note",

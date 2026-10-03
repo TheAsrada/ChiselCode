@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
@@ -90,17 +97,24 @@ test("real stdio startup, modern negotiation, discovery and invocation", async (
     }),
   ).toEqual({ content: [{ type: "text", text: "note 42" }] });
 });
-test("doctor resolves a relative executable against the actual MCP working directory", async () => {
+test("doctor resolves a relative executable against the physical MCP working directory through symlinks", async () => {
   const { root, manager, store } = await setup(stdio());
-  const cwd = join(root, "server-cwd");
+  const cwd = join(root, "physical-cwd");
   await mkdir(cwd);
+  const aliasParent = join(root, "alias", "nested", "deep");
+  await mkdir(aliasParent, { recursive: true });
+  await symlink(
+    cwd,
+    join(aliasParent, "server"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
   const config = stdio();
   await store.save("test", {
     ...config,
     transport: {
       ...config.transport,
-      command: relative(cwd, process.execPath),
-      cwd: "server-cwd",
+      command: relative(await realpath(cwd), process.execPath),
+      cwd: join("alias", "nested", "deep", "server"),
     },
   });
   const reports = await diagnoseMcp(manager, "test");
@@ -332,14 +346,25 @@ test("progress reaches the connection boundary as useful data", async () => {
   });
 });
 test("unsupported input-required replies never appear as successful operations", async () => {
-  const { manager } = await setup(stdio(["input-required"]));
+  const { manager } = await setup({
+    ...stdio(["input-required"]),
+    callTimeoutMs: 1500,
+  });
   await manager.connect("test");
   const tool = manager
     .tools("test")
     .find((item) => item.tool.name === "get_input");
-  await expect(
-    manager.invoke("test", "get_input", tool?.fingerprint ?? "", {}),
-  ).rejects.toMatchObject({
+  const outcome = await manager
+    .invoke("test", "get_input", tool?.fingerprint ?? "", {})
+    .then(
+      () => ({ code: "unexpected_success", details: { retryable: false } }),
+      (error) => error as { code: string; details?: { retryable?: boolean } },
+    );
+  if (outcome.code !== "MCP_FEATURE_UNSUPPORTED")
+    throw new Error(
+      `Expected unsupported input_required, got ${outcome.code}; status: ${JSON.stringify(manager.status("test"))}; diagnostics: ${JSON.stringify(manager.logs("test"))}`,
+    );
+  expect(outcome).toMatchObject({
     code: "MCP_FEATURE_UNSUPPORTED",
     details: { retryable: false },
   });

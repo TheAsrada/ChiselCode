@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
 import { delimiter, isAbsolute, resolve } from "node:path";
 import type { McpConnectionManager } from "./manager.js";
 
@@ -91,9 +91,16 @@ export async function diagnoseMcp(
           ],
         };
       if (entry.config.transport.type === "stdio") {
+        const directory = resolve(
+          entry.projectRoot,
+          entry.config.transport.cwd ?? ".",
+        );
+        // A child's cwd is physical. Resolve symlinks before interpreting ../
+        // in its executable path (notably /var -> /private/var on macOS).
+        const cwd = await realpath(directory).catch(() => directory);
         const found = await executableExists(
           entry.config.transport.command,
-          resolve(entry.projectRoot, entry.config.transport.cwd ?? "."),
+          cwd,
         );
         checks.push({
           name: "executable",
