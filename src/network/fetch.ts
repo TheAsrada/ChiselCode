@@ -18,7 +18,7 @@ export async function enterpriseFetch(
 ): Promise<Response> {
   let request = new Request(input, init);
   // Preserve native fetch's framing for known SDK JSON/string bodies. Besides
-  // gateway compatibility, this avoids Bun/Windows parsing cloned chunked POSTs.
+  // gateway compatibility, this preserves explicit UTF-8 byte lengths on redirects.
   const length = bodyLength(init?.body);
   if (
     length !== undefined &&

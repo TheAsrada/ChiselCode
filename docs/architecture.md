@@ -76,7 +76,7 @@ Manager разделяет lifecycle соединения и cancellation каж
 
 `ExaSearchBackend` использует официальный MCP Client/Streamable HTTP для фиксированного публичного endpoint, согласования протокола и вызова только `web_search_advanced_exa`. Это backend обычного native tool, без второго executor или дополнительных модельных схем. Результаты валидируются и приводятся к компактным title/URL/domain/snippet. Auto сохраняет настроенный Brave, иначе выбирает Exa; ошибки не переключают сервис скрыто.
 
-`src/network` отделяет пользовательские proxy/CA/mTLS от runtime и UI. `networkRequest` разделяет TLS и credentials proxy/origin; `enterpriseFetch` предоставляет SDK streaming HTTP с отменой и повторным выбором identity при redirect. LLM drivers и HTTP MCP используют его, а SafeWebHttpClient дополнительно проверяет DNS и туннелирует CONNECT к публичному IP с byte/decompression/redirect limits. [Настройка сети](network.md).
+`src/network` отделяет пользовательские proxy/CA/mTLS от runtime и UI. `networkRequest` разделяет TLS и credentials proxy/origin; `enterpriseFetch` предоставляет SDK streaming HTTP с отменой и повторным выбором identity при redirect. Прямые SDK-запросы используют native Bun fetch с явным отключением proxy; отдельный Node transport разделяет TLS proxy/origin. Это сохраняет native lifecycle потоков там, где разделение proxy TLS не требуется. LLM drivers и HTTP MCP используют общий интерфейс, а SafeWebHttpClient дополнительно проверяет DNS и туннелирует CONNECT к публичному IP с byte/decompression/redirect limits. [Настройка сети](network.md).
 
 ```mermaid
 flowchart TD

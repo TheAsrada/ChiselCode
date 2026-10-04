@@ -227,10 +227,6 @@ export class SafeWebHttpClient {
     const proxyTls = proxy ? await tlsForHost(proxy.hostname) : undefined;
     const transport = this.transport ?? pinnedRequest;
     const pendingConnection = new AbortController();
-    const connectionSignal = AbortSignal.any([
-      signal,
-      pendingConnection.signal,
-    ]);
     return new Promise((resolve, reject) => {
       let finished = false;
       let response: IncomingMessage | undefined;
@@ -310,7 +306,7 @@ export class SafeWebHttpClient {
           {
             ...tls,
             proxyTls,
-            proxySignal: connectionSignal,
+            proxySignal: pendingConnection.signal,
             method: options.method ?? "GET",
             maxHeaderSize: 16384,
             headers: {

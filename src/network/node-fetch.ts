@@ -7,6 +7,7 @@ import {
   proxyForUrl,
   tlsForHost,
 } from "./environment.js";
+import { directFetch } from "./native-fetch.js";
 import { networkRequest } from "./request.js";
 
 /** Streaming fetch for trusted SDK endpoints, with independent proxy and origin TLS. */
@@ -23,13 +24,10 @@ export async function networkFetch(request: Request): Promise<Response> {
     );
   const proxy = proxyForUrl(url);
   const tls = await tlsForHost(url.hostname.replace(/^\[|\]$/g, ""));
+  if (!proxy) return directFetch(request, tls);
   const proxyTls = proxy ? await tlsForHost(proxy.hostname) : undefined;
   request.signal.throwIfAborted();
   const pendingConnection = new AbortController();
-  const connectionSignal = AbortSignal.any([
-    request.signal,
-    pendingConnection.signal,
-  ]);
   return new Promise<Response>((resolve, reject) => {
     let incoming: IncomingMessage | undefined;
     let decoder: Transform | undefined;
@@ -83,7 +81,9 @@ export async function networkFetch(request: Request): Promise<Response> {
         {
           ...tls,
           proxyTls,
-          proxySignal: connectionSignal,
+          // Only the pending CONNECT phase owns this signal. Once attached,
+          // ClientRequest/IncomingMessage owns teardown; aborting both races TLS.
+          proxySignal: pendingConnection.signal,
           hostname: url.hostname.replace(/^\[|\]$/g, ""),
           port: url.port || (url.protocol === "https:" ? 443 : 80),
           path: url.pathname + url.search,

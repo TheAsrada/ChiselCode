@@ -6,7 +6,11 @@ import { enterpriseFetch } from "../../src/network/fetch.js";
 import { SafeWebHttpClient } from "../../src/web/http-client.js";
 import { WebConfigSchema } from "../../src/web/schema.js";
 import { UrlPolicy } from "../../src/web/url-policy.js";
-import { listen, withNetworkEnvironment } from "../fixtures/network-proxy.js";
+import {
+  listen,
+  startNetworkProxy,
+  withNetworkEnvironment,
+} from "../fixtures/network-proxy.js";
 
 test("SDK streaming transport retains UTF-8 POST bodies, decompresses responses and strips auth on cross-origin redirects", async () => {
   const received: Array<{
@@ -191,3 +195,54 @@ for (const cancellation of ["abort", "total timeout", "connection timeout"])
       await new Promise<void>((done) => proxy.close(() => done()));
     }
   });
+
+test("SDK cancellation closes a running SSE stream through a corporate proxy", async () => {
+  let cancelled = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch() {
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("data: started\n\n"));
+            timer = setInterval(
+              () =>
+                controller.enqueue(
+                  new TextEncoder().encode("data: working\n\n"),
+                ),
+              25,
+            );
+          },
+          cancel() {
+            cancelled = true;
+            clearInterval(timer);
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    },
+  });
+  const proxy = await startNetworkProxy({
+    destinationPort: Number(server.port),
+  });
+  try {
+    await withNetworkEnvironment({ HTTP_PROXY: proxy.url }, async () => {
+      const abort = new AbortController();
+      const response = await enterpriseFetch(
+        "http://origin.docs.example/events",
+        { signal: abort.signal },
+      );
+      const pending = response.text();
+      abort.abort();
+      await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      for (let n = 0; n < 50 && !cancelled; n++) await Bun.sleep(10);
+      expect(cancelled).toBe(true);
+    });
+  } finally {
+    clearInterval(timer);
+    await proxy.close();
+    server.stop(true);
+  }
+});
