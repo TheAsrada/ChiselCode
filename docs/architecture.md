@@ -74,15 +74,20 @@ Manager разделяет lifecycle соединения и cancellation каж
 
 `WebToolProvider` регистрирует `web_search` и `web_fetch` через общий ToolCatalog. Их effect — `external_read`, permission — `network`, workspaceAccess — `none`. Поэтому Plan разрешает их, read scheduler запускает параллельно, а ожидание сети не удерживает workspace lock. AgentRuntime и UI не содержат HTTP-кода.
 
+`ExaSearchBackend` использует официальный MCP Client/Streamable HTTP для фиксированного публичного endpoint, согласования протокола и вызова только `web_search_advanced_exa`. Это backend обычного native tool, без второго executor или дополнительных модельных схем. Результаты валидируются и приводятся к компактным title/URL/domain/snippet. Auto сохраняет настроенный Brave, иначе выбирает Exa; ошибки не переключают сервис скрыто.
+
+`src/network` отделяет пользовательские proxy/CA/mTLS от runtime и UI. `networkRequest` разделяет TLS и credentials proxy/origin; `enterpriseFetch` предоставляет SDK streaming HTTP с отменой и повторным выбором identity при redirect. LLM drivers и HTTP MCP используют его, а SafeWebHttpClient дополнительно проверяет DNS и туннелирует CONNECT к публичному IP с byte/decompression/redirect limits. [Настройка сети](network.md).
+
 ```mermaid
 flowchart TD
   Executor[ToolExecutor] --> Policy[PermissionPolicy: network capability]
   Policy --> Web[WebToolProvider]
-  Web --> Search[WebSearchBackend: Brave]
+  Web --> Search[WebSearchBackend: Exa / Brave]
   Web --> Fetch[WebFetchService: session cache]
   Search --> HTTP[SafeWebHttpClient]
   Fetch --> HTTP
   HTTP --> URL[UrlPolicy: DNS and IP validation]
+  HTTP --> Network[Shared networkRequest: proxy / CA / scoped mTLS]
   Fetch --> Extract[LinkeDOM / Readability / bounded Markdown]
   Web --> Results[ToolResultStore / source metadata / runtime events]
 ```
@@ -91,7 +96,7 @@ Network permission проверяет пользовательские прав�
 
 URL policy допускает публичные HTTP/HTTPS на портах 80/443 без credentials. Проверяются все DNS answers; transport соединяется с выбранным проверенным IP, а Host/SNI и TLS certificate validation используют исходный hostname. Это устраняет повторный DNS lookup между проверкой и соединением. Каждый redirect повторяет проверку; другое доменное имя требует действующего разрешения. HTTP client ограничивает response headers, connection/total timeout, redirects, compressed/decompressed bytes и cancellation. Shared limiter ограничивает concurrency и частоту, turn quota учитывает также cache calls.
 
-Brave — единственный текущий search backend, за интерфейсом WebSearchBackend. Он использует фиксированный API endpoint, не передаёт ключ при redirects и нормализует results до title/url/domain/snippet. CredentialStorage сохраняет ссылку; SecretRedactor убирает известный ключ до events, artifacts и checkpoints. Fetch не требует поискового ключа.
+Exa и Brave находятся за интерфейсом WebSearchBackend и используют фиксированные endpoints. Exa согласует MCP без API-ключа; Brave не передаёт ключ при redirects. CredentialStorage сохраняет ссылку; SecretRedactor убирает известный ключ до events, artifacts и checkpoints. Fetch не требует поискового ключа.
 
 Extraction строит ограниченный DOM, удаляет UI noise и сохраняет headings, списки, таблицы и code blocks. LinkeDOM даёт небольшой DOM parser, Mozilla Readability помогает страницам без main/article; собственный Markdown serializer сохраняет технические примеры без browser runtime. Cache хранит только извлечённые документы, aliases canonical URLs, TTL и ограниченный LRU. Сессия сохраняет source metadata в invocation result details, без отдельного поискового индекса. Generic result references сохраняют происхождение «открыт»/«search hint»; compactor переносит наблюдавшиеся URLs и artifact URIs в importantReferences, включая модельное summary, с явной меткой недоверенных данных.
 

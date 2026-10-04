@@ -173,7 +173,7 @@ Profile ID — 1–128 символов, буквы/цифры/точка/деф
   "web": {
     "schemaVersion": 1,
     "enabled": true,
-    "search": { "provider": "brave", "apiKey": { "envRef": "BRAVE_SEARCH_API_KEY" } },
+    "search": { "provider": "auto" },
     "permissions": {
       "search": "ask", "fetch": "ask",
       "allowDomains": ["react.dev", "docs.rs"],
@@ -190,8 +190,8 @@ Profile ID — 1–128 символов, буквы/цифры/точка/деф
 }
 ```
 
-Вместо `envRef` доступен `secretRef`, например `web/brave-search`, сохранённый через скрытое поле Settings. Raw API keys и неизвестные поля Web отклоняются. `cacheTtlMs: 0` отключает cache. Все пределы проверяются строгой схемой; они не могут быть бесконечными. Search возвращает максимум 10 результатов, fetch принимает `maxChars` и дополнительно ограничен `maxExtractedChars`.
+`search.provider` принимает `auto`, `exa`, `brave`. По умолчанию `auto` использует существующий ключ Brave или официальный keyless Exa MCP, имеющий лимиты бесплатного доступа. Явный `exa` не требует ключа, явный `brave` использует `search.apiKey: { "envRef": "BRAVE_SEARCH_API_KEY" }` или `{ "secretRef": "web/brave-search" }`, сохранённый через скрытое поле Settings. Старые Brave config и secret references остаются совместимыми. Raw API keys и неизвестные поля Web отклоняются. `cacheTtlMs: 0` отключает cache. Все пределы проверяются строгой схемой; они не могут быть бесконечными. Search возвращает максимум 10 результатов, fetch принимает `maxChars` и дополнительно ограничен `maxExtractedChars`.
 
 Репозиторий может только ужесточать `.chiselrc`: `"web": { "enabled": false, "denyDomains": ["example.com"], "maxRequestsPerTurn": 8 }`. Project config не принимает allow rules, credentials, custom transport или отключение SSRF. Deny имеет приоритет над domain/tool/session grants и Bypass. `*.example.com` разрешает/запрещает поддомены, apex добавляется отдельным правилом.
 
-Private network всегда заблокирован. JavaScript/browser automation и custom proxy endpoints не поддерживаются. Для полного отключения user config — `"web": { "enabled": false }`. [Workflow, данные и troubleshooting](web.md).
+Private network всегда заблокирован. JavaScript/browser automation не поддерживаются. Корпоративные proxy, дополнительные CA и scoped mTLS задаются только в окружении пользователя: [корпоративная сеть](network.md). Для полного отключения user config — `"web": { "enabled": false }`. [Workflow, данные и troubleshooting](web.md).

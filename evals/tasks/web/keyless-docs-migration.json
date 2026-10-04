@@ -1,0 +1,86 @@
+{
+  "mockOnly": true,
+  "webFixture": true,
+  "fixture": "web-api",
+  "timeout": 30,
+  "tags": ["web", "deterministic-fixture", "keyless-exa"],
+  "id": "web-keyless-docs-migration",
+  "prompt": "Without configuring a search API key, use the official fixture API documentation to find the new function name, migrate api.ts and run bun test. Open https://fixture.docs.example/article for evidence.",
+  "graders": [
+    {
+      "type": "command",
+      "command": "bun test"
+    },
+    {
+      "type": "tool_result",
+      "tool": "web_search",
+      "untrusted": true
+    },
+    {
+      "type": "tool_result",
+      "tool": "web_fetch",
+      "untrusted": true
+    },
+    {
+      "type": "tool_result",
+      "tool": "read_file"
+    },
+    {
+      "type": "tool_result",
+      "tool": "edit_file"
+    },
+    {
+      "type": "tool_result",
+      "tool": "run_shell"
+    }
+  ],
+  "constraints": {
+    "forbidden_paths": ["api.test.ts", "package.json"]
+  },
+  "mockTurns": [
+    [
+      {
+        "name": "web_search",
+        "input": {
+          "query": "Fixture API migration official",
+          "domains": ["fixture.docs.example"]
+        }
+      }
+    ],
+    [
+      {
+        "name": "web_fetch",
+        "input": {
+          "url": "https://fixture.docs.example/article"
+        }
+      }
+    ],
+    [
+      {
+        "name": "read_file",
+        "input": {
+          "path": "api.ts"
+        }
+      }
+    ],
+    [
+      {
+        "name": "edit_file",
+        "input": {
+          "path": "api.ts",
+          "old_str": "legacyFetch",
+          "new_str": "fetchFresh"
+        }
+      }
+    ],
+    [
+      {
+        "name": "run_shell",
+        "input": {
+          "command": "bun test"
+        }
+      }
+    ]
+  ],
+  "webSearchBackend": "exa"
+}

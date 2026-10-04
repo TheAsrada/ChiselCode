@@ -1,15 +1,18 @@
 import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
+import { networkEnvironmentStatus } from "../network/environment.js";
 import {
   type CredentialStorage,
   CredentialStore,
 } from "../security/credentials.js";
 import { SecretRedactor } from "../security/redaction.js";
 import { resolveWebConfig, type WebConfig, WebConfigSchema } from "./schema.js";
-import { resolveWebCredential } from "./search.js";
+import { effectiveSearchBackend, resolveWebCredential } from "./search.js";
 
 export interface WebSettingsState {
   config: WebConfig;
   hasKey: boolean;
+  searchBackend?: "exa" | "brave";
+  network?: ReturnType<typeof networkEnvironmentStatus>;
 }
 export interface WebSettingsActions {
   load(): Promise<WebSettingsState>;
@@ -24,15 +27,18 @@ export class WebSettingsStore implements WebSettingsActions {
   ) {}
   async load(): Promise<WebSettingsState> {
     const config = resolveWebConfig((await loadGlobalConfig(this.path)).web);
+    const hasKey = Boolean(
+      await resolveWebCredential(
+        config,
+        new SecretRedactor(false),
+        this.credentials,
+      ),
+    );
     return {
       config,
-      hasKey: Boolean(
-        await resolveWebCredential(
-          config,
-          new SecretRedactor(false),
-          this.credentials,
-        ),
-      ),
+      hasKey,
+      searchBackend: effectiveSearchBackend(config, hasKey),
+      network: networkEnvironmentStatus(),
     };
   }
   async save(value: WebConfig, apiKey?: string): Promise<WebSettingsState> {
@@ -55,6 +61,7 @@ export class WebSettingsStore implements WebSettingsActions {
             );
           await this.credentials.set("web/brave-search", key);
           config.search.apiKey = { secretRef: "web/brave-search" };
+          config.search.provider = "brave";
         }
         const current = await loadGlobalConfig(this.path);
         await saveGlobalConfig({ ...current, web: config }, this.path);

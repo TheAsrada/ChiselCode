@@ -42,6 +42,12 @@
 
 Если после переноса профиля появляется `Unable to decrypt ChiselCode credentials`, закройте приложение и найдите `credentials.enc` по [таблице путей](configuration.md). Сохраните его резервную копию в защищённом месте, затем переименуйте файл и пройдите `chisel setup` заново. Потребуется повторно ввести ключи; не прикладывайте этот файл к issue.
 
+## Поиск и корпоративная сеть
+
+Поиск Exa доступен без отдельного API-ключа. Если выбран Brave без ключа, переключите `/settings` → Web → Сервис поиска на Авто / Exa или выполните `chisel web configure --search-provider exa`. Ошибка `WEB_RATE_LIMITED` требует повторить позже или использовать свой поисковый тариф; неизвестные страницы можно открывать через fetch независимо от backend.
+
+Проверьте `chisel web status --json`, затем разрешённый `chisel --allow web_fetch web test --url https://react.dev/reference/`. Для корпоративной сети настройте proxy, дополнительные CA и mTLS в окружении: [инструкция](network.md). TLS-проверка не отключается, proxy не открывает private network через Web. Не прикладывайте пароли proxy, PEM или закрытые ключи к issue.
+
 ## Как оформить баг
 
 Откройте [форму сообщения об ошибке](https://github.com/TheAsrada/ChiselCode/issues/new/choose) и укажите:

@@ -11,16 +11,23 @@
 
 ## Начать пользоваться
 
-Откройте `/settings` → Web. Включите доступ и оставьте «Спрашивать» для поиска и открытия страниц. Известные HTTP/HTTPS URL можно читать без поискового ключа.
+Откройте `/settings` → Web. Включите доступ и оставьте «Спрашивать» для поиска и открытия страниц. По умолчанию поиск готов без регистрации и отдельного ключа: используется официальный [публичный Exa MCP](https://exa.ai/docs/reference/exa-mcp). Бесплатный доступ имеет лимиты сервиса; ChiselCode не обещает безлимитный поиск.
 
-Для поиска нужен ключ [Brave Search API](https://api-dashboard.search.brave.com/app/documentation/web-search). Введите его в скрытое поле Settings: CredentialStore сохранит ключ зашифрованным, а конфигурация — только `secretRef`. Можно использовать окружение:
+«Сервис поиска» переключается между **Авто / Exa / Brave**. Авто использует существующий ключ Brave, если он доступен, иначе Exa. Явный выбор Exa всегда работает без ключа; явный Brave требует вашего ключа и не переключает сервис незаметно при ошибке. Настроенные Brave credentials сохраняются при переключении.
+
+```sh
+chisel web configure --search-provider exa
+chisel web status
+```
+
+Если нужен собственный поисковый тариф, выберите Brave и введите ключ [Brave Search API](https://api-dashboard.search.brave.com/app/documentation/web-search) в скрытое поле Settings: CredentialStore сохранит ключ зашифрованным, а конфигурация — только `secretRef`. Можно использовать окружение:
 
 ```sh
 chisel web configure --key-env BRAVE_SEARCH_API_KEY
 chisel web status
 ```
 
-Установите значение `BRAVE_SEARCH_API_KEY` средствами своей ОС/терминала. Не передавайте секрет в argv, `.chiselrc` или сообщении агенту. Search backend независим от выбранной LLM; расходы Brave учитываются отдельно от tokens модели. `web_fetch` не требует Brave.
+Установите значение `BRAVE_SEARCH_API_KEY` средствами своей ОС/терминала. Не передавайте секрет в argv, `.chiselrc` или сообщении агенту. Search backend независим от выбранной LLM; расходы Brave учитываются отдельно от tokens модели. `web_fetch` работает независимо от сервиса поиска.
 
 ## Подтверждения
 
@@ -49,9 +56,9 @@ Cache хранит извлечённый текст в пределах сес�
 
 ## Какие данные уходят в интернет
 
-Brave получает текст поискового запроса и domain filters. Владелец страницы получает URL fetch, обычные HTTP headers и IP соединения. Контекст проекта, исходники, cookies и login credentials автоматически не отправляются. Агент может включить данные задачи в query или URL — избегайте конфиденциальных запросов.
+Выбранный сервис Exa или Brave получает текст поискового запроса и domain filters. Exa не получает session ID, имя модели или контекст проекта. Владелец страницы получает URL fetch, обычные HTTP headers и IP соединения. Контекст проекта, исходники, cookies и login credentials автоматически не отправляются. Агент может включить данные задачи в query или URL — избегайте конфиденциальных запросов. При использовании proxy сеть проходит через настроенную пользователем корпоративную инфраструктуру.
 
-Ключ Brave отправляется только фиксированному HTTPS API backend, не странице и не redirect destination. Credentials хранятся за ссылками; известные значения редактируются до events, tool results, artifacts и session checkpoints.
+Ключ Brave отправляется только фиксированному HTTPS API backend, не странице и не redirect destination. Credentials хранятся за ссылками; известные значения редактируются до events, tool results, artifacts и session checkpoints. Исключение для явно настроенной корпоративной аутентификации — scoped mTLS: сертификат предлагается только адресам из `CHISEL_CLIENT_CERT_HOSTS`, закрытый ключ и его passphrase не передаются.
 
 Полученный текст — **недоверенные reference data**. Инструкции сайта вроде «ignore the user» или «delete package.json» остаются содержимым документа. Короткая метка сохраняется при чтении любого диапазона web artifact; обычные permissions и workspace policy продолжают действовать. Это не обещание полной защиты конкретной LLM от prompt injection.
 
@@ -78,7 +85,8 @@ chisel web configure --disable
 
 | Ошибка | Что сделать |
 | --- | --- |
-| `WEB_SEARCH_NOT_CONFIGURED` | Сохраните ключ Brave или используйте fetch известного URL |
+| `WEB_SEARCH_NOT_CONFIGURED` | Для Brave сохраните ключ или переключитесь на Авто / Exa без ключа |
+| `WEB_NETWORK_CONFIGURATION` | Проверьте proxy, CA и mTLS: [корпоративная сеть](network.md) |
 | `WEB_NETWORK_DENIED` | Проверьте Ask/Allow/Deny и domain rules; разрешите публичный сайт в обычном approval |
 | `WEB_UNSAFE_ADDRESS` | Используйте публичную документацию; private/metadata адреса не поддерживаются |
 | `WEB_TIMEOUT`, `WEB_FETCH_FAILED` | Проверьте публичную доступность сервера и сетевые ограничения |
@@ -86,7 +94,7 @@ chisel web configure --disable
 | `WEB_TOO_LARGE` | Выберите меньшую страницу или конкретный текстовый endpoint |
 | `WEB_REDIRECT_LIMIT` | Проверьте исходный URL и цепочку redirect |
 | `WEB_UNSUPPORTED_CONTENT` | Нужен текстовый документ; PDF, binaries и JS-only/login страницы не поддерживаются |
-| `WEB_RATE_LIMITED`, `WEB_REQUEST_LIMIT` | Продолжите с уже собранными источниками; provider quota учитывается отдельно |
+| `WEB_RATE_LIMITED`, `WEB_REQUEST_LIMIT` | Продолжите с собранными источниками, повторите позже или выберите собственный Brave; лимиты Exa/Brave учитываются отдельно |
 | `WEB_PROTOCOL_ERROR` | Ответ сервера повреждён/оборван или backend вернул неверный JSON |
 
-Fetch не запускает Chromium, Playwright, login forms или JavaScript. Корпоративные HTTP proxies из переменных окружения автоматически не используются: direct pinned connection сохраняет проверку назначения. Для сети, требующей proxy, нужен отдельный будущий transport с теми же гарантиями. Поиск сейчас поддерживает Brave; интерфейс backend позволяет добавить другой API без изменения runtime.
+Fetch не запускает Chromium, Playwright, login forms или JavaScript. Корпоративные HTTP/HTTPS proxy, дополнительные CA и scoped mTLS поддерживаются: [настройка](network.md). Web использует CONNECT к проверенному IP, а не доверяет proxy повторное разрешение model-selected hostname. Proxy, допускающий CONNECT только к именам хостов, должен разрешить проверенные публичные IP; небезопасного fallback с повторным DNS нет. SOCKS, NTLM/Kerberos и PDF не поддерживаются.

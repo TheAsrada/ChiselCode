@@ -28,6 +28,16 @@ export interface WebSearchBackend {
   readonly hostname: string;
   search(input: SearchInput, options: WebHttpOptions): Promise<SearchResponse>;
 }
+export function effectiveSearchBackend(
+  config: WebConfig,
+  hasBraveKey: boolean,
+): "exa" | "brave" {
+  return config.search.provider === "auto"
+    ? hasBraveKey
+      ? "brave"
+      : "exa"
+    : config.search.provider;
+}
 const BraveResponseSchema = z.object({
   web: z
     .object({

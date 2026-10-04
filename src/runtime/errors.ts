@@ -1,5 +1,6 @@
 export type RuntimeErrorCode =
   | "WEB_NETWORK_DENIED"
+  | "WEB_NETWORK_CONFIGURATION"
   | "WEB_UNSAFE_ADDRESS"
   | "WEB_TIMEOUT"
   | "WEB_TOO_LARGE"

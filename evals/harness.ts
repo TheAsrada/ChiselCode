@@ -18,6 +18,8 @@ import type {
 } from "../src/types/domain.js";
 import { scanGlob } from "../src/utils/fs-scan.js";
 import { matchesPattern, resolveProjectPath } from "../src/utils/paths.js";
+import { WebToolProvider } from "../src/web/provider.js";
+import { startExaFixture } from "../tests/fixtures/exa-search.js";
 import { startWebFixture } from "../tests/fixtures/web-http.js";
 import { grade } from "./graders/index.js";
 import { writeTrialProviderConfig } from "./provider-profile.js";
@@ -79,6 +81,7 @@ export async function runTrial(
   };
   const record = traceRecorder(report);
   let webFixture: Awaited<ReturnType<typeof startWebFixture>> | undefined;
+  let exaFixture: Awaited<ReturnType<typeof startExaFixture>> | undefined;
   try {
     const fixture = await resolveProjectPath(
       join(import.meta.dir, "fixtures"),
@@ -168,6 +171,8 @@ export async function runTrial(
       const events = new RuntimeEventBus(session.id);
       events.subscribe(record);
       if (task.webFixture) webFixture = await startWebFixture();
+      if (task.webFixture && task.webSearchBackend === "exa")
+        exaFixture = await startExaFixture();
       const tools = createLocalToolRuntime(
         root,
         DEFAULT_PROJECT_CONFIG.ignorePatterns,
@@ -195,7 +200,16 @@ export async function runTrial(
           artifactDirectory: join(root, ".chisel", "artifacts"),
         },
       );
-      if (webFixture) await tools.catalog.addProvider(webFixture.provider);
+      if (webFixture)
+        await tools.catalog.addProvider(
+          exaFixture
+            ? new WebToolProvider(
+                webFixture.config,
+                webFixture.client,
+                exaFixture.backend,
+              )
+            : webFixture.provider,
+        );
       result = await new AgentRuntime(
         adapter,
         new ContextManager(task.context, events),
@@ -270,6 +284,9 @@ export async function runTrial(
             "WEB_FETCH_FAILED",
             "WEB_SEARCH_FAILED",
             "WEB_PROTOCOL_ERROR",
+            "WEB_HTTP_ERROR",
+            "WEB_RATE_LIMITED",
+            "WEB_NETWORK_CONFIGURATION",
           ].includes(
             (entry as { result?: { errorCode?: string } }).result?.errorCode ??
               "",
@@ -283,6 +300,7 @@ export async function runTrial(
     report.error = String(error);
   } finally {
     clearTimeout(timer);
+    await exaFixture?.close();
     await webFixture?.close();
     metrics.wall_time = performance.now() - start;
     await rm(root, { recursive: true, force: true });

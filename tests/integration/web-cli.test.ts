@@ -26,6 +26,12 @@ test("CLI status/configure/test report JSON and sensible approval/safety exit co
     const status = await run(["web", "status"]);
     expect(status.exitCode).toBe(0);
     expect(JSON.parse(status.stdout).localAddresses).toBe("blocked");
+    expect(JSON.parse(status.stdout).search).toMatchObject({
+      provider: "exa",
+      configured: true,
+      requiresApiKey: false,
+    });
+    expect(JSON.parse(status.stdout).network.tlsVerification).toBe(true);
     const pending = await run([
       "web",
       "test",
@@ -60,6 +66,36 @@ test("CLI status/configure/test report JSON and sensible approval/safety exit co
     const next = JSON.parse((await run(["web", "status"])).stdout);
     expect(next.fetch.permission).toBe("allow");
     expect(next.search.configured).toBe(false);
+    const missingKey = await run([
+      "--allow",
+      "web_search",
+      "web",
+      "test",
+      "--search",
+      "official documentation",
+    ]);
+    const missingKeyResult = JSON.parse(missingKey.stdout);
+    expect(missingKey.exitCode).toBe(1);
+    expect(missingKeyResult.status).toBe("failed");
+    expect(missingKeyResult.results).toHaveLength(1);
+    expect(missingKeyResult.results[0].result.errorCode).toBe(
+      "WEB_SEARCH_NOT_CONFIGURED",
+    );
+    const keyless = await run(["web", "configure", "--search-provider", "exa"]);
+    expect(keyless.exitCode).toBe(0);
+    expect(
+      JSON.parse((await run(["web", "status"])).stdout).search.configured,
+    ).toBe(true);
+    const searchApproval = await run([
+      "web",
+      "test",
+      "--search",
+      "official documentation",
+    ]);
+    expect(searchApproval.exitCode).toBe(2);
+    expect(
+      JSON.parse(searchApproval.stdout).results[0].result.preview,
+    ).toContain("exa");
     const invalid = await run(["web", "configure", "--fetch", "invalid"]);
     expect(invalid.exitCode).toBe(1);
     const disabled = await run(["web", "configure", "--disable"]);

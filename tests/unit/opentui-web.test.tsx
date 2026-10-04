@@ -77,9 +77,14 @@ for (const [width, height] of [
       expect(setup.captureCharFrame()).toContain("Web");
       expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
       expect(setup.captureCharFrame()).toContain("Спрашивать");
+      expect(setup.captureCharFrame()).toContain("Exa");
       await click(setup, "settings-web-row-1");
       expect(saved).toEqual(["allow"]);
       await click(setup, "settings-web-row-3");
+      expect(config.search.provider).toBe("exa");
+      await click(setup, "settings-web-row-3");
+      expect(config.search.provider).toBe("brave");
+      await click(setup, "settings-web-row-4");
       await act(async () => {
         await setup.mockInput.pasteBracketedText("brave-ui-secret-123456");
       });

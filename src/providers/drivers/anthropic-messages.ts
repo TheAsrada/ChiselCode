@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { enterpriseFetch } from "../../network/fetch.js";
 import type {
   ChatContent,
   ChatMessage,
@@ -47,7 +48,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
       baseURL: options.baseUrl,
       maxRetries: options.maxRetries ?? 2,
       timeout: options.timeoutMs ?? 10 * 60 * 1_000,
-      fetch: options.fetch,
+      fetch: options.fetch ?? enterpriseFetch,
     });
   }
 

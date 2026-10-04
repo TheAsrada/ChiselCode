@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { z } from "zod";
+import { enterpriseFetch } from "../../network/fetch.js";
 import type {
   ChatContent,
   ChatMessage,
@@ -57,7 +58,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       baseURL: options.baseUrl,
       maxRetries: options.maxRetries ?? 2,
       timeout: options.timeoutMs ?? 600_000,
-      fetch: options.fetch,
+      fetch: options.fetch ?? enterpriseFetch,
     });
   }
 

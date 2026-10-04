@@ -1,12 +1,20 @@
-import {
+import type {
   request as httpRequest,
-  type IncomingMessage,
-  type RequestOptions,
+  IncomingMessage,
+  RequestOptions,
 } from "node:http";
-import { request as httpsRequest } from "node:https";
 import { Transform } from "node:stream";
 import { checkServerIdentity } from "node:tls";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
+import {
+  NetworkConfigurationError,
+  proxyForUrl,
+  tlsForHost,
+} from "../network/environment.js";
+import {
+  type NetworkRequestOptions,
+  networkRequest,
+} from "../network/request.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { NetworkAuthorization } from "../security/network-policy.js";
 import type { WebLimits } from "./schema.js";
@@ -18,6 +26,8 @@ export interface WebResponse {
   contentType: string;
   bytes: Uint8Array;
   redirects: string[];
+  status?: number;
+  headers?: Record<string, string>;
 }
 export interface WebHttpOptions {
   signal?: AbortSignal;
@@ -25,11 +35,14 @@ export interface WebHttpOptions {
   beforeRequest?: (signal: AbortSignal) => Promise<() => void>;
   headers?: Record<string, string>;
   maxRedirects?: number;
+  method?: "GET" | "POST" | "DELETE";
+  body?: string;
+  acceptHttpErrors?: boolean;
 }
 /** Narrow transport seam for deterministic local-server fixtures. */
 export type PinnedRequest = (
   target: ResolvedUrl,
-  options: RequestOptions,
+  options: NetworkRequestOptions,
   onResponse: (response: IncomingMessage) => void,
 ) => ReturnType<typeof httpRequest>;
 export function pinnedRequestOptions(
@@ -69,17 +82,18 @@ export function pinnedRequestOptions(
   };
   return settings;
 }
-export const pinnedRequest: PinnedRequest = (target, options, onResponse) =>
-  (target.url.protocol === "https:" ? httpsRequest : httpRequest)(
-    pinnedRequestOptions(target, options),
-    onResponse,
-  );
+export const pinnedRequest: PinnedRequest = (target, options, onResponse) => {
+  const settings = pinnedRequestOptions(target, options);
+  // CONNECT to the verified IP even for plaintext HTTP. The proxy never gets
+  // to resolve a model-selected hostname into a private destination.
+  return networkRequest(target.url, { ...options, ...settings }, onResponse);
+};
 
 export class SafeWebHttpClient {
   constructor(
     readonly limits: WebLimits,
     readonly policy = new UrlPolicy(),
-    private readonly transport: PinnedRequest = pinnedRequest,
+    private readonly transport?: PinnedRequest,
   ) {}
   async get(input: string, options: WebHttpOptions): Promise<WebResponse> {
     cancelled(options.signal);
@@ -112,7 +126,7 @@ export class SafeWebHttpClient {
         try {
           cancelled(signal);
           options.authorization.assertDestination(urlHostname(target.url));
-          const response = await this.request(target, signal, options.headers);
+          const response = await this.request(target, signal, options);
           if ([301, 302, 303, 307, 308].includes(response.status)) {
             if (
               redirects.length >=
@@ -142,6 +156,13 @@ export class SafeWebHttpClient {
             continue;
           }
           if (response.status < 200 || response.status >= 300) {
+            if (options.acceptHttpErrors)
+              return {
+                requestedUrl,
+                finalUrl: current,
+                redirects,
+                ...response,
+              };
             throw new RuntimeError(
               response.status === 429 ? "WEB_RATE_LIMITED" : "WEB_HTTP_ERROR",
               `Web request returned HTTP ${response.status}.`,
@@ -160,6 +181,8 @@ export class SafeWebHttpClient {
             contentType: response.contentType,
             bytes: response.bytes,
             redirects,
+            status: response.status,
+            headers: response.headers,
           };
         } finally {
           release?.();
@@ -174,6 +197,10 @@ export class SafeWebHttpClient {
           { retryable: true },
         );
       if (error instanceof RuntimeError) throw error;
+      if (error instanceof NetworkConfigurationError)
+        throw new RuntimeError("WEB_NETWORK_CONFIGURATION", error.message, {
+          retryable: false,
+        });
       throw new RuntimeError(
         "WEB_FETCH_FAILED",
         "Could not connect securely to the public web server.",
@@ -186,14 +213,24 @@ export class SafeWebHttpClient {
   private async request(
     target: ResolvedUrl,
     signal: AbortSignal,
-    headers?: Record<string, string>,
+    options: WebHttpOptions,
   ): Promise<{
     status: number;
     contentType: string;
     bytes: Uint8Array;
     location?: string;
     retryAfterMs?: number;
+    headers: Record<string, string>;
   }> {
+    const proxy = proxyForUrl(target.url);
+    const tls = await tlsForHost(urlHostname(target.url));
+    const proxyTls = proxy ? await tlsForHost(proxy.hostname) : undefined;
+    const transport = this.transport ?? pinnedRequest;
+    const pendingConnection = new AbortController();
+    const connectionSignal = AbortSignal.any([
+      signal,
+      pendingConnection.signal,
+    ]);
     return new Promise((resolve, reject) => {
       let finished = false;
       let response: IncomingMessage | undefined;
@@ -217,7 +254,12 @@ export class SafeWebHttpClient {
           encoded?.destroy();
           if (response) {
             if (!response.complete) response.destroy();
-          } else request?.destroy();
+          } else {
+            // A proxy's CONNECT socket is not yet owned by ClientRequest.
+            // Closing only the request cannot interrupt a pending handshake.
+            if (!request?.socket) pendingConnection.abort();
+            request?.destroy();
+          }
           settle();
         });
       };
@@ -248,6 +290,7 @@ export class SafeWebHttpClient {
         bytes: Uint8Array;
         location?: string;
         retryAfterMs?: number;
+        headers: Record<string, string>;
       }) => {
         if (finished) return;
         finished = true;
@@ -262,17 +305,23 @@ export class SafeWebHttpClient {
         return;
       }
       try {
-        request = this.transport(
+        request = transport(
           target,
           {
-            method: "GET",
+            ...tls,
+            proxyTls,
+            proxySignal: connectionSignal,
+            method: options.method ?? "GET",
             maxHeaderSize: 16384,
             headers: {
               "User-Agent": "ChiselCode-Web/1",
               Accept:
                 "text/html, text/plain, text/markdown, application/json;q=0.9",
               "Accept-Encoding": "gzip, deflate, br",
-              ...headers,
+              ...options.headers,
+              ...(options.body !== undefined
+                ? { "Content-Length": String(Buffer.byteLength(options.body)) }
+                : {}),
             },
           },
           (incoming) => {
@@ -281,6 +330,12 @@ export class SafeWebHttpClient {
             if (connectTimer) clearTimeout(connectTimer);
             const status = incoming.statusCode ?? 0;
             const contentType = String(incoming.headers["content-type"] ?? "");
+            const responseHeaders: Record<string, string> = {};
+            for (const [name, value] of Object.entries(incoming.headers))
+              if (value !== undefined)
+                responseHeaders[name] = Array.isArray(value)
+                  ? value.join(", ")
+                  : value;
             const location =
               typeof incoming.headers.location === "string"
                 ? incoming.headers.location
@@ -305,6 +360,7 @@ export class SafeWebHttpClient {
                 location,
                 retryAfterMs,
                 bytes: new Uint8Array(),
+                headers: responseHeaders,
               });
               return;
             }
@@ -379,7 +435,12 @@ export class SafeWebHttpClient {
               chunks.push(chunk);
             });
             decoder.on("end", () =>
-              done({ status, contentType, bytes: Buffer.concat(chunks, size) }),
+              done({
+                status,
+                contentType,
+                bytes: Buffer.concat(chunks, size),
+                headers: responseHeaders,
+              }),
             );
             incoming.pipe(encoded).pipe(decoder);
           },
@@ -397,7 +458,7 @@ export class SafeWebHttpClient {
             ),
           this.limits.connectTimeoutMs,
         );
-        request.end();
+        request.end(options.body);
       } catch (error) {
         fail(error);
       }

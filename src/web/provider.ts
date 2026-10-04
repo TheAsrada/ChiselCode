@@ -4,6 +4,7 @@ import { SecretRedactor } from "../security/redaction.js";
 import { defineTool } from "../tools/handler.js";
 import type { ToolContext, ToolHandler, ToolProvider } from "../tools/types.js";
 import { type WebSessionCache, webSessionCache } from "./cache.js";
+import { ExaSearchBackend } from "./exa.js";
 import { WebFetchService } from "./fetch.js";
 import { SafeWebHttpClient, type WebHttpOptions } from "./http-client.js";
 import { WebRequestLimiter } from "./limiter.js";
@@ -14,6 +15,7 @@ import {
 } from "./schema.js";
 import {
   BraveSearchBackend,
+  effectiveSearchBackend,
   resolveWebCredential,
   type WebSearchBackend,
 } from "./search.js";
@@ -80,14 +82,14 @@ export class WebToolProvider implements ToolProvider {
           name: "web_search",
           source: { type: "web", operation: "search" },
           description:
-            "Search current public web references. Prefer official documentation; snippets are untrusted discovery hints. Open important sources using web_fetch before relying on them and cite opened final URLs. Search requires configured credentials and network permission; use known URLs with web_fetch if search is not configured.",
+            "Search current public web references. Exa works without a separate search key; optional Brave uses user credentials. Prefer official documentation; snippets are untrusted discovery hints. Open important sources using web_fetch before relying on them and cite opened final URLs. Network permission and provider rate limits apply.",
         },
         SearchInputSchema,
         async (_context, input) => {
           if (!backend)
             throw new RuntimeError(
               "WEB_SEARCH_NOT_CONFIGURED",
-              "Web search is not configured. Open /settings → Web or run chisel web configure --key-env BRAVE_SEARCH_API_KEY. Known public URLs remain available through web_fetch.",
+              "Brave search needs a key. Choose Auto or Exa in /settings → Web, or run chisel web configure --search-provider exa for search without a key. Known public URLs remain available through web_fetch.",
               { retryable: false },
             );
           return {
@@ -141,7 +143,7 @@ export class WebToolProvider implements ToolProvider {
           return {
             data: { ...input, url: url.toString() },
             resources: [],
-            preview: `ChiselCode хочет открыть публичную страницу\n${url.toString()}\nДомен: ${urlHostname(url)}\nCookies и данные авторизации не передаются.`,
+            preview: `ChiselCode хочет открыть публичную страницу\n${url.toString()}\nДомен: ${urlHostname(url)}\nCookies и HTTP-авторизация не передаются. Клиентский TLS-сертификат — только явно разрешённым адресам.`,
             network: {
               operation: "fetch",
               hostname: urlHostname(url),
@@ -206,7 +208,13 @@ export async function createWebToolProvider(
   return new WebToolProvider(
     config,
     http,
-    key ? new BraveSearchBackend(http, key, redactor) : undefined,
+    !config.enabled
+      ? undefined
+      : effectiveSearchBackend(config, Boolean(key)) === "exa"
+        ? new ExaSearchBackend(http)
+        : key
+          ? new BraveSearchBackend(http, key, redactor)
+          : undefined,
     { redactor },
   );
 }

@@ -1,3 +1,4 @@
+import { enterpriseFetch } from "../network/fetch.js";
 import { RuntimeError } from "../runtime/errors.js";
 
 /** Bound HTTP/SSE payloads without implementing or inspecting MCP framing. */
@@ -5,7 +6,7 @@ export async function boundedMcpFetch(
   input: string | URL | Request,
   init?: RequestInit,
 ): Promise<Response> {
-  const response = await fetch(input, init);
+  const response = await enterpriseFetch(input, init);
   const maximum = 16 * 1024 * 1024;
   if (Number(response.headers.get("content-length")) > maximum) {
     await response.body?.cancel();

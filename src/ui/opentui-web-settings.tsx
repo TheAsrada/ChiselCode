@@ -2,6 +2,7 @@
 import { useKeyboard } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
 import type { WebConfig } from "../web/schema.js";
+import { effectiveSearchBackend } from "../web/search.js";
 import type { WebSettingsActions, WebSettingsState } from "../web/settings.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
@@ -75,6 +76,12 @@ export function OpenTuiWebSettings({
     const config = structuredClone(state.config);
     if (index === 0) config.enabled = !config.enabled;
     else if (index === 3) {
+      const providers = ["auto", "exa", "brave"] as const;
+      config.search.provider =
+        providers[
+          (providers.indexOf(config.search.provider) + 1) % providers.length
+        ] ?? "auto";
+    } else if (index === 4) {
       setKeyInput("");
       return;
     } else {
@@ -104,7 +111,8 @@ export function OpenTuiWebSettings({
     }
     if (key.name === "up" || key.name === "down") {
       key.preventDefault();
-      setSelected((i) => (i + (key.name === "up" ? -1 : 1) + 4) % 4);
+      const rows = state?.config.search.provider === "brave" ? 5 : 4;
+      setSelected((i) => (i + (key.name === "up" ? -1 : 1) + rows) % rows);
     }
     if (key.name === "return" || key.name === "space") {
       key.preventDefault();
@@ -168,9 +176,21 @@ export function OpenTuiWebSettings({
               ["Поиск", label(state.config.permissions.search)],
               ["Открытие страниц", label(state.config.permissions.fetch)],
               [
-                "Brave API-ключ",
-                state.hasKey ? "******** · настроен" : "Не настроен",
+                "Сервис поиска",
+                state.config.search.provider === "brave"
+                  ? "Brave"
+                  : state.config.search.provider === "exa"
+                    ? "Exa · без ключа"
+                    : `Авто · ${effectiveSearchBackend(state.config, state.hasKey) === "exa" ? "Exa" : "Brave"}`,
               ],
+              ...(state.config.search.provider === "brave"
+                ? [
+                    [
+                      "Brave API-ключ",
+                      state.hasKey ? "******** · настроен" : "Не настроен",
+                    ],
+                  ]
+                : []),
             ].map(([name, value], index) => (
               <box
                 key={name}
@@ -218,10 +238,19 @@ export function OpenTuiWebSettings({
               </text>
             </box>
             <text fg={palette.muted}>
-              {state.hasKey
-                ? "Brave Search готов. Запросы уходят в Brave; страницы — их владельцам."
-                : "Известные URL можно открывать без поискового ключа."}
+              {effectiveSearchBackend(state.config, state.hasKey) === "brave"
+                ? state.hasKey
+                  ? "Brave Search готов. Запросы уходят в Brave; страницы — их владельцам."
+                  : "Brave требует ключ. Выберите Авто или Exa для поиска без ключа."
+                : "Exa готов без API-ключа. Запросы уходят в Exa; действуют лимиты сервиса."}
             </text>
+            {!compact && (
+              <text fg={palette.muted}>
+                {state.network?.error
+                  ? "Ошибка сетевых переменных: chisel web status"
+                  : `Сеть: ${state.network?.proxy ? "корпоративный proxy" : "прямое подключение"}${state.network?.extraCa ? " · свой CA" : ""}${state.network?.mtls ? " · mTLS" : ""} · TLS проверяется`}
+              </text>
+            )}
             <text fg={palette.muted}>
               Разрешение домена на сессию выдаётся в попапе первого запроса.
             </text>
