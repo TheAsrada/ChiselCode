@@ -1,12 +1,31 @@
 import { NetworkConfigurationError } from "./environment.js";
 import { networkFetch } from "./node-fetch.js";
 
+function bodyLength(body: BodyInit | null | undefined): number | undefined {
+  if (typeof body === "string") return Buffer.byteLength(body);
+  if (body instanceof URLSearchParams)
+    return Buffer.byteLength(body.toString());
+  if (body instanceof Blob) return body.size;
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body))
+    return body.byteLength;
+  return;
+}
+
 /** Shared SDK transport. Public web tools additionally pin DNS and validate every redirect. */
 export async function enterpriseFetch(
   input: string | URL | Request,
   init?: RequestInit,
 ): Promise<Response> {
   let request = new Request(input, init);
+  // Preserve native fetch's framing for known SDK JSON/string bodies. Besides
+  // gateway compatibility, this avoids Bun/Windows parsing cloned chunked POSTs.
+  const length = bodyLength(init?.body);
+  if (
+    length !== undefined &&
+    !request.headers.has("content-length") &&
+    !request.headers.has("transfer-encoding")
+  )
+    request.headers.set("content-length", String(length));
   for (let count = 0; ; count++) {
     const url = new URL(request.url);
     const response = await networkFetch(request.clone());

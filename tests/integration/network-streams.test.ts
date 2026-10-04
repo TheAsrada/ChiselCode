@@ -20,6 +20,10 @@ test("SDK streaming transport retains UTF-8 POST bodies, decompresses responses 
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
+      expect(request.headers.get("content-length")).toBe(
+        String(Buffer.byteLength("Привет из запроса")),
+      );
+      expect(request.headers.has("transfer-encoding")).toBe(false);
       received.push({
         method: request.method,
         body: await request.text(),
