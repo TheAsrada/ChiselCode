@@ -213,6 +213,28 @@ test("search never follows redirects with its credential header", async () => {
     await fixture.close();
   }
 });
+test("repeated rejected redirects and completed compressed responses close safely before fixture disposal", async () => {
+  for (let cycle = 0; cycle < 3; cycle++) {
+    const fixture = await startWebFixture();
+    try {
+      fixture.setSearchFailure(302);
+      for (let call = 0; call < 20; call++)
+        await expect(
+          fixture.backend.search(SearchInputSchema.parse({ query: "docs" }), {
+            authorization,
+          }),
+        ).rejects.toMatchObject({ code: "WEB_REDIRECT_LIMIT" });
+      const response = await fixture.client.get(
+        "https://fixture.docs.example/gzip",
+        { authorization },
+      );
+      expect(extractDocument(response, 30000).text).toContain("fetchFresh");
+      expect(fixture.connections).toHaveLength(21);
+    } finally {
+      await fixture.close();
+    }
+  }
+}, 15000);
 test("limiter bounds concurrency, queues cancellation, counts turn quota and rate limits separately", async () => {
   const limiter = new WebRequestLimiter(2, 0, 10);
   const signal = new AbortController().signal;

@@ -205,15 +205,27 @@ export class SafeWebHttpClient {
         if (connectTimer) clearTimeout(connectTimer);
         signal.removeEventListener("abort", abort);
       };
+      const dispose = (settle: () => void) => {
+        // Leave the native HTTP callback before closing its socket. The response owns
+        // an established connection; destroying both it and ClientRequest can race
+        // native teardown on Bun/Windows. Fully consumed responses close naturally
+        // with agent:false. Settle only after disposal so callers can safely disconnect.
+        setImmediate(() => {
+          response?.unpipe();
+          encoded?.unpipe();
+          decoder?.destroy();
+          encoded?.destroy();
+          if (response) {
+            if (!response.complete) response.destroy();
+          } else request?.destroy();
+          settle();
+        });
+      };
       const fail = (error: unknown) => {
         if (finished) return;
         finished = true;
         cleanup();
-        decoder?.destroy();
-        encoded?.destroy();
-        response?.destroy();
-        request?.destroy();
-        reject(
+        const failure =
           error instanceof RuntimeError
             ? error
             : new RuntimeError(
@@ -227,8 +239,8 @@ export class SafeWebHttpClient {
                     ? "interrupted_response"
                     : "connection_failed",
                 },
-              ),
-        );
+              );
+        dispose(() => reject(failure));
       };
       const done = (result: {
         status: number;
@@ -240,11 +252,7 @@ export class SafeWebHttpClient {
         if (finished) return;
         finished = true;
         cleanup();
-        response?.destroy();
-        request?.destroy();
-        decoder?.destroy();
-        encoded?.destroy();
-        resolve(result);
+        dispose(() => resolve(result));
       };
       const abort = () =>
         fail(new RuntimeError("CANCELLED", "Web request cancelled."));
@@ -269,6 +277,7 @@ export class SafeWebHttpClient {
           },
           (incoming) => {
             response = incoming;
+            incoming.on("error", fail);
             if (connectTimer) clearTimeout(connectTimer);
             const status = incoming.statusCode ?? 0;
             const contentType = String(incoming.headers["content-type"] ?? "");
@@ -352,7 +361,6 @@ export class SafeWebHttpClient {
                         transform: (chunk, _encoding, callback) =>
                           callback(null, chunk),
                       });
-            incoming.on("error", fail);
             encoded.on("error", fail);
             decoder.on("error", fail);
             const chunks: Buffer[] = [];
