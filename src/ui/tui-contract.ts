@@ -55,7 +55,10 @@ export function createTuiApprovalResolver(
   let pendingRequest: ApprovalRequest | undefined;
   let setRequest: ((request: ApprovalRequest | undefined) => void) | undefined;
   let disposed = false;
+  let removeAbort = () => {};
   const settle = (decision: ApprovalDecision) => {
+    removeAbort();
+    removeAbort = () => {};
     resolvePending?.(decision);
     resolvePending = undefined;
     pendingRequest = undefined;
@@ -63,12 +66,22 @@ export function createTuiApprovalResolver(
     options.onChange?.(undefined);
   };
   return {
-    async requestApproval(request) {
+    async requestApproval(request, signal) {
+      if (signal?.aborted) return "unavailable";
       if (disposed || (!setRequest && !options.allowUnbound) || resolvePending)
         return "unavailable";
       return new Promise((resolve) => {
         resolvePending = resolve;
         pendingRequest = request;
+        if (signal) {
+          const abort = () => settle("unavailable");
+          signal.addEventListener("abort", abort, { once: true });
+          removeAbort = () => signal.removeEventListener("abort", abort);
+          if (signal.aborted) {
+            abort();
+            return;
+          }
+        }
         setRequest?.(request);
         options.onChange?.(request);
       });

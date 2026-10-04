@@ -17,6 +17,7 @@ import {
   installerAssetHint,
   RELEASES_PAGE_URL,
 } from "./commands/update.js";
+import { registerWebCommands } from "./commands/web.js";
 import { loadGlobalConfig } from "./config/load.js";
 import { ensureChiselHomeLayout, providersRootDir } from "./paths/home.js";
 import { getProviderCatalog } from "./providers/catalog.js";
@@ -322,6 +323,7 @@ auth
 
 try {
   registerMcpCommands(program);
+  registerWebCommands(program);
   await program.parseAsync();
 } catch (error: unknown) {
   process.stderr.write(

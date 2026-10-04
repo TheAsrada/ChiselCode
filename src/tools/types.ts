@@ -26,6 +26,7 @@ export interface ToolSpec extends Omit<ToolDefinition, "requiresApproval"> {
 
 export type McpToolCategory = "read" | "write" | "destructive" | "unknown";
 export type ToolSource =
+  | { type: "web"; operation: "search" | "fetch" }
   | { type: "local" }
   | { type: "skill" }
   | {
@@ -44,6 +45,8 @@ export type ToolSource =
       classificationReason: string;
     };
 export interface ToolContext {
+  /** Execution capability issued by the permission layer, not model input. */
+  networkAuthorization?: import("../security/network-policy.js").NetworkAuthorization;
   /** Immutable override for the request; never a mutable UI selection. */
   readonly mode?: AgentMode;
   readonly approvalMode?: ApprovalMode;
@@ -62,6 +65,7 @@ export interface ToolContext {
   ) => import("../security/approval.js").ApprovalRequest;
 }
 export interface ToolPlan<T = unknown> {
+  network?: import("../security/network-policy.js").NetworkRequest;
   data: T;
   preview: string;
   resources: string[];

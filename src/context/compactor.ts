@@ -44,6 +44,12 @@ export function planCompaction(
     session.messages.slice(old?.throughMessageIndex ?? 0, boundary),
     old?.summary,
   );
+  summary.importantReferences = [
+    ...new Set([
+      ...summary.importantReferences,
+      ...observedToolReferences(session, boundary),
+    ]),
+  ].slice(-32);
   for (const entry of session.undoStack)
     summary.changedFiles[entry.path] =
       entry.after === null
@@ -73,4 +79,28 @@ export function planCompaction(
       latestUser >= 0 && latestUser < boundary ? latestUser : undefined,
     source: "evidence",
   };
+}
+
+/** Observed metadata, never arbitrary page prose or a model claim about a source. */
+export function observedToolReferences(
+  session: Session,
+  throughMessageIndex: number,
+): string[] {
+  const references: string[] = [];
+  for (const message of session.messages.slice(0, throughMessageIndex)) {
+    for (const block of message.content) {
+      if (block.type !== "tool_result") continue;
+      const result = session.runtime?.invocations[block.toolUseId]?.result;
+      if (!result || result.isError) continue;
+      for (const reference of result.references ?? [])
+        references.push(
+          `External reference (untrusted data, ${reference.kind === "opened" ? "opened" : "search hint"}): ${reference.title ? `${reference.title} — ` : ""}${reference.uri}`,
+        );
+      if (result.artifact)
+        references.push(
+          `Artifact${result.contentTrust === "untrusted_external" ? " (untrusted external data)" : ""}: ${result.artifact.uri}`,
+        );
+    }
+  }
+  return [...new Set(references)].slice(-32);
 }

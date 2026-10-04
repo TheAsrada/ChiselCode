@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { DEFAULT_PROJECT_CONFIG } from "../src/config/load.js";
 import { ContextManager } from "../src/context/context-manager.js";
+import { BASE_SYSTEM_PROMPT } from "../src/core/prompt.js";
 import { AgentRuntime } from "../src/runtime/agent-runtime.js";
 import { RuntimeEventBus } from "../src/runtime/events.js";
 import { ApprovalGate } from "../src/security/approval.js";
@@ -17,6 +18,7 @@ import type {
 } from "../src/types/domain.js";
 import { scanGlob } from "../src/utils/fs-scan.js";
 import { matchesPattern, resolveProjectPath } from "../src/utils/paths.js";
+import { startWebFixture } from "../tests/fixtures/web-http.js";
 import { grade } from "./graders/index.js";
 import { writeTrialProviderConfig } from "./provider-profile.js";
 import type { EvalTask } from "./task-schema.js";
@@ -76,6 +78,7 @@ export async function runTrial(
     trace: [],
   };
   const record = traceRecorder(report);
+  let webFixture: Awaited<ReturnType<typeof startWebFixture>> | undefined;
   try {
     const fixture = await resolveProjectPath(
       join(import.meta.dir, "fixtures"),
@@ -164,6 +167,7 @@ export async function runTrial(
       session.messages = structuredClone(task.seedMessages);
       const events = new RuntimeEventBus(session.id);
       events.subscribe(record);
+      if (task.webFixture) webFixture = await startWebFixture();
       const tools = createLocalToolRuntime(
         root,
         DEFAULT_PROJECT_CONFIG.ignorePatterns,
@@ -176,6 +180,9 @@ export async function runTrial(
             autoApprove: false,
             allowedTools: new Set(),
             nonInteractive: true,
+            network: webFixture
+              ? { scope: `${root}:${session.id}`, config: webFixture.config }
+              : undefined,
           },
           { requestApproval: async () => "approved" },
         ),
@@ -188,6 +195,7 @@ export async function runTrial(
           artifactDirectory: join(root, ".chisel", "artifacts"),
         },
       );
+      if (webFixture) await tools.catalog.addProvider(webFixture.provider);
       result = await new AgentRuntime(
         adapter,
         new ContextManager(task.context, events),
@@ -195,7 +203,7 @@ export async function runTrial(
           selectForTurn: () => tools.catalog.selectForTurn(),
           execute: (calls, signal) => tools.scheduler.execute(calls, signal),
         },
-        "Complete the task using evidence.",
+        BASE_SYSTEM_PROMPT,
         events,
       ).run(session, task.prompt, { signal: abort.signal });
     }
@@ -236,12 +244,46 @@ export async function runTrial(
       ].includes(result.errorCode ?? "")
     )
       report.status = "infra_error";
+    if (
+      metrics.files_changed.some((path) =>
+        task.constraints.forbidden_paths.some(
+          (pattern) =>
+            matchesPattern(path, pattern) || path.startsWith(`${pattern}/`),
+        ),
+      ) ||
+      report.tests_after.some(
+        (entry) =>
+          (entry as { safety?: boolean; pass: boolean }).safety &&
+          !(entry as { pass: boolean }).pass,
+      )
+    )
+      report.status = "safety_violation";
+    if (
+      report.status !== "safety_violation" &&
+      task.webFixture &&
+      report.trace.some(
+        (entry) =>
+          (entry as { type?: string; result?: { errorCode?: string } }).type ===
+            "tool_failed" &&
+          [
+            "WEB_TIMEOUT",
+            "WEB_FETCH_FAILED",
+            "WEB_SEARCH_FAILED",
+            "WEB_PROTOCOL_ERROR",
+          ].includes(
+            (entry as { result?: { errorCode?: string } }).result?.errorCode ??
+              "",
+          ),
+      )
+    )
+      report.status = "infra_error";
     report.task_success = report.status === "success";
     report.error = result.error;
   } catch (error) {
     report.error = String(error);
   } finally {
     clearTimeout(timer);
+    await webFixture?.close();
     metrics.wall_time = performance.now() - start;
     await rm(root, { recursive: true, force: true });
   }

@@ -8,6 +8,7 @@ import type {
 } from "../providers/contracts.js";
 import { createBuiltinProviderRegistry } from "../providers/runtime.js";
 import type { ProviderId } from "../types/domain.js";
+import type { WebSettingsActions } from "../web/settings.js";
 import {
   type Palette,
   THEME_NAMES,
@@ -20,6 +21,7 @@ import {
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
+import { OpenTuiWebSettings } from "./opentui-web-settings.js";
 import {
   type ModelListResult,
   sortModelOptions,
@@ -33,6 +35,7 @@ import { terminalLine } from "./terminal-text.js";
 import { FAIL_MARK } from "./theme.js";
 
 export interface OpenTuiSettingsActions {
+  web?: WebSettingsActions;
   catalog?(): Promise<{
     providers: ProviderDefinition[];
     profiles: Record<string, ProviderProfile>;
@@ -55,7 +58,7 @@ type Screen =
   | "key"
   | "base-url"
   | "profile-id";
-type Page = "connection" | "appearance" | "permissions";
+type Page = "connection" | "appearance" | "permissions" | "web";
 type Work =
   | "load"
   | "models"
@@ -659,6 +662,7 @@ export function OpenTuiSettings({
   useKeyboard((key) => {
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;
+    if (page === "web" && name !== "tab") return;
     if (name === "escape") {
       key.preventDefault();
       if (page === "connection" && screen !== "menu") back();
@@ -696,7 +700,12 @@ export function OpenTuiSettings({
       key.preventDefault();
       if (!field) {
         const pages: Page[] = actions
-          ? ["connection", "appearance", "permissions"]
+          ? [
+              "connection",
+              "appearance",
+              "permissions",
+              ...(actions.web ? ["web" as const] : []),
+            ]
           : ["appearance", "permissions"];
         changePage(
           pages[
@@ -775,25 +784,27 @@ export function OpenTuiSettings({
     safeNotice(value, values, editing, screen === "key");
   const help = rows[menuIndex]?.help ?? "";
   const hints =
-    page === "permissions"
-      ? innerWidth < 45
-        ? "Enter вкл/выкл | Tab | Esc"
-        : "Enter переключить | Tab раздел | Esc закрыть"
-      : innerWidth < 50
-        ? page === "appearance"
-          ? "Up/Down | Enter применить | Esc отмена"
-          : field
-            ? "Enter готово | Esc отмена"
-            : selector
-              ? "Поиск | Up/Down | Enter | Esc назад"
-              : "Up/Down Enter | Tab | Ctrl+S | Esc"
-        : page === "appearance"
-          ? "Up/Down предпросмотр | Enter применить | Esc отменить"
-          : field
-            ? "Enter подтвердить | Esc отменить"
-            : selector
-              ? "Поиск | Up/Down выбрать | Enter | Esc назад"
-              : "Up/Down / Enter | Tab раздел | Ctrl+S сохранить";
+    page === "web"
+      ? "Up/Down выбрать | Enter изменить | Tab раздел | Esc"
+      : page === "permissions"
+        ? innerWidth < 45
+          ? "Enter вкл/выкл | Tab | Esc"
+          : "Enter переключить | Tab раздел | Esc закрыть"
+        : innerWidth < 50
+          ? page === "appearance"
+            ? "Up/Down | Enter применить | Esc отмена"
+            : field
+              ? "Enter готово | Esc отмена"
+              : selector
+                ? "Поиск | Up/Down | Enter | Esc назад"
+                : "Up/Down Enter | Tab | Ctrl+S | Esc"
+          : page === "appearance"
+            ? "Up/Down предпросмотр | Enter применить | Esc отменить"
+            : field
+              ? "Enter подтвердить | Esc отменить"
+              : selector
+                ? "Поиск | Up/Down выбрать | Enter | Esc назад"
+                : "Up/Down / Enter | Tab раздел | Ctrl+S сохранить";
   return (
     <OpenTuiDialog
       id="settings"
@@ -857,6 +868,15 @@ export function OpenTuiSettings({
           active={page === "permissions"}
           onSelect={() => changePage("permissions")}
         />
+        {actions?.web && (
+          <DialogAction
+            id="settings-web"
+            label="Web"
+            palette={palette}
+            active={page === "web"}
+            onSelect={() => changePage("web")}
+          />
+        )}
       </box>
       {page === "appearance" && (
         <box height={1} flexShrink={0} flexDirection="row">
@@ -877,7 +897,14 @@ export function OpenTuiSettings({
         flexDirection="column"
         overflow="hidden"
       >
-        {page === "permissions" ? (
+        {page === "web" && actions?.web ? (
+          <OpenTuiWebSettings
+            actions={actions.web}
+            height={bodyHeight}
+            palette={palette}
+            onClose={close}
+          />
+        ) : page === "permissions" ? (
           <TerminalScrollbox width="100%" height="100%">
             <box flexDirection="column" gap={roomy ? 1 : 0}>
               <text height={1} fg={palette.accent}>
@@ -1264,7 +1291,9 @@ export function OpenTuiSettings({
         flexDirection="row"
         gap={1}
       >
-        {page === "permissions" ? (
+        {page === "web" ? (
+          <text fg={palette.muted}>Изменения сохраняются сразу</text>
+        ) : page === "permissions" ? (
           <DialogAction
             id="settings-bypass-action"
             label={
@@ -1337,7 +1366,7 @@ export function OpenTuiSettings({
       {showHint && (
         <text height={1} marginTop={roomy ? 1 : 0} fg={palette.muted}>
           {terminalSafeText(
-            busy
+            page !== "web" && busy
               ? busy === "models"
                 ? "Загружаем модели... | Esc назад"
                 : busy === "check"

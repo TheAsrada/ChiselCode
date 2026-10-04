@@ -56,3 +56,13 @@ MCP config содержит `secretRef`/`envRef`, а введённые токе
 ## Custom Providers
 
 Manifest — данные, а не executable code. Discovery не читает credentials, не создаёт SDK clients, не обращается к сети и не импортирует JS. Secret fields запрещены; используйте env var names и profile.apiKeyRef. Читаются только immediate child directories с regular provider.json до 256 KiB; package/manifest symlinks и junctions отклоняются. Namespaced ID не используется как filesystem path. Duplicate IDs отключают все конфликтующие packages; custom не заменяет built-ins. Remote HTTP может раскрыть ключи и prompts; localhost HTTP разрешён для локальных моделей. Executable custom drivers пока не поддерживаются; в будущем такой driver потребует отдельного trust design и будет trusted user code, даже в child process.
+
+## Публичный Web
+
+`web_search` и `web_fetch` — `external_read` с отдельной network policy. Plan разрешает чтение, но не выдаёт сетевой доступ. По умолчанию нужен approval; Dont Ask отклоняет неподтверждённое, Accept edits не разрешает сеть автоматически. Bypass соблюдает явные deny и отключение Web. Разрешение «на сессию» относится к поиску либо точному hostname и хранится только в памяти; сохранённая история его не восстанавливает.
+
+SSRF protection действует отдельно от permissions. Даже Bypass не разрешает localhost, private/reserved IPv4/IPv6, link-local, metadata, `.local`, credentials в URL, нестандартные protocols или порты. Все DNS answers проверяются; socket открывается к проверенному IP с исходной TLS identity. Redirect проверяется заново; переход на другой домен требует действующего разрешения. Опции отключения SSRF или доступа к localhost в native Web нет. Shell и MCP имеют свои полномочия; Web policy не является OS firewall.
+
+Поиск отправляет Brave текст запроса и domain filters; fetch отправляет URL владельцу страницы. Cookies, login credentials и контекст проекта в fetch автоматически не передаются. URL/query могут содержать данные задачи: не включайте конфиденциальный код в запросы. API-ключ Brave берётся из CredentialStore или environment reference и редактируется до transcript/events/artifacts.
+
+Веб-страницы и snippets — недоверенные данные. Короткая метка сохраняется в tool result и во всех диапазонах web artifact; model instructions запрещают исполнять внедрённые команды или раскрывать секреты. Это снижает риск prompt injection, но не доказывает безошибочность модели; обычные approvals и workspace policy остаются обязательными. [Настройка и ограничения](web.md).

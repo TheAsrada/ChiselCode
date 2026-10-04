@@ -1,5 +1,8 @@
+import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { FileDiff, ProjectConfig, ToolName } from "../types/domain.js";
+import type { WebConfig } from "../web/schema.js";
 import type { ApprovalModeInput } from "./approval-mode.js";
+import type { NetworkRequest } from "./network-policy.js";
 import { PermissionPolicy } from "./permission-policy.js";
 
 const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
@@ -15,6 +18,7 @@ const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
 export type ApprovalDecision =
   | "approved"
   | "approved_always"
+  | "approved_session"
   | "denied"
   | "unavailable";
 export interface McpApprovalPreview {
@@ -42,10 +46,14 @@ export interface ApprovalRequest {
   diffs?: FileDiff[];
   mcp?: McpApprovalPreview;
   mcpPermissions?: import("../mcp/schema.js").McpPermissions;
+  network?: NetworkRequest;
 }
 
 export interface ApprovalResolver {
-  requestApproval(request: ApprovalRequest): Promise<ApprovalDecision>;
+  requestApproval(
+    request: ApprovalRequest,
+    signal?: AbortSignal,
+  ): Promise<ApprovalDecision>;
 }
 
 export interface ApprovalOptions {
@@ -55,10 +63,12 @@ export interface ApprovalOptions {
   autoApprove: boolean;
   allowedTools: Set<ToolName>;
   nonInteractive: boolean;
+  network?: { scope: string; config: WebConfig | (() => WebConfig) };
 }
 
 export class ApprovalGate {
   readonly policy: PermissionPolicy;
+  private approvalQueue: Promise<void> = Promise.resolve();
   constructor(
     config: ProjectConfig,
     private readonly options: ApprovalOptions,
@@ -66,9 +76,44 @@ export class ApprovalGate {
   ) {
     this.policy = new PermissionPolicy(config, options);
   }
-  async resolve(request: ApprovalRequest): Promise<ApprovalDecision> {
+  async resolve(
+    request: ApprovalRequest,
+    options: {
+      effect?: string;
+      approvalMode?: import("./approval-mode.js").ApprovalMode;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<ApprovalDecision> {
     if (this.options.nonInteractive) return "unavailable";
-    return this.resolver.requestApproval(request);
+    const previous = this.approvalQueue;
+    let release = () => {};
+    this.approvalQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await waiting(previous, options.signal);
+      cancelled(options.signal);
+      if (options.effect) {
+        const current = this.policy.decide(
+          request,
+          options.effect,
+          options.approvalMode,
+        );
+        if (current !== "ask")
+          return current === "allow" ? "approved" : "denied";
+      }
+      const decision = await waiting(
+        this.resolver.requestApproval(request, options.signal),
+        options.signal,
+      );
+      cancelled(options.signal);
+      if (decision === "approved_session" && request.network)
+        this.policy.grantNetwork(request.network);
+      return decision;
+    } finally {
+      // A cancelled queued request must not let later prompts overtake the active popup.
+      void previous.then(release, release);
+    }
   }
   async decide(request: ApprovalRequest): Promise<ApprovalDecision> {
     const decision = this.policy.decide(
@@ -88,6 +133,28 @@ export class ApprovalGate {
       : decision === "deny"
         ? "denied"
         : this.resolve(request);
+  }
+}
+
+async function waiting<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  cancelled(signal);
+  if (!signal) return promise;
+  let abort = () => {};
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        abort = () =>
+          reject(new RuntimeError("CANCELLED", "Approval cancelled."));
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+      }),
+    ]);
+  } finally {
+    signal.removeEventListener("abort", abort);
   }
 }
 

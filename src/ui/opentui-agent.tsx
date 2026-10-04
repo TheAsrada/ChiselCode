@@ -47,6 +47,8 @@ import type { Session } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
 import { clipText } from "../utils/text.js";
 import { VERSION } from "../version.js";
+import { resolveWebConfig } from "../web/schema.js";
+import { WebSettingsStore } from "../web/settings.js";
 import { themePalette } from "./appearance.js";
 import { commandHelpText, suggestSimilarCommand } from "./commands.js";
 import type { OpenTuiModelsActions } from "./opentui-models.js";
@@ -76,6 +78,8 @@ export async function runOpenTuiAgent(
   let activeOptions = { ...options, resume: undefined };
   const config = await loadGlobalConfig();
   let bypassAvailable = config.permissions?.allowBypassPermissions === true;
+  let webConfigLive = resolveWebConfig(config.web);
+  const webSettingsStore = new WebSettingsStore(options.configPath);
   const projectConfig = await loadProjectConfig(options.cwd ?? process.cwd());
   const initialApprovalMode = resolveApprovalMode({
     ...options,
@@ -334,6 +338,21 @@ export async function runOpenTuiAgent(
     activeId: () => currentController().snapshot.sessionId,
   };
   const settingsActions: OpenTuiSettingsActions = {
+    web: {
+      load: () => webSettingsStore.load(),
+      save: async (webConfig, apiKey) => {
+        const saved = pendingSave.then(async () => {
+          const state = await webSettingsStore.save(webConfig, apiKey);
+          webConfigLive = state.config;
+          return state;
+        });
+        pendingSave = saved.then(
+          () => {},
+          () => {},
+        );
+        return saved;
+      },
+    },
     catalog: async () => ({
       providers: catalog.registry.list(),
       profiles: (await loadGlobalConfig()).profiles,
@@ -762,6 +781,7 @@ export async function runOpenTuiAgent(
             mode: turnMode,
             approvalMode: turnApprovalMode,
             isBypassAllowed: () => bypassAvailable,
+            getWebConfig: () => webConfigLive,
             mcpManager: getMcpController(controller.snapshot.projectPath)
               .manager,
           },

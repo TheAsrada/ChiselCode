@@ -6,6 +6,7 @@ import { InstructionResolver } from "../context/instructions.js";
 import { readMcpConfig } from "../mcp/configuration.js";
 import { McpConfigSchema } from "../mcp/schema.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
+import { ProjectWebConfigSchema } from "../web/schema.js";
 import {
   migrateConfig,
   normalizeConfigForSave,
@@ -13,6 +14,7 @@ import {
 } from "./migrate.js";
 
 const ProjectConfigSchema = z.object({
+  web: ProjectWebConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
   context: z
     .object({

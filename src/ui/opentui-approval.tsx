@@ -18,6 +18,7 @@ export function OpenTuiApproval({
   palette = THEMES.obsidian,
   onApprove = () => {},
   onAlwaysApprove,
+  onSessionApprove,
   onDeny = () => {},
 }: {
   request: ApprovalRequest;
@@ -26,6 +27,7 @@ export function OpenTuiApproval({
   palette?: Palette;
   onApprove?: () => void;
   onAlwaysApprove?: () => void;
+  onSessionApprove?: () => void;
   onDeny?: () => void;
 }) {
   const diffs = request.diffs ?? (request.fileDiff ? [request.fileDiff] : []);
@@ -38,7 +40,9 @@ export function OpenTuiApproval({
             (rows, diff) => rows + diff.patch.split("\n").length + 1,
             0,
           )
-        : request.preview.split("\n").length) + 7,
+        : request.preview.split("\n").length) +
+        7 +
+        (request.network ? 1 : 0),
     ),
   );
   const { innerWidth, popupHeight, tiny } = dialogLayout(
@@ -74,7 +78,9 @@ export function OpenTuiApproval({
             ? "Подтвердить опасное действие?"
             : request.mcp
               ? request.mcp.serverTitle
-              : "Разрешить действие?"}
+              : request.network
+                ? "Доступ к интернету"
+                : "Разрешить действие?"}
         </strong>
       </text>
       <text fg={palette.muted} height={1}>
@@ -152,12 +158,28 @@ export function OpenTuiApproval({
             />
           )}
       </box>
+      {request.network && onSessionApprove && (
+        <box height={1} flexShrink={0}>
+          <DialogAction
+            id="approval-session"
+            label={
+              request.network.operation === "search"
+                ? "Поиск на сессию (A)"
+                : "Домен на сессию (A)"
+            }
+            onSelect={onSessionApprove}
+            palette={palette}
+          />
+        </box>
+      )}
       {!tiny && (
         <text height={1} fg={palette.muted}>
           {terminalSafeText(
-            innerWidth < 48
-              ? "Y / Н - да | N / Т / Esc - нет"
-              : "Y / Н - один раз | N / Т / Esc - отказ",
+            request.network
+              ? "Y один раз | A на сессию | N / Esc отказ"
+              : innerWidth < 48
+                ? "Y / Н - да | N / Т / Esc - нет"
+                : "Y / Н - один раз | N / Т / Esc - отказ",
             innerWidth,
           )}
         </text>

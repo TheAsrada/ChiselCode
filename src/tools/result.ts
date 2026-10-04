@@ -27,7 +27,7 @@ export async function normalizeResult(
     estimateTokens(result.output) <= maxTokens
   )
     return normalized;
-  const artifact = await store.put(raw);
+  const artifact = await store.put(raw, result.contentTrust);
   const suffix = `\nOutput offloaded. Full output: ${artifact.uri}\nUse read_tool_result with a line range.`;
   let preview = Buffer.from(result.output)
     .subarray(

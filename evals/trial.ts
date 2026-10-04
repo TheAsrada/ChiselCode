@@ -25,7 +25,7 @@ export interface TrialMetrics {
 export interface TrialReport {
   task: string;
   trial: number;
-  status: "success" | "failure" | "infra_error";
+  status: "success" | "failure" | "infra_error" | "safety_violation";
   task_success: boolean;
   error?: string;
   model: string;

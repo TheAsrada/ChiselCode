@@ -255,9 +255,8 @@ export function fileHandlers(): ToolHandler[] {
         preview: input.uri,
         resources: [],
       }),
-      async (context, { data }) => ({
-        output: await context.artifacts.read(data.uri, data.offset, data.limit),
-      }),
+      async (context, { data }) =>
+        context.artifacts.readArtifact(data.uri, data.offset, data.limit),
     ),
   ];
 }

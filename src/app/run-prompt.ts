@@ -47,6 +47,8 @@ import type {
   ToolName,
 } from "../types/domain.js";
 import { exitCodeFor, OneShotRenderer } from "../ui/one-shot.js";
+import { createWebToolProvider } from "../web/provider.js";
+import { resolveWebConfig, type WebConfig } from "../web/schema.js";
 
 export interface RunEventHandlers {
   onEvent?(event: RuntimeEvent): void | Promise<void>;
@@ -63,6 +65,8 @@ export interface RunEventHandlers {
 export interface RunOptions {
   /** Shared across TUI turns/tabs of a project; headless runs own their manager. */
   mcpManager?: McpConnectionManager;
+  /** Live user network configuration; repository restrictions are always reapplied. */
+  getWebConfig?: () => WebConfig | undefined;
   mode?: AgentMode;
   approvalMode?: ApprovalModeInput;
   /** Internal live revocation hook; user config must also permit Bypass. */
@@ -402,6 +406,8 @@ export async function runPrompt(
     events.onToolResult ??
     ((name: string, result: ToolExecutionResult) =>
       renderer.toolResult(name, result));
+  const webConfig = resolveWebConfig(global.web, config.web);
+  const web = await createWebToolProvider(webConfig);
   const approvalGate = new ApprovalGate(
     config,
     {
@@ -412,6 +418,11 @@ export async function runPrompt(
         (options.isBypassAllowed?.() ?? true),
       allowedTools: parseAllowedTools(options.allow),
       nonInteractive: !process.stdin.isTTY,
+      network: {
+        scope: `${projectRoot}:${session.id}`,
+        config: () =>
+          resolveWebConfig(options.getWebConfig?.() ?? global.web, config.web),
+      },
     },
     resolver,
   );
@@ -424,22 +435,22 @@ export async function runPrompt(
           new McpConfigStore(projectRoot, { globalPath: options.configPath }),
         ))
       : undefined;
-  if (mcp) eventBus.sanitize = (event) => mcp.redactor.value(event);
+  const sanitize = <T>(value: T): T =>
+    web.redactor.value(mcp ? mcp.redactor.value(value) : value);
+  eventBus.sanitize = sanitize;
   const saveCheckpoint = () => {
-    if (mcp) {
-      session.messages = mcp.redactor.value(session.messages);
-      if (session.title) session.title = mcp.redactor.text(session.title);
-      if (session.context?.activeCheckpoint)
-        Object.assign(
-          session.context.activeCheckpoint.summary,
-          mcp.redactor.value(session.context.activeCheckpoint.summary),
-        );
-      for (const record of Object.values(session.runtime?.invocations ?? {})) {
-        record.input = mcp.redactor.value(record.input);
-        if (record.result) record.result = mcp.redactor.value(record.result);
-        if (record.approvalPreview)
-          record.approvalPreview = mcp.redactor.text(record.approvalPreview);
-      }
+    session.messages = sanitize(session.messages);
+    if (session.title) session.title = sanitize(session.title);
+    if (session.context?.activeCheckpoint)
+      Object.assign(
+        session.context.activeCheckpoint.summary,
+        sanitize(session.context.activeCheckpoint.summary),
+      );
+    for (const record of Object.values(session.runtime?.invocations ?? {})) {
+      record.input = sanitize(record.input);
+      if (record.result) record.result = sanitize(record.result);
+      if (record.approvalPreview)
+        record.approvalPreview = sanitize(record.approvalPreview);
     }
     return sessionStore.save(session);
   };
@@ -476,12 +487,11 @@ export async function runPrompt(
       maxParallelReads: config.tools?.maxParallelReads,
       requireFreshRead: config.editing?.requireFreshRead,
       checkpoint: saveCheckpoint,
-      sanitizeResult: mcp ? (result) => mcp.redactor.value(result) : undefined,
-      sanitizeApproval: mcp
-        ? (request) => mcp.redactor.value(request)
-        : undefined,
+      sanitizeResult: sanitize,
+      sanitizeApproval: sanitize,
     },
   );
+  await tools.catalog.addProvider(web);
   const dynamic = await collectDynamicContext(projectRoot);
   const mcpBinding = mcp
     ? new McpRuntimeBinding(mcp, tools.catalog)
@@ -518,36 +528,27 @@ export async function runPrompt(
           return tools.catalog.selectForTurn(input);
         },
         execute: (calls, signal) =>
-          tools.scheduler.execute(
-            mcp ? mcp.redactor.value(calls) : calls,
-            signal,
-          ),
+          tools.scheduler.execute(sanitize(calls), signal),
       },
-      mcp ? mcp.redactor.text(system) : system,
+      sanitize(system),
       eventBus,
     );
-    result = await runtime.run(
-      session,
-      mcp ? mcp.redactor.text(prompt) : prompt,
-      {
-        mode,
-        approvalMode,
-        signal,
-        onCheckpoint: saveCheckpoint,
-      },
-    );
+    result = await runtime.run(session, sanitize(prompt), {
+      mode,
+      approvalMode,
+      signal,
+      onCheckpoint: saveCheckpoint,
+    });
   } finally {
     detachEvents();
     mcpBinding?.dispose();
     if (mcp && !options.mcpManager) await mcp.dispose();
   }
   result.elapsedMs = Math.max(0, performance.now() - startedAt);
-  if (mcp) {
-    result.text = mcp.redactor.text(result.text);
-    if (result.error) result.error = mcp.redactor.text(result.error);
-    if (result.pendingApproval)
-      result.pendingApproval = mcp.redactor.value(result.pendingApproval);
-  }
+  result.text = sanitize(result.text);
+  if (result.error) result.error = sanitize(result.error);
+  if (result.pendingApproval)
+    result.pendingApproval = sanitize(result.pendingApproval);
   result.session.requestTimings ??= [];
   result.session.requestTimings.push({
     afterMessage: result.session.messages.length,

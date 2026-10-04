@@ -1,0 +1,31 @@
+{
+  "mockOnly": true,
+  "webFixture": true,
+  "fixture": "web-api",
+  "timeout": 30,
+  "tags": ["web", "deterministic-fixture"],
+  "id": "web-large-document-artifact",
+  "prompt": "Open https://fixture.docs.example/large and retain its source. Use a compact preview instead of injecting the entire reference into model context.",
+  "graders": [
+    {
+      "type": "tool_result",
+      "tool": "web_fetch",
+      "artifact": true,
+      "untrusted": true,
+      "maxOutputChars": 6000
+    }
+  ],
+  "constraints": {
+    "forbidden_paths": ["package.json", "api.ts", "api.test.ts"]
+  },
+  "mockTurns": [
+    [
+      {
+        "name": "web_fetch",
+        "input": {
+          "url": "https://fixture.docs.example/large"
+        }
+      }
+    ]
+  ]
+}

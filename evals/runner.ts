@@ -12,7 +12,11 @@ const value = (name: string, fallback: string) => {
 };
 const reports: TrialReport[] = [];
 const category = value("--category", "coding");
-if (!["all", "coding", "context", "editing", "execution"].includes(category))
+if (
+  !["all", "coding", "context", "editing", "execution", "web"].includes(
+    category,
+  )
+)
   throw new Error("Unknown eval category");
 const trials = Number(value("--trials", "1"));
 if (!Number.isInteger(trials) || trials < 1 || trials > 100)
@@ -20,7 +24,7 @@ if (!Number.isInteger(trials) || trials < 1 || trials > 100)
 if (args.includes("--live") && value("--model", "scripted") === "scripted")
   throw new Error("Live evaluation requires an exact --model ID");
 for (const selected of category === "all"
-  ? ["context", "editing", "execution", "coding"]
+  ? ["context", "editing", "execution", "coding", "web"]
   : [category]) {
   const directory = join(import.meta.dir, "tasks", selected);
 

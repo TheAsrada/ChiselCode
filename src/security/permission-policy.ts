@@ -1,6 +1,14 @@
 import type { ProjectConfig } from "../types/domain.js";
+import { resolveWebConfig } from "../web/schema.js";
 import type { ApprovalOptions, ApprovalRequest } from "./approval.js";
 import { type ApprovalMode, resolveApprovalMode } from "./approval-mode.js";
+import {
+  type NetworkAuthorization,
+  type NetworkRequest,
+  networkDecision,
+  networkDenied,
+  networkSessionGrants,
+} from "./network-policy.js";
 import { analyzeShell, commandMatches, simpleCommand } from "./shell-policy.js";
 export type PermissionDecision = "allow" | "ask" | "deny";
 export class PermissionPolicy {
@@ -30,6 +38,18 @@ export class PermissionPolicy {
     effect: string,
     approvalMode = this.approvalMode,
   ): PermissionDecision {
+    if (request.network) {
+      const current = networkDecision(
+        request.network,
+        this.webConfig,
+        this.grants,
+      );
+      if (current === "deny" || current === "allow") return current;
+      if (this.options.allowedTools.has(request.tool)) return "allow";
+      if (approvalMode === "bypassPermissions" && this.bypassAllowed)
+        return "allow";
+      return approvalMode === "dontAsk" ? "deny" : "ask";
+    }
     if (request.mcp) {
       const rules = request.mcpPermissions;
       const tool = rules?.tools[request.mcp.originalName];
@@ -74,5 +94,51 @@ export class PermissionPolicy {
       return "allow";
     if (approvalMode === "dontAsk") return "deny";
     return "ask";
+  }
+  private get webConfig() {
+    const config = this.options.network?.config;
+    return resolveWebConfig(
+      typeof config === "function" ? config() : config,
+      this.config.web,
+    );
+  }
+  private get grants() {
+    return this.options.network
+      ? networkSessionGrants(this.options.network.scope)
+      : undefined;
+  }
+  grantNetwork(request: NetworkRequest): void {
+    const grants = this.grants;
+    if (!grants) return;
+    if (request.operation === "search") grants.search = true;
+    else grants.domains.add(request.hostname);
+  }
+  authorizeNetwork(
+    request: ApprovalRequest,
+    approvalMode: ApprovalMode,
+    allowOnce: boolean,
+  ): NetworkAuthorization {
+    const initial = request.network;
+    if (!initial) throw new Error("Network approval metadata is missing.");
+    return {
+      assertDestination: (hostname) => {
+        const destination = { ...initial, hostname };
+        if (
+          networkDecision(destination, this.webConfig, this.grants) === "deny"
+        )
+          networkDenied();
+        if (hostname === initial.hostname && allowOnce) return;
+        if (
+          this.decide(
+            { ...request, network: destination },
+            "external_read",
+            approvalMode,
+          ) !== "allow"
+        )
+          networkDenied(
+            `Network access to ${hostname} requires permission. For a redirect, call web_fetch on the destination URL to approve it separately.`,
+          );
+      },
+    };
   }
 }

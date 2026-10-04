@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { McpConfigSchema } from "../mcp/schema.js";
+import { WebConfigSchema } from "../web/schema.js";
 export const ProfileIdSchema = z
   .string()
   .trim()
@@ -18,6 +19,7 @@ export const GlobalConfigV2Schema = z.looseObject({
   defaultProfileId: ProfileIdSchema.optional(),
   profiles: z.record(ProfileIdSchema, ProviderProfileSchema),
   mcp: McpConfigSchema.optional(),
+  web: WebConfigSchema.optional(),
   permissions: z
     .looseObject({ allowBypassPermissions: z.boolean().optional() })
     .optional(),

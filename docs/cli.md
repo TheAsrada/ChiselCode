@@ -108,3 +108,22 @@ chisel --profile openai-work --resume <session-id> "Продолжи"
 ```
 
 `--profile` выбирает точный profile. Старый `--provider` остаётся compatibility interface: один profile — выбрать его; ни одного — controlled not configured; несколько — требуется --profile. Вместе flags должны указывать на один provider. Model precedence: --model → profile.defaultModel → definition.defaults.model → controlled selection error. Resume без overrides сохраняет профиль и модель сессии; explicit profile/provider может их заменить. setup --profile создаёт/редактирует точный profile; «Профиль» и «Новый профиль» доступны в settings. doctor проверяет локальные metadata/key references, не вызывает API.
+
+## Web: статус, настройка и проверка
+
+```sh
+chisel web status
+chisel web configure --key-env BRAVE_SEARCH_API_KEY
+chisel web configure --key-ref web/brave-search
+chisel web configure --allow-domain react.dev docs.rs --deny-domain '*.internal.example.com'
+chisel web configure --search ask --fetch ask
+chisel web test --url https://react.dev/reference/react/useActionState
+chisel --allow web_fetch web test --url https://react.dev/reference/react/useActionState
+chisel --allow web_search,web_fetch web test --search 'React Server Actions official documentation'
+chisel --json web status
+chisel web configure --disable
+```
+
+`web status` не делает сетевого запроса. `web test` использует обычные tools и PermissionPolicy; без grant возвращает `approval_required`, exit 2. Успех — 0, controlled error — 1, Ctrl+C — 130. `--allow` разрешает только явно названные tools, не отключает SSRF и deny. JSON включает структурированные result/source metadata; не содержит raw HTML или credential values.
+
+`web configure` пишет только user config. API-ключ не передаётся аргументом CLI: используйте environment/secret reference или скрытое поле `/settings` → Web. В обычном headless запросе `chisel --json "Найди документацию и объясни ошибку"` сеть тоже требует grant; JSON сообщает `approval_required`, а не разрешает интернет автоматически. [Руководство Web](web.md).

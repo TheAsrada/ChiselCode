@@ -140,7 +140,9 @@ export class ToolCatalog {
       description: spec.description,
       inputSchema: spec.inputSchema,
       requiresApproval:
-        !isReadEffect(spec.effect) || spec.source?.type === "mcp",
+        !isReadEffect(spec.effect) ||
+        spec.source?.type === "mcp" ||
+        spec.permission === "network",
     }));
   }
 }

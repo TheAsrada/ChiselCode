@@ -7,6 +7,8 @@ import { requestCompletion } from "./request-timing.js";
 import { FAIL_MARK, formatToolSummary } from "./theme.js";
 import type { TuiTranscript } from "./tui-contract.js";
 
+import { webResultSummary } from "./web-result.js";
+
 const fileTools = new Set([
   "edit_file",
   "write_file",
@@ -31,6 +33,8 @@ export function appendToolResult(
       );
   } else if (fileTools.has(name)) {
     view.append(result.output, "info");
+  } else if (webResultSummary(result)) {
+    view.append(webResultSummary(result) ?? "Web", "tool");
   } else if (result.details?.mcp) {
     const display = result.details.mcp as { server: string; tool: string };
     view.append(
@@ -51,6 +55,12 @@ export function toolTranscriptHandlers(
         view?.setToolActivity(
           `[mcp] ${source.serverTitle} · ${source.title ?? source.originalName}`,
         );
+      else if (
+        source?.type === "web" ||
+        name === "web_search" ||
+        name === "web_fetch"
+      )
+        view?.setToolActivity(formatToolSummary(name, input));
       else if (fileTools.has(name))
         view?.setToolActivity(`[chisel] ${name} ${String(input.path ?? "")}`);
       else view?.append(`[chisel] ${formatToolSummary(name, input)}`, "tool");
@@ -132,7 +142,7 @@ export function replaySessionIntoTranscript(
           target.append(text, message.role === "user" ? "user" : "assistant");
       } else if (block.type === "tool_use") {
         const source = session.runtime?.invocations[block.id]?.toolSource;
-        if (source?.type === "mcp") continue;
+        if (source?.type === "mcp" || source?.type === "web") continue;
         if (!session.fileDiffs?.[block.id])
           target.append(
             `[chisel] ${formatToolSummary(block.name, block.input)}`,
@@ -144,6 +154,8 @@ export function replaySessionIntoTranscript(
           isError: block.isError,
           details:
             session.runtime?.invocations[block.toolUseId]?.result?.details,
+          artifact:
+            session.runtime?.invocations[block.toolUseId]?.result?.artifact,
           fileDiff: session.fileDiffs?.[block.toolUseId],
           diffs:
             session.runtime?.invocations[block.toolUseId]?.result?.diffs ??

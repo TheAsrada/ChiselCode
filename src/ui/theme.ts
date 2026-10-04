@@ -45,6 +45,8 @@ export interface ToolDisplay {
 
 /** Человекочитаемые подписи инструментов. Метки совпадают с панелью подтверждения TUI. */
 export const TOOL_DISPLAY: Record<string, ToolDisplay> = {
+  web_search: { icon: "web", label: "Поиск в интернете" },
+  web_fetch: { icon: "web", label: "Открыть страницу" },
   read_file: { icon: "o", label: "Чтение файла" },
   list_dir: { icon: "=", label: "Список файлов" },
   glob: { icon: "*", label: "Поиск файлов" },
@@ -115,6 +117,10 @@ export function formatToolSummary(
 ): string {
   const path = typeof input.path === "string" ? input.path : undefined;
   switch (tool) {
+    case "web_search":
+      return `Поиск · ${singleLine(input.query, 140)}`;
+    case "web_fetch":
+      return `Открываю · ${singleLine(input.url, 160)}`;
     case "read_file": {
       if (!path) return "read_file";
       const offset =

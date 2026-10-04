@@ -10,6 +10,8 @@ import {
   WARN_MARK,
 } from "./theme.js";
 
+import { webResultSummary } from "./web-result.js";
+
 export interface OneShotRendererOptions {
   json: boolean;
   stdout?: NodeJS.WriteStream;
@@ -51,7 +53,12 @@ export class OneShotRenderer {
   }
 
   toolResult(name: string, result: ToolExecutionResult): void {
-    if (this.options.json || !result.isError) return;
+    if (this.options.json) return;
+    const summary = webResultSummary(result);
+    if (!result.isError) {
+      if (summary) this.stderr.write(`${summary}\n`);
+      return;
+    }
     this.stderr.write(
       `${paint(`${FAIL_MARK} ${name}`, "red", this.color)}: ${result.output}\n`,
     );

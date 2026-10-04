@@ -29,6 +29,17 @@ const FileDiffSchema = z.object({
   deletions: z.number(),
 });
 const ToolResultSchema = z.object({
+  references: z
+    .array(
+      z.object({
+        uri: z.string().max(4096),
+        title: z.string().max(240).optional(),
+        kind: z.enum(["opened", "search_result"]),
+      }),
+    )
+    .max(10)
+    .optional(),
+  contentTrust: z.literal("untrusted_external").optional(),
   output: z.string(),
   isError: z.boolean().optional(),
   requiresApproval: z.boolean().optional(),
@@ -68,6 +79,10 @@ export const SessionRuntimeSchema = z.object({
         .discriminatedUnion("type", [
           z.object({ type: z.literal("local") }),
           z.object({ type: z.literal("skill") }),
+          z.object({
+            type: z.literal("web"),
+            operation: z.enum(["search", "fetch"]),
+          }),
           z.object({
             type: z.literal("mcp"),
             serverId: z.string(),

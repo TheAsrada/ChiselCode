@@ -255,7 +255,7 @@ function OpenTuiScreen({
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const [settingsSelection, setSettingsSelection] = useState(0);
   const [settingsPage, setSettingsPage] = useState<
-    "connection" | "appearance" | "permissions"
+    "connection" | "appearance" | "permissions" | "web"
   >("connection");
   useEffect(() => {
     approvalResolver?.bind(setApproval);
@@ -551,7 +551,7 @@ function OpenTuiScreen({
   }, [focus, showSidebar, controller]);
 
   const openSettings = (
-    page: "connection" | "appearance" | "permissions",
+    page: "connection" | "appearance" | "permissions" | "web",
     selection = 0,
   ) => {
     editor.current?.blur();
@@ -714,6 +714,8 @@ function OpenTuiScreen({
     if (approval) {
       if (key.ctrl || key.meta || key.option) return;
       const answer = key.name.toLowerCase();
+      if (approval.network && (answer === "a" || answer === "ф"))
+        approvalResolver?.resolve("approved_session", approval);
       if (answer === "y" || answer === "н")
         approvalResolver?.resolve("approved", approval);
       if (answer === "n" || answer === "т" || answer === "escape")
@@ -1465,6 +1467,9 @@ function OpenTuiScreen({
           height={height}
           palette={palette}
           onApprove={() => approvalResolver?.resolve("approved", approval)}
+          onSessionApprove={() =>
+            approvalResolver?.resolve("approved_session", approval)
+          }
           onAlwaysApprove={() =>
             approvalResolver?.resolve("approved_always", approval)
           }

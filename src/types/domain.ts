@@ -171,6 +171,7 @@ export interface ProviderAdapter {
 }
 
 export interface ProjectConfig {
+  web?: import("../web/schema.js").ProjectWebConfig;
   mcp?: import("../mcp/schema.js").McpConfig;
   mcpDiagnostics?: import("../mcp/configuration.js").McpConfigDiagnostic[];
   context?: Partial<import("../context/types.js").ContextOptions>;
@@ -190,6 +191,7 @@ export interface ProviderConfig {
 }
 
 export interface GlobalConfig {
+  web?: import("../web/schema.js").WebConfig;
   schemaVersion: 2;
   defaultProfileId?: string;
   profiles: Record<string, import("../providers/contracts.js").ProviderProfile>;
@@ -266,6 +268,13 @@ export interface FileDiff {
 }
 
 export interface ToolExecutionResult {
+  /** Observed references for replay and compaction; external material remains untrusted. */
+  references?: Array<{
+    uri: string;
+    title?: string;
+    kind: "opened" | "search_result";
+  }>;
+  contentTrust?: "untrusted_external";
   output: string;
   isError?: boolean;
   requiresApproval?: boolean;

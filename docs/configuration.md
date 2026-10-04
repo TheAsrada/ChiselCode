@@ -163,3 +163,35 @@ Provider — сервис из каталога; profile — отдельный 
 `ChiselCode Home/providers/` создаётся вместе с directories сессий и skills, остаётся пустым по умолчанию. Built-ins, credentials, cache, examples и README туда не копируются. Реальный абсолютный путь показывает `chisel providers path`. Каталог содержит только пользовательские `*/provider.json`.
 
 Profile ID — 1–128 символов, буквы/цифры/точка/дефис/underscore, первый символ буква или цифра. Provider ID остаётся открытой строкой; для custom definition требуется namespace. Новые profiles создаются через setup --profile или /settings. config v2 сохраняет unknown fields для forward compatibility; недоступные providers не удаляются автоматически.
+
+## Native Web
+
+Настройте `/settings` → Web или `chisel web configure`. В user config v2 добавляется versioned `web`, старые config не требуют ручной миграции:
+
+```json
+{
+  "web": {
+    "schemaVersion": 1,
+    "enabled": true,
+    "search": { "provider": "brave", "apiKey": { "envRef": "BRAVE_SEARCH_API_KEY" } },
+    "permissions": {
+      "search": "ask", "fetch": "ask",
+      "allowDomains": ["react.dev", "docs.rs"],
+      "denyDomains": ["*.internal.example.com"]
+    },
+    "cacheTtlMs": 300000,
+    "limits": {
+      "connectTimeoutMs": 8000, "requestTimeoutMs": 30000,
+      "maxRedirects": 5, "maxResponseBytes": 2097152,
+      "maxDecompressedBytes": 4194304, "maxExtractedChars": 100000,
+      "maxConcurrent": 3, "maxRequestsPerTurn": 24
+    }
+  }
+}
+```
+
+Вместо `envRef` доступен `secretRef`, например `web/brave-search`, сохранённый через скрытое поле Settings. Raw API keys и неизвестные поля Web отклоняются. `cacheTtlMs: 0` отключает cache. Все пределы проверяются строгой схемой; они не могут быть бесконечными. Search возвращает максимум 10 результатов, fetch принимает `maxChars` и дополнительно ограничен `maxExtractedChars`.
+
+Репозиторий может только ужесточать `.chiselrc`: `"web": { "enabled": false, "denyDomains": ["example.com"], "maxRequestsPerTurn": 8 }`. Project config не принимает allow rules, credentials, custom transport или отключение SSRF. Deny имеет приоритет над domain/tool/session grants и Bypass. `*.example.com` разрешает/запрещает поддомены, apex добавляется отдельным правилом.
+
+Private network всегда заблокирован. JavaScript/browser automation и custom proxy endpoints не поддерживаются. Для полного отключения user config — `"web": { "enabled": false }`. [Workflow, данные и troubleshooting](web.md).

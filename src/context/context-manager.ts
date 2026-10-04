@@ -9,7 +9,7 @@ import type {
 } from "../types/domain.js";
 import { assembleMessages } from "./assembler.js";
 import { contextBudget } from "./budget.js";
-import { planCompaction } from "./compactor.js";
+import { observedToolReferences, planCompaction } from "./compactor.js";
 import { estimateTokens, requestTokens } from "./tokenizer.js";
 import {
   type ContextCompactionRecord,
@@ -227,6 +227,12 @@ export class ContextManager {
             ...summary.changedFiles,
             ...candidate.summary.changedFiles,
           };
+          summary.importantReferences = [
+            ...new Set([
+              ...summary.importantReferences,
+              ...observedToolReferences(session, candidate.throughMessageIndex),
+            ]),
+          ].slice(-32);
           candidate.summary = summary;
           candidate.source = "model";
         }

@@ -164,6 +164,7 @@ export class ToolExecutor {
         diffs: plan.diffs,
         mcp: plan.approval,
         mcpPermissions: handler.permissions?.(),
+        network: plan.network,
       };
       const approvalMode =
         context.approvalMode ??
@@ -178,9 +179,10 @@ export class ToolExecutor {
           : this.gate.policy.decide(request, handler.spec.effect, approvalMode);
       if (permission === "deny")
         throw new RuntimeError(
-          "PERMISSION_DENIED",
+          request.network ? "WEB_NETWORK_DENIED" : "PERMISSION_DENIED",
           "Action denied by permission policy.",
         );
+      let networkApprovedOnce = false;
       if (permission === "ask") {
         const displayed = context.sanitizeApproval?.(request) ?? request;
         record.state = "awaiting_approval";
@@ -198,7 +200,11 @@ export class ToolExecutor {
           text: displayed.preview,
         });
         const decision = await abortable(
-          this.gate.resolve(displayed),
+          this.gate.resolve(displayed, {
+            effect: handler.spec.effect,
+            approvalMode,
+            signal: context.signal,
+          }),
           context.signal,
         );
         if (decision === "unavailable")
@@ -209,11 +215,16 @@ export class ToolExecutor {
             preview: displayed.preview,
             errorCode: "APPROVAL_UNAVAILABLE",
           };
-        if (decision !== "approved" && decision !== "approved_always")
+        if (
+          decision !== "approved" &&
+          decision !== "approved_always" &&
+          decision !== "approved_session"
+        )
           throw new RuntimeError(
-            "PERMISSION_DENIED",
+            request.network ? "WEB_NETWORK_DENIED" : "PERMISSION_DENIED",
             "User denied this action.",
           );
+        networkApprovedOnce = true;
         if (
           decision === "approved_always" &&
           request.mcp &&
@@ -286,7 +297,17 @@ export class ToolExecutor {
             );
           try {
             return await handler.execute(
-              { ...context, signal: executionSignal },
+              {
+                ...context,
+                signal: executionSignal,
+                networkAuthorization: request.network
+                  ? this.gate.policy.authorizeNetwork(
+                      request,
+                      approvalMode,
+                      networkApprovedOnce,
+                    )
+                  : undefined,
+              },
               plan,
             );
           } finally {
@@ -303,6 +324,7 @@ export class ToolExecutor {
           writesWorkspace ||
           handler.spec.workspaceAccess === "read" ||
           (isReadEffect(handler.spec.effect) &&
+            handler.spec.workspaceAccess !== "none" &&
             handler.spec.source?.type !== "mcp")
             ? await workspaceCoordinator.withAccess(
                 executionScope,
@@ -374,6 +396,7 @@ export class ToolExecutor {
         result.errorCode === "CANCELLED" || result.errorCode === "MCP_CANCELLED"
           ? "cancelled"
           : result.errorCode === "PERMISSION_DENIED" ||
+              result.errorCode === "WEB_NETWORK_DENIED" ||
               result.errorCode === "MODE_RESTRICTION"
             ? "denied"
             : "failed";

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const EvalTaskSchema = z.object({
   mockOnly: z.boolean().default(false),
+  webFixture: z.boolean().default(false),
   id: z.string().regex(/^[a-z0-9-]+$/),
   fixture: z.string().min(1),
   prompt: z.string().min(1),
@@ -21,6 +22,17 @@ export const EvalTaskSchema = z.object({
         path: z.string(),
         contains: z.string().optional(),
         absent: z.boolean().optional(),
+      }),
+      z.object({
+        type: z.literal("tool_result"),
+        tool: z.string(),
+        errorCode: z.string().optional(),
+        artifact: z.boolean().optional(),
+        untrusted: z.boolean().optional(),
+        maxOutputChars: z.number().int().positive().optional(),
+        minimum: z.number().int().nonnegative().default(1),
+        maximum: z.number().int().nonnegative().optional(),
+        safety: z.boolean().default(false),
       }),
     ]),
   ),
