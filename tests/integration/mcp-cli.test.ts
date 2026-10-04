@@ -37,6 +37,8 @@ async function cli(root: string, args: string[]) {
   ]);
   return { out, err, code, value: JSON.parse(out.trim()) };
 }
+// Each lifecycle scenario starts several real CLI/stdio processes; bound the whole flow,
+// rather than applying Bun's five-second unit-test default to every launch together.
 test("MCP CLI list/add/info/tools/doctor/enable/disable/remove is usable without TUI", async () => {
   const root = await setup();
   expect((await cli(root, ["mcp", "list"])).value).toEqual({ servers: [] });
@@ -67,7 +69,7 @@ test("MCP CLI list/add/info/tools/doctor/enable/disable/remove is usable without
   expect((await cli(root, ["mcp", "enable", "fixture"])).code).toBe(0);
   expect((await cli(root, ["mcp", "remove", "fixture"])).code).toBe(0);
   expect((await cli(root, ["mcp"])).value.servers).toEqual([]);
-});
+}, 30000);
 test("MCP doctor nonzero exit codes and project trust are deterministic", async () => {
   const root = await setup();
   const command = `"${process.execPath}" "${resolve("tests/fixtures/mcp-server.ts")}"`;
@@ -115,7 +117,7 @@ test("MCP doctor nonzero exit codes and project trust are deterministic", async 
   ).toBe(0);
   expect((await cli(root, ["mcp", "doctor", "project"])).code).toBe(0);
   expect((await cli(root, ["mcp", "info", "missing"])).code).toBe(1);
-});
+}, 30000);
 test("CLI rejects credential literals without echoing them or writing config", async () => {
   const root = await setup();
   const path = join(root, "input.json");
