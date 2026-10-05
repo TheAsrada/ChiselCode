@@ -19,7 +19,7 @@ import type {
 import { scanGlob } from "../src/utils/fs-scan.js";
 import { matchesPattern, resolveProjectPath } from "../src/utils/paths.js";
 import { WebToolProvider } from "../src/web/provider.js";
-import { startExaFixture } from "../tests/fixtures/exa-search.js";
+import { startHostedSearchFixture } from "../tests/fixtures/mcp-search.js";
 import { startWebFixture } from "../tests/fixtures/web-http.js";
 import { grade } from "./graders/index.js";
 import { writeTrialProviderConfig } from "./provider-profile.js";
@@ -81,7 +81,9 @@ export async function runTrial(
   };
   const record = traceRecorder(report);
   let webFixture: Awaited<ReturnType<typeof startWebFixture>> | undefined;
-  let exaFixture: Awaited<ReturnType<typeof startExaFixture>> | undefined;
+  let hostedSearchFixture:
+    | Awaited<ReturnType<typeof startHostedSearchFixture>>
+    | undefined;
   try {
     const fixture = await resolveProjectPath(
       join(import.meta.dir, "fixtures"),
@@ -171,8 +173,10 @@ export async function runTrial(
       const events = new RuntimeEventBus(session.id);
       events.subscribe(record);
       if (task.webFixture) webFixture = await startWebFixture();
-      if (task.webFixture && task.webSearchBackend === "exa")
-        exaFixture = await startExaFixture();
+      if (task.webFixture && task.webSearchBackend !== "brave")
+        hostedSearchFixture = await startHostedSearchFixture(
+          task.webSearchBackend,
+        );
       const tools = createLocalToolRuntime(
         root,
         DEFAULT_PROJECT_CONFIG.ignorePatterns,
@@ -202,11 +206,11 @@ export async function runTrial(
       );
       if (webFixture)
         await tools.catalog.addProvider(
-          exaFixture
+          hostedSearchFixture
             ? new WebToolProvider(
                 webFixture.config,
                 webFixture.client,
-                exaFixture.backend,
+                hostedSearchFixture.backend,
               )
             : webFixture.provider,
         );
@@ -215,6 +219,8 @@ export async function runTrial(
         new ContextManager(task.context, events),
         {
           selectForTurn: () => tools.catalog.selectForTurn(),
+          instructionsForTurn: (selected) =>
+            tools.catalog.instructionsForTurn(selected),
           execute: (calls, signal) => tools.scheduler.execute(calls, signal),
         },
         BASE_SYSTEM_PROMPT,
@@ -300,7 +306,7 @@ export async function runTrial(
     report.error = String(error);
   } finally {
     clearTimeout(timer);
-    await exaFixture?.close();
+    await hostedSearchFixture?.close();
     await webFixture?.close();
     metrics.wall_time = performance.now() - start;
     await rm(root, { recursive: true, force: true });

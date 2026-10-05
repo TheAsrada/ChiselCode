@@ -74,7 +74,7 @@ export const WebConfigSchema = z
     enabled: z.boolean().default(true),
     search: z
       .strictObject({
-        provider: z.enum(["auto", "exa", "brave"]).default("auto"),
+        provider: z.enum(["auto", "exa", "parallel", "brave"]).default("auto"),
         apiKey: WebCredentialSchema.default(() => ({
           envRef: "BRAVE_SEARCH_API_KEY",
         })),

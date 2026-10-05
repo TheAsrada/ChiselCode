@@ -6,12 +6,16 @@ import {
 } from "../security/credentials.js";
 import { SecretRedactor } from "../security/redaction.js";
 import { resolveWebConfig, type WebConfig, WebConfigSchema } from "./schema.js";
-import { effectiveSearchBackend, resolveWebCredential } from "./search.js";
+import {
+  effectiveSearchBackend,
+  resolveWebCredential,
+  type SearchBackendId,
+} from "./search.js";
 
 export interface WebSettingsState {
   config: WebConfig;
   hasKey: boolean;
-  searchBackend?: "exa" | "brave";
+  searchBackend?: SearchBackendId;
   network?: ReturnType<typeof networkEnvironmentStatus>;
 }
 export interface WebSettingsActions {

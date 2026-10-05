@@ -27,6 +27,7 @@ import { TurnRunner } from "./turn-runner.js";
 import type { TurnState } from "./turn-state.js";
 export interface RuntimeTools {
   getApprovalMode?(requested?: ApprovalMode): ApprovalMode;
+  instructionsForTurn?(tools: readonly ToolDefinition[]): string;
   selectForTurn(input?: {
     prompt?: string;
     recentTools?: string[];
@@ -157,19 +158,21 @@ export class AgentRuntime {
       ) {
         cancelled(options.signal);
         await state("preparing_context");
+        const selectedTools = await this.tools.selectForTurn({
+          prompt: typeof input === "string" ? input : input.text,
+          recentTools: session.messages
+            .slice(-6)
+            .flatMap((message) =>
+              message.content.flatMap((block) =>
+                block.type === "tool_use" ? [block.name] : [],
+              ),
+            ),
+        });
+        const guidance = this.tools.instructionsForTurn?.(selectedTools);
         const frame = await this.context.build({
           session,
-          system: `${system}${responseRecoveryInstructions}`,
-          tools: await this.tools.selectForTurn({
-            prompt: typeof input === "string" ? input : input.text,
-            recentTools: session.messages
-              .slice(-6)
-              .flatMap((message) =>
-                message.content.flatMap((block) =>
-                  block.type === "tool_use" ? [block.name] : [],
-                ),
-              ),
-          }),
+          system: `${system}${responseRecoveryInstructions}${guidance ? `\n\n${guidance}` : ""}`,
+          tools: selectedTools,
           provider: this.provider,
           capabilities,
           signal: options.signal,

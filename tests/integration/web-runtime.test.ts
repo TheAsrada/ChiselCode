@@ -532,6 +532,8 @@ test("full agent tool path fetches evidence, edits the fixture code and runs its
       new ContextManager(undefined, env.tools.context.events),
       {
         selectForTurn: () => env.tools.catalog.selectForTurn(),
+        instructionsForTurn: (selected) =>
+          env.tools.catalog.instructionsForTurn(selected),
         execute: (calls, signal) => env.tools.scheduler.execute(calls, signal),
       },
       buildSystemPrompt("", {

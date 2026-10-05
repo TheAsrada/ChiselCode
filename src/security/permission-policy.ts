@@ -120,14 +120,41 @@ export class PermissionPolicy {
   ): NetworkAuthorization {
     const initial = request.network;
     if (!initial) throw new Error("Network approval metadata is missing.");
+    const searchHosts =
+      initial.operation === "search"
+        ? [
+            ...new Set(
+              initial.searchHosts?.length
+                ? initial.searchHosts
+                : [initial.hostname],
+            ),
+          ]
+        : undefined;
+    const destinations = searchHosts?.filter(
+      (hostname) =>
+        networkDecision(
+          { ...initial, hostname, searchHosts: undefined },
+          this.webConfig,
+          this.grants,
+        ) !== "deny",
+    );
     return {
+      ...(destinations ? { destinations: Object.freeze(destinations) } : {}),
       assertDestination: (hostname) => {
-        const destination = { ...initial, hostname };
+        if (searchHosts && !searchHosts.includes(hostname))
+          networkDenied(
+            "Search access is restricted to the approved service endpoints.",
+          );
+        const destination = { ...initial, hostname, searchHosts: undefined };
         if (
           networkDecision(destination, this.webConfig, this.grants) === "deny"
         )
           networkDenied();
-        if (hostname === initial.hostname && allowOnce) return;
+        if (
+          allowOnce &&
+          (searchHosts?.includes(hostname) || hostname === initial.hostname)
+        )
+          return;
         if (
           this.decide(
             { ...request, network: destination },

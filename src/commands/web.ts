@@ -5,7 +5,11 @@ import { webResultSummary } from "../ui/web-result.js";
 import { testWebAccess } from "../web/diagnostics.js";
 import { createWebToolProvider } from "../web/provider.js";
 import { resolveWebConfig } from "../web/schema.js";
-import { effectiveSearchBackend } from "../web/search.js";
+import {
+  effectiveSearchBackend,
+  searchBackendCandidates,
+  searchBackendLabel,
+} from "../web/search.js";
 import { WebSettingsStore } from "../web/settings.js";
 
 export function registerWebCommands(program: Command): void {
@@ -38,13 +42,21 @@ export function registerWebCommands(program: Command): void {
       );
       const effective = resolveWebConfig(state.config, project.web);
       const backend = effectiveSearchBackend(effective, state.hasKey);
-      const configured = backend === "exa" || state.hasKey;
+      const configured = backend !== "brave" || state.hasKey;
+      const candidates = searchBackendCandidates(effective, state.hasKey);
+      const searchLabel =
+        effective.search.provider === "auto"
+          ? `Авто · ${candidates.map(searchBackendLabel).join(" / ")}`
+          : backend === "brave"
+            ? `Brave · ${state.hasKey ? "ключ настроен" : "не настроен"}`
+            : `${searchBackendLabel(backend)} · без API-ключа (лимиты сервиса)`;
       output(
         {
           enabled: effective.enabled,
           search: {
             provider: backend,
             preference: state.config.search.provider,
+            candidates,
             configured,
             requiresApiKey: backend === "brave",
             permission: effective.permissions.search,
@@ -59,7 +71,7 @@ export function registerWebCommands(program: Command): void {
           permissions: effective.permissions,
           limits: effective.limits,
         },
-        `Web: ${effective.enabled ? "включён" : "отключён"}\nSearch: ${backend === "exa" ? "Exa · без API-ключа (лимиты сервиса)" : `Brave · ${state.hasKey ? "ключ настроен" : "не настроен"}`} · ${effective.permissions.search}\nFetch: ${effective.permissions.fetch} · без поискового ключа\nСеть: ${state.network?.proxy ? "корпоративный proxy" : "прямое подключение"} · TLS проверяется\nPrivate network: заблокирован, включая Bypass\nНастройка: /settings → Web или chisel web configure --help`,
+        `Web: ${effective.enabled ? "включён" : "отключён"}\nSearch: ${searchLabel} · ${effective.permissions.search}\nFetch: ${effective.permissions.fetch} · без поискового ключа\nСеть: ${state.network?.proxy ? "корпоративный proxy" : "прямое подключение"} · TLS проверяется\nPrivate network: заблокирован, включая Bypass\nНастройка: /settings → Web или chisel web configure --help`,
       );
     });
   root.action(status);
@@ -69,7 +81,7 @@ export function registerWebCommands(program: Command): void {
     .description("Поиск без ключа, optional Brave и user-owned разрешения")
     .option(
       "--search-provider <provider>",
-      "auto (по умолчанию), exa (без ключа), brave",
+      "auto (по умолчанию), exa или parallel (без ключа), brave",
     )
     .option("--key-env <name>", "переменная окружения с ключом Brave")
     .option("--key-ref <reference>", "ссылка на CredentialStore")
@@ -106,7 +118,7 @@ export function registerWebCommands(program: Command): void {
           {
             saved: true,
             searchConfigured:
-              effectiveSearchBackend(state.config, state.hasKey) === "exa" ||
+              effectiveSearchBackend(state.config, state.hasKey) !== "brave" ||
               state.hasKey,
           },
           "Web settings сохранены. API-ключ в конфигурацию не записывается.",

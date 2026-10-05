@@ -33,6 +33,20 @@ test("settings persist only a secret reference and keep the key encrypted", asyn
     expect(await credentials.get("web/brave-search")).toBe(
       "brave-private-key-test-123456789",
     );
+    const parallel = await store.save({
+      ...saved.config,
+      search: { ...saved.config.search, provider: "parallel" },
+    });
+    expect(parallel.searchBackend).toBe("parallel");
+    expect(parallel.hasKey).toBe(true);
+    expect(parallel.config.search.apiKey).toEqual({
+      secretRef: "web/brave-search",
+    });
+    const restored = await store.save({
+      ...parallel.config,
+      search: { ...parallel.config.search, provider: "auto" },
+    });
+    expect(restored.searchBackend).toBe("brave");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

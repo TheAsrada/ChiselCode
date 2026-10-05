@@ -7,9 +7,13 @@ export interface NetworkRequest {
   url?: string;
   query?: string;
   provider?: string;
+  /** Fixed search-service endpoints shown before approval, never result-page URLs. */
+  searchHosts?: readonly string[];
 }
 /** Issued by ToolExecutor after approval; tools cannot manufacture a grant. */
 export interface NetworkAuthorization {
+  /** Approved search destinations, filtered by user policy. Fetch keeps its redirect rules. */
+  readonly destinations?: readonly string[];
   assertDestination(hostname: string): void;
 }
 export interface NetworkSessionGrants {
@@ -49,7 +53,12 @@ export function networkDecision(
   if (
     !options.enabled ||
     rules[request.operation] === "deny" ||
-    rules.denyDomains.some((rule) => domainMatches(request.hostname, rule))
+    (request.operation === "search" && request.searchHosts?.length
+      ? request.searchHosts
+      : [request.hostname]
+    ).every((hostname) =>
+      rules.denyDomains.some((rule) => domainMatches(hostname, rule)),
+    )
   )
     return "deny";
   if (rules[request.operation] === "allow") return "allow";

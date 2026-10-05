@@ -84,7 +84,15 @@ export function OpenTuiApproval({
         </strong>
       </text>
       <text fg={palette.muted} height={1}>
-        {terminalSafeText(request.mcp?.title ?? request.tool, innerWidth)}
+        {terminalSafeText(
+          request.mcp?.title ??
+            (request.network
+              ? request.network.operation === "search"
+                ? "Поиск в интернете"
+                : "Открытие страницы"
+              : request.tool),
+          innerWidth,
+        )}
         {diffs.length > 1 ? ` | файлов: ${diffs.length}` : ""}
       </text>
       {popupHeight >= 5 && (

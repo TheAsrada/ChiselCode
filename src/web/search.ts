@@ -21,22 +21,52 @@ export interface SearchResponse {
   searchedAt: string;
   results: WebSearchResult[];
   usage: { requests: number };
+  routing?: { mode: "auto"; attempted: string[] };
 }
 /** Search backend boundary: no LLM driver, UI, permission resolver or transcript dependency. */
 export interface WebSearchBackend {
   readonly id: string;
   readonly hostname: string;
+  readonly destinations?: readonly { id: string; hostname: string }[];
   search(input: SearchInput, options: WebHttpOptions): Promise<SearchResponse>;
+}
+export type SearchBackendId = Exclude<WebConfig["search"]["provider"], "auto">;
+const searchLabels = new Map<string, string>([
+  ["auto", "Авто"],
+  ["exa", "Exa"],
+  ["parallel", "Parallel"],
+  ["brave", "Brave"],
+]);
+export function searchBackendLabel(id: string): string {
+  return searchLabels.get(id) ?? id;
+}
+export function searchBackendCandidates(
+  config: WebConfig,
+  hasBraveKey: boolean,
+): SearchBackendId[] {
+  return config.search.provider === "auto"
+    ? hasBraveKey
+      ? ["brave", "exa", "parallel"]
+      : ["exa", "parallel"]
+    : [config.search.provider];
 }
 export function effectiveSearchBackend(
   config: WebConfig,
   hasBraveKey: boolean,
-): "exa" | "brave" {
-  return config.search.provider === "auto"
-    ? hasBraveKey
-      ? "brave"
-      : "exa"
-    : config.search.provider;
+): SearchBackendId {
+  return searchBackendCandidates(config, hasBraveKey)[0] ?? "exa";
+}
+/** Public search operators are hints; normalizeSearchResults enforces the filters. */
+export function searchQuery(input: SearchInput): string {
+  return [
+    input.query,
+    input.domains.length
+      ? `(${input.domains.map((domain) => `site:${domain}`).join(" OR ")})`
+      : "",
+    ...input.excludeDomains.map((domain) => `-site:${domain}`),
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 const BraveResponseSchema = z.object({
   web: z
@@ -110,15 +140,7 @@ export class BraveSearchBackend implements WebSearchBackend {
     input: SearchInput,
     options: WebHttpOptions,
   ): Promise<SearchResponse> {
-    const query = [
-      input.query,
-      input.domains.length
-        ? `(${input.domains.map((domain) => `site:${domain}`).join(" OR ")})`
-        : "",
-      ...input.excludeDomains.map((domain) => `-site:${domain}`),
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const query = searchQuery(input);
     const url = new URL("https://api.search.brave.com/res/v1/web/search");
     url.searchParams.set("q", query);
     url.searchParams.set("count", String(input.limit));
@@ -144,7 +166,7 @@ export class BraveSearchBackend implements WebSearchBackend {
         throw new RuntimeError(
           "WEB_PROTOCOL_ERROR",
           "Search provider returned a malformed result payload.",
-          { retryable: false },
+          { retryable: false, provider: this.id, phase: "results" },
         );
       }
       const results = normalizeSearchResults(
@@ -158,7 +180,18 @@ export class BraveSearchBackend implements WebSearchBackend {
         usage: { requests: 1 },
       };
     } catch (error) {
-      if (error instanceof RuntimeError) throw error;
+      if (error instanceof RuntimeError) {
+        if (
+          (error.code === "WEB_HTTP_ERROR" ||
+            error.code === "WEB_RATE_LIMITED") &&
+          typeof error.details?.status === "number"
+        )
+          throw new RuntimeError(error.code, error.message, {
+            ...error.details,
+            provider: this.id,
+          });
+        throw error;
+      }
       throw new RuntimeError(
         "WEB_SEARCH_FAILED",
         "Search provider request failed.",

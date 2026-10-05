@@ -234,6 +234,45 @@ describe("network permission layer", () => {
     config.permissions.denyDomains.push("react.dev");
     expect(() => capability.assertDestination("react.dev")).toThrow();
   });
+  test("Auto search approval is bounded to listed service hosts, filters denied services and rechecks live policy", () => {
+    const config = WebConfigSchema.parse({
+      permissions: { denyDomains: ["mcp.exa.ai"] },
+    });
+    const g = gate(config);
+    const auto = {
+      tool: "web_search",
+      preview: "Auto: Exa → Parallel",
+      network: {
+        operation: "search" as const,
+        hostname: "mcp.exa.ai",
+        searchHosts: ["mcp.exa.ai", "search.parallel.ai"],
+        provider: "auto",
+      },
+    };
+    expect(g.policy.decide(auto, "external_read")).toBe("ask");
+    expect(g.policy.decide(auto, "external_read", "dontAsk")).toBe("deny");
+    const capability = g.policy.authorizeNetwork(auto, "default", true);
+    expect(capability.destinations).toEqual(["search.parallel.ai"]);
+    capability.assertDestination("search.parallel.ai");
+    expect(() => capability.assertDestination("mcp.exa.ai")).toThrow();
+    expect(() => capability.assertDestination("attacker.example")).toThrow();
+    const bypass = g.policy.authorizeNetwork(auto, "bypassPermissions", false);
+    expect(() => bypass.assertDestination("attacker.example")).toThrow();
+    config.permissions.denyDomains.push("search.parallel.ai");
+    expect(g.policy.decide(auto, "external_read", "bypassPermissions")).toBe(
+      "deny",
+    );
+    expect(() => capability.assertDestination("search.parallel.ai")).toThrow();
+    const explicit = {
+      tool: "web_search",
+      preview: "Parallel",
+      network: { operation: "search" as const, hostname: "search.parallel.ai" },
+    };
+    const open = gate(
+      WebConfigSchema.parse({ permissions: { search: "allow" } }),
+    ).policy.authorizeNetwork(explicit, "default", false);
+    expect(() => open.assertDestination("mcp.exa.ai")).toThrow();
+  });
   test("explicit domains permit matching subdomains only when a wildcard was chosen", () => {
     expect(domainMatches("a.docs.rs", "*.docs.rs")).toBe(true);
     expect(domainMatches("docs.rs", "*.docs.rs")).toBe(false);

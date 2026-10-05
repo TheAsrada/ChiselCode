@@ -16,6 +16,8 @@ export interface ToolSpec extends Omit<ToolDefinition, "requiresApproval"> {
   effect: ToolEffect;
   source?: ToolSource;
   pinned?: boolean;
+  /** Trusted native guidance, composed only for tools actually selected for a turn. */
+  guidance?: string;
   /** A local MCP process may touch its cwd even when its API writes externally. */
   workspaceAccess?: "read" | "write" | "none";
   permission: string;

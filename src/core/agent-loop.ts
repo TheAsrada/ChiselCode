@@ -61,6 +61,9 @@ export class AgentLoop {
       new ContextManager({}, events, undefined, modelSummarizer),
       {
         getApprovalMode: local?.getApprovalMode,
+        instructionsForTurn: local
+          ? (selected) => local.catalog.instructionsForTurn(selected)
+          : undefined,
         selectForTurn: () => this.tools.getDefinitions(),
         execute: async (calls, signal) => {
           if (local) return local.scheduler.execute(calls, signal);

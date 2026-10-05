@@ -76,7 +76,7 @@ export function OpenTuiWebSettings({
     const config = structuredClone(state.config);
     if (index === 0) config.enabled = !config.enabled;
     else if (index === 3) {
-      const providers = ["auto", "exa", "brave"] as const;
+      const providers = ["auto", "exa", "parallel", "brave"] as const;
       config.search.provider =
         providers[
           (providers.indexOf(config.search.provider) + 1) % providers.length
@@ -181,7 +181,9 @@ export function OpenTuiWebSettings({
                   ? "Brave"
                   : state.config.search.provider === "exa"
                     ? "Exa · без ключа"
-                    : `Авто · ${effectiveSearchBackend(state.config, state.hasKey) === "exa" ? "Exa" : "Brave"}`,
+                    : state.config.search.provider === "parallel"
+                      ? "Parallel · без ключа"
+                      : "Авто",
               ],
               ...(state.config.search.provider === "brave"
                 ? [
@@ -238,11 +240,16 @@ export function OpenTuiWebSettings({
               </text>
             </box>
             <text fg={palette.muted}>
-              {effectiveSearchBackend(state.config, state.hasKey) === "brave"
-                ? state.hasKey
-                  ? "Brave Search готов. Запросы уходят в Brave; страницы — их владельцам."
-                  : "Brave требует ключ. Выберите Авто или Exa для поиска без ключа."
-                : "Exa готов без API-ключа. Запросы уходят в Exa; действуют лимиты сервиса."}
+              {state.config.search.provider === "auto"
+                ? `Авто: ${state.hasKey ? "Brave, " : ""}Exa, Parallel. При недоступности используется следующий разрешённый сервис.`
+                : effectiveSearchBackend(state.config, state.hasKey) === "brave"
+                  ? state.hasKey
+                    ? "Brave Search готов. Запросы уходят в Brave; страницы — их владельцам."
+                    : "Brave требует ключ. Выберите Авто, Exa или Parallel для поиска без ключа."
+                  : effectiveSearchBackend(state.config, state.hasKey) ===
+                      "parallel"
+                    ? "Parallel готов без API-ключа. Запросы уходят в Parallel; действуют лимиты сервиса."
+                    : "Exa готов без API-ключа. Запросы уходят в Exa; действуют лимиты сервиса."}
             </text>
             {!compact && (
               <text fg={palette.muted}>

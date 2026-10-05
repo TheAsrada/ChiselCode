@@ -523,6 +523,8 @@ export async function runPrompt(
       ),
       {
         getApprovalMode: tools.getApprovalMode,
+        instructionsForTurn: (selected) =>
+          tools.catalog.instructionsForTurn(selected),
         selectForTurn: async (input) => {
           await mcpBinding?.refresh(signal);
           return tools.catalog.selectForTurn(input);

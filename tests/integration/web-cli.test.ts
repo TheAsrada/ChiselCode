@@ -96,6 +96,32 @@ test("CLI status/configure/test report JSON and sensible approval/safety exit co
     expect(
       JSON.parse(searchApproval.stdout).results[0].result.preview,
     ).toContain("exa");
+    const parallel = await run([
+      "web",
+      "configure",
+      "--search-provider",
+      "parallel",
+    ]);
+    expect(parallel.exitCode).toBe(0);
+    expect(JSON.parse(parallel.stdout).searchConfigured).toBe(true);
+    expect(
+      JSON.parse((await run(["web", "status"])).stdout).search,
+    ).toMatchObject({
+      provider: "parallel",
+      preference: "parallel",
+      configured: true,
+      requiresApiKey: false,
+    });
+    const parallelApproval = await run([
+      "web",
+      "test",
+      "--search",
+      "official documentation",
+    ]);
+    expect(parallelApproval.exitCode).toBe(2);
+    expect(
+      JSON.parse(parallelApproval.stdout).results[0].result.preview,
+    ).toContain("parallel");
     const invalid = await run(["web", "configure", "--fetch", "invalid"]);
     expect(invalid.exitCode).toBe(1);
     const disabled = await run(["web", "configure", "--disable"]);
@@ -205,6 +231,7 @@ test("headless model-to-tool composition exposes native schemas and saves approv
     );
     expect(JSON.stringify(requests)).toContain('"name":"web_fetch"');
     expect(JSON.stringify(requests)).toContain('"name":"web_search"');
+    expect(JSON.stringify(requests)).toContain("Use web_search autonomously");
     expect(JSON.stringify(requests)).not.toContain(key);
     expect(JSON.stringify(requests)).not.toContain('"name":"edit_file"');
     const projects = JSON.parse(

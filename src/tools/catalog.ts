@@ -71,6 +71,21 @@ export class ToolCatalog {
       );
     return handler;
   }
+  instructionsForTurn(tools: readonly ToolDefinition[]): string {
+    const guidance = tools.flatMap(({ name }) => {
+      const spec = this.handlers.get(name)?.spec;
+      // Server and skill content cannot become trusted system instructions.
+      return spec?.guidance &&
+        spec.source?.type !== "mcp" &&
+        spec.source?.type !== "skill" &&
+        allowsToolInMode(this.getMode(), spec.effect)
+        ? [spec.guidance]
+        : [];
+    });
+    return guidance.length
+      ? `<tool_guidance>\n${[...new Set(guidance)].join("\n\n")}\n</tool_guidance>`
+      : "";
+  }
   selectForTurn(input?: {
     prompt?: string;
     recentTools?: string[];
