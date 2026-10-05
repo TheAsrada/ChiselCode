@@ -1,9 +1,7 @@
-import {
-  Client,
-  StreamableHTTPClientTransport,
-} from "@modelcontextprotocol/client";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { z } from "zod";
+import { McpSdkClient } from "../mcp/sdk-client.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import { VERSION } from "../version.js";
 import type { SafeWebHttpClient, WebHttpOptions } from "./http-client.js";
@@ -49,7 +47,7 @@ export class ExaSearchBackend implements WebSearchBackend {
       : lifetime.signal;
     let failure: RuntimeError | undefined;
     const pending = new Set<Promise<Response>>();
-    const client = new Client(
+    const client = new McpSdkClient(
       { name: "ChiselCode Web Search", version: VERSION },
       {
         capabilities: {},

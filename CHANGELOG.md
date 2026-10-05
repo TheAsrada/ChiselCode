@@ -8,6 +8,7 @@
 
 - Поиск работает без отдельного API-ключа через официальный публичный Exa MCP. Настройки предлагают Авто / Exa / Brave; существующие ключи Brave сохраняются. Бесплатный доступ Exa имеет лимиты, ошибки и ограничения сервиса отображаются как обычные tool failures.
 - Добавлена корпоративная сеть для моделей, HTTP MCP и native Web: HTTP/HTTPS proxy, NO_PROXY, дополнительные CA, выбор хранилища сертификатов и mTLS для указанных адресов. TLS proxy и сервера разделён; Web подключается через CONNECT к проверенному публичному IP, сохраняя Host/SNI и SSRF-защиту.
+- Исправлены завершение сетевых потоков на Windows, отмена запросов через proxy и потеря MCP-прогресса, когда уведомление и ответ приходят вместе.
 - Добавлены native `web_search` и `web_fetch`: Brave Search, извлечение HTML в Markdown с примерами кода, plain text/Markdown/JSON, ссылки на источники и session cache. Большие документы сохраняются в artifacts; при resume сохраняются источники и компактные карточки Web.
 - Web доступен в Plan через отдельные сетевые разрешения: один раз, поиск на сессию или конкретный домен на сессию. Добавлены раздел Web в Settings, encrypted credential references и CLI `chisel web status/configure/test` с JSON и headless approval_required.
 - Web Fetch проверяет публичные адреса и DNS каждого redirect, подключается к проверенному IP с исходной TLS identity и блокирует private network даже в Bypass. Ограничены таймауты, redirects, wire/decompressed bytes, extraction, concurrency и turn quota. Внешний текст остаётся недоверенными reference data, включая диапазоны artifacts.

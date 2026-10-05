@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { Tool, Transport } from "@modelcontextprotocol/client";
 import {
-  Client,
   isInputRequiredResult,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
@@ -29,6 +28,7 @@ import type {
   McpCredentialResolver,
 } from "./credentials.js";
 import type { McpRedactor } from "./redaction.js";
+import { McpSdkClient } from "./sdk-client.js";
 import type { McpServerEntry } from "./storage.js";
 
 /** SDK error cleanup and application cancellation must await the same close. */
@@ -54,7 +54,7 @@ class SdkMcpConnection implements McpConnection {
   private stderrDecoder = new StringDecoder("utf8");
   private stderrPending = "";
   private stderrDiscarding = false;
-  private readonly client: Client;
+  private readonly client: McpSdkClient;
   private transport?: Transport;
   constructor(
     private readonly entry: McpServerEntry,
@@ -63,7 +63,7 @@ class SdkMcpConnection implements McpConnection {
     private readonly redactor: McpRedactor,
     private readonly callbacks: McpConnectionCallbacks,
   ) {
-    this.client = new Client(
+    this.client = new McpSdkClient(
       { name: "ChiselCode", version: VERSION },
       {
         capabilities: {},
