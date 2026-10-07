@@ -6,8 +6,11 @@
 
 ## [Не выпущено]
 
+## [0.6.16] - 2026-10-07
+
 - Доверенные linked extensions могут регистрировать tools во время activation: namespaces, атомарный provider snapshot, общий executor/permissions/guards, cancellation и сохранение owner в сессии. Загрузка пользовательских JS-плагинов пока отсутствует.
 - Добавлен встроенный `ext:builtin.project:manifest` для чтения четырёх корневых project manifests с path/ignore/size checks и EditingService observations. Он доступен агенту в Plan и Build при обычном CLI/TUI запуске.
+- Инструменты расширений показывают владельца в approvals, CLI/TUI и replay. Пустой план записи не обходит permissions; данные расширений не становятся trusted system guidance. Ignore policy проверяет и запрошенный, и разрешённый путь, чтобы ignored symlink не раскрывал содержимое файла.
 
 ## [0.6.15] - 2026-10-07
 
