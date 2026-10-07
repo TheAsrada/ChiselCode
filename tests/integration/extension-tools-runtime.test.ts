@@ -968,7 +968,7 @@ test("built-in manifest reads fresh bounded files, observes revisions and honest
   expect(result.output).toContain("module example");
   expect(result.output).not.toContain("PRIVATE");
   expect(Object.keys(f.context.editing.observations)).toContain(
-    join(path, "package.json"),
+    await f.context.workspace.resolve("package.json"),
   );
   await writeFile(join(path, "package.json"), '{"name":"two"}');
   expect((await f.call("ext:builtin.project:manifest")).output).toContain(
