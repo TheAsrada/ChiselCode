@@ -30,8 +30,19 @@ test("CLI status/configure/test report JSON and sensible approval/safety exit co
       provider: "exa",
       configured: true,
       requiresApiKey: false,
+      permission: "allow",
     });
+    expect(JSON.parse(status.stdout).fetch.permission).toBe("allow");
     expect(JSON.parse(status.stdout).network.tlsVerification).toBe(true);
+    const ask = await run([
+      "web",
+      "configure",
+      "--search",
+      "ask",
+      "--fetch",
+      "ask",
+    ]);
+    expect(ask.exitCode).toBe(0);
     const pending = await run([
       "web",
       "test",
@@ -134,7 +145,7 @@ test("CLI status/configure/test report JSON and sensible approval/safety exit co
   }
 }, 30000);
 
-test("headless model-to-tool composition exposes native schemas and saves approval_required without granting internet", async () => {
+test("headless model-to-tool composition preserves explicitly configured Ask and saves approval_required", async () => {
   const root = await mkdtemp(join(tmpdir(), "web-cli-agent-"));
   const requests: Record<string, unknown>[] = [];
   const key = "fixture-brave-key-not-in-transcript";
@@ -189,6 +200,7 @@ test("headless model-to-tool composition exposes native schemas and saves approv
     await saveGlobalConfig(
       {
         schemaVersion: 2,
+        web: { permissions: { search: "ask", fetch: "ask" } },
         defaultProfileId: "fixture",
         profiles: {
           fixture: {

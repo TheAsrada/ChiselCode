@@ -46,7 +46,7 @@
 
 Поиск Exa и Parallel доступен без отдельного API-ключа. По умолчанию Авто переходит к следующему разрешённому сервису при недоступности или квоте; отмена, deny и общие лимиты такой переход не вызывают. Если выбран Brave без ключа, переключите `/settings` → Web → Сервис поиска на Авто или выполните `chisel web configure --search-provider auto`. Ошибка `WEB_RATE_LIMITED` требует повторить позже или использовать свой поисковый тариф; неизвестные страницы можно открывать через fetch независимо от backend.
 
-Проверьте `chisel web status --json`, затем разрешённый `chisel --allow web_fetch web test --url https://react.dev/reference/`. Для корпоративной сети настройте proxy, дополнительные CA и mTLS в окружении: [инструкция](network.md). TLS-проверка не отключается, proxy не открывает private network через Web. Не прикладывайте пароли proxy, PEM или закрытые ключи к issue.
+Проверьте `chisel web status --json`, затем `chisel web test --url https://react.dev/reference/`: с дефолтным Allow approval не требуется. Сохранённый Ask продолжает действовать; переключите его на Allow в Settings или через `chisel web configure --search allow --fetch allow`, если подтверждения не нужны. `WEB_NETWORK_DENIED` требует проверить также user/project deny и отключение Web; `--allow` и Bypass не переопределяют запреты. Для корпоративной сети настройте proxy, дополнительные CA и mTLS в окружении: [инструкция](network.md). TLS-проверка не отключается, proxy не открывает private network через Web. Не прикладывайте пароли proxy, PEM или закрытые ключи к issue.
 
 ## Как оформить баг
 

@@ -175,8 +175,8 @@ Profile ID — 1–128 символов, буквы/цифры/точка/деф
     "enabled": true,
     "search": { "provider": "auto" },
     "permissions": {
-      "search": "ask", "fetch": "ask",
-      "allowDomains": ["react.dev", "docs.rs"],
+      "search": "allow", "fetch": "allow",
+      "allowDomains": [],
       "denyDomains": ["*.internal.example.com"]
     },
     "cacheTtlMs": 300000,
@@ -190,7 +190,9 @@ Profile ID — 1–128 символов, буквы/цифры/точка/деф
 }
 ```
 
-`search.provider` принимает `auto`, `exa`, `parallel`, `brave`. По умолчанию стоит `auto`: Exa → Parallel, а при наличии ключа Brave — Brave → Exa → Parallel. Авто обращается к следующему разрешённому сервису только при недоступности, ошибке авторизации или квоте текущего; успешный пустой результат не запускает другой движок. Сервисы показываются перед approval, denied endpoints исключаются, отмена и общие network/turn limits останавливают цепочку. У всей попытки один общий timeout. Явные `exa` и `parallel` используют официальные MCP без обязательного ключа и имеют лимиты бесплатного доступа; другой сервис при ошибке не вызывается. Явный `brave` использует `search.apiKey: { "envRef": "BRAVE_SEARCH_API_KEY" }` или `{ "secretRef": "web/brave-search" }`, сохранённый через скрытое поле Settings. Старые Brave config и secret references остаются совместимыми. Raw API keys и неизвестные поля Web отклоняются. `cacheTtlMs: 0` отключает cache. Все пределы проверяются строгой схемой; они не могут быть бесконечными. Search возвращает максимум 10 результатов, fetch принимает `maxChars` и дополнительно ограничен `maxExtractedChars`.
+Отсутствующие `permissions.search` и `permissions.fetch` означают `allow`: все безопасные публичные домены доступны без approval, в том числе в Plan и headless. Сохранённые явные `ask`/`deny` сохраняются. `allowDomains` относится к исключениям при `fetch: ask`, а не ограничивает домены при `fetch: allow`. `denyDomains` и project deny проверяются раньше разрешений и снова перед redirects/чтением кеша. Allow не отключает SSRF.
+
+`search.provider` принимает `auto`, `exa`, `parallel`, `brave`. По умолчанию стоит `auto`: Exa → Parallel, а при наличии ключа Brave — Brave → Exa → Parallel. Авто обращается к следующему разрешённому сервису только при недоступности, ошибке авторизации или квоте текущего; успешный пустой результат не запускает другой движок. При Ask сервисы показываются перед approval; denied endpoints исключаются во всех режимах, отмена и общие network/turn limits останавливают цепочку. У всей попытки один общий timeout. Явные `exa` и `parallel` используют официальные MCP без обязательного ключа и имеют лимиты бесплатного доступа; другой сервис при ошибке не вызывается. Явный `brave` использует `search.apiKey: { "envRef": "BRAVE_SEARCH_API_KEY" }` или `{ "secretRef": "web/brave-search" }`, сохранённый через скрытое поле Settings. Старые Brave config и secret references остаются совместимыми. Raw API keys и неизвестные поля Web отклоняются. `cacheTtlMs: 0` отключает cache. Все пределы проверяются строгой схемой; они не могут быть бесконечными. Search возвращает максимум 10 результатов, fetch принимает `maxChars` и дополнительно ограничен `maxExtractedChars`.
 
 Репозиторий может только ужесточать `.chiselrc`: `"web": { "enabled": false, "denyDomains": ["example.com"], "maxRequestsPerTurn": 8 }`. Project config не принимает allow rules, credentials, custom transport или отключение SSRF. Deny имеет приоритет над domain/tool/session grants и Bypass. `*.example.com` разрешает/запрещает поддомены, apex добавляется отдельным правилом.
 

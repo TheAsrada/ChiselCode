@@ -24,6 +24,7 @@ import { ProjectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import type {
+  ProjectConfig,
   ProviderAdapter,
   Session,
   StreamEvent,
@@ -31,6 +32,7 @@ import type {
 import { replaySessionIntoTranscript } from "../../src/ui/tool-transcript.js";
 import { WebToolProvider } from "../../src/web/provider.js";
 import { WebConfigSchema } from "../../src/web/schema.js";
+import type { AddressResolver } from "../../src/web/url-policy.js";
 import { startWebFixture } from "../fixtures/web-http.js";
 
 async function environment(
@@ -41,26 +43,34 @@ async function environment(
     approval?: "default" | "dontAsk" | "bypassPermissions";
     decision?: ApprovalDecision;
     config?: unknown;
+    projectWeb?: ProjectConfig["web"];
+    allowedTools?: string[];
+    resolver?: AddressResolver;
     session?: Session;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "chisel-web-"));
   const fixture = await startWebFixture(
-    WebConfigSchema.parse(options.config ?? {}),
+    WebConfigSchema.parse(
+      options.config ??
+        (options.ask ? { permissions: { search: "ask", fetch: "ask" } } : {}),
+    ),
+    options.resolver,
   );
   const session = options.session ?? createSession(root, "fixture", "scripted");
   const approvals: ApprovalRequest[] = [];
   const events: RuntimeEvent[] = [];
   const gate = new ApprovalGate(
-    DEFAULT_PROJECT_CONFIG,
+    { ...DEFAULT_PROJECT_CONFIG, web: options.projectWeb },
     {
       autoApprove: false,
       approvalMode: options.approval ?? "default",
       allowBypassPermissions: true,
       allowedTools: new Set(
-        options.ask
-          ? []
-          : ["web_fetch", "web_search", "edit_file", "run_shell"],
+        options.allowedTools ??
+          (options.ask
+            ? []
+            : ["web_fetch", "web_search", "edit_file", "run_shell"]),
       ),
       nonInteractive: options.headless ?? false,
       network: { scope: `${root}:${session.id}`, config: fixture.config },
@@ -115,6 +125,196 @@ const call = (id: string, path = "/article") => ({
   name: "web_fetch",
   input: { url: `https://fixture.docs.example${path}` },
 });
+
+for (const mode of ["plan", "build"] as const)
+  for (const approval of ["default", "dontAsk"] as const)
+    test(`default public search/fetch and redirects need no approval in ${mode}/${approval}, including headless`, async () => {
+      const env = await environment({
+        mode,
+        approval,
+        headless: true,
+        allowedTools: [],
+      });
+      try {
+        const results = await env.tools.scheduler.execute([
+          {
+            id: "default-search",
+            name: "web_search",
+            input: { query: "official API docs" },
+          },
+          call("default-fetch", "/cross-domain"),
+        ]);
+        expect(results).toHaveLength(2);
+        for (const result of results) {
+          expect(result.isError).not.toBe(true);
+          expect(result.requiresApproval).not.toBe(true);
+          expect(result.contentTrust).toBe("untrusted_external");
+          expect(result.references?.length).toBeGreaterThan(0);
+        }
+        expect(env.approvals).toHaveLength(0);
+        expect(
+          env.events.some((event) => event.type === "tool_approval_requested"),
+        ).toBe(false);
+        expect(
+          env.fixture.connections.some(
+            (connection) => connection.hostname === "other.docs.example",
+          ),
+        ).toBe(true);
+        // AgentRuntime checkpoints again after the parallel tool batch settles.
+        await env.store.save(env.session);
+        const loaded = await env.store.load(env.session.id);
+        expect(loaded.runtime?.invocations["default-search"]?.state).toBe(
+          "succeeded",
+        );
+        expect(loaded.runtime?.invocations["default-fetch"]?.state).toBe(
+          "succeeded",
+        );
+        const fetched = results[1];
+        if (!fetched) throw new Error("Fixture fetch result is missing.");
+        expect(
+          await env.tools.executor.execute(
+            call("default-fetch", "/cross-domain"),
+          ),
+        ).toEqual(fetched);
+      } finally {
+        await env.close();
+      }
+    });
+
+for (const approval of ["default", "dontAsk", "bypassPermissions"] as const)
+  test(`public defaults keep SSRF blocked in ${approval} before any socket opens`, async () => {
+    const env = await environment({ approval, allowedTools: [] });
+    try {
+      for (const [index, url] of [
+        "http://localhost/",
+        "http://host.local/",
+        "http://127.0.0.1/",
+        "http://2130706433/",
+        "http://0x7f000001/",
+        "http://10.1.2.3/",
+        "http://172.16.1.2/",
+        "http://192.168.1.5/",
+        "http://169.254.169.254/",
+        "http://metadata.google.internal/",
+        "http://100.100.100.200/",
+        "http://240.0.0.1/",
+        "http://[::1]/",
+        "http://[fd00::1]/",
+        "http://[fe80::1]/",
+        "http://[::ffff:127.0.0.1]/",
+        "file:///etc/passwd",
+        "ftp://example.com/",
+        "https://example.com:8080/",
+      ].entries()) {
+        const result = await env.tools.executor.execute({
+          id: `unsafe-default-${index}`,
+          name: "web_fetch",
+          input: { url },
+        });
+        expect(result.errorCode).toBe("WEB_UNSAFE_ADDRESS");
+        expect(result.requiresApproval).not.toBe(true);
+      }
+      expect(env.fixture.connections).toHaveLength(0);
+      expect(env.approvals).toHaveLength(0);
+      const redirected = await env.tools.executor.execute(
+        call("unsafe-redirect", "/private"),
+      );
+      expect(redirected.errorCode).toBe("WEB_UNSAFE_ADDRESS");
+      expect(
+        env.fixture.connections.map((connection) => connection.hostname),
+      ).toEqual(["fixture.docs.example"]);
+    } finally {
+      await env.close();
+    }
+  });
+
+test("default Allow rejects DNS with any private, reserved or metadata address", async () => {
+  for (const addresses of [
+    [{ address: "127.0.0.1", family: 4 }],
+    [{ address: "169.254.169.254", family: 4 }],
+    [{ address: "240.0.0.1", family: 4 }],
+    [{ address: "fd00::1", family: 6 }],
+    [
+      { address: "93.184.215.14", family: 4 },
+      { address: "10.0.0.1", family: 4 },
+    ],
+  ] as const) {
+    const env = await environment({
+      allowedTools: [],
+      resolver: async () => [...addresses],
+    });
+    try {
+      const result = await env.tools.executor.execute(call("unsafe-dns"));
+      expect(result.errorCode).toBe("WEB_UNSAFE_ADDRESS");
+      expect(result.requiresApproval).not.toBe(true);
+      expect(env.fixture.connections).toHaveLength(0);
+      expect(env.approvals).toHaveLength(0);
+    } finally {
+      await env.close();
+    }
+  }
+});
+
+test("project denies override default Allow, including a redirect destination", async () => {
+  for (const hostname of ["fixture.docs.example", "other.docs.example"]) {
+    const env = await environment({
+      approval: "bypassPermissions",
+      allowedTools: ["web_fetch"],
+      projectWeb: { denyDomains: [hostname] },
+    });
+    try {
+      const result = await env.tools.executor.execute(
+        call("project-denied", "/cross-domain"),
+      );
+      expect(result.errorCode).toBe("WEB_NETWORK_DENIED");
+      expect(
+        env.fixture.connections.some(
+          (connection) => connection.hostname === hostname,
+        ),
+      ).toBe(false);
+      expect(env.approvals).toHaveLength(0);
+    } finally {
+      await env.close();
+    }
+  }
+});
+
+test("live user deny wins over default Allow before redirect and cached reads", async () => {
+  const env = await environment({ allowedTools: [] });
+  try {
+    const cachedRedirect = await env.tools.executor.execute(
+      call("cache-final-public", "/cross-domain"),
+    );
+    expect(cachedRedirect.isError).not.toBe(true);
+    const beforeDeny = env.fixture.connections.length;
+    env.fixture.config.permissions.denyDomains.push("other.docs.example");
+    const deniedFinal = await env.tools.executor.execute(
+      call("cache-final-denied", "/cross-domain"),
+    );
+    expect(deniedFinal.errorCode).toBe("WEB_NETWORK_DENIED");
+    expect(env.fixture.connections).toHaveLength(beforeDeny);
+    const redirected = await env.tools.executor.execute(
+      call("denied-redirect", "/cross-domain?fresh=1"),
+    );
+    expect(redirected.errorCode).toBe("WEB_NETWORK_DENIED");
+    expect(
+      env.fixture.connections
+        .slice(beforeDeny)
+        .some((connection) => connection.hostname === "other.docs.example"),
+    ).toBe(false);
+    const first = await env.tools.executor.execute(call("cached-public"));
+    expect(first.isError).not.toBe(true);
+    const connections = env.fixture.connections.length;
+    env.fixture.config.permissions.denyDomains.push("fixture.docs.example");
+    const cached = await env.tools.executor.execute(call("cache-denied"));
+    expect(cached.errorCode).toBe("WEB_NETWORK_DENIED");
+    expect(env.fixture.connections).toHaveLength(connections);
+    expect(env.approvals).toHaveLength(0);
+  } finally {
+    await env.close();
+  }
+});
+
 async function until(ready: () => boolean) {
   for (let attempt = 0; attempt < 100; attempt++) {
     if (ready()) return;

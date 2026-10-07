@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_PROJECT_CONFIG } from "../../src/config/load.js";
 import { webResultSummary } from "../../src/ui/web-result.js";
 import { AutoSearchBackend } from "../../src/web/auto-search.js";
 import { testWebAccess } from "../../src/web/diagnostics.js";
@@ -34,6 +35,65 @@ async function environment() {
   };
 }
 
+for (const approvalMode of ["default", "dontAsk"] as const)
+  test(`default Auto search and fallback run in ${approvalMode} without grants or approval`, async () => {
+    const env = await environment();
+    env.exa.state.httpStatus = 429;
+    try {
+      const result = (
+        await testWebAccess(
+          env.provider,
+          env.root,
+          { query: "official documentation" },
+          { approvalMode },
+        )
+      )[0]?.result;
+      expect(result?.isError).not.toBe(true);
+      expect(result?.requiresApproval).not.toBe(true);
+      expect(result?.details?.web).toMatchObject({
+        provider: "parallel",
+        routing: { mode: "auto", attempted: ["exa", "parallel"] },
+      });
+      expect(env.parallel.argumentsReceived).toHaveLength(1);
+    } finally {
+      await env.close();
+    }
+  });
+
+test("project search denies exclude an Auto service and deny the whole route when all services are blocked", async () => {
+  for (const denyDomains of [
+    ["mcp.exa.ai"],
+    ["mcp.exa.ai", "search.parallel.ai"],
+  ]) {
+    const env = await environment();
+    try {
+      const result = (
+        await testWebAccess(
+          env.provider,
+          env.root,
+          { query: "official docs" },
+          {
+            allow: ["web_search"],
+            approvalMode: "bypassPermissions",
+            allowBypassPermissions: true,
+            project: { ...DEFAULT_PROJECT_CONFIG, web: { denyDomains } },
+          },
+        )
+      )[0]?.result;
+      expect(env.exa.connections).toHaveLength(0);
+      if (denyDomains.length === 1) {
+        expect(result?.isError).not.toBe(true);
+        expect(result?.details?.web).toMatchObject({ provider: "parallel" });
+      } else {
+        expect(result?.errorCode).toBe("WEB_NETWORK_DENIED");
+        expect(env.parallel.connections).toHaveLength(0);
+      }
+    } finally {
+      await env.close();
+    }
+  }
+});
+
 test("Auto uses a single successful service and does not multiply calls for an empty search", async () => {
   const env = await environment();
   try {
@@ -60,6 +120,7 @@ test("Auto uses a single successful service and does not multiply calls for an e
 
 test("one Auto approval previews both fixed services and falls back from Exa quota to real Parallel MCP", async () => {
   const env = await environment();
+  env.exa.config.permissions.search = "ask";
   env.exa.state.httpStatus = 429;
   const previews: string[] = [];
   try {
@@ -159,8 +220,9 @@ test("malformed provider results are discarded and Auto can obtain valid evidenc
   }
 });
 
-test("a denied fallback cannot be contacted after a service failure; Dont Ask does not launch either service", async () => {
+test("a denied fallback cannot be contacted after a service failure; Dont Ask rejects explicit Ask", async () => {
   const env = await environment();
+  env.exa.config.permissions.search = "ask";
   try {
     const denied = (
       await testWebAccess(

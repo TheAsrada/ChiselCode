@@ -8,6 +8,7 @@ import {
   ProjectWebConfigSchema,
   resolveWebConfig,
   WebConfigSchema,
+  WebPermissionsSchema,
 } from "../../src/web/schema.js";
 import { publicAddress, UrlPolicy } from "../../src/web/url-policy.js";
 
@@ -139,7 +140,9 @@ describe("network permission layer", () => {
     },
   };
   function gate(
-    config = WebConfigSchema.parse({}),
+    config = WebConfigSchema.parse({
+      permissions: { search: "ask", fetch: "ask" },
+    }),
     mode:
       | "default"
       | "acceptEdits"
@@ -160,7 +163,89 @@ describe("network permission layer", () => {
       { requestApproval: async () => "unavailable" },
     );
   }
-  test("external reads require approval independently of filesystem reads", () => {
+  test("missing Web permissions allow public search and fetch in every approval mode", () => {
+    for (const value of [undefined, {}, { permissions: {} }]) {
+      const config = WebConfigSchema.parse(value);
+      expect(config.permissions).toEqual({
+        search: "allow",
+        fetch: "allow",
+        allowDomains: [],
+        denyDomains: [],
+      });
+      for (const mode of [
+        "default",
+        "acceptEdits",
+        "dontAsk",
+        "bypassPermissions",
+      ] as const) {
+        const policy = gate(config, mode).policy;
+        expect(policy.decide(request, "external_read")).toBe("allow");
+        expect(
+          policy.decide(
+            {
+              tool: "web_search",
+              preview: "Public documentation",
+              network: {
+                operation: "search",
+                hostname: "mcp.exa.ai",
+                searchHosts: ["mcp.exa.ai", "search.parallel.ai"],
+              },
+            },
+            "external_read",
+          ),
+        ).toBe("allow");
+      }
+    }
+    expect(WebPermissionsSchema.parse(undefined).fetch).toBe("allow");
+    expect(WebPermissionsSchema.parse({}).search).toBe("allow");
+    expect(
+      WebConfigSchema.parse({ permissions: { search: "ask", fetch: "deny" } })
+        .permissions,
+    ).toMatchObject({ search: "ask", fetch: "deny" });
+    expect(
+      WebConfigSchema.parse({ permissions: { fetch: "ask" } }).permissions,
+    ).toMatchObject({ search: "allow", fetch: "ask" });
+  });
+  test("user and project denies beat public defaults, session grants, tool grants and Bypass", () => {
+    for (const global of [
+      { enabled: false },
+      { permissions: { fetch: "deny" } },
+      { permissions: { denyDomains: ["react.dev"] } },
+      { permissions: { denyDomains: ["*.dev"] } },
+    ]) {
+      for (const mode of ["default", "dontAsk", "bypassPermissions"] as const) {
+        const policy = gate(WebConfigSchema.parse(global), mode, [
+          "web_fetch",
+        ]).policy;
+        policy.grantNetwork(request.network);
+        expect(policy.decide(request, "external_read")).toBe("deny");
+      }
+    }
+    for (const project of [
+      { enabled: false },
+      { denyDomains: ["react.dev"] },
+      { denyDomains: ["*.dev"] },
+    ]) {
+      const combined = resolveWebConfig(
+        { permissions: { allowDomains: ["react.dev"] } },
+        ProjectWebConfigSchema.parse(project),
+      );
+      const policy = gate(combined, "bypassPermissions", ["web_fetch"]).policy;
+      policy.grantNetwork(request.network);
+      expect(policy.decide(request, "external_read")).toBe("deny");
+    }
+  });
+  test("public default authorizes public redirects but rechecks live denies", () => {
+    const config = WebConfigSchema.parse({});
+    const policy = gate(config).policy;
+    const capability = policy.authorizeNetwork(request, "default", false);
+    capability.assertDestination("docs.rs");
+    config.permissions.denyDomains.push("docs.rs");
+    expect(() => capability.assertDestination("docs.rs")).toThrow();
+    config.enabled = false;
+    expect(() => capability.assertDestination("react.dev")).toThrow();
+  });
+  test("explicit Ask requires network approval independently of filesystem reads", () => {
     const g = gate();
     expect(g.policy.decide(request, "external_read")).toBe("ask");
     expect(
@@ -226,7 +311,9 @@ describe("network permission layer", () => {
     expect(gate().policy.decide(request, "external_read")).toBe("ask");
   });
   test("a once grant cannot authorize cross-domain redirects and can be revoked live", () => {
-    const config = WebConfigSchema.parse({});
+    const config = WebConfigSchema.parse({
+      permissions: { search: "ask", fetch: "ask" },
+    });
     const g = gate(config);
     const capability = g.policy.authorizeNetwork(request, "default", true);
     capability.assertDestination("react.dev");
@@ -236,7 +323,7 @@ describe("network permission layer", () => {
   });
   test("Auto search approval is bounded to listed service hosts, filters denied services and rechecks live policy", () => {
     const config = WebConfigSchema.parse({
-      permissions: { denyDomains: ["mcp.exa.ai"] },
+      permissions: { search: "ask", denyDomains: ["mcp.exa.ai"] },
     });
     const g = gate(config);
     const auto = {

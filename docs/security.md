@@ -59,7 +59,7 @@ Manifest — данные, а не executable code. Discovery не читает 
 
 ## Публичный Web
 
-`web_search` и `web_fetch` — `external_read` с отдельной network policy. Plan разрешает чтение, но не выдаёт сетевой доступ. По умолчанию нужен approval; Dont Ask отклоняет неподтверждённое, Accept edits не разрешает сеть автоматически. Bypass соблюдает явные deny и отключение Web. Разрешение «на сессию» относится к поиску либо точному hostname и хранится только в памяти; сохранённая история его не восстанавливает.
+`web_search` и `web_fetch` — `external_read` с отдельной network policy. По умолчанию поиск и открытие всех безопасных публичных доменов разрешены без approval, включая Plan, headless и Dont Ask. Отсутствующие поля permissions получают Allow; сохранённые явные Ask/Deny не меняются. User/project deny, отключение Web и запрет операции имеют приоритет над Allow, domain/session grants, `--allow` и Bypass; policy проверяется повторно перед соединением, redirect и использованием кеша. При явно выбранном Ask Accept edits не выдаёт grant, Dont Ask отклоняет запрос, headless возвращает approval_required. Разрешение «на сессию» относится к поиску либо точному hostname и хранится только в памяти; сохранённая история его не восстанавливает.
 
 SSRF protection действует отдельно от permissions. Даже Bypass не разрешает localhost, private/reserved IPv4/IPv6, link-local, metadata, `.local`, credentials в URL, нестандартные protocols или порты. Все DNS answers проверяются; socket открывается к проверенному IP с исходной TLS identity. Redirect проверяется заново; переход на другой домен требует действующего разрешения. Опции отключения SSRF или доступа к localhost в native Web нет. Shell и MCP имеют свои полномочия; Web policy не является OS firewall.
 

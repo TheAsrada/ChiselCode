@@ -11,7 +11,7 @@
 
 ## Начать пользоваться
 
-Откройте `/settings` → Web. Включите доступ и оставьте «Спрашивать» для поиска и открытия страниц. По умолчанию поиск готов без регистрации и отдельного ключа: используется официальный [публичный Exa MCP](https://exa.ai/docs/reference/exa-mcp). Бесплатный доступ имеет лимиты сервиса; ChiselCode не обещает безлимитный поиск.
+Откройте `/settings` → Web. Доступ включён, поиск и открытие публичных страниц по умолчанию стоят в «Разрешено» и не требуют approval. Пользовательские и проектные deny rules действуют всегда. Поиск готов без регистрации и отдельного ключа: используется официальный [публичный Exa MCP](https://exa.ai/docs/reference/exa-mcp). Бесплатный доступ имеет лимиты сервиса; ChiselCode не обещает безлимитный поиск. При желании отдельно включите «Спрашивать» для поиска или открытия страниц.
 
 По умолчанию «Сервис поиска» стоит в **Авто**: Exa → [Parallel](https://docs.parallel.ai/integrations/mcp/search-mcp), без регистрации и обязательного API-ключа. Сохранённый ключ Brave добавляет его первым. При недоступности, квоте или некорректном результате текущего сервиса Авто пробует следующий разрешённый; успешный ответ, включая пустой, завершает поиск. Цепочка ограничена общим timeout и обычным web budget.
 
@@ -39,20 +39,22 @@ chisel web status
 
 Parallel подключается через официальный анонимный Search MCP. Настройки расширенного authenticated source policy в этом режиме не действуют: ChiselCode передаёт поисковые операторы и обязательно проверяет domains/excludeDomains и limit на полученных ссылках. Его remote `web_fetch` не подключается: страницы читает собственный безопасный fetch ChiselCode. Необязательные analytics-поля и protocol envelopes не попадают в модельный ответ.
 
-## Подтверждения
+## Доступ и подтверждения
 
-Первый поиск показывает запрос и backend, а в Авто — все возможные сервисы и endpoints; запрещённые адреса не вызываются. Отмена, network deny, SSRF, HTTP 403 и общие лимиты не запускают следующий сервис. Открытие страницы показывает URL и домен. **Y** разрешает один раз, **A** разрешает поиск или точный домен на текущую сессию, **N / Esc** отклоняет. Grant поиска не разрешает все найденные сайты. Для параллельных calls подтверждения идут последовательно; после domain grant страницы этого домена не вызывают новые попапы.
+По умолчанию `permissions.search` и `permissions.fetch` равны `allow`: публичные источники доступны сразу в Manual, Accept edits и Dont Ask, в Plan/Build и headless. Allow не отключает SSRF, deny rules, TLS, quotas или проверку redirects. Авто исключает запрещённые сервисы; отмена, network deny, SSRF, HTTP 403 и общие лимиты не запускают обходной запрос.
 
-Session grants хранятся в памяти процесса, изолированы по workspace/session ID и не восстанавливаются из сохранённого transcript после перезапуска. Постоянные Ask/Allow/Deny задаются в Settings отдельно для search/fetch. Для постоянного allow конкретных доменов:
+При явно выбранном Ask поиск показывает запрос и backend, а в Авто — возможные сервисы и endpoints. Открытие страницы показывает URL и домен. **Y** разрешает один раз, **A** разрешает поиск или точный домен на текущую сессию, **N / Esc** отклоняет. Grant поиска не разрешает все найденные сайты, для которых пользователь включил Ask. Для параллельных calls подтверждения идут последовательно; после domain grant страницы этого домена не вызывают новые попапы.
+
+Session grants хранятся в памяти процесса, изолированы по workspace/session ID и не восстанавливаются из сохранённого transcript после перезапуска. Постоянные Ask/Allow/Deny задаются в Settings отдельно для search/fetch. Сохранённые явные Ask/Deny не заменяются новыми дефолтами; отсутствующие поля получают Allow. `allowDomains` избавляет от подтверждений выбранных доменов при Fetch Ask и не ограничивает общий доступ при Fetch Allow. Для Ask с исключениями:
 
 ```sh
-chisel web configure --allow-domain react.dev docs.rs developer.mozilla.org
+chisel web configure --fetch ask --allow-domain react.dev docs.rs developer.mozilla.org
 chisel web configure --deny-domain '*.internal.example.com'
 ```
 
-Точное правило относится к hostname, `*.example.com` — только к поддоменам; apex добавляется отдельно. Deny и полное отключение Web имеют приоритет над grants и Bypass. Accept edits не выдаёт сетевые разрешения. Dont Ask отклоняет всё, что потребовало бы approval. Project `.chiselrc` может только ограничивать доступ; клонированный репозиторий не может сам разрешить интернет.
+Точное правило относится к hostname, `*.example.com` — только к поддоменам; apex добавляется отдельно. User `denyDomains`, project `web.denyDomains`, запрет операции и полное отключение Web имеют приоритет над Allow, allowDomains, grants, `--allow` и Bypass. Accept edits не переопределяет явный Ask; Dont Ask разрешает действующий Allow и отклоняет всё, что потребовало бы approval. Project `.chiselrc` может только ограничивать доступ; клонированный репозиторий не может расширить пользовательские разрешения.
 
-Redirect внутри разрешённого домена проверяется автоматически. Другой hostname требует действующего grant: при `WEB_NETWORK_DENIED` агент может отдельно вызвать fetch публичного destination URL и получить обычный approval. Permission policy и проверка безопасных адресов — разные уровни.
+При Fetch Allow публичный redirect на другой hostname не требует подтверждения, но destination заново проверяется по DNS/SSRF и deny rules. При Fetch Ask другой hostname требует действующего grant; разрешение начального URL не распространяется на весь интернет. Deny повторно проверяется перед соединением и использованием кешированного final URL. Permission policy и проверка безопасных адресов — разные уровни.
 
 ## Что видит агент и чат
 
@@ -85,19 +87,19 @@ Web policy относится к native Web tools, не является OS fire
 ```sh
 chisel --json web status
 chisel web test --url https://example.com/
-chisel --allow web_fetch web test --url https://example.com/
-chisel --allow web_search,web_fetch web test --search 'React Server Actions docs'
+chisel web test --search 'React Server Actions docs'
+chisel web configure --search allow --fetch allow
 chisel web configure --search ask --fetch ask
 chisel web configure --disable
 ```
 
-`status` не делает HTTP запросов. `test` использует общий ToolExecutor и permissions; без grant возвращает `approval_required` и exit 2. Headless `chisel --json "Найди документацию"` тоже не разрешает сеть автоматически. API errors дают controlled tool failures; локальные инструменты продолжают работать.
+`status` не делает HTTP запросов. `test` и headless `chisel --json "Найди документацию"` используют общий ToolExecutor и действующую Web policy: с дефолтным Allow публичный Web доступен без отдельного `--allow`. При явно настроенном Ask без grant возвращаются `approval_required` и exit 2; Dont Ask отклоняет такую операцию. Явные deny и SSRF действуют во всех режимах. API errors дают controlled tool failures; локальные инструменты продолжают работать.
 
 | Ошибка | Что сделать |
 | --- | --- |
 | `WEB_SEARCH_NOT_CONFIGURED` | Для Brave сохраните ключ или переключитесь на Авто / Exa / Parallel без ключа |
 | `WEB_NETWORK_CONFIGURATION` | Проверьте proxy, CA и mTLS: [корпоративная сеть](network.md) |
-| `WEB_NETWORK_DENIED` | Проверьте Ask/Allow/Deny и domain rules; разрешите публичный сайт в обычном approval |
+| `WEB_NETWORK_DENIED` | Проверьте user/project deny, отключение Web и Ask/Allow/Deny; approval и Bypass не переопределяют deny |
 | `WEB_UNSAFE_ADDRESS` | Используйте публичную документацию; private/metadata адреса не поддерживаются |
 | `WEB_TIMEOUT`, `WEB_FETCH_FAILED` | Проверьте публичную доступность сервера и сетевые ограничения |
 | `WEB_HTTP_ERROR` | Сервер вернул HTTP error; 401/403/login flows автоматически не обходятся |

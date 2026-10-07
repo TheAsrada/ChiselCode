@@ -216,6 +216,7 @@ test("cancellation and total deadline terminate hosted requests without poisonin
 
 test("Parallel flows through Plan permissions, Dont Ask and deliberate Bypass without weakening destination policy", async () => {
   const fixture = await startHostedSearchFixture("parallel");
+  fixture.config.permissions.search = "ask";
   const root = await mkdtemp(join(tmpdir(), "parallel-runtime-"));
   const provider = new WebToolProvider(
     fixture.config,

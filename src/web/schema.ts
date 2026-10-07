@@ -9,10 +9,18 @@ export const DomainPatternSchema = z
     /^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
   );
 export const WebPermissionSchema = z.enum(["ask", "allow", "deny"]);
+function defaultWebPermissions() {
+  return {
+    search: "allow" as const,
+    fetch: "allow" as const,
+    allowDomains: [] as string[],
+    denyDomains: [] as string[],
+  };
+}
 export const WebPermissionsSchema = z
   .strictObject({
-    search: WebPermissionSchema.default("ask"),
-    fetch: WebPermissionSchema.default("ask"),
+    search: WebPermissionSchema.default("allow"),
+    fetch: WebPermissionSchema.default("allow"),
     allowDomains: z
       .array(DomainPatternSchema)
       .max(256)
@@ -22,12 +30,7 @@ export const WebPermissionsSchema = z
       .max(256)
       .default(() => []),
   })
-  .default(() => ({
-    search: "ask" as const,
-    fetch: "ask" as const,
-    allowDomains: [],
-    denyDomains: [],
-  }));
+  .default(defaultWebPermissions);
 export const WebCredentialSchema = z.union([
   z.strictObject({ secretRef: z.string().min(1).max(256) }),
   z.strictObject({
@@ -94,12 +97,7 @@ export const WebConfigSchema = z
       provider: "auto" as const,
       apiKey: { envRef: "BRAVE_SEARCH_API_KEY" },
     },
-    permissions: {
-      search: "ask" as const,
-      fetch: "ask" as const,
-      allowDomains: [],
-      denyDomains: [],
-    },
+    permissions: defaultWebPermissions(),
     limits: {
       connectTimeoutMs: 8000,
       requestTimeoutMs: 30000,

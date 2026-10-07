@@ -80,10 +80,15 @@ for (const [width, height] of [
       await frame(setup);
       expect(setup.captureCharFrame()).toContain("Web");
       expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
-      expect(setup.captureCharFrame()).toContain("Спрашивать");
+      expect(setup.captureCharFrame()).toContain("Разрешено");
       expect(setup.captureCharFrame()).toContain("Авто");
       await click(setup, "settings-web-row-1");
-      expect(saved).toEqual(["allow"]);
+      expect(saved).toEqual(["deny"]);
+      await click(setup, "settings-web-row-1");
+      expect(config.permissions.search).toBe("ask");
+      expect(setup.captureCharFrame()).toContain("Спрашивать");
+      await click(setup, "settings-web-row-1");
+      expect(config.permissions.search).toBe("allow");
       await click(setup, "settings-web-row-3");
       expect(config.search.provider).toBe("exa");
       expect(setup.captureCharFrame()).toContain("Exa");

@@ -187,6 +187,7 @@ test("Ctrl+C aborts an in-flight anonymous search and later searches still work"
 
 test("anonymous search uses Plan permissions and normal runtime results, including untrusted source framing", async () => {
   const fixture = await startExaFixture();
+  fixture.config.permissions.search = "ask";
   const root = await mkdtemp(join(tmpdir(), "exa-runtime-"));
   const provider = new WebToolProvider(
     fixture.config,

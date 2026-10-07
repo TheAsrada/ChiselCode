@@ -7,10 +7,10 @@ export interface NetworkRequest {
   url?: string;
   query?: string;
   provider?: string;
-  /** Fixed search-service endpoints shown before approval, never result-page URLs. */
+  /** Fixed search-service endpoints; previews show them when approval is required. */
   searchHosts?: readonly string[];
 }
-/** Issued by ToolExecutor after approval; tools cannot manufacture a grant. */
+/** Issued by ToolExecutor after policy checks/approval; tools cannot manufacture a grant. */
 export interface NetworkAuthorization {
   /** Approved search destinations, filtered by user policy. Fetch keeps its redirect rules. */
   readonly destinations?: readonly string[];
@@ -61,6 +61,8 @@ export function networkDecision(
     )
   )
     return "deny";
+  // Denies always win over the public-Web default. URL/DNS safety is enforced
+  // separately by UrlPolicy and SafeWebHttpClient, including after redirects.
   if (rules[request.operation] === "allow") return "allow";
   if (request.operation === "search") return grants?.search ? "allow" : "ask";
   return grants?.domains.has(request.hostname) ||

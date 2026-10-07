@@ -119,14 +119,15 @@ chisel web configure --search-provider exa
 chisel web configure --key-env BRAVE_SEARCH_API_KEY
 chisel web configure --key-ref web/brave-search
 chisel web configure --allow-domain react.dev docs.rs --deny-domain '*.internal.example.com'
-chisel web configure --search ask --fetch ask
+chisel web configure --search allow --fetch allow
 chisel web test --url https://react.dev/reference/react/useActionState
 chisel --allow web_fetch web test --url https://react.dev/reference/react/useActionState
 chisel --allow web_search,web_fetch web test --search 'React Server Actions official documentation'
 chisel --json web status
+chisel web configure --search ask --fetch ask
 chisel web configure --disable
 ```
 
-`web status` не делает сетевого запроса. `web test` использует обычные tools и PermissionPolicy; без grant возвращает `approval_required`, exit 2. Успех — 0, controlled error — 1, Ctrl+C — 130. `--allow` разрешает только явно названные tools, не отключает SSRF и deny. JSON включает структурированные result/source metadata; не содержит raw HTML или credential values.
+`web status` не делает сетевого запроса. `web test` использует обычные tools и PermissionPolicy: с дефолтным Allow публичный Web доступен без `--allow`; при явно выбранном Ask без grant возвращается `approval_required`, exit 2. Dont Ask разрешает Allow и отклоняет Ask без диалога. Успех — 0, controlled error — 1, Ctrl+C — 130. `--allow` разрешает только явно названные tools, не отключает SSRF, user/project deny и отключение Web. JSON включает структурированные result/source metadata; не содержит raw HTML или credential values.
 
-`web configure` пишет только user config. `--search-provider auto|exa|parallel|brave` выбирает режим поиска. По умолчанию Auto использует Exa → Parallel без ключа; при наличии ключа Brave он идёт первым. Следующий разрешённый сервис вызывается только при недоступности/квоте текущего. Явные Exa/Parallel не требуют ключа и не переключаются на другой backend. Для optional Brave API-ключ не передаётся аргументом CLI: используйте environment/secret reference или скрытое поле `/settings` → Web. `--key-env`/`--key-ref` выбирают Brave, если другой сервис не указан явно. `web status --json` показывает предпочтение режима, первичный backend, кандидатов Auto, необходимость ключа и безопасные признаки proxy/CA/mTLS. В обычном headless запросе `chisel --json "Найди документацию и объясни ошибку"` сеть тоже требует grant; JSON сообщает `approval_required`, а не разрешает интернет автоматически. [Руководство Web](web.md) · [Корпоративная сеть](network.md).
+`web configure` пишет только user config. `--search-provider auto|exa|parallel|brave` выбирает режим поиска. По умолчанию Auto использует Exa → Parallel без ключа; при наличии ключа Brave он идёт первым. Следующий разрешённый сервис вызывается только при недоступности/квоте текущего. Явные Exa/Parallel не требуют ключа и не переключаются на другой backend. Для optional Brave API-ключ не передаётся аргументом CLI: используйте environment/secret reference или скрытое поле `/settings` → Web. `--key-env`/`--key-ref` выбирают Brave, если другой сервис не указан явно. `web status --json` показывает предпочтение режима, первичный backend, кандидатов Auto, необходимость ключа и безопасные признаки proxy/CA/mTLS. Headless `chisel --json "Найди документацию и объясни ошибку"` использует те же дефолтные Allow и приоритетные deny, без отдельного разрешения интернету. Для подтверждений включите Ask через Settings или `web configure`; уже сохранённый Ask продолжает действовать. [Руководство Web](web.md) · [Корпоративная сеть](network.md).

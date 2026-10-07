@@ -14,7 +14,8 @@ test("settings persist only a secret reference and keep the key encrypted", asyn
     const credentials = new CredentialStore(join(root, "credentials"));
     const store = new WebSettingsStore(join(root, "config.json"), credentials);
     const initial = await store.load();
-    expect(initial.config.permissions.fetch).toBe("ask");
+    expect(initial.config.permissions.search).toBe("allow");
+    expect(initial.config.permissions.fetch).toBe("allow");
     const saved = await store.save(
       initial.config,
       "brave-private-key-test-123456789",
@@ -95,4 +96,28 @@ test("defaults and individual settings drafts never share mutable permissions", 
   first.search.apiKey = { secretRef: "only-first" };
   expect(second.permissions.denyDomains).toEqual([]);
   expect(second.search.apiKey).toEqual({ envRef: "BRAVE_SEARCH_API_KEY" });
+});
+test("saving other Web settings preserves the user's explicit Ask and Deny choices", async () => {
+  const root = await mkdtemp(join(tmpdir(), "web-explicit-permissions-"));
+  try {
+    const store = new WebSettingsStore(
+      join(root, "config.json"),
+      new CredentialStore(join(root, "credentials")),
+    );
+    const config = WebConfigSchema.parse({
+      permissions: {
+        search: "ask",
+        fetch: "deny",
+        denyDomains: ["example.com"],
+      },
+    });
+    await store.save(config);
+    const loaded = await store.load();
+    expect(loaded.config.permissions).toEqual(config.permissions);
+    loaded.config.search.provider = "parallel";
+    await store.save(loaded.config);
+    expect((await store.load()).config.permissions).toEqual(config.permissions);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
