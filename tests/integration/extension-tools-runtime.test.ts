@@ -808,42 +808,51 @@ test("cooperative timeout retains a mutation lease until the underlying operatio
   expect(workspaceCoordinator.revision(workspace)).toBeGreaterThan(revision);
 });
 
-test("prompt abort and scope lifetime combine with explicit signals; closed saved adapters never execute", async () => {
-  const entered = deferred<void>();
-  const signals: AbortSignal[] = [];
-  const tool = fixtureTool("wait", { workspaceAccess: "none" });
-  tool.execute = async (context) => {
-    const signal = context.signal;
-    if (!signal) throw new Error("No signal");
-    signals.push(signal);
-    if (signals.length === 2) entered.resolve();
-    await new Promise<void>((resolve) =>
-      signal.addEventListener("abort", () => resolve(), { once: true }),
+for (const firstIsB of [false, true])
+  test(`prompt abort and scope lifetime are independent when ${firstIsB ? "B" : "A"} starts first; closed adapters never execute`, async () => {
+    const firstEntered = deferred<void>();
+    const entered = deferred<void>();
+    const signals = new Map<string, AbortSignal>();
+    const tool = fixtureTool("wait", { workspaceAccess: "none" });
+    tool.execute = async (context) => {
+      const signal = context.signal;
+      if (!signal) throw new Error("No signal");
+      signals.set(context.session.id, signal);
+      if (signals.size === 1) firstEntered.resolve();
+      if (signals.size === 2) entered.resolve();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      return { output: "late" };
+    };
+    const s = await scope([toolExtension("cancel", [tool])]);
+    const f = await setup(s);
+    const g = await setup(s);
+    const cancel = new AbortController();
+    const startA = () => f.call("ext:cancel:wait", {}, "a", cancel.signal);
+    const startB = () =>
+      g.call("ext:cancel:wait", {}, "b", new AbortController().signal);
+    const firstCall = (firstIsB ? startB : startA)();
+    await firstEntered.promise;
+    const secondCall = (firstIsB ? startA : startB)();
+    const a = firstIsB ? secondCall : firstCall;
+    const b = firstIsB ? firstCall : secondCall;
+    await entered.promise;
+    cancel.abort();
+    expect((await a).errorCode).toBe("CANCELLED");
+    expect(signals.get(g.session.id)?.aborted).toBe(false);
+    s.abortLifetime();
+    expect((await b).errorCode).toBe("CANCELLED");
+    const adapter = g.catalog.get("ext:cancel:wait");
+    await s.dispose();
+    expect((await g.call("ext:cancel:wait", {}, "closed")).errorCode).toBe(
+      "CANCELLED",
     );
-    return { output: "late" };
-  };
-  const s = await scope([toolExtension("cancel", [tool])]);
-  const f = await setup(s);
-  const g = await setup(s);
-  const cancel = new AbortController();
-  const a = f.call("ext:cancel:wait", {}, "a", cancel.signal);
-  const b = g.call("ext:cancel:wait", {}, "b", new AbortController().signal);
-  await entered.promise;
-  cancel.abort();
-  expect((await a).errorCode).toBe("CANCELLED");
-  expect(signals[1]?.aborted).toBe(false);
-  s.abortLifetime();
-  expect((await b).errorCode).toBe("CANCELLED");
-  const adapter = g.catalog.get("ext:cancel:wait");
-  await s.dispose();
-  expect((await g.call("ext:cancel:wait", {}, "closed")).errorCode).toBe(
-    "CANCELLED",
-  );
-  await expect(adapter.prepare(g.context, {})).rejects.toMatchObject({
-    code: "CANCELLED",
+    await expect(adapter.prepare(g.context, {})).rejects.toMatchObject({
+      code: "CANCELLED",
+    });
+    expect(signals.size).toBe(2);
   });
-  expect(signals).toHaveLength(2);
-});
 
 for (const stage of ["parse", "prepare", "execute"] as const)
   test(`${stage} errors retain core codes, attribution and sanitization`, async () => {
