@@ -7,6 +7,13 @@ import {
 import { ContextManager } from "../context/context-manager.js";
 import { modelSummarizer } from "../context/model-summary.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
+import {
+  contextCollection,
+  type ExtensionDependencies,
+  withExtensionWorkspace,
+} from "../extensions/composition.js";
+import type { WorkspaceExtensionScope } from "../extensions/host.js";
+import { ExtensionLifecycleError } from "../extensions/lifecycle.js";
 import { resolveCredential } from "../providers/auth.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
@@ -330,6 +337,51 @@ export async function runPrompt(
   resolver: ApprovalResolver,
   events: RunEventHandlers = {},
   signal?: AbortSignal,
+  extensions?: ExtensionDependencies,
+): Promise<{ result: AgentResult; exitCode: number }> {
+  let completed: { result: AgentResult; exitCode: number } | undefined;
+  try {
+    return await withExtensionWorkspace(
+      options.cwd ?? process.cwd(),
+      extensions,
+      signal,
+      async (scope, operation) => {
+        completed = await runPromptInWorkspace(
+          prompt,
+          options,
+          resolver,
+          events,
+          operation,
+          scope,
+        );
+        return completed;
+      },
+    );
+  } catch (error) {
+    // Runtime returns failed results rather than throwing; retain that primary
+    // failure if owned extension cleanup subsequently fails.
+    if (
+      completed?.result.error &&
+      error instanceof ExtensionLifecycleError &&
+      error.cleanupFailures.length
+    )
+      throw new ExtensionLifecycleError(
+        `${completed.result.error} ${error.message}`,
+        error.extensionId,
+        completed.result,
+        error.cleanupFailures,
+      );
+    throw error;
+  }
+}
+
+async function runPromptInWorkspace(
+  prompt: string,
+  options: RunOptions,
+  resolver: ApprovalResolver,
+  events: RunEventHandlers,
+  signal: AbortSignal,
+  extensionScope: WorkspaceExtensionScope,
 ): Promise<{ result: AgentResult; exitCode: number }> {
   const startedAt = performance.now();
   const projectRoot = options.cwd ?? process.cwd();
@@ -489,6 +541,7 @@ export async function runPrompt(
       checkpoint: saveCheckpoint,
       sanitizeResult: sanitize,
       sanitizeApproval: sanitize,
+      toolGuards: extensionScope.toolGuards,
     },
   );
   await tools.catalog.addProvider(web);
@@ -502,7 +555,10 @@ export async function runPrompt(
     dynamic,
     skills,
   );
-  let result: AgentResult;
+  let result: AgentResult | undefined;
+  let runtimeFailure: unknown;
+  let runtimeFailed = false;
+  const cleanupErrors: unknown[] = [];
   try {
     // Resolve known credentials before the first transcript checkpoint or model request.
     await mcpBinding?.refresh(signal);
@@ -540,12 +596,37 @@ export async function runPrompt(
       approvalMode,
       signal,
       onCheckpoint: saveCheckpoint,
+      contextProviders: contextCollection(extensionScope, sanitize),
     });
+  } catch (error) {
+    runtimeFailed = true;
+    runtimeFailure = error;
   } finally {
-    detachEvents();
-    mcpBinding?.dispose();
-    if (mcp && !options.mcpManager) await mcp.dispose();
+    const cleanup = async (dispose: () => void | Promise<void>) => {
+      try {
+        await dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    };
+    await cleanup(detachEvents);
+    await cleanup(() => mcpBinding?.dispose());
+    if (mcp && !options.mcpManager) await cleanup(() => mcp.dispose());
   }
+  if (cleanupErrors.length)
+    throw new AggregateError(
+      [
+        ...(runtimeFailed
+          ? [runtimeFailure]
+          : result?.error
+            ? [sanitize(result.error)]
+            : []),
+        ...cleanupErrors,
+      ],
+      "Request resource cleanup failed; all cleanup operations were attempted.",
+    );
+  if (runtimeFailed) throw runtimeFailure;
+  if (!result) throw new Error("Runtime returned no result.");
   result.elapsedMs = Math.max(0, performance.now() - startedAt);
   result.text = sanitize(result.text);
   if (result.error) result.error = sanitize(result.error);

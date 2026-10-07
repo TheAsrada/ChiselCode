@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { ToolResultStore } from "../context/tool-result-store.js";
+import type { ToolGuardPort } from "../extensions/contracts.js";
 import { sessionsRootDir } from "../paths/home.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { RuntimeEventBus } from "../runtime/events.js";
@@ -37,6 +38,7 @@ export function createLocalToolRuntime(
     maxInlineTokens?: number;
     maxParallelReads?: number;
     requireFreshRead?: boolean;
+    toolGuards?: ToolGuardPort;
   } = {},
 ) {
   initializeSessionState(session);
@@ -79,6 +81,7 @@ export function createLocalToolRuntime(
     gate,
     context,
     options.maxInlineTokens,
+    options.toolGuards,
   );
   const scheduler = new ToolScheduler(executor, options.maxParallelReads);
   const getApprovalMode = (requested?: ApprovalMode) =>

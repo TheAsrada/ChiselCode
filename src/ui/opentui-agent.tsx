@@ -22,6 +22,9 @@ import {
   loadProjectConfig,
   saveGlobalConfig,
 } from "../config/load.js";
+import { withOwnedExtensionHost } from "../extensions/composition.js";
+import type { ChiselExtension } from "../extensions/contracts.js";
+import type { ExtensionHost } from "../extensions/host.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
 import { McpConfigStore } from "../mcp/storage.js";
@@ -74,6 +77,19 @@ export async function runOpenTuiAgent(
   initialSession?: Session,
   setupRequired = false,
   setupOnly = false,
+  extensions: readonly ChiselExtension[] = [],
+): Promise<void> {
+  return withOwnedExtensionHost(extensions, (host) =>
+    runApplication(options, initialSession, setupRequired, setupOnly, host),
+  );
+}
+
+async function runApplication(
+  options: RunOptions,
+  initialSession: Session | undefined,
+  setupRequired: boolean,
+  setupOnly: boolean,
+  extensionHost: ExtensionHost,
 ): Promise<void> {
   let activeOptions = { ...options, resume: undefined };
   const config = await loadGlobalConfig();
@@ -865,6 +881,7 @@ export async function runOpenTuiAgent(
             },
           },
           signal,
+          { host: extensionHost },
         );
         status = signal.aborted ? "cancelled" : result.status;
         elapsedMs = result.elapsedMs;
@@ -916,6 +933,9 @@ export async function runOpenTuiAgent(
   };
   process.on("SIGINT", cancel);
   process.once("SIGTERM", shutdown);
+  let applicationFailure: unknown;
+  let applicationFailed = false;
+  const cleanupErrors: unknown[] = [];
   try {
     root.render(
       React.createElement(OpenTuiSpike, {
@@ -1010,25 +1030,41 @@ export async function runOpenTuiAgent(
     void updater.check();
     await finished;
     await workspace.waitForRuns();
+  } catch (error) {
+    applicationFailed = true;
+    applicationFailure = error;
   } finally {
     process.off("SIGINT", cancel);
     process.off("SIGTERM", shutdown);
     abort.abort();
     workspace.cancelAll();
     await workspace.waitForRuns();
-    root.unmount();
-    await updater.dispose();
-    await Promise.all(
-      [...mcpProjects.values()].map(async (controller) => {
-        await controller.discard();
-        await controller.manager.dispose();
-      }),
-    );
-    detachScrollback?.();
-    detachWorkspace();
-    for (const detach of scrollbackDetachments.values()) detach();
-    workspace.dispose();
-    renderer.destroy();
-    await pendingSave;
+    const cleanup = async (dispose: () => unknown | Promise<unknown>) => {
+      try {
+        await dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    };
+    await cleanup(() => root.unmount());
+    await cleanup(() => updater.dispose());
+    for (const controller of mcpProjects.values()) {
+      await cleanup(() => controller.discard());
+      await cleanup(() => controller.manager.dispose());
+    }
+    await cleanup(() => detachScrollback?.());
+    await cleanup(detachWorkspace);
+    for (const detach of scrollbackDetachments.values()) await cleanup(detach);
+    await cleanup(() => workspace.dispose());
+    await cleanup(() => renderer.destroy());
+    await cleanup(() => pendingSave);
   }
+  if (cleanupErrors.length)
+    throw new AggregateError(
+      applicationFailed
+        ? [applicationFailure, ...cleanupErrors]
+        : cleanupErrors,
+      "Application shutdown failed; all cleanup operations were attempted.",
+    );
+  if (applicationFailed) throw applicationFailure;
 }

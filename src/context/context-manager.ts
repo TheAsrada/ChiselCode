@@ -17,6 +17,7 @@ import {
   type ContextOptions,
   type ContextSummarizer,
   DEFAULT_CONTEXT_OPTIONS,
+  type RequestContext,
   type StructuredSummary,
 } from "./types.js";
 
@@ -29,6 +30,23 @@ export interface ContextBuildRequest {
   capabilities: ModelCapabilities;
   signal?: AbortSignal;
   requestedOutput?: number;
+  requestContext?: RequestContext;
+}
+
+/** One projection is used by exact/local counting, compaction and the request. */
+function effectiveMessages(
+  input: ContextBuildRequest,
+): ContextFrame["messages"] {
+  const messages = assembleMessages(input.session);
+  return input.requestContext
+    ? [
+        {
+          role: "user",
+          content: [{ type: "text", text: input.requestContext.text }],
+        },
+        ...messages,
+      ]
+    : messages;
 }
 export class ContextManager {
   readonly options: ContextOptions;
@@ -42,7 +60,7 @@ export class ContextManager {
   }
   async build(input: ContextBuildRequest): Promise<ContextFrame> {
     cancelled(input.signal);
-    let messages = assembleMessages(input.session);
+    let messages = effectiveMessages(input);
     let count = await this.count(input, messages);
     // Try to free old history for the model's full response before shrinking output.
     const preferredBudget = contextBudget(
@@ -64,7 +82,7 @@ export class ContextManager {
         "auto",
         count,
       );
-      messages = assembleMessages(input.session);
+      messages = effectiveMessages(input);
       count = compressed ?? count;
     }
     const budget = contextBudget(
@@ -80,6 +98,9 @@ export class ContextManager {
       throw new RuntimeError(
         "CONTEXT_BUDGET_EXCEEDED",
         `Request needs approximately ${count.tokens} input tokens; budget is ${budget.maxInputTokens}. Reduce instructions, schemas or current input. User constraints were preserved.`,
+        input.requestContext
+          ? { contextSources: input.requestContext.sources }
+          : undefined,
       );
     await this.publish(input, count);
     return {
@@ -96,7 +117,7 @@ export class ContextManager {
   async refresh(input: ContextBuildRequest): Promise<void> {
     await this.publish(
       input,
-      await this.count(input, assembleMessages(input.session)),
+      await this.count(input, effectiveMessages(input)),
     );
   }
   private async publish(
@@ -148,7 +169,7 @@ export class ContextManager {
         input,
         0,
         "overflow",
-        await this.count(input, assembleMessages(session), Boolean(request)),
+        await this.count(input, effectiveMessages(input), Boolean(request)),
       ),
     );
   }
@@ -245,7 +266,7 @@ export class ContextManager {
       };
       const after = await this.count(
         { ...input, session: projected },
-        assembleMessages(projected),
+        effectiveMessages({ ...input, session: projected }),
         false,
       );
       if (!after.exact && before.localTokens > 0)

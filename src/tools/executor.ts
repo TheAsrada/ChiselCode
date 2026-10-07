@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import type { ToolGuardPoint, ToolGuardPort } from "../extensions/contracts.js";
 import { allowsToolInMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { ApprovalGate } from "../security/approval.js";
@@ -21,6 +22,7 @@ export class ToolExecutor {
     private readonly gate: ApprovalGate,
     readonly context: ToolContext,
     private readonly maxInlineTokens = 10_000,
+    private readonly toolGuards?: ToolGuardPort,
   ) {
     initializeSessionState(context.session);
   }
@@ -171,6 +173,35 @@ export class ToolExecutor {
         runtime.turnApprovalMode ??
         context.session.approvalMode ??
         this.gate.policy.approvalMode;
+      const guard = async (point: ToolGuardPoint) => {
+        cancelled(context.signal);
+        // The empty path does not build or clone snapshots.
+        if (!this.toolGuards?.has(point)) return;
+        await this.toolGuards.run(
+          point,
+          {
+            callId: call.id,
+            tool: {
+              name: call.name,
+              source: handler.spec.source ?? { type: "local" },
+              effect: handler.spec.effect,
+            },
+            input: JSON.parse(canonicalInput(call.input)),
+            preview: plan.preview,
+            resources: executionScope,
+            command: plan.command,
+            diffs: plan.diffs,
+            network: plan.network,
+            sessionId: context.session.id,
+            turnId: runtime.turnId,
+            mode,
+            approvalMode,
+          },
+          context.signal,
+        );
+      };
+      await guard("tool.afterPrepare");
+      cancelled(context.signal);
       const permission =
         handler.spec.effect === "workspace_write" &&
         plan.diffs?.length === 0 &&
@@ -232,6 +263,7 @@ export class ToolExecutor {
         )
           await handler.rememberApproval?.();
       }
+      await guard("tool.beforeExecute");
       cancelled(context.signal);
       await context.events.emit({
         type: "turn_state",
@@ -397,7 +429,8 @@ export class ToolExecutor {
           ? "cancelled"
           : result.errorCode === "PERMISSION_DENIED" ||
               result.errorCode === "WEB_NETWORK_DENIED" ||
-              result.errorCode === "MODE_RESTRICTION"
+              result.errorCode === "MODE_RESTRICTION" ||
+              result.errorCode === "EXTENSION_HOOK_DENIED"
             ? "denied"
             : "failed";
       record.updatedAt = new Date().toISOString();

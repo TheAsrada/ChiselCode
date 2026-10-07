@@ -19,8 +19,10 @@ flowchart TD
   Scheduler --> Executor[ToolExecutor]
   Executor --> Mode[AgentMode: tool effect check]
   Mode --> Prepare[Handler prepare]
-  Prepare --> Permission[PermissionPolicy / ApprovalResolver]
-  Permission --> Execute[Handler execute]
+  Prepare --> AfterPrepare[tool.afterPrepare veto]
+  AfterPrepare --> Permission[PermissionPolicy / ApprovalResolver]
+  Permission --> BeforeExecute[tool.beforeExecute veto]
+  BeforeExecute --> Execute[Core rechecks / lease / Handler execute]
   Execute --> Editing[EditingService: preflight / revisions / commit / rollback]
   Execute --> Sandbox[SandboxExecutor]
   Execute --> Artifact[ToolResultStore]
@@ -175,7 +177,49 @@ Scripted provider измеряет механическую корректнос
 
 ## Границы расширений
 
-LSP, subagents, hooks, worktrees, memory, background processes и полноценный OS sandbox не реализованы. Их границы: ToolProvider/ToolCatalog, RuntimeEventBus, ContextManager и SandboxExecutor. Это точки подключения, а не заявления о наличии этих функций.
+P0 предоставляет небольшой **внутренний** API `src/extensions/index.ts` для доверенных definitions, переданных программно. `ExtensionHost` активирует их последовательно и один раз на canonical workspace root. TUI application владеет одним host, лениво открывает scopes разных проектов и переиспользует их между prompts/вкладками. One-shot `runPrompt` владеет своим host и закрывает его в `finally`, включая ошибки до runtime; внутренний borrowed host/scope не закрывается после prompt. Отмена вкладки не отменяет shared activation и lifetime service. Shutdown сначала запрещает новые runs, отменяет и ожидает текущие, затем закрывает scopes и остальные ресурсы приложения, продолжая cleanup после отдельных ошибок.
+
+Concurrent open одного root разделяет pending activation. Symlink/relative aliases используют один scope; вложенные workspace roots остаются самостоятельными, даже если WorkspaceCoordinator объединяет их для locks. Scope публикуется только после успешной activation всего списка. При ошибке удаляются частичные регистрации и закрываются учтённые ресурсы текущего расширения, затем предыдущих. Failed open допускает повторную попытку; поздний результат activation после shutdown не публикуется. Host может откатить только tracked registrations/resources, не произвольные filesystem/network effects extension. Cleanup идёт в обратном порядке, выполняется один раз и сохраняет attribution ошибок вместе с первичной причиной.
+
+`createServiceToken<T>(diagnosticId)` связывает контракт на compile time; runtime identity — уникальный Symbol, не строка. Потребители используют тот же экспортированный token object. ServiceRegistry имеет required get, optional lookup и маленький child registry с parent lookup: duplicate/shadow запрещены, child не владеет parent services, закрытый parent делает lookup ошибкой. Регистрация не означает владение объектом: extension явно вызывает `ctx.add(disposable)` сразу после создания ресурса. Регистрации services/guards/context providers учитываются автоматически; все регистрационные методы закрыты после activation. Core получает конкретные ports, не общий DI container.
+
+Два guards — только veto. `tool.afterPrepare` выполняется после release prepare read lease, перед policy/approval; `tool.beforeExecute` — после успешного permission/approval, перед running checkpoint, tool_started и execution lease. Порядок — activation order, затем registration order; первое deny/error/cancel останавливает pipeline. Непустой pipeline получает отдельный deep-frozen snapshot canonical input, source/effect, preview, command/diffs/resources/network metadata и идентичности операции. В нём нет handler, plan.data, Session, credentials или execution capabilities. Пустой pipeline не создаёт snapshot. `continue` не выдаёт permission; Plan, approval, live revocation, MCP fingerprint, network capabilities и stale checks сохраняются после callbacks/ожидания lease. Deny/error проходят обычный sanitization → artifact/result → terminal checkpoint → tool_failed, без ложного tool_started/workspace_changed. Коды: `EXTENSION_HOOK_DENIED`, `EXTENSION_HOOK_FAILED`; отмена использует `CANCELLED`.
+
+Context providers возвращают только reference text. Identity — `(extensionId, providerId)`, порядок collection такой же, один immutable snapshot на вызов. Перед каждой фактической попыткой основного model request, включая recovery/overflow retry, собираются свежие contributions. Renderer экранирует source metadata отдельно от content, добавляет attribution/reference framing и применяет существующий redactor. Core правило не даёт данным instruction/permission authority; XML framing само по себе не защищает от prompt injection.
+
+ContextManager добавляет один обычный **user** message перед `assembleMessages(session)`. Это request-only projection, не новый durable пользовательский запрос и не system/native guidance. Одна projection используется exact countTokens, local requestTokens, frame.messages, streamChat, projected compaction, refresh и emergency compaction. Refresh не вызывает providers повторно; следующий request не накапливает старые contributions. Summarizer получает только durable history/current request, без исходного extension context. Session schema, transcript и summary не расширяются. При невозможности уложиться в budget возвращается `CONTEXT_BUDGET_EXCEEDED` с source attribution, без silent truncation пользовательских условий. Внутренние лимиты: **32 KiB UTF-8 на contribution и 128 KiB на collection вместе с framing**, до/после redaction; превышение/неожиданная ошибка дают `EXTENSION_CONTEXT_FAILED` до model request. `undefined` и пустой текст пропускаются.
+
+Callbacks guards/context проверяют signal до/после вызова и используют abortable waiting с удалением listener и обработкой позднего reject. Это отменяет ожидание, не произвольный JavaScript. Workspace services общие и сами отвечают за concurrency методов; snapshots/session/operation signals отдельных runs не разделяют mutable state. RuntimeEventBus остаётся awaited observer/recorder: listeners не возвращают решений и не меняют approved input. Guards не создают события на каждый callback или token delta.
+
+Пример linked extension (подключается программно в composition, без поиска файлов):
+
+```ts
+import { createServiceToken, type ChiselExtension } from "./extensions/index.js";
+
+export const counter = createServiceToken<{ count: number }>("example/counter");
+export const example: ChiselExtension = {
+  id: "example",
+  activate(ctx) {
+    const service = { count: 0, dispose() { this.count = 0; } };
+    ctx.add(service);
+    ctx.services.provide(counter, service);
+    const shared = ctx.services.get(counter);
+    ctx.contextProviders.register({
+      id: "state",
+      collect: () => ({ text: `Workspace count: ${shared.count}` }),
+    });
+    ctx.guards.afterPrepare(({ tool }) => tool.effect === "external_destructive"
+      ? { action: "deny", reason: "External destructive actions disabled." }
+      : { action: "continue" });
+  },
+};
+```
+
+**Модель доверия:** расширения работают в процессе и имеют права процесса. Readonly API, tokens и snapshots помогают избежать ошибок, но не изолируют код: extension может напрямую импортировать filesystem/process/network, читать environment или блокировать event loop. Credentials автоматически в ExtensionContext не выдаются; service token не является security capability. Гарантии permissions/guards относятся к core execution path, не к произвольным side effects JS.
+
+**Storage/следующий loader:** существующие `chiselHomeDir()` platform/XDG rules, `globalConfigPath()` и project `.chiselrc` сохранены. P0 не создаёт extension directory/config/manifest и не загружает user JS. Будущий installation root естественно расположен под `join(chiselHomeDir(), "extensions")`; точный layout определяется loader. Loader должен валидировать metadata/API/integrity и получить trust конкретной версии/content **до import()**, поскольку top-level код исполняется при import. Проверка exported definition после import этого не заменяет. Project requirements не дают trust и не скачивают/исполняют код автоматически; install scripts/dependencies также входят в trust. npm/GitHub/marketplace adapters позже передают definitions тому же host, не создают второй runtime. Native modules требуют отдельной проверки Bun/OS совместимости. Manifest permissions без изоляции не защищают от прямых вызовов процесса; будущий sandbox требует RPC/ограниченного SDK, произвольные service objects не переносятся через него автоматически.
+
+Реальные LSP, memory, subagents, jobs и worktrees пока отсутствуют. LSP/memory/jobs смогут использовать workspace services, LSP/memory — context providers; subagent получит отдельный runtime с явными зависимостями, worktree — отдельный workspace scope. Tool/command/UI contributions появятся отдельными портами. Существующие local tools, MCP, Web и provider drivers не мигрированы в extensions.
 
 ## Главная и вкладки терминала
 

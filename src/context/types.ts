@@ -83,3 +83,11 @@ export const DEFAULT_CONTEXT_OPTIONS: ContextOptions = {
   keepRecentTokens: 16_000,
   maxInlineToolResultTokens: 10_000,
 };
+/** Ephemeral reference data, projected into one main request; never session state. */
+export interface RequestContext {
+  readonly text: string;
+  readonly sources: readonly {
+    readonly extensionId: string;
+    readonly providerId: string;
+  }[];
+}
