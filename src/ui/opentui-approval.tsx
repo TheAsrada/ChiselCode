@@ -5,6 +5,7 @@ import { useKeyboard } from "@opentui/react";
 import { useRef } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { extensionToolLabel } from "./extension-tool.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { terminalSafeText } from "./opentui-transcript.js";
@@ -78,9 +79,10 @@ export function OpenTuiApproval({
             ? "Подтвердить опасное действие?"
             : request.mcp
               ? request.mcp.serverTitle
-              : request.network
-                ? "Доступ к интернету"
-                : "Разрешить действие?"}
+              : (extensionToolLabel(request.source) ??
+                (request.network
+                  ? "Доступ к интернету"
+                  : "Разрешить действие?"))}
         </strong>
       </text>
       <text fg={palette.muted} height={1}>
@@ -90,7 +92,9 @@ export function OpenTuiApproval({
               ? request.network.operation === "search"
                 ? "Поиск в интернете"
                 : "Открытие страницы"
-              : request.tool),
+              : request.source?.type === "extension"
+                ? request.source.originalName
+                : request.tool),
           innerWidth,
         )}
         {diffs.length > 1 ? ` | файлов: ${diffs.length}` : ""}

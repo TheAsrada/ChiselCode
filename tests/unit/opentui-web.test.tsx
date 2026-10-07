@@ -12,6 +12,35 @@ import { createWebToolProvider } from "../../src/web/provider.js";
 import { SearchInputSchema, WebConfigSchema } from "../../src/web/schema.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
+
+for (const width of [90, 44])
+  test(`extension approval shows core owner and local name at ${width} columns`, async () => {
+    const setup = await testRender(
+      <OpenTuiApproval
+        request={{
+          tool: "ext:fixture:write",
+          source: {
+            type: "extension",
+            extensionId: "fixture",
+            originalName: "write",
+          },
+          preview: "Write a project file",
+        }}
+        width={width}
+        height={24}
+      />,
+      { width, height: 24 },
+    );
+    try {
+      await frame(setup);
+      const screen = setup.captureCharFrame();
+      expect(screen).toContain("fixture");
+      expect(screen).toContain("write");
+      expect(screen).not.toContain('"source"');
+    } finally {
+      await act(async () => setup.renderer.destroy());
+    }
+  });
 async function frame(setup: Setup) {
   await act(async () => {
     await setup.renderOnce();

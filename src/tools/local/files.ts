@@ -6,6 +6,7 @@ import { cancelled, RuntimeError } from "../../runtime/errors.js";
 import { matchesPattern } from "../../utils/paths.js";
 import { defineTool } from "../handler.js";
 import type { ToolContext, ToolHandler } from "../types.js";
+export const MAX_FILE_READ_BYTES = 512000;
 
 const readSpec = {
   effect: "read" as const,
@@ -61,7 +62,7 @@ export function fileHandlers(): ToolHandler[] {
       }),
       async (context, { data }) => {
         cancelled(context.signal);
-        if ((await stat(data.path)).size > 512000)
+        if ((await stat(data.path)).size > MAX_FILE_READ_BYTES)
           throw new RuntimeError(
             "INVALID_TOOL_INPUT",
             "File exceeds 512000 byte read limit.",

@@ -43,7 +43,11 @@ export interface SessionContextState {
 export const ProviderKindSchema = z.string().min(1);
 export type ProviderKind = ProviderId;
 
-export const ToolNameSchema = z.string().regex(/^[a-zA-Z0-9_.:-]{1,128}$/);
+export const ToolNameSchema = z
+  .string()
+  .regex(
+    /^(?:[a-zA-Z0-9_.:-]{1,128}|ext:[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}:[a-z][a-z0-9_]{0,63})$/,
+  );
 export type ToolName = string;
 
 export type JsonObject = Record<string, unknown>;

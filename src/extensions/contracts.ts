@@ -3,7 +3,7 @@ import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { NetworkRequest } from "../security/network-policy.js";
 import type { ToolEffect } from "../tools/effects.js";
-import type { ToolSource } from "../tools/types.js";
+import type { ToolHandler, ToolSource, ToolSpec } from "../tools/types.js";
 import type { FileDiff, JsonObject } from "../types/domain.js";
 import type { ServiceToken } from "./services.js";
 
@@ -83,6 +83,9 @@ export interface ContextCollectionPort {
 export interface ExtensionContext {
   readonly workspaceRoot: string;
   readonly signal: AbortSignal;
+  readonly tools: {
+    register(tool: ExtensionToolContribution): void;
+  };
   readonly services: {
     provide<T>(token: ServiceToken<T>, service: T): void;
     get<T>(token: ServiceToken<T>): T;
@@ -97,6 +100,12 @@ export interface ExtensionContext {
   };
   add(disposable: Disposable): void;
 }
+export type ExtensionToolContribution = {
+  spec: Omit<ToolSpec, "source" | "guidance">;
+  parse: ToolHandler["parse"];
+  prepare: ToolHandler["prepare"];
+  execute: ToolHandler["execute"];
+};
 export interface ChiselExtension {
   readonly id: string;
   activate(context: ExtensionContext): void | Promise<void>;

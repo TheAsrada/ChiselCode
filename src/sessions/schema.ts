@@ -80,6 +80,11 @@ export const SessionRuntimeSchema = z.object({
           z.object({ type: z.literal("local") }),
           z.object({ type: z.literal("skill") }),
           z.object({
+            type: z.literal("extension"),
+            extensionId: z.string(),
+            originalName: z.string(),
+          }),
+          z.object({
             type: z.literal("web"),
             operation: z.enum(["search", "fetch"]),
           }),

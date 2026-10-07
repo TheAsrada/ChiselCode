@@ -50,6 +50,7 @@ jobs:
           bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js doctor > installed-doctor.txt || status=$?
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' installed-doctor.txt
+          bun tests/fixtures/manifest-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |
@@ -83,6 +84,7 @@ jobs:
           "$binary" doctor > doctor-output.txt || status=$?
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' doctor-output.txt
+          bun tests/fixtures/manifest-cli.ts "$binary"
       - name: Validate Windows updater installer
         if: runner.os == 'Windows'
         shell: pwsh

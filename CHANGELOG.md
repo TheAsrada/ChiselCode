@@ -6,6 +6,9 @@
 
 ## [Не выпущено]
 
+- Доверенные linked extensions могут регистрировать tools во время activation: namespaces, атомарный provider snapshot, общий executor/permissions/guards, cancellation и сохранение owner в сессии. Загрузка пользовательских JS-плагинов пока отсутствует.
+- Добавлен встроенный `ext:builtin.project:manifest` для чтения четырёх корневых project manifests с path/ignore/size checks и EditingService observations. Он доступен агенту в Plan и Build при обычном CLI/TUI запуске.
+
 ## [0.6.15] - 2026-10-07
 
 - Добавлено внутреннее ядро расширений: workspace lifecycle, типизированные сервисы и повторное использование одного scope между запросами и вкладками. Ошибки activation откатывают зарегистрированные effects; shutdown выполняет cleanup всех учтённых ресурсов. API работает с программно переданным доверенным кодом; загрузка пользовательских JS-плагинов пока отсутствует.

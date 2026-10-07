@@ -9,11 +9,14 @@ import { modelSummarizer } from "../context/model-summary.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
 import {
   contextCollection,
+  defaultExtensions,
   type ExtensionDependencies,
   withExtensionWorkspace,
 } from "../extensions/composition.js";
+import type { Disposable } from "../extensions/contracts.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { ExtensionLifecycleError } from "../extensions/lifecycle.js";
+import { attachExtensionTools } from "../extensions/tools.js";
 import { resolveCredential } from "../providers/auth.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
@@ -343,7 +346,7 @@ export async function runPrompt(
   try {
     return await withExtensionWorkspace(
       options.cwd ?? process.cwd(),
-      extensions,
+      extensions ?? { extensions: defaultExtensions() },
       signal,
       async (scope, operation) => {
         completed = await runPromptInWorkspace(
@@ -452,8 +455,11 @@ async function runPromptInWorkspace(
   const onThinking = events.onThinking ?? (() => renderer.thinking());
   const onToolStart =
     events.onToolStart ??
-    ((name: string, input: Record<string, unknown>) =>
-      renderer.toolStart(name, input));
+    ((
+      name: string,
+      input: Record<string, unknown>,
+      source?: import("../tools/types.js").ToolSource,
+    ) => renderer.toolStart(name, input, source));
   const onToolResult =
     events.onToolResult ??
     ((name: string, result: ToolExecutionResult) =>
@@ -500,6 +506,7 @@ async function runPromptInWorkspace(
       );
     for (const record of Object.values(session.runtime?.invocations ?? {})) {
       record.input = sanitize(record.input);
+      if (record.toolSource) record.toolSource = sanitize(record.toolSource);
       if (record.result) record.result = sanitize(record.result);
       if (record.approvalPreview)
         record.approvalPreview = sanitize(record.approvalPreview);
@@ -524,44 +531,48 @@ async function runPromptInWorkspace(
     )
       onToolResult(event.name ?? "", event.result);
   });
-  const tools = createLocalToolRuntime(
-    projectRoot,
-    config.ignorePatterns,
-    approvalGate,
-    session,
-    skills,
-    {
-      events: eventBus,
-      mode,
-      approvalMode,
-      signal,
-      maxInlineTokens: config.context?.maxInlineToolResultTokens,
-      maxParallelReads: config.tools?.maxParallelReads,
-      requireFreshRead: config.editing?.requireFreshRead,
-      checkpoint: saveCheckpoint,
-      sanitizeResult: sanitize,
-      sanitizeApproval: sanitize,
-      toolGuards: extensionScope.toolGuards,
-    },
-  );
-  await tools.catalog.addProvider(web);
-  const dynamic = await collectDynamicContext(projectRoot);
-  const mcpBinding = mcp
-    ? new McpRuntimeBinding(mcp, tools.catalog)
-    : undefined;
-  session.gitBranch = dynamic.gitBranch;
-  const system = buildSystemPrompt(
-    await loadProjectInstructions(projectRoot),
-    dynamic,
-    skills,
-  );
   let result: AgentResult | undefined;
   let runtimeFailure: unknown;
   let runtimeFailed = false;
+  let mcpBinding: McpRuntimeBinding | undefined;
+  let extensionBinding: Disposable | undefined;
   const cleanupErrors: unknown[] = [];
   try {
+    const tools = createLocalToolRuntime(
+      projectRoot,
+      config.ignorePatterns,
+      approvalGate,
+      session,
+      skills,
+      {
+        events: eventBus,
+        mode,
+        approvalMode,
+        signal,
+        maxInlineTokens: config.context?.maxInlineToolResultTokens,
+        maxParallelReads: config.tools?.maxParallelReads,
+        requireFreshRead: config.editing?.requireFreshRead,
+        checkpoint: saveCheckpoint,
+        sanitizeResult: sanitize,
+        sanitizeApproval: sanitize,
+        toolGuards: extensionScope.toolGuards,
+      },
+    );
+    await tools.catalog.addProvider(web);
+    const dynamic = await collectDynamicContext(projectRoot);
+    mcpBinding = mcp ? new McpRuntimeBinding(mcp, tools.catalog) : undefined;
+    session.gitBranch = dynamic.gitBranch;
+    const system = buildSystemPrompt(
+      await loadProjectInstructions(projectRoot),
+      dynamic,
+      skills,
+    );
     // Resolve known credentials before the first transcript checkpoint or model request.
     await mcpBinding?.refresh(signal);
+    extensionBinding = await attachExtensionTools(
+      extensionScope,
+      tools.catalog,
+    );
     const runtime = new AgentRuntime(
       provider,
       new ContextManager(
@@ -610,6 +621,7 @@ async function runPromptInWorkspace(
       }
     };
     await cleanup(detachEvents);
+    await cleanup(() => extensionBinding?.dispose());
     await cleanup(() => mcpBinding?.dispose());
     if (mcp && !options.mcpManager) await cleanup(() => mcp.dispose());
   }

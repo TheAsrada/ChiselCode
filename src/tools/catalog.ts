@@ -6,7 +6,28 @@ import {
 import { RuntimeError } from "../runtime/errors.js";
 import type { ToolDefinition } from "../types/domain.js";
 import { isReadEffect } from "./effects.js";
-import type { ToolHandler, ToolProvider } from "./types.js";
+import type { ToolHandler, ToolProvider, ToolSource } from "./types.js";
+
+function owner(source?: ToolSource): string {
+  return source?.type === "extension"
+    ? `extension ${source.extensionId}`
+    : source?.type === "mcp"
+      ? `MCP ${source.serverId}`
+      : (source?.type ?? "local");
+}
+function duplicate(handler: ToolHandler, previous?: ToolHandler): Error {
+  return Object.assign(
+    new Error(
+      `Duplicate tool registration: ${handler.spec.name} (${owner(handler.spec.source)}; already ${owner(previous?.spec.source)}).`,
+    ),
+    {
+      extensionId:
+        handler.spec.source?.type === "extension"
+          ? handler.spec.source.extensionId
+          : undefined,
+    },
+  );
+}
 export class ToolCatalog {
   constructor(
     private readonly getMode: () => AgentMode = () => DEFAULT_AGENT_MODE,
@@ -18,7 +39,7 @@ export class ToolCatalog {
   private retiredMcp = new Set<string>();
   register(handler: ToolHandler): void {
     if (this.handlers.has(handler.spec.name))
-      throw new Error(`Duplicate tool registration: ${handler.spec.name}`);
+      throw duplicate(handler, this.handlers.get(handler.spec.name));
     this.handlers.set(handler.spec.name, handler);
     handler.spec.source ??= { type: "local" };
   }
@@ -27,21 +48,34 @@ export class ToolCatalog {
       this.register(await provider.getHandler(spec.name));
   }
   /** Publish a complete provider snapshot atomically; executing handlers retain theirs. */
-  async replaceProvider(id: string, provider?: ToolProvider): Promise<void> {
+  async replaceProvider(
+    id: string,
+    provider?: ToolProvider,
+    options?: { requireNew?: boolean },
+  ): Promise<void> {
     const snapshot: ToolHandler[] = [];
+    const names = new Set<string>();
     if (provider)
-      for (const spec of await provider.listTools())
-        snapshot.push(await provider.getHandler(spec.name));
+      for (const spec of await provider.listTools()) {
+        const name = spec.name;
+        const handler = await provider.getHandler(name);
+        if (!name || handler.spec.name !== name)
+          throw new Error(`Provider ${id} returned a mismatched tool handler.`);
+        if (names.has(name)) throw duplicate(handler, handler);
+        names.add(name);
+        snapshot.push(handler);
+      }
     const old = this.providers.get(id) ?? new Set<string>();
+    if (options?.requireNew && this.providers.has(id))
+      throw new Error(`Provider ${id} is already attached to this catalog.`);
     for (const handler of snapshot)
       if (this.handlers.has(handler.spec.name) && !old.has(handler.spec.name))
-        throw new Error(`Duplicate tool registration: ${handler.spec.name}`);
+        throw duplicate(handler, this.handlers.get(handler.spec.name));
     for (const name of old) {
       if (this.handlers.get(name)?.spec.source?.type === "mcp")
         this.retiredMcp.add(name);
       this.handlers.delete(name);
-      if (!snapshot.some((handler) => handler.spec.name === name))
-        this.explicit.delete(name);
+      if (!names.has(name)) this.explicit.delete(name);
     }
     for (const handler of snapshot) {
       this.handlers.set(handler.spec.name, handler);
@@ -49,10 +83,11 @@ export class ToolCatalog {
     }
     while (this.retiredMcp.size > 2000)
       this.retiredMcp.delete(this.retiredMcp.values().next().value as string);
-    this.providers.set(
-      id,
-      new Set(snapshot.map((handler) => handler.spec.name)),
-    );
+    if (provider) this.providers.set(id, names);
+    else this.providers.delete(id);
+  }
+  hasProvider(id: string): boolean {
+    return this.providers.has(id);
   }
   include(names: string[]): void {
     for (const name of names)
@@ -78,6 +113,7 @@ export class ToolCatalog {
       return spec?.guidance &&
         spec.source?.type !== "mcp" &&
         spec.source?.type !== "skill" &&
+        spec.source?.type !== "extension" &&
         allowsToolInMode(this.getMode(), spec.effect)
         ? [spec.guidance]
         : [];

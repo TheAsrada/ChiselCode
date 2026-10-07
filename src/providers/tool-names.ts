@@ -17,7 +17,7 @@ export class ProviderToolNames {
     for (const name of names) {
       const wire = /^[a-zA-Z0-9_-]{1,64}$/.test(name)
         ? name
-        : `mcp_${name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40)}_${createHash("sha256").update(name).digest("hex").slice(0, 16)}`;
+        : `${name.startsWith("ext:") ? "ext" : "mcp"}_${name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40)}_${createHash("sha256").update(name).digest("hex").slice(0, 16)}`;
       if (this.reverse.has(wire) && this.reverse.get(wire) !== name)
         throw new Error("Provider tool alias collision.");
       this.forward.set(name, wire);

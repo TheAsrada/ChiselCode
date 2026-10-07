@@ -1,4 +1,5 @@
 import { cancelled } from "../runtime/errors.js";
+import { projectExtension } from "./builtins/project.js";
 import type { ChiselExtension, ContextCollectionPort } from "./contracts.js";
 import {
   canonicalWorkspaceRoot,
@@ -16,6 +17,13 @@ export type ExtensionDependencies =
   | { scope: WorkspaceExtensionScope }
   | { host: ExtensionHost }
   | { extensions: readonly ChiselExtension[] };
+
+/** Explicit application defaults; an ExtensionHost([]) still has no definitions. */
+export function defaultExtensions(
+  custom: readonly ChiselExtension[] = [],
+): readonly ChiselExtension[] {
+  return [projectExtension, ...custom];
+}
 
 export async function withOwnedExtensionHost<T>(
   definitions: readonly ChiselExtension[],

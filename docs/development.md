@@ -51,6 +51,22 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 Другие targets, используемые релизами: `bun-darwin-arm64`, `bun-darwin-x64`, `bun-linux-x64`. Отдельная компиляция не создаёт установщик, ярлыки или PATH. Встроенные навыки также нужно учитывать при упаковке: workflow копирует `skills/bundled` рядом с установленным приложением.
 
+## Внутренние linked extensions
+
+Контракт services/context/guards/tools и рабочий пример — в [архитектуре](architecture.md#границы-расширений). `ctx.tools.register(defineTool(...))` работает только во время activation; core присваивает `ext:<extensionId>:<localName>` и source. Contributions исполняются общим executor с Plan/permissions/EditingService/artifacts. Регистрация автоматически принадлежит workspace; вручную добавлять её в `ctx.add` не нужно. `ctx.add` применяется к ресурсам/service cleanup. Prompt binding временный, borrowed workspace переживает prompts.
+
+Production composition включает `defaultExtensions()` с manifest consumer; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare.
+
+Acceptance tests используют реальные host/catalog/executor/policy/coordinator/storage и deterministic providers. Packaging harness поднимает локальный тестовый model endpoint, отправляет обычный Plan prompt и проверяет цикл model → manifest → model → checkpoint; production test flags/autoload fixtures отсутствуют:
+
+```bash
+bun tests/fixtures/manifest-cli.ts bun ./dist/cli.js
+bun tests/fixtures/manifest-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
+bun tests/fixtures/manifest-cli.ts ./dist/chisel
+```
+
+Последние две команды запускаются после `npm pack`/установки и `bun run compile`. Windows compiled binary — `dist/chisel.exe`. CI matrix выполняет тот же manifest smoke для установленного пакета и compiled CLI на Windows/macOS/Linux; `--version`/`doctor` остаются отдельными проверками запуска. Harness не обращается к live LLM и не изменяет пользовательские credentials/config.
+
 ## Релизы
 
 [Release workflow](../.github/workflows/release.yml) запускается по push тега `v*` или вручную из `main` с параметром `tag`:

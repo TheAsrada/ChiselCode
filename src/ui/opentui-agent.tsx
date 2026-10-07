@@ -22,7 +22,10 @@ import {
   loadProjectConfig,
   saveGlobalConfig,
 } from "../config/load.js";
-import { withOwnedExtensionHost } from "../extensions/composition.js";
+import {
+  defaultExtensions,
+  withOwnedExtensionHost,
+} from "../extensions/composition.js";
 import type { ChiselExtension } from "../extensions/contracts.js";
 import type { ExtensionHost } from "../extensions/host.js";
 import { McpController } from "../mcp/controller.js";
@@ -77,7 +80,7 @@ export async function runOpenTuiAgent(
   initialSession?: Session,
   setupRequired = false,
   setupOnly = false,
-  extensions: readonly ChiselExtension[] = [],
+  extensions: readonly ChiselExtension[] = defaultExtensions(),
 ): Promise<void> {
   return withOwnedExtensionHost(extensions, (host) =>
     runApplication(options, initialSession, setupRequired, setupOnly, host),

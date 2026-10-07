@@ -31,6 +31,7 @@ export type ToolSource =
   | { type: "web"; operation: "search" | "fetch" }
   | { type: "local" }
   | { type: "skill" }
+  | { type: "extension"; extensionId: string; originalName: string }
   | {
       type: "mcp";
       serverId: string;
@@ -77,6 +78,8 @@ export interface ToolPlan<T = unknown> {
 }
 export interface ToolHandler {
   spec: ToolSpec;
+  /** Internal provider lifetime; combined with invocation cancellation by core. */
+  readonly lifetimeSignal?: AbortSignal;
   permissions?(): import("../mcp/schema.js").McpPermissions;
   rememberApproval?(): Promise<void>;
   parse(input: JsonObject): unknown;

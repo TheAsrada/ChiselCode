@@ -2,11 +2,11 @@ import type { AgentEventHandlers } from "../core/agent-loop.js";
 import { stripActiveSkillsBlock } from "../skills/skills.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
 import { compactionNotice } from "./context-compaction.js";
+import { extensionResultLabel, extensionToolLabel } from "./extension-tool.js";
 import { fileDiffStats, fileDiffTitle } from "./file-diff-model.js";
 import { requestCompletion } from "./request-timing.js";
 import { FAIL_MARK, formatToolSummary } from "./theme.js";
 import type { TuiTranscript } from "./tui-contract.js";
-
 import { webResultSummary } from "./web-result.js";
 
 const fileTools = new Set([
@@ -21,9 +21,11 @@ export function appendToolResult(
   name: string,
   result: ToolExecutionResult,
 ): void {
+  const extension = extensionResultLabel(result);
   if (result.isError || result.requiresApproval) {
-    view.append(`${FAIL_MARK} ${name}: ${result.output}`, "error");
+    view.append(`${FAIL_MARK} ${extension ?? name}: ${result.output}`, "error");
   } else if (result.diffs?.length || result.fileDiff) {
+    if (extension) view.append(extension, "tool");
     for (const diff of result.diffs ??
       (result.fileDiff ? [result.fileDiff] : []))
       view.append(
@@ -33,6 +35,11 @@ export function appendToolResult(
       );
   } else if (fileTools.has(name)) {
     view.append(result.output, "info");
+  } else if (extension) {
+    view.append(
+      `${extension}${result.artifact ? " · полный результат сохранён" : " · готово"}`,
+      "tool",
+    );
   } else if (webResultSummary(result)) {
     view.append(webResultSummary(result) ?? "Web", "tool");
   } else if (result.details?.mcp) {
@@ -51,7 +58,9 @@ export function toolTranscriptHandlers(
   return {
     onToolStart: (name, input, source) => {
       const view = getView();
-      if (source?.type === "mcp")
+      if (extensionToolLabel(source))
+        view?.setToolActivity(extensionToolLabel(source));
+      else if (source?.type === "mcp")
         view?.setToolActivity(
           `[mcp] ${source.serverTitle} · ${source.title ?? source.originalName}`,
         );
@@ -142,7 +151,12 @@ export function replaySessionIntoTranscript(
           target.append(text, message.role === "user" ? "user" : "assistant");
       } else if (block.type === "tool_use") {
         const source = session.runtime?.invocations[block.id]?.toolSource;
-        if (source?.type === "mcp" || source?.type === "web") continue;
+        if (
+          source?.type === "mcp" ||
+          source?.type === "web" ||
+          source?.type === "extension"
+        )
+          continue;
         if (!session.fileDiffs?.[block.id])
           target.append(
             `[chisel] ${formatToolSummary(block.name, block.input)}`,

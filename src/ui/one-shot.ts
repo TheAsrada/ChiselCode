@@ -1,6 +1,8 @@
 import type { ContextCompactionRecord } from "../context/types.js";
+import type { ToolSource } from "../tools/types.js";
 import type { AgentResult, ToolExecutionResult } from "../types/domain.js";
 import { compactionNotice } from "./context-compaction.js";
+import { extensionResultLabel, extensionToolLabel } from "./extension-tool.js";
 import {
   FAIL_MARK,
   formatToolSummary,
@@ -9,7 +11,6 @@ import {
   toolDisplay,
   WARN_MARK,
 } from "./theme.js";
-
 import { webResultSummary } from "./web-result.js";
 
 export interface OneShotRendererOptions {
@@ -44,8 +45,17 @@ export class OneShotRenderer {
       );
   }
 
-  toolStart(name: string, input: Record<string, unknown>): void {
+  toolStart(
+    name: string,
+    input: Record<string, unknown>,
+    source?: ToolSource,
+  ): void {
     if (this.options.json) return;
+    const extension = extensionToolLabel(source);
+    if (extension) {
+      this.stderr.write(`\n${extension}\n`);
+      return;
+    }
     const meta = toolDisplay(name);
     this.stderr.write(
       `\n${paint("*", "cyan", this.color)} ${paint(`[${meta.icon}] ${meta.label}`, "bold", this.color)} ${paint(formatToolSummary(name, input), "gray", this.color)}\n`,
@@ -55,12 +65,14 @@ export class OneShotRenderer {
   toolResult(name: string, result: ToolExecutionResult): void {
     if (this.options.json) return;
     const summary = webResultSummary(result);
+    const extension = extensionResultLabel(result);
     if (!result.isError) {
-      if (summary) this.stderr.write(`${summary}\n`);
+      if (extension) this.stderr.write(`${extension} · готово\n`);
+      else if (summary) this.stderr.write(`${summary}\n`);
       return;
     }
     this.stderr.write(
-      `${paint(`${FAIL_MARK} ${name}`, "red", this.color)}: ${result.output}\n`,
+      `${paint(`${FAIL_MARK} ${extension ?? name}`, "red", this.color)}: ${result.output}\n`,
     );
   }
 

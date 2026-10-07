@@ -16,6 +16,7 @@ import {
   validateId,
 } from "./lifecycle.js";
 import { ServiceRegistry } from "./services.js";
+import { ExtensionToolContributions } from "./tools.js";
 
 export async function canonicalWorkspaceRoot(root: string): Promise<string> {
   const canonical = await realpath(resolve(root));
@@ -31,6 +32,7 @@ export class WorkspaceExtensionScope implements Disposable {
   readonly services = new ServiceRegistry();
   readonly toolGuards: RuntimeHookPipeline;
   readonly contextProviders: ContextProviderRegistry;
+  readonly tools: ExtensionToolContributions;
   private readonly activations: ActivationResources[] = [];
   private readonly tracked = new Set<Disposable>();
   private disposal?: Promise<void>;
@@ -43,6 +45,9 @@ export class WorkspaceExtensionScope implements Disposable {
     this.contextProviders = new ContextProviderRegistry(
       workspaceRoot,
       this.signal,
+    );
+    this.tools = new ExtensionToolContributions(this.signal, () =>
+      this.assertUsable(),
     );
   }
   get signal(): AbortSignal {
@@ -88,6 +93,14 @@ export class WorkspaceExtensionScope implements Disposable {
       const context: ExtensionContext = Object.freeze({
         workspaceRoot: this.workspaceRoot,
         signal: this.signal,
+        tools: Object.freeze({
+          register: (
+            tool: import("./contracts.js").ExtensionToolContribution,
+          ) => {
+            assertRegistering();
+            track(this.tools.register(definition.id, tool));
+          },
+        }),
         services: Object.freeze({
           provide: <T>(
             token: import("./services.js").ServiceToken<T>,
@@ -149,6 +162,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.services.seal();
     this.toolGuards.seal();
     this.contextProviders.seal();
+    this.tools.seal();
     this.ready = true;
   }
   abortLifetime(): void {
@@ -181,6 +195,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.services.dispose();
     this.toolGuards.dispose();
     this.contextProviders.dispose();
+    this.tools.dispose();
     this.abortLifetime();
     return this.disposal;
   }

@@ -33,6 +33,8 @@ export interface McpApprovalPreview {
 }
 
 export interface ApprovalRequest {
+  /** Core-owned attribution; permission/grant identity remains the canonical tool name. */
+  source?: import("../tools/types.js").ToolSource;
   /**
    * Имя инструмента или псевдодействия (например `self_update` для
    * подтверждения установки обновления). Человекочитаемая подпись

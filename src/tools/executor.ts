@@ -10,7 +10,7 @@ import type { ToolCatalog } from "./catalog.js";
 import { changesWorkspace, isReadEffect } from "./effects.js";
 import { canonicalInput, type ToolInvocationRecord } from "./invocation.js";
 import { failure, normalizeResult } from "./result.js";
-import type { ToolContext } from "./types.js";
+import type { ToolContext, ToolSource } from "./types.js";
 import { workspaceCoordinator } from "./workspace-coordinator.js";
 
 export class ToolExecutor {
@@ -34,13 +34,26 @@ export class ToolExecutor {
       .update(`${call.name}:${canonicalInput(call.input)}`)
       .digest("hex");
     const record = this.context.session.runtime?.invocations[call.id];
-    if (!call.id || (record && record.fingerprint !== fingerprint))
-      return failure(
-        new RuntimeError(
-          "PROTOCOL_ERROR_DUPLICATE_CALL_ID",
-          "Tool call ID was reused with different input.",
+    if (!call.id || (record && record.fingerprint !== fingerprint)) {
+      let source = record?.toolSource;
+      if (!source) {
+        try {
+          source = this.catalog.get(call.name).spec.source;
+        } catch {
+          /* Unknown tools have no owner. */
+        }
+      }
+      const result = attributed(
+        failure(
+          new RuntimeError(
+            "PROTOCOL_ERROR_DUPLICATE_CALL_ID",
+            "Tool call ID was reused with different input.",
+          ),
         ),
+        source,
       );
+      return this.context.sanitizeResult?.(result) ?? result;
+    }
     if (record?.result && record.state !== "awaiting_approval")
       return record.result;
     const ongoing = this.inFlight.get(call.id);
@@ -58,17 +71,27 @@ export class ToolExecutor {
     fingerprint: string,
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult> {
-    const context = { ...this.context, signal: signal ?? this.context.signal };
+    const context = {
+      ...this.context,
+      signal:
+        signal && this.context.signal
+          ? AbortSignal.any([signal, this.context.signal])
+          : (signal ?? this.context.signal),
+    };
     const runtime = context.session.runtime;
     if (!runtime) throw new Error("Session runtime missing.");
     let record = runtime.invocations[call.id];
     if (record?.state === "running") {
-      record.result = failure(
-        new RuntimeError(
-          "INTERRUPTED_INVOCATION",
-          "Execution was interrupted. Inspect the workspace before retrying with a new call ID; mutations are not replayed.",
+      const interrupted = attributed(
+        failure(
+          new RuntimeError(
+            "INTERRUPTED_INVOCATION",
+            "Execution was interrupted. Inspect the workspace before retrying with a new call ID; mutations are not replayed.",
+          ),
         ),
+        record.toolSource,
       );
+      record.result = context.sanitizeResult?.(interrupted) ?? interrupted;
       record.state = "failed";
       await context.checkpoint();
       return record.result;
@@ -87,15 +110,21 @@ export class ToolExecutor {
     let outputLimit = this.maxInlineTokens;
     try {
       cancelled(context.signal);
+      const handler = this.catalog.get(call.name);
+      record.toolSource = handler.spec.source;
+      if (handler.lifetimeSignal)
+        context.signal = context.signal
+          ? AbortSignal.any([context.signal, handler.lifetimeSignal])
+          : handler.lifetimeSignal;
+      cancelled(context.signal);
       await context.events.emit({
         type: "tool_queued",
         invocationId: call.id,
         name: call.name,
         input: call.input,
         state: "queued",
+        toolSource: record.toolSource,
       });
-      const handler = this.catalog.get(call.name);
-      record.toolSource = handler.spec.source;
       const writesWorkspace =
         changesWorkspace(handler.spec.effect) ||
         handler.spec.workspaceAccess === "write";
@@ -115,6 +144,7 @@ export class ToolExecutor {
       try {
         input = handler.parse(call.input);
       } catch (error) {
+        if (error instanceof RuntimeError) throw error;
         throw new RuntimeError("INVALID_TOOL_INPUT", String(error));
       }
       this.workspaceScope ??= workspaceCoordinator.scope(
@@ -157,9 +187,11 @@ export class ToolExecutor {
         invocationId: call.id,
         name: call.name,
         state: "prepared",
+        toolSource: record.toolSource,
       });
       const request = {
         tool: call.name,
+        source: handler.spec.source,
         preview: plan.preview,
         command: plan.command,
         fileDiff: plan.diffs?.[0],
@@ -204,6 +236,7 @@ export class ToolExecutor {
       cancelled(context.signal);
       const permission =
         handler.spec.effect === "workspace_write" &&
+        handler.spec.source?.type !== "extension" &&
         plan.diffs?.length === 0 &&
         plan.resources.length === 0
           ? "allow"
@@ -229,6 +262,7 @@ export class ToolExecutor {
           name: call.name,
           state: "awaiting_approval",
           text: displayed.preview,
+          toolSource: record.toolSource,
         });
         const decision = await abortable(
           this.gate.resolve(displayed, {
@@ -238,14 +272,19 @@ export class ToolExecutor {
           }),
           context.signal,
         );
-        if (decision === "unavailable")
-          return {
-            output:
-              "APPROVAL_UNAVAILABLE: approval is pending; resume interactively to continue.",
-            requiresApproval: true,
-            preview: displayed.preview,
-            errorCode: "APPROVAL_UNAVAILABLE",
-          };
+        if (decision === "unavailable") {
+          const pending = attributed(
+            {
+              output:
+                "APPROVAL_UNAVAILABLE: approval is pending; resume interactively to continue.",
+              requiresApproval: true,
+              preview: displayed.preview,
+              errorCode: "APPROVAL_UNAVAILABLE",
+            },
+            record.toolSource,
+          );
+          return context.sanitizeResult?.(pending) ?? pending;
+        }
         if (
           decision !== "approved" &&
           decision !== "approved_always" &&
@@ -377,7 +416,8 @@ export class ToolExecutor {
       if (timeout.signal.aborted)
         throw new RuntimeError("TOOL_TIMEOUT", "Tool execution timed out.");
       result = await normalizeResult(
-        context.sanitizeResult?.(result) ?? result,
+        context.sanitizeResult?.(attributed(result, record.toolSource)) ??
+          attributed(result, record.toolSource),
         context.artifacts,
         handler.spec.outputPolicy?.maxInlineTokens ?? this.maxInlineTokens,
       );
@@ -402,10 +442,19 @@ export class ToolExecutor {
         result,
         state: record.state,
         durationMs: performance.now() - started,
+        toolSource: record.toolSource,
       });
       return result;
     } catch (error) {
+      if (!record.toolSource) {
+        try {
+          record.toolSource = this.catalog.get(call.name).spec.source;
+        } catch {
+          /* Unknown tools have no owner. */
+        }
+      }
       let result = failure(error);
+      result = attributed(result, record.toolSource);
       if (record.toolSource?.type === "mcp")
         result.details = {
           ...result.details,
@@ -444,6 +493,7 @@ export class ToolExecutor {
         errorCode: result.errorCode,
         state: record.state,
         durationMs: performance.now() - started,
+        toolSource: record.toolSource,
       });
       return result;
     }
@@ -473,6 +523,20 @@ export class ToolExecutor {
     } else if (record.state === "succeeded")
       delete runtime.failedCalls[fingerprint];
   }
+}
+function attributed(
+  result: ToolExecutionResult,
+  source?: ToolSource,
+): ToolExecutionResult {
+  return source?.type === "extension"
+    ? {
+        ...result,
+        details: {
+          ...result.details,
+          extension: { id: source.extensionId, tool: source.originalName },
+        },
+      }
+    : result;
 }
 async function abortable<T>(
   promise: Promise<T>,
