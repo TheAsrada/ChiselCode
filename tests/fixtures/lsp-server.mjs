@@ -1,12 +1,7 @@
 // Deterministic protocol/race peer only. Acceptance uses the real installed server.
 
 import { spawn } from "node:child_process";
-import {
-  appendFileSync,
-  closeSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -182,13 +177,11 @@ async function receive(message) {
     return process.stdout.write("Content-Length: 99999999\r\n\r\n");
   if (method === "fixture/malformed")
     return process.stdout.write("Content-Length: 3\r\n\r\nbad");
-  if (method === "fixture/EOF") {
-    // Close the Windows libuv copy as well as descriptor 1; .end() alone
-    // cannot produce EOF while another write handle to the pipe remains open.
-    if (process.platform === "win32") process.stdout._handle.close();
-    closeSync(1);
-    return;
-  }
+  if (method === "fixture/EOF")
+    // A clean process exit mid-frame provides actual EOF on Windows pipes too.
+    return process.stdout.write('Content-Length: 20\r\n\r\n{"id":', () =>
+      process.exit(0),
+    );
   if (method === "fixture/crash") return process.exit(2);
   if (
     method === "textDocument/definition" ||
