@@ -1,61 +1,22 @@
-export const SLASH_COMMANDS = [
-  { name: "/help", description: "показать справку по командам" },
-  {
-    name: "/clear",
-    description: "начать новую вкладку, сохранив текущий разговор",
-  },
-  { name: "/cwd", description: "сменить папку проекта: <путь>" },
-  {
-    name: "/settings",
-    description: "подключение, оформление и разрешения",
-  },
-  { name: "/model", description: "сменить модель" },
-  { name: "/skills", description: "скиллы: выбрать и задействовать" },
-  { name: "/status", description: "показать состояние сессии" },
-  { name: "/sessions", description: "выбрать сеанс проекта" },
-  { name: "/resume", description: "открыть выбор сеанса" },
-  { name: "/update", description: "проверить и установить обновление" },
-  { name: "/doctor", description: "проверить настройку без показа ключей" },
-  { name: "/home", description: "перейти на главную" },
-  { name: "/new", description: "создать вкладку сессии" },
-  { name: "/exit", description: "закрыть ChiselCode" },
-  { name: "/plan", description: "Plan: изучить проект и составить план" },
-  { name: "/build", description: "Build: выполнить изменения" },
-  { name: "/mode", description: "сменить режим: plan|build" },
-  {
-    name: "/permissions",
-    description: "выбрать Manual, Accept edits, Dont ask или Bypass",
-  },
-  { name: "/ask", description: "Manual: подтверждать изменения и команды" },
-  {
-    name: "/auto",
-    description: "Accept edits: разрешать правки файлов проекта",
-  },
-  { name: "/mcp", description: "Подключения MCP, инструменты и разрешения" },
-] as const;
+import {
+  type CommandProjection,
+  type CommandSuggestion,
+  composeCommandProjection,
+  splitSlashCommand,
+} from "../commands/slash.js";
 
-export type SlashCommandName = (typeof SLASH_COMMANDS)[number]["name"];
+export {
+  type CommandSuggestion,
+  type ParsedSlashCommand,
+  parseSlashCommand,
+  SLASH_COMMANDS,
+  type SlashCommandName,
+} from "../commands/slash.js";
 
-export interface ParsedSlashCommand {
-  name: SlashCommandName;
-  args: string;
-}
-
-export function parseSlashCommand(
-  input: string,
-): ParsedSlashCommand | undefined {
-  const value = input.trim();
-  const space = value.search(/\s/);
-  const head = space === -1 ? value : value.slice(0, space);
-  const args = space === -1 ? "" : value.slice(space).trim();
-  return SLASH_COMMANDS.some((command) => command.name === head)
-    ? { name: head as SlashCommandName, args }
-    : undefined;
-}
-
-export interface CommandSuggestion {
-  name: string;
-  description: string;
+function projection(
+  value: CommandProjection | readonly CommandSuggestion[],
+): CommandProjection {
+  return "commands" in value ? value : composeCommandProjection(value);
 }
 
 /** Сколько подсказок показываем под вводом: остальные - счётчиком '...и ещё N'. */
@@ -67,22 +28,12 @@ export function isSlashInput(input: string): boolean {
 
 export function matchingCommands(
   input: string,
-  skills: CommandSuggestion[] = [],
-): CommandSuggestion[] {
+  available: CommandProjection | readonly CommandSuggestion[] = [],
+): readonly import("../commands/slash.js").CommandDescriptor[] {
   const query = input.trim().toLowerCase();
-  const builtIn = SLASH_COMMANDS.filter((command) =>
+  return projection(available).commands.filter((command) =>
     command.name.startsWith(query),
   );
-  if (!query.startsWith("/")) return [...builtIn];
-  const seen = new Set<string>(builtIn.map((command) => command.name));
-  const extra = skills
-    .filter((command) => `/${command.name}`.startsWith(query))
-    .filter((command) => !seen.has(`/${command.name}`))
-    .map((command) => ({
-      name: `/${command.name}`,
-      description: command.description,
-    }));
-  return [...builtIn, ...extra];
 }
 
 /**
@@ -91,14 +42,15 @@ export function matchingCommands(
  */
 export function suggestSimilarCommand(
   input: string,
-  skills: CommandSuggestion[] = [],
+  available: CommandProjection | readonly CommandSuggestion[] = [],
 ): string | undefined {
-  const query = input.trim().toLowerCase().replace(/^\//, "");
+  const query = (splitSlashCommand(input)?.name ?? input.trim())
+    .toLowerCase()
+    .replace(/^\//, "");
   if (!query) return undefined;
-  const candidates = [
-    ...SLASH_COMMANDS.map((command) => command.name.slice(1)),
-    ...skills.map((command) => command.name.replace(/^\//, "")),
-  ];
+  const candidates = projection(available).commands.map((command) =>
+    command.name.slice(1),
+  );
   let best: string | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
   for (const candidate of candidates) {
@@ -147,38 +99,49 @@ const HELP_GROUPS: { title: string; commands: string[] }[] = [
       "/skills",
       "/mcp",
       "/update",
+      "/sidebar",
       "/help",
       "/exit",
     ],
   },
 ];
 
-export function commandHelpText(skills: CommandSuggestion[] = []): string {
-  const byName = new Map<string, string>(
-    SLASH_COMMANDS.map((c) => [c.name, c.description]),
+export function commandHelpText(
+  available: CommandProjection | readonly CommandSuggestion[] = [],
+): string {
+  const commands = projection(available).commands;
+  const byName = new Map(
+    commands.map((command) => [command.name, command.description]),
   );
-  const extra = skills.filter((command) => !byName.has(`/${command.name}`));
-  const width = Math.max(
-    ...SLASH_COMMANDS.map((c) => c.name.length),
-    ...extra.map((c) => c.name.length + 1),
-  );
+  const width = Math.max(...commands.map((command) => command.name.length));
   const lines = ["[i] ChiselCode - быстрые команды"];
   for (const group of HELP_GROUPS) {
     lines.push("", `-- ${group.title} --`);
-    for (const name of group.commands) {
+    for (const name of group.commands)
       lines.push(`  ${name.padEnd(width, " ")} - ${byName.get(name) ?? ""}`);
-    }
   }
-  if (extra.length > 0) {
+  const skills = commands.filter((command) => command.source.type === "skill");
+  if (skills.length) {
     lines.push("", "-- Скиллы --");
-    for (const command of extra) {
+    for (const command of skills)
       lines.push(
-        `  ${`/${command.name}`.padEnd(width, " ")} - ${command.description}`,
+        `  ${command.name.padEnd(width, " ")} - ${command.description}`,
       );
-    }
     lines.push(
       "Пользовательские скиллы: ChiselCode Home/skills/user/<имя>/SKILL.md.",
     );
+  }
+  const extensions = commands.filter(
+    (command) => command.source.type === "extension",
+  );
+  if (extensions.length) {
+    lines.push("", "-- Расширения --");
+    for (const command of extensions) {
+      if (command.source.type !== "extension") continue;
+      lines.push(
+        `  ${command.name.padEnd(width, " ")} - ${command.description} [${command.source.extensionId}]${command.usage ? ` | ${command.usage}` : ""}`,
+      );
+    }
   }
   lines.push(
     "",

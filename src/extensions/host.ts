@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { cancelled } from "../runtime/errors.js";
+import { ExtensionCommandContributions } from "./commands.js";
 import { ContextProviderRegistry } from "./context.js";
 import type {
   ChiselExtension,
@@ -33,6 +34,7 @@ export class WorkspaceExtensionScope implements Disposable {
   readonly toolGuards: RuntimeHookPipeline;
   readonly contextProviders: ContextProviderRegistry;
   readonly tools: ExtensionToolContributions;
+  readonly commands: ExtensionCommandContributions;
   private readonly activations: ActivationResources[] = [];
   private readonly tracked = new Set<Disposable>();
   private disposal?: Promise<void>;
@@ -48,6 +50,10 @@ export class WorkspaceExtensionScope implements Disposable {
     );
     this.tools = new ExtensionToolContributions(this.signal, () =>
       this.assertUsable(),
+    );
+    this.commands = new ExtensionCommandContributions(
+      () => this.assertUsable(),
+      this.signal,
     );
   }
   get signal(): AbortSignal {
@@ -93,6 +99,14 @@ export class WorkspaceExtensionScope implements Disposable {
       const context: ExtensionContext = Object.freeze({
         workspaceRoot: this.workspaceRoot,
         signal: this.signal,
+        commands: Object.freeze({
+          register: <T>(
+            command: import("./contracts.js").ExtensionCommandContribution<T>,
+          ) => {
+            assertRegistering();
+            track(this.commands.register(definition.id, command));
+          },
+        }),
         tools: Object.freeze({
           register: (
             tool: import("./contracts.js").ExtensionToolContribution,
@@ -163,6 +177,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.toolGuards.seal();
     this.contextProviders.seal();
     this.tools.seal();
+    this.commands.seal();
     this.ready = true;
   }
   abortLifetime(): void {
@@ -196,6 +211,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.toolGuards.dispose();
     this.contextProviders.dispose();
     this.tools.dispose();
+    this.commands.dispose();
     this.abortLifetime();
     return this.disposal;
   }

@@ -28,7 +28,7 @@ const FileDiffSchema = z.object({
   additions: z.number(),
   deletions: z.number(),
 });
-const ToolResultSchema = z.object({
+export const ToolResultSchema = z.object({
   references: z
     .array(
       z.object({

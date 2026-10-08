@@ -41,6 +41,8 @@ jobs:
         run: bun run eval --category all
       - name: Build package
         run: bun run build
+      - name: Smoke packaged and compiled linked command contributions
+        run: bun tests/fixtures/command-packaging.ts
       - name: Smoke installed npm package
         shell: bash
         run: |

@@ -13,10 +13,8 @@ import {
   type ExtensionDependencies,
   withExtensionWorkspace,
 } from "../extensions/composition.js";
-import type { Disposable } from "../extensions/contracts.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { ExtensionLifecycleError } from "../extensions/lifecycle.js";
-import { attachExtensionTools } from "../extensions/tools.js";
 import { resolveCredential } from "../providers/auth.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
@@ -32,13 +30,11 @@ import type { GlobalConfig } from "../types/domain.js";
 
 export { MissingApiKeyError } from "../providers/runtime.js";
 
-import { McpConnectionManager } from "../mcp/manager.js";
-import { McpRuntimeBinding } from "../mcp/runtime.js";
-import { McpConfigStore } from "../mcp/storage.js";
+import type { McpConnectionManager } from "../mcp/manager.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
-import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
+import type { ApprovalResolver } from "../security/approval.js";
 import {
   type ApprovalModeInput,
   resolveApprovalMode,
@@ -46,19 +42,16 @@ import {
 import { CredentialStore } from "../security/credentials.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession, sessionTitleForPrompt } from "../sessions/store.js";
-import { loadSkills } from "../skills/skills.js";
-import { createLocalToolRuntime } from "../tools/local-runtime.js";
 import type {
   AgentResult,
   ModelInfo,
   ProviderAdapter,
   ProviderId,
   ToolExecutionResult,
-  ToolName,
 } from "../types/domain.js";
 import { exitCodeFor, OneShotRenderer } from "../ui/one-shot.js";
-import { createWebToolProvider } from "../web/provider.js";
-import { resolveWebConfig, type WebConfig } from "../web/schema.js";
+import type { WebConfig } from "../web/schema.js";
+import { createSessionToolRuntime } from "./tool-runtime.js";
 
 export interface RunEventHandlers {
   onEvent?(event: RuntimeEvent): void | Promise<void>;
@@ -73,6 +66,8 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
+  /** Internal TUI composition; a headless run never sets this. */
+  interactive?: boolean;
   /** Shared across TUI turns/tabs of a project; headless runs own their manager. */
   mcpManager?: McpConnectionManager;
   /** Live user network configuration; repository restrictions are always reapplied. */
@@ -464,55 +459,22 @@ async function runPromptInWorkspace(
     events.onToolResult ??
     ((name: string, result: ToolExecutionResult) =>
       renderer.toolResult(name, result));
-  const webConfig = resolveWebConfig(global.web, config.web);
-  const web = await createWebToolProvider(webConfig);
-  const approvalGate = new ApprovalGate(
-    config,
-    {
-      autoApprove: Boolean(options.yes),
-      approvalMode,
-      allowBypassPermissions: () =>
-        global.permissions?.allowBypassPermissions === true &&
-        (options.isBypassAllowed?.() ?? true),
-      allowedTools: parseAllowedTools(options.allow),
-      nonInteractive: !process.stdin.isTTY,
-      network: {
-        scope: `${projectRoot}:${session.id}`,
-        config: () =>
-          resolveWebConfig(options.getWebConfig?.() ?? global.web, config.web),
-      },
-    },
-    resolver,
-  );
-  const skills = loadSkills(projectRoot);
   const eventBus = new RuntimeEventBus(session.id);
-  const mcp =
-    global.mcp || config.mcp || options.mcpManager?.list().length
-      ? (options.mcpManager ??
-        new McpConnectionManager(
-          new McpConfigStore(projectRoot, { globalPath: options.configPath }),
-        ))
-      : undefined;
-  const sanitize = <T>(value: T): T =>
-    web.redactor.value(mcp ? mcp.redactor.value(value) : value);
-  eventBus.sanitize = sanitize;
-  const saveCheckpoint = () => {
-    session.messages = sanitize(session.messages);
-    if (session.title) session.title = sanitize(session.title);
-    if (session.context?.activeCheckpoint)
-      Object.assign(
-        session.context.activeCheckpoint.summary,
-        sanitize(session.context.activeCheckpoint.summary),
-      );
-    for (const record of Object.values(session.runtime?.invocations ?? {})) {
-      record.input = sanitize(record.input);
-      if (record.toolSource) record.toolSource = sanitize(record.toolSource);
-      if (record.result) record.result = sanitize(record.result);
-      if (record.approvalPreview)
-        record.approvalPreview = sanitize(record.approvalPreview);
-    }
-    return sessionStore.save(session);
-  };
+  const tools = await createSessionToolRuntime({
+    root: projectRoot,
+    session,
+    store: sessionStore,
+    config,
+    global,
+    options,
+    mode,
+    approvalMode,
+    scope: extensionScope,
+    events: eventBus,
+    resolver,
+    signal,
+  });
+  const { sanitize, saveCheckpoint, skills } = tools;
   const detachEvents = eventBus.subscribe(async (event) => {
     await events.onEvent?.(event);
     if (
@@ -534,33 +496,9 @@ async function runPromptInWorkspace(
   let result: AgentResult | undefined;
   let runtimeFailure: unknown;
   let runtimeFailed = false;
-  let mcpBinding: McpRuntimeBinding | undefined;
-  let extensionBinding: Disposable | undefined;
   const cleanupErrors: unknown[] = [];
   try {
-    const tools = createLocalToolRuntime(
-      projectRoot,
-      config.ignorePatterns,
-      approvalGate,
-      session,
-      skills,
-      {
-        events: eventBus,
-        mode,
-        approvalMode,
-        signal,
-        maxInlineTokens: config.context?.maxInlineToolResultTokens,
-        maxParallelReads: config.tools?.maxParallelReads,
-        requireFreshRead: config.editing?.requireFreshRead,
-        checkpoint: saveCheckpoint,
-        sanitizeResult: sanitize,
-        sanitizeApproval: sanitize,
-        toolGuards: extensionScope.toolGuards,
-      },
-    );
-    await tools.catalog.addProvider(web);
     const dynamic = await collectDynamicContext(projectRoot);
-    mcpBinding = mcp ? new McpRuntimeBinding(mcp, tools.catalog) : undefined;
     session.gitBranch = dynamic.gitBranch;
     const system = buildSystemPrompt(
       await loadProjectInstructions(projectRoot),
@@ -568,11 +506,7 @@ async function runPromptInWorkspace(
       skills,
     );
     // Resolve known credentials before the first transcript checkpoint or model request.
-    await mcpBinding?.refresh(signal);
-    extensionBinding = await attachExtensionTools(
-      extensionScope,
-      tools.catalog,
-    );
+    await tools.refresh();
     const runtime = new AgentRuntime(
       provider,
       new ContextManager(
@@ -593,7 +527,7 @@ async function runPromptInWorkspace(
         instructionsForTurn: (selected) =>
           tools.catalog.instructionsForTurn(selected),
         selectForTurn: async (input) => {
-          await mcpBinding?.refresh(signal);
+          await tools.refresh();
           return tools.catalog.selectForTurn(input);
         },
         execute: (calls, signal) =>
@@ -621,9 +555,7 @@ async function runPromptInWorkspace(
       }
     };
     await cleanup(detachEvents);
-    await cleanup(() => extensionBinding?.dispose());
-    await cleanup(() => mcpBinding?.dispose());
-    if (mcp && !options.mcpManager) await cleanup(() => mcp.dispose());
+    await cleanup(() => tools.dispose());
   }
   if (cleanupErrors.length)
     throw new AggregateError(
@@ -659,15 +591,6 @@ async function runPromptInWorkspace(
   )
     renderer.complete(result);
   return { result, exitCode: exitCodeFor(result) };
-}
-
-function parseAllowedTools(value: string | undefined): Set<ToolName> {
-  if (!value) return new Set();
-  const names = value
-    .split(",")
-    .map((name) => name.trim())
-    .filter(Boolean) as ToolName[];
-  return new Set(names);
 }
 
 async function collectDynamicContext(cwd: string): Promise<DynamicContext> {

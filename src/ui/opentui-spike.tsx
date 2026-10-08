@@ -7,6 +7,10 @@ import type {
 } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
+import {
+  type CommandProjection,
+  composeCommandProjection,
+} from "../commands/slash.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
 import {
   AGENT_MODES,
@@ -26,7 +30,6 @@ import {
 import { invocableSkills } from "../skills/skills.js";
 import { type ThemeName, themePalette } from "./appearance.js";
 import {
-  type CommandSuggestion,
   isSlashInput,
   MAX_VISIBLE_SUGGESTIONS,
   matchingCommands,
@@ -80,6 +83,7 @@ import type { TuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
 import type { UpdateController } from "./update-controller.js";
+import type { WorkspaceCommandsPort } from "./workspace-commands.js";
 
 const PATCH = `diff --git a/example.ts b/example.ts
 --- a/example.ts
@@ -184,6 +188,7 @@ function OpenTuiScreen({
   onSetupComplete,
   onInitialSettingsComplete,
   skillsActions,
+  commandActions,
   getMcpActions,
   initialTheme = "obsidian",
   accent,
@@ -213,6 +218,7 @@ function OpenTuiScreen({
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
+  commandActions?: WorkspaceCommandsPort;
   getMcpActions?: () => OpenTuiMcpActions;
   initialTheme?: ThemeName;
   accent?: string;
@@ -249,7 +255,9 @@ function OpenTuiScreen({
   const [update, setUpdate] = useState(updater?.snapshot);
   useEffect(() => updater?.subscribe(setUpdate), [updater]);
   const [bypassAllowed, setBypassAllowed] = useState(allowBypassPermissions);
-  const [skillCommands, setSkillCommands] = useState<CommandSuggestion[]>([]);
+  const [commandProjection, setCommandProjection] = useState<CommandProjection>(
+    () => composeCommandProjection(),
+  );
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
@@ -274,21 +282,47 @@ function OpenTuiScreen({
       },
   );
   useEffect(() => controller?.subscribe(setView), [controller]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload available skill commands.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload the shared command projection.
   useEffect(() => {
+    let active = true;
+    const origin = controller;
+    const generation = origin?.currentGeneration;
+    const root = view.projectPath;
+    setCommandProjection(composeCommandProjection());
+    if (commandActions) {
+      void commandActions
+        .load(root)
+        .then((snapshot) => {
+          if (
+            !active ||
+            (generation !== undefined && !origin?.isCurrent(generation))
+          )
+            return;
+          setCommandProjection(snapshot.projection);
+          if (snapshot.error) origin?.append(snapshot.error, "error");
+        })
+        .catch(() => {
+          if (active)
+            origin?.append("Не удалось загрузить команды проекта.", "error");
+        });
+      return () => {
+        active = false;
+      };
+    }
     try {
-      setSkillCommands(
-        skillsActions
-          ? invocableSkills(skillsActions.load()).map(
-              ({ name, description }) => ({ name, description }),
-            )
-          : [],
+      setCommandProjection(
+        composeCommandProjection(
+          skillsActions ? invocableSkills(skillsActions.load()) : [],
+        ),
       );
     } catch {
       // The library popup presents discovery failures without breaking the composer.
-      setSkillCommands([]);
+      setCommandProjection(composeCommandProjection());
     }
-  }, [skillsActions, view.projectPath, skillsOpen]);
+    return () => {
+      active = false;
+    };
+  }, [commandActions, skillsActions, controller, view.projectPath, skillsOpen]);
   const [expanded, setExpanded] = useState(
     controller?.presentation.expanded ?? false,
   );
@@ -399,7 +433,7 @@ function OpenTuiScreen({
     !draft.includes("\n") &&
     !draft.trim().includes(" ") &&
     !suggestionsDismissed
-      ? matchingCommands(draft, skillCommands)
+      ? matchingCommands(draft, commandProjection)
       : [];
   const suggestionLimit = Math.min(
     MAX_VISIBLE_SUGGESTIONS,
@@ -504,7 +538,7 @@ function OpenTuiScreen({
     const needsArgs =
       name === "/cwd" ||
       name === "/resume" ||
-      skillCommands.some((skill) => `/${skill.name}` === name);
+      selectedSuggestion.source.type !== "builtin";
     const filled = needsArgs ? `${name} ` : name;
     acceptedCompletion.current = filled;
     input.setText(filled);
@@ -905,7 +939,14 @@ function OpenTuiScreen({
       editor.current?.setText("");
       setDraft("");
     };
-    const parsed = parseSlashCommand(value);
+    // Renderer owns core UI commands only. Extension callbacks belong to application dispatch.
+    const resolved = parseSlashCommand(value, commandProjection);
+    const parsed =
+      commandProjection.commands.find(
+        (command) => command.name === resolved?.name,
+      )?.source.type === "builtin"
+        ? resolved
+        : undefined;
     if (parsed && ["/permissions", "/auto", "/ask"].includes(parsed.name)) {
       const requested =
         parsed.name === "/permissions" ? parsed.args : parsed.name.slice(1);
@@ -953,8 +994,8 @@ function OpenTuiScreen({
       clearInput();
       return;
     }
-    if (value === "/sidebar" || value.startsWith("/sidebar ")) {
-      const arg = value.slice("/sidebar".length).trim();
+    if (parsed?.name === "/sidebar") {
+      const arg = parsed.args;
       const next = arg ? parseSidebarMode(arg) : toggleSidebarMode(mode, width);
       if (next) changeMode(next);
       clearInput();
@@ -1091,7 +1132,7 @@ function OpenTuiScreen({
           }
         >
           {terminalLine(
-            `${index + suggestionStart === selectedSuggestionIndex ? ">" : " "} ${command.name} | ${command.description}`,
+            `${index + suggestionStart === selectedSuggestionIndex ? ">" : " "} ${command.name} | ${command.description}${command.source.type === "extension" ? ` [${command.source.extensionId}]` : ""}`,
             Math.max(8, composerWidth - 3),
           )}
         </text>

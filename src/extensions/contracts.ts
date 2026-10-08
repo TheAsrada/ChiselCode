@@ -4,7 +4,11 @@ import type { ApprovalMode } from "../security/approval-mode.js";
 import type { NetworkRequest } from "../security/network-policy.js";
 import type { ToolEffect } from "../tools/effects.js";
 import type { ToolHandler, ToolSource, ToolSpec } from "../tools/types.js";
-import type { FileDiff, JsonObject } from "../types/domain.js";
+import type {
+  FileDiff,
+  JsonObject,
+  ToolExecutionResult,
+} from "../types/domain.js";
 import type { ServiceToken } from "./services.js";
 
 export interface Disposable {
@@ -86,6 +90,9 @@ export interface ExtensionContext {
   readonly tools: {
     register(tool: ExtensionToolContribution): void;
   };
+  readonly commands: {
+    register<T>(command: ExtensionCommandContribution<T>): void;
+  };
   readonly services: {
     provide<T>(token: ServiceToken<T>, service: T): void;
     get<T>(token: ServiceToken<T>): T;
@@ -106,6 +113,38 @@ export type ExtensionToolContribution = {
   prepare: ToolHandler["prepare"];
   execute: ToolHandler["execute"];
 };
+export interface ExtensionCommandIdentity {
+  readonly type: "extension";
+  readonly extensionId: string;
+  readonly name: string;
+}
+export interface ExtensionCommandDescriptor {
+  readonly name: string;
+  readonly description: string;
+  readonly usage?: string;
+  readonly source: ExtensionCommandIdentity;
+}
+export interface ExtensionCommandInvocation {
+  readonly workspaceRoot: string;
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly mode: AgentMode;
+  readonly approvalMode: ApprovalMode;
+  readonly signal: AbortSignal;
+  readonly tools: {
+    execute(name: string, input: JsonObject): Promise<ToolExecutionResult>;
+  };
+}
+export interface ExtensionCommandContribution<T = unknown> {
+  name: string;
+  description: string;
+  usage?: string;
+  parse(args: string): T;
+  execute(
+    context: ExtensionCommandInvocation,
+    input: T,
+  ): ToolExecutionResult | Promise<ToolExecutionResult>;
+}
 export interface ChiselExtension {
   readonly id: string;
   activate(context: ExtensionContext): void | Promise<void>;

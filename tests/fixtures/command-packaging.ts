@@ -1,0 +1,99 @@
+import assert from "node:assert/strict";
+import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { execa } from "execa";
+
+// Test-only linked composition: ordinary package/release builds never contain this fixture.
+const root = resolve(import.meta.dir, "../..");
+const staging = await mkdtemp(join(tmpdir(), "chisel-command-package-"));
+const packageRoot = join(staging, "package");
+const installed = join(staging, "installed");
+const marker =
+  "Command contributions: TUI dispatch, tools, queue, cancellation, checkpoints and artifacts verified";
+async function run(file: string, args: string[], cwd = root) {
+  const result = await execa(file, args, {
+    cwd,
+    reject: false,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (result.exitCode !== 0)
+    throw new Error(
+      `${file} ${args.join(" ")} failed (${result.exitCode}).\n${result.stdout}\n${result.stderr}`,
+    );
+  return result.stdout;
+}
+try {
+  await mkdir(join(packageRoot, "dist"), { recursive: true });
+  const manifest = await Bun.file(join(root, "package.json")).json();
+  await Bun.write(
+    join(packageRoot, "package.json"),
+    JSON.stringify({
+      ...manifest,
+      name: "chiselcode-command-smoke",
+      private: true,
+      scripts: {},
+    }),
+  );
+  for (const file of ["README.md", "LICENSE", "dist/cli.js"])
+    await copyFile(join(root, file), join(packageRoot, file));
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-command-contributions.ts",
+    "--outdir",
+    join(packageRoot, "dist/command-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
+  const tarball = (
+    await run(
+      "npm",
+      ["pack", "--silent", "--pack-destination", staging],
+      packageRoot,
+    )
+  ).trim();
+  await run("npm", [
+    "install",
+    "--prefix",
+    installed,
+    join(staging, tarball),
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+  ]);
+  const distribution = join(
+    installed,
+    "node_modules/chiselcode-command-smoke/dist",
+  );
+  assert.equal(
+    (
+      await run(process.execPath, [join(distribution, "cli.js"), "--version"])
+    ).trim(),
+    manifest.version,
+  );
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "command-smoke/tui-command-contributions.js"),
+      ])
+    ).includes(marker),
+  );
+  process.stdout.write("Installed linked TUI command scenario passed.\n");
+  const binary = join(
+    staging,
+    process.platform === "win32" ? "linked-tui.exe" : "linked-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-command-contributions.ts",
+    "--compile",
+    "--outfile",
+    binary,
+  ]);
+  assert.ok((await run(binary, [])).includes(marker));
+  process.stdout.write("Compiled linked TUI command scenario passed.\n");
+} finally {
+  await rm(staging, { recursive: true, force: true });
+}

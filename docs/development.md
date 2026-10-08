@@ -23,6 +23,7 @@ bun run dev
 bun run typecheck
 bun test
 bun run lint
+bun run eval --category all
 bun run build
 ```
 
@@ -31,6 +32,7 @@ bun run build
 | `bun run typecheck` | Типы TypeScript без генерации файлов |
 | `bun test` | Unit- и integration-тесты |
 | `bun run lint` | Biome для `src`, `tests` и `evals` |
+| `bun run eval --category all` | Все deterministic offline runtime evals |
 | `bun run build` | JS-сборку в `dist/` для Bun |
 | `bun run compile` | Исполняемый файл `dist/chisel` для текущей платформы |
 | `bun run format` | Переформатирует `src` и `tests`; изменяет файлы |
@@ -53,9 +55,9 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 ## Внутренние linked extensions
 
-Контракт services/context/guards/tools и рабочий пример — в [архитектуре](architecture.md#границы-расширений). `ctx.tools.register(defineTool(...))` работает только во время activation; core присваивает `ext:<extensionId>:<localName>` и source. Contributions исполняются общим executor с Plan/permissions/EditingService/artifacts. Регистрация автоматически принадлежит workspace; вручную добавлять её в `ctx.add` не нужно. `ctx.add` применяется к ресурсам/service cleanup. Prompt binding временный, borrowed workspace переживает prompts.
+Контракт services/context/guards/tools/commands и рабочий пример — в [архитектуре](architecture.md#границы-расширений). `ctx.tools.register(defineTool(...))` и `ctx.commands.register({ name, description, usage, parse, execute })` работают только во время activation. Для tools core присваивает `ext:<extensionId>:<localName>` и source. Slash head имеет отдельную identity `{ type: "extension", extensionId, name }`, без wire namespace. Built-in/skill/extension name conflicts отклоняются явно. Contributions исполняются общим executor с Plan/permissions/EditingService/artifacts. Регистрации автоматически принадлежат workspace; вручную добавлять их в `ctx.add` не нужно. `ctx.add` применяется к ресурсам/service cleanup. Prompt/command tool binding временный, borrowed workspace переживает операции.
 
-Production composition включает `defaultExtensions()` с manifest consumer; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare.
+Production composition включает `defaultExtensions()` с manifest consumer; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. P1.2 не добавляет пользовательскую production-команду или fake LSP.
 
 Acceptance tests используют реальные host/catalog/executor/policy/coordinator/storage и deterministic providers. Packaging harness поднимает локальный тестовый model endpoint, отправляет обычный Plan prompt и проверяет цикл model → manifest → model → checkpoint; production test flags/autoload fixtures отсутствуют:
 
@@ -66,6 +68,18 @@ bun tests/fixtures/manifest-cli.ts ./dist/chisel
 ```
 
 Последние две команды запускаются после `npm pack`/установки и `bun run compile`. Windows compiled binary — `dist/chisel.exe`. CI matrix выполняет тот же manifest smoke для установленного пакета и compiled CLI на Windows/macOS/Linux; `--version`/`doctor` остаются отдельными проверками запуска. Harness не обращается к live LLM и не изменяет пользовательские credentials/config.
+
+Command acceptance fixture явно передаёт linked extension настоящему TUI application, использует OpenTUI test renderer и реальные files/executor/store. Проверяются welcome/help/autocomplete, exactly-once dispatch без ключа модели, approvals/Plan/guards, очередь commands/prompts, соседние вкладки, Ctrl+C, artifact и checkpoint. Один специально queued ordinary prompt использует локальный deterministic model endpoint; commands не вызывают chat. Fixture запускается из исходников и может быть собрана тем же Bun pipeline:
+
+```bash
+bun tests/fixtures/tui-command-contributions.ts
+bun build tests/fixtures/tui-command-contributions.ts --outdir ./dist/command-smoke --target bun --external '@opentui/core-*'
+bun ./dist/command-smoke/tui-command-contributions.js
+bun build tests/fixtures/tui-command-contributions.ts --compile --outfile ./dist/command-smoke/linked-tui
+./dist/command-smoke/linked-tui
+```
+
+Это test-only linked build, не loader установленного CLI. Не включайте `dist/command-smoke` в публикуемый package. После `bun run build` команда `bun tests/fixtures/command-packaging.ts` собирает fixture в отдельный staging package, выполняет `npm pack`/install и тот же TUI сценарий из установленного bundle, затем из compiled binary. CI запускает этот harness на Windows/macOS/Linux; он не меняет production package или lockfile. На Windows compiled fixture имеет суффикс `.exe`. Command feedback остаётся UI projection; restart не запускает callback заново.
 
 ## Релизы
 

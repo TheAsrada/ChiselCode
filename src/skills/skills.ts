@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SLASH_COMMANDS } from "../commands/slash.js";
 import { isInstalledBinary } from "../commands/update.js";
 import { globalConfigPath } from "../config/load.js";
 import {
@@ -20,7 +21,6 @@ import {
   skillsRootDir,
   userSkillsDir,
 } from "../paths/home.js";
-import { SLASH_COMMANDS } from "../ui/commands.js";
 
 /**
  * Скиллы в духе Claude Code и открытого стандарта Agent Skills

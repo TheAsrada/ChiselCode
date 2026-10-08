@@ -40,6 +40,7 @@ describe("interactive commands", () => {
       "/skills",
       "/status",
       "/sessions",
+      "/sidebar",
     ]);
     expect(matchingCommands("/c").map((command) => command.name)).toEqual([
       "/clear",

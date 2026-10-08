@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import React from "react";
+import { runExtensionCommand } from "../app/run-command.js";
 import {
   checkProviderConnection,
   getModelCapabilities,
@@ -13,6 +14,7 @@ import {
   type RunOptions,
   runPrompt,
 } from "../commands/run.js";
+import { resolveSlashCommand, splitSlashCommand } from "../commands/slash.js";
 import {
   launchWindowsInstaller,
   windowsUpdateArguments,
@@ -28,6 +30,7 @@ import {
 } from "../extensions/composition.js";
 import type { ChiselExtension } from "../extensions/contracts.js";
 import type { ExtensionHost } from "../extensions/host.js";
+import { safeDiagnostic } from "../extensions/lifecycle.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
 import { McpConfigStore } from "../mcp/storage.js";
@@ -71,8 +74,10 @@ import {
 import { FAIL_MARK, formatStatusDashboard, OK_MARK } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import type { TuiController } from "./tui-controller.js";
+import type { QueuedTabOperation } from "./tui-tab-execution.js";
 import { TuiWorkspace } from "./tui-workspace.js";
 import { UpdateController } from "./update-controller.js";
+import { WorkspaceCommands } from "./workspace-commands.js";
 
 /** The sole interactive terminal renderer. */
 export async function runOpenTuiAgent(
@@ -81,9 +86,17 @@ export async function runOpenTuiAgent(
   setupRequired = false,
   setupOnly = false,
   extensions: readonly ChiselExtension[] = defaultExtensions(),
+  rendererFactory: typeof createCliRenderer = createCliRenderer,
 ): Promise<void> {
   return withOwnedExtensionHost(extensions, (host) =>
-    runApplication(options, initialSession, setupRequired, setupOnly, host),
+    runApplication(
+      options,
+      initialSession,
+      setupRequired,
+      setupOnly,
+      host,
+      rendererFactory,
+    ),
   );
 }
 
@@ -93,6 +106,7 @@ async function runApplication(
   setupRequired: boolean,
   setupOnly: boolean,
   extensionHost: ExtensionHost,
+  rendererFactory: typeof createCliRenderer,
 ): Promise<void> {
   let activeOptions = { ...options, resume: undefined };
   const config = await loadGlobalConfig();
@@ -213,7 +227,7 @@ async function runApplication(
   const classic =
     process.env.CHISEL_ALT_SCREEN === "0" ||
     process.env.CHISEL_NO_ALT_SCREEN === "1";
-  const renderer = await createCliRenderer({
+  const renderer = await rendererFactory({
     screenMode: classic ? "split-footer" : "alternate-screen",
     footerHeight: 12,
     exitOnCtrlC: false,
@@ -241,6 +255,11 @@ async function runApplication(
     : undefined;
   const root = createRoot(renderer);
   const abort = new AbortController();
+  const commandActions = new WorkspaceCommands(extensionHost, abort.signal);
+  void commandActions.load(currentController().snapshot.projectPath);
+  let homeOperationTarget:
+    | { generation: number; root: string; controller: TuiController }
+    | undefined;
   const skillNames = new WeakMap<
     TuiController,
     { generation: number; names: Set<string> }
@@ -642,6 +661,11 @@ async function runApplication(
     turnModelOptions = { ...modelOptions(target) },
   ): Promise<void> => {
     let controller = target;
+    const originGeneration = controller.currentGeneration;
+    const originRoot = controller.snapshot.projectPath;
+    const priorHomeOperationTarget = homeOperationTarget;
+    input = input.trim();
+    const parsed = splitSlashCommand(input);
     if (abort.signal.aborted) return;
     turnApprovalMode = resolveApprovalMode({
       saved: turnApprovalMode,
@@ -658,10 +682,9 @@ async function runApplication(
       return;
     }
     if (input === "/help") {
-      controller.append(
-        `${commandHelpText(invocableSkills(skillsActions.load()))}\n/sidebar [auto|show|hide] | показать или скрыть контекст`,
-        "info",
-      );
+      const snapshot = commandActions.current(originRoot);
+      if (snapshot.error) controller.append(snapshot.error, "error");
+      controller.append(commandHelpText(snapshot.projection), "info");
       return;
     }
     if (input === "/status" || input === "/doctor") {
@@ -686,18 +709,18 @@ async function runApplication(
       );
       return;
     }
-    if (input.startsWith("/resume ")) {
+    if (parsed?.name === "/resume" && parsed.args) {
       try {
-        await resume(input.slice(8).trim());
+        await resume(parsed.args);
       } catch (error) {
         controller.append(String(error), "error");
       }
       return;
     }
-    if (input.startsWith("/cwd ")) {
+    if (parsed?.name === "/cwd" && parsed.args) {
       try {
         const cwd = await resolveProjectDir(
-          input.slice(5).trim(),
+          parsed.args,
           controller.snapshot.projectPath,
         );
         workspace.home.switchSession(undefined, cwd);
@@ -714,25 +737,76 @@ async function runApplication(
       );
       return;
     }
-    const availableSkills = loadSkills(controller.snapshot.projectPath);
-    const command = input.split(/\s/, 1)[0] ?? input;
-    const skill = input.startsWith("/")
-      ? invocableSkills(availableSkills).find(
-          (item) => `/${item.name}` === command,
-        )
+    let snapshot:
+      | import("./workspace-commands.js").WorkspaceCommandSnapshot
+      | undefined;
+    const submission = new AbortController();
+    if (parsed) {
+      const execution = workspace.execution(controller);
+      execution.pendingSubmissions.add(submission);
+      try {
+        snapshot = await commandActions.load(
+          originRoot,
+          AbortSignal.any([abort.signal, submission.signal]),
+        );
+      } finally {
+        execution.pendingSubmissions.delete(submission);
+      }
+    }
+    if (
+      !controller.isCurrent(originGeneration) ||
+      abort.signal.aborted ||
+      submission.signal.aborted
+    )
+      return;
+    const availableSkills = snapshot?.skills ?? loadSkills(originRoot);
+    const descriptor = snapshot
+      ? resolveSlashCommand(snapshot.projection, input)
       : undefined;
-    if (input.startsWith("/") && !skill) {
+    const skillName =
+      descriptor?.source.type === "skill" ? descriptor.source.name : undefined;
+    const skill = skillName
+      ? availableSkills.find((item) => item.name === skillName)
+      : undefined;
+    let prepared:
+      | import("../app/run-command.js").PreparedExtensionCommand
+      | undefined;
+    if (descriptor?.source.type === "extension" && snapshot?.scope) {
+      const command = snapshot.scope.commands.get(descriptor.source.name);
+      try {
+        prepared = { command, input: command.parse(parsed?.args ?? "") };
+      } catch {
+        controller.append(
+          `[extension] /${command.name} · ${command.source.extensionId}: неверные аргументы.${command.usage ? ` Использование: ${safeDiagnostic(command.usage)}` : ""}`,
+          "error",
+        );
+        return;
+      }
+    }
+    if (parsed && !skill && !prepared) {
+      if (snapshot?.error) controller.append(snapshot.error, "error");
       const hint = suggestSimilarCommand(
         input,
-        invocableSkills(availableSkills),
+        snapshot?.projection ?? invocableSkills([...availableSkills]),
       );
       controller.append(
-        `Неизвестная команда ${command}${hint ? ` | возможно, ${hint}` : ""}`,
+        `Неизвестная команда ${safeDiagnostic(parsed.name)}${hint ? ` | возможно, ${hint}` : ""}`,
         "warn",
       );
       return;
     }
+    if (
+      controller === workspace.home &&
+      homeOperationTarget !== priorHomeOperationTarget &&
+      homeOperationTarget?.generation === originGeneration &&
+      homeOperationTarget.root === originRoot &&
+      workspace.tabs.some(
+        (tab) => tab.controller === homeOperationTarget?.controller,
+      )
+    )
+      controller = homeOperationTarget.controller;
     if (controller === workspace.home) {
+      const selectedTab = workspace.activeKey;
       const selectedSkills = activeSkills(controller);
       const inputHistory = controller.presentation.history;
       controller = workspace.newTab(
@@ -741,32 +815,74 @@ async function runApplication(
         turnApprovalMode,
         target.snapshot.modelSelection,
       );
+      // A late home submission owns a new conversation, not the screen selected in the meantime.
+      if (selectedTab) workspace.select(selectedTab);
       controller.setSessionTitle(
         clipText(input.split("\n", 1)[0] ?? input, 120),
       );
-      warmModelCapabilities(controller);
+      homeOperationTarget = {
+        generation: originGeneration,
+        root: originRoot,
+        controller,
+      };
+      if (!prepared) warmModelCapabilities(controller);
       controller.presentation.history = inputHistory;
       skillNames.set(controller, {
         generation: controller.currentGeneration,
         names: new Set(selectedSkills),
       });
     }
+    const item: QueuedTabOperation =
+      prepared && snapshot?.scope
+        ? {
+            kind: "command",
+            input,
+            prepared,
+            scope: snapshot.scope,
+            root: originRoot,
+            mode: turnMode,
+            approvalMode: turnApprovalMode,
+            modelOptions: turnModelOptions,
+            generation: controller.currentGeneration,
+          }
+        : {
+            kind: "prompt",
+            input,
+            root: originRoot,
+            mode: turnMode,
+            approvalMode: turnApprovalMode,
+            modelOptions: turnModelOptions,
+            generation: controller.currentGeneration,
+          };
     const execution = workspace.execution(controller);
     if (execution.activeRun) {
-      execution.pendingPrompts.push({
-        input,
-        mode: turnMode,
-        approvalMode: turnApprovalMode,
-        modelOptions: turnModelOptions,
-        generation: controller.currentGeneration,
-      });
+      execution.pendingOperations.push(item);
       controller.setBusy(true);
       controller.append(
-        `В очереди: ${execution.pendingPrompts.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
+        `В очереди: ${execution.pendingOperations.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
         "info",
       );
       return;
     }
+    await executeOperation(controller, item);
+  };
+  const executeOperation = async (
+    controller: TuiController,
+    item: QueuedTabOperation,
+  ): Promise<void> => {
+    if (
+      abort.signal.aborted ||
+      !controller.isCurrent(item.generation) ||
+      controller.snapshot.projectPath !== item.root
+    )
+      return;
+    const execution = workspace.execution(controller);
+    const {
+      input,
+      mode: turnMode,
+      approvalMode: turnApprovalMode,
+      modelOptions: turnModelOptions,
+    } = item;
     const requestGeneration = controller.currentGeneration;
     const turnAbort = new AbortController();
     execution.abort = turnAbort;
@@ -775,13 +891,6 @@ async function runApplication(
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
     controller.append(`> ${input}`, "user");
-    const expanded = skill
-      ? expandSkill(skill, input.slice(command.length).trim())
-      : input;
-    const prompt = buildActiveSkillsPrompt(
-      availableSkills.filter((item) => activeSkills(controller).has(item.name)),
-      expanded,
-    );
     const tools = toolTranscriptHandlers(() => controller);
     // Install the owner before any provider callback can complete the request.
     const work = Promise.resolve().then(async () => {
@@ -789,6 +898,108 @@ async function runApplication(
         "failed";
       let elapsedMs: number | undefined;
       try {
+        if (item.kind === "command") {
+          const snapshot = await commandActions.load(item.root, signal);
+          const descriptor = resolveSlashCommand(snapshot.projection, input);
+          if (!controller.isCurrent(requestGeneration) || signal.aborted)
+            return;
+          if (
+            snapshot.error ||
+            snapshot.scope !== item.scope ||
+            descriptor?.source.type !== "extension" ||
+            descriptor.source.extensionId !==
+              item.prepared.command.source.extensionId ||
+            descriptor.source.name !== item.prepared.command.name
+          ) {
+            controller.append(
+              snapshot.error ??
+                "Команда больше не принадлежит выбранному расширению.",
+              "error",
+            );
+            return;
+          }
+          const heading = `[extension] /${item.prepared.command.name} · ${item.prepared.command.source.extensionId}`;
+          controller.append(heading, "tool");
+          controller.setToolActivity(heading);
+          const outcome = await runExtensionCommand(
+            item.prepared,
+            item.scope,
+            {
+              ...options,
+              ...turnModelOptions,
+              cwd: item.root,
+              resume: controller.snapshot.sessionId,
+              mode: turnMode,
+              approvalMode: turnApprovalMode,
+              interactive: true,
+              isBypassAllowed: () => bypassAvailable,
+              getWebConfig: () => webConfigLive,
+              mcpManager: getMcpController(item.root).manager,
+            },
+            execution.approvalResolver,
+            {
+              onEvent: (event) => {
+                if (!controller.isCurrent(requestGeneration) || signal.aborted)
+                  return;
+                if (event.type === "checkpoint_saved")
+                  controller.setSessionId(event.sessionId);
+                if (event.type === "tool_progress")
+                  controller.setToolActivity(
+                    `${event.name ?? "MCP"} · ${event.text ?? "Выполняется"}`,
+                  );
+              },
+              onToolStart: (name, input, source) => {
+                if (controller.isCurrent(requestGeneration) && !signal.aborted)
+                  tools.onToolStart?.(name, input, source);
+              },
+              onToolResult: (name, result) => {
+                if (!controller.isCurrent(requestGeneration) || signal.aborted)
+                  return;
+                tools.onToolResult?.(name, result);
+                if (result.diffs?.length || result.fileDiff)
+                  for (const tab of workspace.tabs)
+                    tab.controller.refreshGitChanges();
+              },
+            },
+            signal,
+          );
+          status =
+            signal.aborted || outcome.result.errorCode === "CANCELLED"
+              ? "cancelled"
+              : outcome.result.requiresApproval
+                ? "approval_required"
+                : outcome.result.isError
+                  ? "failed"
+                  : "completed";
+          if (!controller.isCurrent(requestGeneration) || signal.aborted)
+            return;
+          controller.setSessionUsage(outcome.session);
+          controller.append(
+            outcome.result.output,
+            outcome.result.isError || outcome.result.requiresApproval
+              ? "error"
+              : "info",
+          );
+          return;
+        }
+        const availableSkills = loadSkills(item.root);
+        const parsed = splitSlashCommand(input);
+        const skill = parsed
+          ? invocableSkills(availableSkills).find(
+              (skill) => `/${skill.name}` === parsed.name,
+            )
+          : undefined;
+        if (parsed && !skill) {
+          controller.append("Скилл больше не доступен.", "error");
+          return;
+        }
+        const expanded = skill ? expandSkill(skill, parsed?.args ?? "") : input;
+        const prompt = buildActiveSkillsPrompt(
+          availableSkills.filter((item) =>
+            activeSkills(controller).has(item.name),
+          ),
+          expanded,
+        );
         let hasText = false;
         const { result } = await runPrompt(
           prompt,
@@ -799,6 +1010,7 @@ async function runApplication(
             resume: controller.snapshot.sessionId,
             mode: turnMode,
             approvalMode: turnApprovalMode,
+            interactive: true,
             isBypassAllowed: () => bypassAvailable,
             getWebConfig: () => webConfigLive,
             mcpManager: getMcpController(controller.snapshot.projectPath)
@@ -906,7 +1118,12 @@ async function runApplication(
       } catch (error) {
         status = signal.aborted ? "cancelled" : "failed";
         if (!signal.aborted && controller.isCurrent(requestGeneration))
-          controller.append(String(error), "error");
+          controller.append(
+            item.kind === "command"
+              ? `[extension] /${item.prepared.command.name} · ${item.prepared.command.source.extensionId}: ${safeDiagnostic(error instanceof Error ? error.message : "Command failed.")}`
+              : String(error),
+            "error",
+          );
       } finally {
         execution.activeRun = undefined;
         execution.abort = undefined;
@@ -915,20 +1132,14 @@ async function runApplication(
           controller.finishRequest(status, elapsedMs);
           controller.setRunningMode();
           controller.setRunningApprovalMode();
-          controller.setBusy(execution.pendingPrompts.length > 0);
+          controller.setBusy(execution.pendingOperations.length > 0);
           persistExecutionModes(controller);
         }
-        let next = execution.pendingPrompts.shift();
+        let next = execution.pendingOperations.shift();
         while (next && !controller.isCurrent(next.generation))
-          next = execution.pendingPrompts.shift();
+          next = execution.pendingOperations.shift();
         if (next && !abort.signal.aborted)
-          void submit(
-            next.input,
-            controller,
-            next.mode,
-            next.approvalMode,
-            next.modelOptions,
-          );
+          void executeOperation(controller, next);
       }
     });
     execution.activeRun = work;
@@ -971,7 +1182,7 @@ async function runApplication(
                 ...workspace.tabs.map((tab) => tab.controller),
               ]) {
                 for (const queued of workspace.execution(controller)
-                  .pendingPrompts)
+                  .pendingOperations)
                   if (queued.approvalMode === "bypassPermissions")
                     queued.approvalMode = "default";
                 if (controller.snapshot.approvalMode === "bypassPermissions") {
@@ -985,6 +1196,7 @@ async function runApplication(
           return saved;
         },
         skillsActions,
+        commandActions,
         getMcpActions: () =>
           getMcpController(currentController().snapshot.projectPath),
         initialSettingsOpen: setupRequired || setupOnly,

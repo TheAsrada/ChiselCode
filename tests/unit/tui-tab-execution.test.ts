@@ -12,6 +12,10 @@ test("unbound approvals wait in their own tabs and cancellation leaves peers unt
     const b = workspace.execution(second);
     a.abort = new AbortController();
     b.abort = new AbortController();
+    const waitingA = new AbortController();
+    const waitingB = new AbortController();
+    a.pendingSubmissions.add(waitingA);
+    b.pendingSubmissions.add(waitingB);
     const firstRequest = { tool: "write_file", preview: "first" };
     const secondRequest = { tool: "run_shell", preview: "second" };
     const firstPending = a.approvalResolver.requestApproval(firstRequest);
@@ -28,6 +32,8 @@ test("unbound approvals wait in their own tabs and cancellation leaves peers unt
     expect(await firstPending).toBe("unavailable");
     expect(a.abort.signal.aborted).toBe(true);
     expect(b.abort.signal.aborted).toBe(false);
+    expect(waitingA.signal.aborted).toBe(true);
+    expect(waitingB.signal.aborted).toBe(false);
     expect(first.snapshot.awaitingApproval).toBe(false);
     expect(second.snapshot.awaitingApproval).toBe(true);
     b.approvalResolver.resolve("approved", firstRequest);
@@ -40,6 +46,7 @@ test("unbound approvals wait in their own tabs and cancellation leaves peers unt
     expect(first.snapshot.awaitingApproval).toBe(true);
     a.approvalResolver.resolve("approved", next);
     expect(await nextPending).toBe("approved");
+    b.pendingSubmissions.delete(waitingB);
   } finally {
     workspace.dispose();
   }
@@ -88,7 +95,9 @@ test("workspace waits for all running tabs and queued prompts keep a tab busy", 
     finishB();
     await waiting;
     b.activeRun = undefined;
-    a.pendingPrompts.push({
+    a.pendingOperations.push({
+      kind: "prompt",
+      root: first.snapshot.projectPath,
       input: "next",
       mode: "build",
       approvalMode: "default",
