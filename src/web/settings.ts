@@ -1,4 +1,4 @@
-import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
+import { loadGlobalConfig, updateGlobalConfig } from "../config/load.js";
 import { networkEnvironmentStatus } from "../network/environment.js";
 import {
   type CredentialStorage,
@@ -67,8 +67,10 @@ export class WebSettingsStore implements WebSettingsActions {
           config.search.apiKey = { secretRef: "web/brave-search" };
           config.search.provider = "brave";
         }
-        const current = await loadGlobalConfig(this.path);
-        await saveGlobalConfig({ ...current, web: config }, this.path);
+        await updateGlobalConfig(this.path, (current) => ({
+          ...current,
+          web: config,
+        }));
         return this.load();
       });
     writes.set(scope, task);

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { InstructionResolver } from "../context/instructions.js";
+import { ProjectLspConfigSchema } from "../lsp/config.js";
 import { readMcpConfig } from "../mcp/configuration.js";
 import { McpConfigSchema } from "../mcp/schema.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
@@ -14,6 +15,7 @@ import {
 } from "./migrate.js";
 
 const ProjectConfigSchema = z.object({
+  lsp: ProjectLspConfigSchema.optional(),
   web: ProjectWebConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
   context: z
@@ -83,6 +85,29 @@ export function globalConfigPath(): string {
       : (process.env.XDG_CONFIG_HOME ??
         join(process.env.HOME ?? process.cwd(), ".config"));
   return join(base, "chiselcode", "config.json");
+}
+
+const updates = new Map<string, Promise<unknown>>();
+/** Serialize owned-field patches across Settings panels; each patch reads current disk state. */
+export function updateGlobalConfig(
+  path: string | undefined,
+  update: (current: GlobalConfig) => GlobalConfig | Promise<GlobalConfig>,
+): Promise<GlobalConfig> {
+  const target = resolve(path ?? globalConfigPath());
+  const task = (updates.get(target) ?? Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      const next = await update(await loadGlobalConfig(target));
+      await saveGlobalConfig(next, target);
+      return next;
+    });
+  updates.set(target, task);
+  void task
+    .finally(() => {
+      if (updates.get(target) === task) updates.delete(target);
+    })
+    .catch(() => {});
+  return task;
 }
 
 export async function loadGlobalConfig(

@@ -1,11 +1,13 @@
 /** @jsxImportSource @opentui/react */
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useEffect, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import type { WebConfig } from "../web/schema.js";
 import { effectiveSearchBackend } from "../web/search.js";
 import type { WebSettingsActions, WebSettingsState } from "../web/settings.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
+import type { SettingsPanelControl } from "./opentui-lsp-settings.js";
 import { SettingsSecretInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import {
@@ -18,18 +20,35 @@ export function OpenTuiWebSettings({
   palette,
   onClose,
   height = 20,
+  active = true,
+  controls,
+  onDirty,
 }: {
   actions: WebSettingsActions;
   palette: Palette;
   onClose(): void;
   height?: number;
+  active?: boolean;
+  controls?: MutableRefObject<SettingsPanelControl | undefined>;
+  onDirty?(dirty: boolean): void;
 }) {
   const { borderChars } = useTerminalDecoration();
   const [state, setState] = useState<WebSettingsState>();
+  const [saved, setSaved] = useState<WebSettingsState>();
+  const [pendingKey, setPendingKey] = useState<string>();
   const [selected, setSelected] = useState(0);
   const [keyInput, setKeyInput] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const dirty =
+    !!state &&
+    (JSON.stringify(state.config) !== JSON.stringify(saved?.config) ||
+      pendingKey !== undefined ||
+      (keyInput !== undefined && !!keyInput));
+  useEffect(() => {
+    onDirty?.(dirty);
+  }, [dirty, onDirty]);
+  const scroll = useRef<ScrollBoxRenderable>(null);
   const alive = useRef(true);
   const working = useRef(false);
   useEffect(() => {
@@ -37,7 +56,10 @@ export function OpenTuiWebSettings({
     void actions
       .load()
       .then((value) => {
-        if (alive.current) setState(value);
+        if (alive.current) {
+          setState(value);
+          setSaved(value);
+        }
       })
       .catch(() => {
         if (alive.current)
@@ -49,6 +71,18 @@ export function OpenTuiWebSettings({
       alive.current = false;
     };
   }, [actions]);
+  useEffect(() => {
+    const box = scroll.current;
+    if (!box || !active) return;
+    if (keyInput !== undefined) {
+      box.scrollTo(0);
+      return;
+    }
+    const row = box.findDescendantById(`settings-web-row-${selected}`);
+    if (row && row.y < box.viewport.y) box.scrollBy(row.y - box.viewport.y);
+    else if (row && row.y + row.height > box.viewport.y + box.viewport.height)
+      box.scrollBy(row.y + row.height - box.viewport.y - box.viewport.height);
+  }, [selected, keyInput, active]);
   const save = async (config: WebConfig, apiKey?: string) => {
     if (working.current) return;
     working.current = true;
@@ -58,6 +92,8 @@ export function OpenTuiWebSettings({
       const next = await actions.save(config, apiKey);
       if (alive.current) {
         setState(next);
+        setSaved(next);
+        setPendingKey(undefined);
         setKeyInput(undefined);
         setNotice("Сохранено");
       }
@@ -91,9 +127,38 @@ export function OpenTuiWebSettings({
         choices[(choices.indexOf(config.permissions[operation]) + 1) % 3] ??
         "ask";
     }
-    void save(config);
+    setState({ ...state, config });
+    setNotice("Draft · Ctrl+S / F2 сохранить");
   };
+  const acceptKey = () => {
+    if (keyInput !== undefined) {
+      setPendingKey(keyInput);
+      setKeyInput(undefined);
+      setNotice("Ключ в draft; сохраните форму.");
+    }
+  };
+  const saveCurrent = () => {
+    if (state) void save(state.config, keyInput ?? pendingKey);
+  };
+  if (controls)
+    controls.current = {
+      save: saveCurrent,
+      discard: () => {
+        setState(saved);
+        setKeyInput(undefined);
+        setPendingKey(undefined);
+        setNotice("");
+      },
+      back: () => {
+        if (keyInput !== undefined) {
+          setKeyInput(undefined);
+          return true;
+        }
+        return false;
+      },
+    };
   useKeyboard((key) => {
+    if (!active) return;
     if ((key.ctrl && key.name === "c") || key.name === "tab") return;
     if (key.name === "escape") {
       key.preventDefault();
@@ -102,10 +167,15 @@ export function OpenTuiWebSettings({
       return;
     }
     if (busy) return;
+    if (!controls && (key.name === "f2" || (key.ctrl && key.name === "s"))) {
+      key.preventDefault();
+      saveCurrent();
+      return;
+    }
     if (keyInput !== undefined) {
       if (key.name === "return" && state) {
         key.preventDefault();
-        void save(state.config, keyInput);
+        acceptKey();
       }
       return;
     }
@@ -127,10 +197,15 @@ export function OpenTuiWebSettings({
         ? "Разрешено"
         : "Запрещено";
   return (
-    <TerminalScrollbox id="settings-web-body" width="100%" height="100%">
+    <TerminalScrollbox
+      ref={scroll}
+      id="settings-web-body"
+      width="100%"
+      height="100%"
+    >
       <box flexDirection="column" gap={compact ? 0 : 1}>
         <text fg={palette.accent}>
-          <strong>Публичный Web</strong>
+          <strong>{`Публичный Web${dirty ? " · draft *" : ""}`}</strong>
         </text>
         {!compact && (
           <text fg={palette.muted}>
@@ -145,8 +220,9 @@ export function OpenTuiWebSettings({
             <SettingsSecretInput
               value={keyInput}
               onChange={setKeyInput}
-              onSubmit={() => void save(state.config, keyInput)}
+              onSubmit={acceptKey}
               palette={palette}
+              active={active}
             />
             <text fg={palette.muted}>
               Ключ хранится в CredentialStore. В конфиге — только ссылка.
@@ -154,11 +230,11 @@ export function OpenTuiWebSettings({
             <box flexDirection="row" gap={1}>
               <DialogAction
                 id="settings-web-key-save"
-                label={busy ? "Сохраняем…" : "Сохранить ключ"}
+                label="Принять ключ в draft"
                 primary
                 palette={palette}
                 disabled={busy}
-                onSelect={() => void save(state.config, keyInput)}
+                onSelect={acceptKey}
               />
               <DialogAction
                 id="settings-web-key-cancel"
@@ -264,6 +340,14 @@ export function OpenTuiWebSettings({
             </text>
           </>
         )}
+        <DialogAction
+          id="settings-web-save"
+          label={busy ? "Сохраняем…" : "Сохранить Web · Ctrl+S / F2"}
+          palette={palette}
+          primary
+          disabled={busy || !state}
+          onSelect={saveCurrent}
+        />
         {notice && (
           <text fg={palette.muted}>{terminalSafeText(notice, 300)}</text>
         )}

@@ -20,6 +20,7 @@ bun run dev
 ## Проверки
 
 ```bash
+bun scripts/prepare-lsp-tests.ts
 bun run typecheck
 bun test
 bun run lint
@@ -57,7 +58,7 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 Контракт services/context/guards/tools/commands и рабочий пример — в [архитектуре](architecture.md#границы-расширений). `ctx.tools.register(defineTool(...))` и `ctx.commands.register({ name, description, usage, parse, execute })` работают только во время activation. Для tools core присваивает `ext:<extensionId>:<localName>` и source. Slash head имеет отдельную identity `{ type: "extension", extensionId, name }`, без wire namespace. Built-in/skill/extension name conflicts отклоняются явно. Contributions исполняются общим executor с Plan/permissions/EditingService/artifacts. Регистрации автоматически принадлежат workspace; вручную добавлять их в `ctx.add` не нужно. `ctx.add` применяется к ресурсам/service cleanup. Prompt/command tool binding временный, borrowed workspace переживает операции.
 
-Production composition включает `defaultExtensions()` с manifest consumer; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. P1.2 не добавляет пользовательскую production-команду или fake LSP.
+Production composition включает `defaultExtensions([], { configPath })` с manifest и LSP consumers; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. P1.3 добавляет настоящие status/restart contributions builtin.lsp; пользовательский loader по-прежнему отсутствует.
 
 Acceptance tests используют реальные host/catalog/executor/policy/coordinator/storage и deterministic providers. Packaging harness поднимает локальный тестовый model endpoint, отправляет обычный Plan prompt и проверяет цикл model → manifest → model → checkpoint; production test flags/autoload fixtures отсутствуют:
 
@@ -121,3 +122,21 @@ Provider conformance/migration/security/scale coverage: provider-registry, provi
 Live harness создаёт config v2 только в isolated fixture/.chisel, не меняя пользовательский config. При одном настроенном profile копирует его параметры/apiKeyRef; несколько profiles требуют --profile. При отсутствии profiles trial использует definition endpoint и env key в отдельном eval-trial profile. Так manual CI с env secrets продолжает работать. Пример: `bun run eval --live --provider openai --profile openai-work --model gpt-5 --trials 3`.
 
 Сравнение provider refactor с runtime-v2 baseline: `evals/baselines/providers-v061-mock-summary.json` содержит 21 scripted trial и metrics/environment, без raw trace для компактности; `providers-v061-comparison.json` — 21 comparable case, 0 regressions, input token delta 0. Это conformance evidence, не live-model quality benchmark. Исторические baselines не переписаны.
+
+## Проверки LSP и Settings
+
+`bun scripts/prepare-lsp-tests.ts` явно устанавливает test-only server 6.0.1/TypeScript 6.0.3 во внешний temporary runtime. Node 24.19.0 используется CI; local Node должен соответствовать >=22.22.2. При отсутствии installation real tests завершаются setup error, не skip. `CHISEL_TEST_LSP_ROOT` и `CHISEL_TEST_LSP_NODE` меняют только test harness; production не импортирует эти helpers и не выдаёт fixture trust.
+
+`lsp-runtime.test.ts` использует ordinary default composition, настоящий backend/executor/permissions/EditingService/store: TS error → read observation → valid edit → observed update, navigation, shared generation, Plan/deny/restart/revocation. Protocol peer используется отдельно для byte framing, old/versionless pushes, provisional empty, Full/Incremental, cancellation/EOF/crash/caps/cache и process-tree cleanup. Его metadata fixture и installation не попадают в release.
+
+`lsp-tui.test.ts` выполняет настоящий Settings → friendly path form → read-only check → typed save → explicit trust → normal approval/start → diagnostics/edit → revoke сценарий через OpenTUI inputs. Model chat/key не нужен. Native captures можно получить test-only переменной, без production autoload/flags:
+
+```bash
+CHISEL_TEST_LSP_CAPTURES=/absolute/capture-directory bun tests/fixtures/tui-lsp-settings.ts
+bun tests/fixtures/lsp-cli.ts bun ./dist/cli.js
+bun tests/fixtures/command-packaging.ts
+```
+
+CLI smoke использует локальный scripted provider endpoint, real LSP schemas/wire history/tool/result/context/checkpoint. Packaging harness проверяет и linked commands, и тот же LSP Settings scenario в installed staging package и compiled binary. Ordinary installed/compiled CLI дополнительно выполняет `lsp-cli.ts` в CI на трёх OS; server/runtime остаются внешними. `--version`/doctor недостаточно для доказательства contribution.
+
+Settings visual review: реальные OpenTUI frames при 120×40, 100×30, 80×24, 60×20, 40×12, 24×8; native cursor сохраняется при resize длинного path. Reference patterns — категории/filter и focus zones из [OpenTUI example browser](https://github.com/anomalyco/opentui/blob/main/packages/examples/src/index.ts), installed-compatible [layout](https://opentui.com/docs/core-concepts/layout/) и [interaction](https://opentui.com/docs/core-concepts/interaction/). Routes/search/drafts не зависят от labels или secret values. OpenCode URLs из design brief могут быть недоступны; их configuration model не переносится. OpenTUI/React версии не обновлены.

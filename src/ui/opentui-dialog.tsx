@@ -40,6 +40,7 @@ export function OpenTuiDialog({
   children,
   maxHeight,
   maxWidth,
+  shadow = true,
 }: {
   id: string;
   width: number;
@@ -49,6 +50,7 @@ export function OpenTuiDialog({
   children: ReactNode;
   maxHeight?: number;
   maxWidth?: number;
+  shadow?: boolean;
 }) {
   const renderer = useRenderer();
   const { borderChars } = useTerminalDecoration();
@@ -69,12 +71,11 @@ export function OpenTuiDialog({
       width={width}
       height={height}
       zIndex={100}
-      backgroundColor={RGBA.fromInts(
-        0,
-        0,
-        0,
-        palette.bg === THEMES.paper.bg ? 65 : 150,
-      )}
+      backgroundColor={
+        shadow
+          ? RGBA.fromInts(0, 0, 0, palette.bg === THEMES.paper.bg ? 65 : 150)
+          : palette.bg
+      }
       onMouseDown={(event) => {
         if (event.button !== 0) return;
         dismiss.current = !renderer.getSelection()?.getSelectedText();
@@ -85,14 +86,16 @@ export function OpenTuiDialog({
           onClose();
       }}
     >
-      <box
-        position="absolute"
-        left={left + 1}
-        top={top + 1}
-        width={popupWidth}
-        height={popupHeight}
-        backgroundColor={RGBA.fromInts(0, 0, 0, 85)}
-      />
+      {shadow && (
+        <box
+          position="absolute"
+          left={left + 1}
+          top={top + 1}
+          width={popupWidth}
+          height={popupHeight}
+          backgroundColor={RGBA.fromInts(0, 0, 0, 85)}
+        />
+      )}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: Popup clicks must not dismiss the backdrop. */}
       <box
         id={`${id}-popup`}

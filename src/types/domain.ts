@@ -175,6 +175,7 @@ export interface ProviderAdapter {
 }
 
 export interface ProjectConfig {
+  lsp?: import("../lsp/config.js").ProjectLspConfig;
   web?: import("../web/schema.js").ProjectWebConfig;
   mcp?: import("../mcp/schema.js").McpConfig;
   mcpDiagnostics?: import("../mcp/configuration.js").McpConfigDiagnostic[];
@@ -195,6 +196,7 @@ export interface ProviderConfig {
 }
 
 export interface GlobalConfig {
+  lsp?: import("../lsp/config.js").LspConfig;
   web?: import("../web/schema.js").WebConfig;
   schemaVersion: 2;
   defaultProfileId?: string;

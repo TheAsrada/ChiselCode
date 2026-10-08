@@ -22,7 +22,7 @@ import {
 import {
   loadGlobalConfig,
   loadProjectConfig,
-  saveGlobalConfig,
+  updateGlobalConfig,
 } from "../config/load.js";
 import {
   defaultExtensions,
@@ -31,6 +31,8 @@ import {
 import type { ChiselExtension } from "../extensions/contracts.js";
 import type { ExtensionHost } from "../extensions/host.js";
 import { safeDiagnostic } from "../extensions/lifecycle.js";
+import { lspServiceToken } from "../lsp/service.js";
+import { LspSettingsStore } from "../lsp/settings.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
 import { McpConfigStore } from "../mcp/storage.js";
@@ -52,7 +54,7 @@ import {
   invocableSkills,
   loadSkills,
 } from "../skills/skills.js";
-import type { Session } from "../types/domain.js";
+import type { Session, ToolExecutionResult } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
 import { clipText } from "../utils/text.js";
 import { VERSION } from "../version.js";
@@ -85,7 +87,7 @@ export async function runOpenTuiAgent(
   initialSession?: Session,
   setupRequired = false,
   setupOnly = false,
-  extensions: readonly ChiselExtension[] = defaultExtensions(),
+  extensions: readonly ChiselExtension[] = defaultExtensions([], options),
   rendererFactory: typeof createCliRenderer = createCliRenderer,
 ): Promise<void> {
   return withOwnedExtensionHost(extensions, (host) =>
@@ -109,7 +111,7 @@ async function runApplication(
   rendererFactory: typeof createCliRenderer,
 ): Promise<void> {
   let activeOptions = { ...options, resume: undefined };
-  const config = await loadGlobalConfig();
+  const config = await loadGlobalConfig(options.configPath);
   let bypassAvailable = config.permissions?.allowBypassPermissions === true;
   let webConfigLive = resolveWebConfig(config.web);
   const webSettingsStore = new WebSettingsStore(options.configPath);
@@ -375,99 +377,184 @@ async function runApplication(
     },
     activeId: () => currentController().snapshot.sessionId,
   };
-  const settingsActions: OpenTuiSettingsActions = {
-    web: {
-      load: () => webSettingsStore.load(),
-      save: async (webConfig, apiKey) => {
-        const saved = pendingSave.then(async () => {
-          const state = await webSettingsStore.save(webConfig, apiKey);
-          webConfigLive = state.config;
-          return state;
-        });
-        pendingSave = saved.then(
-          () => {},
-          () => {},
-        );
-        return saved;
+  const getSettingsActions = (): OpenTuiSettingsActions => {
+    const owner = currentController();
+    const generation = owner.currentGeneration;
+    const root = owner.snapshot.projectPath;
+    // A Settings dialog opened on home keeps the conversation allocated by its first operation.
+    let operationOwner = owner;
+    let operationGeneration = generation;
+    const lsp = new LspSettingsStore(root, options.configPath, {
+      status: async () => {
+        try {
+          const scope = await extensionHost.open(root);
+          const service = scope.services.lookup(lspServiceToken);
+          if (service) return service.status();
+        } catch {
+          /* Existing navigation stays available if an extension activation fails. */
+        }
+        return {
+          workspaceRoot: root,
+          backend: "typescript",
+          state: "unavailable",
+          generation: 0,
+          trackedDocuments: 0,
+          requiresRestart: false,
+          reason: "LSP extension недоступен в этой composition.",
+        };
       },
-    },
-    catalog: async () => ({
-      providers: catalog.registry.list(),
-      profiles: (await loadGlobalConfig()).profiles,
-    }),
-    load: async (profileId) => {
-      const current = await loadGlobalConfig();
-      const selection = profileId
-        ? { profile: profileId }
-        : modelOptions(currentController());
-      const values = settingsDraft(current, catalog.registry, selection);
-      const profile = values.profileId
-        ? current.profiles[values.profileId]
-        : undefined;
-      return {
-        values,
-        hasKey: await settingsKeyReady(
-          catalog.registry,
-          profile ?? { providerId: values.provider },
-        ),
-      };
-    },
-    hasKey: async (provider, profileId) => {
-      const current = await loadGlobalConfig();
-      return settingsKeyReady(
-        catalog.registry,
-        profileId
-          ? (current.profiles[profileId] ?? { providerId: provider })
-          : { providerId: provider },
-      );
-    },
-    save: async (values) => {
-      const outcome = await saveProviderSettings(values, catalog.registry);
-      defaultModel = values.model;
-      const profile =
-        values.profileId ?? `${values.provider.replaceAll("/", "-")}-default`;
-      activeOptions = {
-        ...activeOptions,
-        profile,
-        provider: undefined,
-        model: values.model,
-        baseUrl: values.baseUrl,
-      };
-      modelCache.clear();
-      capabilityRequests.clear();
-      modelCacheGeneration++;
-      currentController().setActiveModel(
-        values.provider,
-        values.model,
-        profile,
-        values.baseUrl,
-      );
-      warmModelCapabilities(currentController());
-      return outcome;
-    },
-    check: async (values) => {
-      const result = await checkProviderConnection(values);
-      return `${result.ok ? OK_MARK : FAIL_MARK} ${result.message}`;
-    },
-    models: async (values) => {
-      const result = await listProviderModels(values);
-      return result.ok
-        ? {
-            ok: true,
-            models: result.models.map(({ id, displayName }) => ({
-              id,
-              hint: displayName,
-            })),
+      apply: async () => {
+        await Promise.all(
+          extensionHost
+            .readyScopes()
+            .map((scope) =>
+              scope.services.lookup(lspServiceToken)?.refreshConfiguration(),
+            ),
+        );
+      },
+      restart: (id) =>
+        new Promise<ToolExecutionResult>((resolveResult) => {
+          if (
+            !owner.isCurrent(generation) ||
+            owner.snapshot.projectPath !== root ||
+            !operationOwner.isCurrent(operationGeneration) ||
+            operationOwner.snapshot.projectPath !== root ||
+            (operationOwner !== workspace.home &&
+              !workspace.tabs.some((tab) => tab.controller === operationOwner))
+          ) {
+            resolveResult({
+              output: "Settings workspace changed; reopen Settings.",
+              isError: true,
+              errorCode: "CANCELLED",
+            });
+            return;
           }
-        : { ok: false, error: result.error };
-    },
+          void submit(
+            `/lsp-restart${id ? ` ${id}` : ""}`,
+            operationOwner,
+            operationOwner.snapshot.agentMode,
+            operationOwner.snapshot.approvalMode,
+            { ...modelOptions(operationOwner) },
+            (result) => {
+              if (
+                operationOwner === workspace.home &&
+                homeOperationTarget?.generation === generation &&
+                homeOperationTarget.root === root
+              ) {
+                operationOwner = homeOperationTarget.controller;
+                operationGeneration = operationOwner.currentGeneration;
+              }
+              resolveResult(result);
+            },
+          ).catch(() =>
+            resolveResult({
+              output: "LSP restart could not be queued.",
+              isError: true,
+              errorCode: "TOOL_EXECUTION_FAILURE",
+            }),
+          );
+        }),
+    });
+    return {
+      lsp,
+      workspaceRoot: root,
+      web: {
+        load: () => webSettingsStore.load(),
+        save: async (webConfig, apiKey) => {
+          const saved = pendingSave.then(async () => {
+            const state = await webSettingsStore.save(webConfig, apiKey);
+            webConfigLive = state.config;
+            return state;
+          });
+          pendingSave = saved.then(
+            () => {},
+            () => {},
+          );
+          return saved;
+        },
+      },
+      catalog: async () => ({
+        providers: catalog.registry.list(),
+        profiles: (await loadGlobalConfig(options.configPath)).profiles,
+      }),
+      load: async (profileId) => {
+        const current = await loadGlobalConfig(options.configPath);
+        const selection = profileId
+          ? { profile: profileId }
+          : modelOptions(owner);
+        const values = settingsDraft(current, catalog.registry, selection);
+        const profile = values.profileId
+          ? current.profiles[values.profileId]
+          : undefined;
+        return {
+          values,
+          hasKey: await settingsKeyReady(
+            catalog.registry,
+            profile ?? { providerId: values.provider },
+          ),
+        };
+      },
+      hasKey: async (provider, profileId) => {
+        const current = await loadGlobalConfig(options.configPath);
+        return settingsKeyReady(
+          catalog.registry,
+          profileId
+            ? (current.profiles[profileId] ?? { providerId: provider })
+            : { providerId: provider },
+        );
+      },
+      save: async (values) => {
+        const outcome = await saveProviderSettings(values, catalog.registry, {
+          configPath: options.configPath,
+        });
+        defaultModel = values.model;
+        const profile =
+          values.profileId ?? `${values.provider.replaceAll("/", "-")}-default`;
+        activeOptions = {
+          ...activeOptions,
+          profile,
+          provider: undefined,
+          model: values.model,
+          baseUrl: values.baseUrl,
+        };
+        modelCache.clear();
+        capabilityRequests.clear();
+        modelCacheGeneration++;
+        if (!owner.isCurrent(generation)) return outcome;
+        owner.setActiveModel(
+          values.provider,
+          values.model,
+          profile,
+          values.baseUrl,
+        );
+        warmModelCapabilities(owner);
+        return outcome;
+      },
+      check: async (values) => {
+        const result = await checkProviderConnection(values);
+        return `${result.ok ? OK_MARK : FAIL_MARK} ${result.message}`;
+      },
+      models: async (values) => {
+        const result = await listProviderModels(values);
+        return result.ok
+          ? {
+              ok: true,
+              models: result.models.map(({ id, displayName }) => ({
+                id,
+                hint: displayName,
+              })),
+            }
+          : { ok: false, error: result.error };
+      },
+    };
   };
+
   const getModelsActions = (): OpenTuiModelsActions => {
     const controller = currentController();
     const generation = controller.currentGeneration;
     return {
       load: async () => {
-        const currentConfig = await loadGlobalConfig();
+        const currentConfig = await loadGlobalConfig(options.configPath);
         const current =
           controller.snapshot.modelSelection ??
           settingsDraft(
@@ -539,7 +626,7 @@ async function runApplication(
       select: async (selection) => {
         if (abort.signal.aborted || !controller.isCurrent(generation))
           throw new Error("Эта сессия уже закрыта.");
-        const currentConfig = await loadGlobalConfig();
+        const currentConfig = await loadGlobalConfig(options.configPath);
         if (abort.signal.aborted || !controller.isCurrent(generation))
           throw new Error("Эта сессия уже закрыта.");
         catalog.registry.require(selection.provider);
@@ -609,7 +696,7 @@ async function runApplication(
     controller: TuiController,
     diagnostic = false,
   ): Promise<string> => {
-    const current = await loadGlobalConfig();
+    const current = await loadGlobalConfig(options.configPath);
     const draft = settingsDraft(
       current,
       catalog.registry,
@@ -659,206 +746,221 @@ async function runApplication(
     turnMode = target.snapshot.agentMode,
     turnApprovalMode = target.snapshot.approvalMode,
     turnModelOptions = { ...modelOptions(target) },
+    onCommandResult?: (result: ToolExecutionResult) => void,
   ): Promise<void> => {
-    let controller = target;
-    const originGeneration = controller.currentGeneration;
-    const originRoot = controller.snapshot.projectPath;
-    const priorHomeOperationTarget = homeOperationTarget;
-    input = input.trim();
-    const parsed = splitSlashCommand(input);
-    if (abort.signal.aborted) return;
-    turnApprovalMode = resolveApprovalMode({
-      saved: turnApprovalMode,
-      allowBypassPermissions: bypassAvailable,
-    });
-    if (input === "/exit") return shutdown();
-    if (updater.snapshot.phase === "launching") {
-      controller.append("Дождитесь перезапуска ChiselCode.", "warn");
-      return;
-    }
-    if (input === "/home") return workspace.select();
-    if (input === "/clear" || input === "/new") {
-      workspace.newDraft(controller.snapshot.projectPath);
-      return;
-    }
-    if (input === "/status" || input === "/doctor") {
-      try {
+    let resultAttached = false;
+    try {
+      let controller = target;
+      const originGeneration = controller.currentGeneration;
+      const originRoot = controller.snapshot.projectPath;
+      const priorHomeOperationTarget = homeOperationTarget;
+      input = input.trim();
+      const parsed = splitSlashCommand(input);
+      if (abort.signal.aborted) return;
+      turnApprovalMode = resolveApprovalMode({
+        saved: turnApprovalMode,
+        allowBypassPermissions: bypassAvailable,
+      });
+      if (input === "/exit") return shutdown();
+      if (updater.snapshot.phase === "launching") {
+        controller.append("Дождитесь перезапуска ChiselCode.", "warn");
+        return;
+      }
+      if (input === "/home") return workspace.select();
+      if (input === "/clear" || input === "/new") {
+        workspace.newDraft(controller.snapshot.projectPath);
+        return;
+      }
+      if (input === "/status" || input === "/doctor") {
+        try {
+          controller.append(
+            await statusText(controller, input === "/doctor"),
+            "info",
+          );
+        } catch (error) {
+          controller.append(String(error), "error");
+        }
+        return;
+      }
+      if (input === "/update") return updater.check();
+      if (input === "/sessions") {
+        const sessions = await sessionPicker.load();
         controller.append(
-          await statusText(controller, input === "/doctor"),
+          sessions
+            .map((s) => `${s.id} | ${s.title ?? "без названия"}`)
+            .join("\n") || "Сессий нет",
           "info",
-        );
-      } catch (error) {
-        controller.append(String(error), "error");
-      }
-      return;
-    }
-    if (input === "/update") return updater.check();
-    if (input === "/sessions") {
-      const sessions = await sessionPicker.load();
-      controller.append(
-        sessions
-          .map((s) => `${s.id} | ${s.title ?? "без названия"}`)
-          .join("\n") || "Сессий нет",
-        "info",
-      );
-      return;
-    }
-    if (parsed?.name === "/resume" && parsed.args) {
-      try {
-        await resume(parsed.args);
-      } catch (error) {
-        controller.append(String(error), "error");
-      }
-      return;
-    }
-    if (parsed?.name === "/cwd" && parsed.args) {
-      try {
-        const cwd = await resolveProjectDir(
-          parsed.args,
-          controller.snapshot.projectPath,
-        );
-        workspace.home.switchSession(undefined, cwd);
-        workspace.select();
-      } catch (error) {
-        controller.append(String(error), "error");
-      }
-      return;
-    }
-    if (input === "/cwd") {
-      controller.append(
-        `Проект: ${controller.snapshot.projectPath}\nЧтобы сменить папку: /cwd <путь>`,
-        "info",
-      );
-      return;
-    }
-    let snapshot:
-      | import("./workspace-commands.js").WorkspaceCommandSnapshot
-      | undefined;
-    const submission = new AbortController();
-    if (parsed) {
-      const execution = workspace.execution(controller);
-      execution.pendingSubmissions.add(submission);
-      try {
-        snapshot = await commandActions.load(
-          originRoot,
-          AbortSignal.any([abort.signal, submission.signal]),
-        );
-      } finally {
-        execution.pendingSubmissions.delete(submission);
-      }
-    }
-    if (
-      !controller.isCurrent(originGeneration) ||
-      abort.signal.aborted ||
-      submission.signal.aborted
-    )
-      return;
-    const availableSkills = snapshot?.skills ?? loadSkills(originRoot);
-    const descriptor = snapshot
-      ? resolveSlashCommand(snapshot.projection, input)
-      : undefined;
-    const skillName =
-      descriptor?.source.type === "skill" ? descriptor.source.name : undefined;
-    const skill = skillName
-      ? availableSkills.find((item) => item.name === skillName)
-      : undefined;
-    let prepared:
-      | import("../app/run-command.js").PreparedExtensionCommand
-      | undefined;
-    if (descriptor?.source.type === "extension" && snapshot?.scope) {
-      const command = snapshot.scope.commands.get(descriptor.source.name);
-      try {
-        prepared = { command, input: command.parse(parsed?.args ?? "") };
-      } catch {
-        controller.append(
-          `[extension] /${command.name} · ${command.source.extensionId}: неверные аргументы.${command.usage ? ` Использование: ${safeDiagnostic(command.usage)}` : ""}`,
-          "error",
         );
         return;
       }
-    }
-    if (parsed && !skill && !prepared) {
-      if (snapshot?.error) controller.append(snapshot.error, "error");
-      const hint = suggestSimilarCommand(
-        input,
-        snapshot?.projection ?? invocableSkills([...availableSkills]),
-      );
-      controller.append(
-        `Неизвестная команда ${safeDiagnostic(parsed.name)}${hint ? ` | возможно, ${hint}` : ""}`,
-        "warn",
-      );
-      return;
-    }
-    if (
-      controller === workspace.home &&
-      homeOperationTarget !== priorHomeOperationTarget &&
-      homeOperationTarget?.generation === originGeneration &&
-      homeOperationTarget.root === originRoot &&
-      workspace.tabs.some(
-        (tab) => tab.controller === homeOperationTarget?.controller,
+      if (parsed?.name === "/resume" && parsed.args) {
+        try {
+          await resume(parsed.args);
+        } catch (error) {
+          controller.append(String(error), "error");
+        }
+        return;
+      }
+      if (parsed?.name === "/cwd" && parsed.args) {
+        try {
+          const cwd = await resolveProjectDir(
+            parsed.args,
+            controller.snapshot.projectPath,
+          );
+          workspace.home.switchSession(undefined, cwd);
+          workspace.select();
+        } catch (error) {
+          controller.append(String(error), "error");
+        }
+        return;
+      }
+      if (input === "/cwd") {
+        controller.append(
+          `Проект: ${controller.snapshot.projectPath}\nЧтобы сменить папку: /cwd <путь>`,
+          "info",
+        );
+        return;
+      }
+      let snapshot:
+        | import("./workspace-commands.js").WorkspaceCommandSnapshot
+        | undefined;
+      const submission = new AbortController();
+      if (parsed) {
+        const execution = workspace.execution(controller);
+        execution.pendingSubmissions.add(submission);
+        try {
+          snapshot = await commandActions.load(
+            originRoot,
+            AbortSignal.any([abort.signal, submission.signal]),
+          );
+        } finally {
+          execution.pendingSubmissions.delete(submission);
+        }
+      }
+      if (
+        !controller.isCurrent(originGeneration) ||
+        abort.signal.aborted ||
+        submission.signal.aborted
       )
-    )
-      controller = homeOperationTarget.controller;
-    if (controller === workspace.home) {
-      const selectedTab = workspace.activeKey;
-      const selectedSkills = activeSkills(controller);
-      const inputHistory = controller.presentation.history;
-      controller = workspace.newTab(
-        controller.snapshot.projectPath,
-        turnMode,
-        turnApprovalMode,
-        target.snapshot.modelSelection,
-      );
-      // A late home submission owns a new conversation, not the screen selected in the meantime.
-      if (selectedTab) workspace.select(selectedTab);
-      controller.setSessionTitle(
-        clipText(input.split("\n", 1)[0] ?? input, 120),
-      );
-      homeOperationTarget = {
-        generation: originGeneration,
-        root: originRoot,
-        controller,
-      };
-      if (!prepared) warmModelCapabilities(controller);
-      controller.presentation.history = inputHistory;
-      skillNames.set(controller, {
-        generation: controller.currentGeneration,
-        names: new Set(selectedSkills),
-      });
+        return;
+      const availableSkills = snapshot?.skills ?? loadSkills(originRoot);
+      const descriptor = snapshot
+        ? resolveSlashCommand(snapshot.projection, input)
+        : undefined;
+      const skillName =
+        descriptor?.source.type === "skill"
+          ? descriptor.source.name
+          : undefined;
+      const skill = skillName
+        ? availableSkills.find((item) => item.name === skillName)
+        : undefined;
+      let prepared:
+        | import("../app/run-command.js").PreparedExtensionCommand
+        | undefined;
+      if (descriptor?.source.type === "extension" && snapshot?.scope) {
+        const command = snapshot.scope.commands.get(descriptor.source.name);
+        try {
+          prepared = { command, input: command.parse(parsed?.args ?? "") };
+        } catch {
+          controller.append(
+            `[extension] /${command.name} · ${command.source.extensionId}: неверные аргументы.${command.usage ? ` Использование: ${safeDiagnostic(command.usage)}` : ""}`,
+            "error",
+          );
+          return;
+        }
+      }
+      if (parsed && !skill && !prepared) {
+        if (snapshot?.error) controller.append(snapshot.error, "error");
+        const hint = suggestSimilarCommand(
+          input,
+          snapshot?.projection ?? invocableSkills([...availableSkills]),
+        );
+        controller.append(
+          `Неизвестная команда ${safeDiagnostic(parsed.name)}${hint ? ` | возможно, ${hint}` : ""}`,
+          "warn",
+        );
+        return;
+      }
+      if (
+        controller === workspace.home &&
+        homeOperationTarget !== priorHomeOperationTarget &&
+        homeOperationTarget?.generation === originGeneration &&
+        homeOperationTarget.root === originRoot &&
+        workspace.tabs.some(
+          (tab) => tab.controller === homeOperationTarget?.controller,
+        )
+      )
+        controller = homeOperationTarget.controller;
+      if (controller === workspace.home) {
+        const selectedTab = workspace.activeKey;
+        const selectedSkills = activeSkills(controller);
+        const inputHistory = controller.presentation.history;
+        controller = workspace.newTab(
+          controller.snapshot.projectPath,
+          turnMode,
+          turnApprovalMode,
+          target.snapshot.modelSelection,
+        );
+        // A late home submission owns a new conversation, not the screen selected in the meantime.
+        if (selectedTab) workspace.select(selectedTab);
+        controller.setSessionTitle(
+          clipText(input.split("\n", 1)[0] ?? input, 120),
+        );
+        homeOperationTarget = {
+          generation: originGeneration,
+          root: originRoot,
+          controller,
+        };
+        if (!prepared) warmModelCapabilities(controller);
+        controller.presentation.history = inputHistory;
+        skillNames.set(controller, {
+          generation: controller.currentGeneration,
+          names: new Set(selectedSkills),
+        });
+      }
+      const item: QueuedTabOperation =
+        prepared && snapshot?.scope
+          ? {
+              kind: "command",
+              onResult: onCommandResult,
+              input,
+              prepared,
+              scope: snapshot.scope,
+              root: originRoot,
+              mode: turnMode,
+              approvalMode: turnApprovalMode,
+              modelOptions: turnModelOptions,
+              generation: controller.currentGeneration,
+            }
+          : {
+              kind: "prompt",
+              input,
+              root: originRoot,
+              mode: turnMode,
+              approvalMode: turnApprovalMode,
+              modelOptions: turnModelOptions,
+              generation: controller.currentGeneration,
+            };
+      resultAttached = item.kind === "command";
+      const execution = workspace.execution(controller);
+      if (execution.activeRun) {
+        execution.pendingOperations.push(item);
+        controller.setBusy(true);
+        controller.append(
+          `В очереди: ${execution.pendingOperations.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
+          "info",
+        );
+        return;
+      }
+      await executeOperation(controller, item);
+    } finally {
+      if (onCommandResult && !resultAttached)
+        onCommandResult({
+          output: "LSP command unavailable or workspace changed.",
+          isError: true,
+          errorCode: "CANCELLED",
+        });
     }
-    const item: QueuedTabOperation =
-      prepared && snapshot?.scope
-        ? {
-            kind: "command",
-            input,
-            prepared,
-            scope: snapshot.scope,
-            root: originRoot,
-            mode: turnMode,
-            approvalMode: turnApprovalMode,
-            modelOptions: turnModelOptions,
-            generation: controller.currentGeneration,
-          }
-        : {
-            kind: "prompt",
-            input,
-            root: originRoot,
-            mode: turnMode,
-            approvalMode: turnApprovalMode,
-            modelOptions: turnModelOptions,
-            generation: controller.currentGeneration,
-          };
-    const execution = workspace.execution(controller);
-    if (execution.activeRun) {
-      execution.pendingOperations.push(item);
-      controller.setBusy(true);
-      controller.append(
-        `В очереди: ${execution.pendingOperations.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
-        "info",
-      );
-      return;
-    }
-    await executeOperation(controller, item);
   };
   const executeOperation = async (
     controller: TuiController,
@@ -957,6 +1059,8 @@ async function runApplication(
             },
             signal,
           );
+          item.onResult?.(outcome.result);
+          item.onResult = undefined;
           status =
             signal.aborted || outcome.result.errorCode === "CANCELLED"
               ? "cancelled"
@@ -1119,6 +1223,16 @@ async function runApplication(
             "error",
           );
       } finally {
+        if (item.kind === "command") {
+          item.onResult?.({
+            output: signal.aborted
+              ? "Command cancelled."
+              : "Command failed or changed ownership.",
+            isError: true,
+            errorCode: signal.aborted ? "CANCELLED" : "TOOL_EXECUTION_FAILURE",
+          });
+          item.onResult = undefined;
+        }
         execution.activeRun = undefined;
         execution.abort = undefined;
         execution.approvalResolver.cancel();
@@ -1130,8 +1244,15 @@ async function runApplication(
           persistExecutionModes(controller);
         }
         let next = execution.pendingOperations.shift();
-        while (next && !controller.isCurrent(next.generation))
+        while (next && !controller.isCurrent(next.generation)) {
+          if (next.kind === "command")
+            next.onResult?.({
+              output: "Queued workspace generation changed.",
+              isError: true,
+              errorCode: "CANCELLED",
+            });
           next = execution.pendingOperations.shift();
+        }
         if (next && !abort.signal.aborted)
           void executeOperation(controller, next);
       }
@@ -1152,7 +1273,7 @@ async function runApplication(
         workspace,
         classic,
         sessionPicker,
-        settingsActions,
+        getSettingsActions,
         updater,
         getModelsActions,
         getDefaultModel: () => defaultModel,
@@ -1161,14 +1282,13 @@ async function runApplication(
         allowBypassPermissions: bypassAvailable,
         onBypassAvailabilityChange: (allowed) => {
           const saved = pendingSave.then(async () => {
-            const current = await loadGlobalConfig();
-            await saveGlobalConfig({
+            await updateGlobalConfig(options.configPath, (current) => ({
               ...current,
               permissions: {
                 ...current.permissions,
                 allowBypassPermissions: allowed,
               },
-            });
+            }));
             bypassAvailable = allowed;
             if (!allowed) {
               for (const controller of [
@@ -1191,8 +1311,8 @@ async function runApplication(
         },
         skillsActions,
         commandActions,
-        getMcpActions: () =>
-          getMcpController(currentController().snapshot.projectPath),
+        getMcpActions: (root) =>
+          getMcpController(root ?? currentController().snapshot.projectPath),
         initialSettingsOpen: setupRequired || setupOnly,
         onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
@@ -1201,11 +1321,10 @@ async function runApplication(
         initialUnicodeDecorations: config.ui?.unicodeDecorations === true,
         onUnicodeDecorationsChange: (unicodeDecorations) => {
           const saved = pendingSave.then(async () => {
-            const current = await loadGlobalConfig();
-            await saveGlobalConfig({
+            await updateGlobalConfig(options.configPath, (current) => ({
               ...current,
               ui: { ...current.ui, unicodeDecorations },
-            });
+            }));
           });
           pendingSave = saved.catch(() => {});
           return saved;
@@ -1213,11 +1332,10 @@ async function runApplication(
         accent: config.ui?.accent,
         onThemeChange: (theme) => {
           const saved = pendingSave.then(async () => {
-            const current = await loadGlobalConfig();
-            await saveGlobalConfig({
+            await updateGlobalConfig(options.configPath, (current) => ({
               ...current,
               ui: { ...current.ui, theme },
-            });
+            }));
             currentTheme = theme;
           });
           pendingSave = saved.catch(() => {});
@@ -1226,11 +1344,10 @@ async function runApplication(
         onModeChange: (mode) => {
           pendingSave = pendingSave
             .then(async () => {
-              const current = await loadGlobalConfig();
-              await saveGlobalConfig({
+              await updateGlobalConfig(options.configPath, (current) => ({
                 ...current,
                 ui: { ...current.ui, sidebarMode: mode },
-              });
+              }));
             })
             .catch(() => {});
         },

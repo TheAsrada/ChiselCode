@@ -1,7 +1,8 @@
 /** @jsxImportSource @opentui/react */
 import { useKeyboard } from "@opentui/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProfileIdSchema } from "../config/schema.js";
+import type { LspSettingsActions } from "../lsp/settings.js";
 import type {
   ProviderDefinition,
   ProviderProfile,
@@ -17,11 +18,21 @@ import {
 } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import {
+  OpenTuiLspSettings,
+  type SettingsPanelControl,
+} from "./opentui-lsp-settings.js";
+import {
   cleanSettingsInput,
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
+import {
+  SETTINGS_SECTIONS,
+  type SettingsRoute,
+  searchSettings,
+} from "./settings-catalog.js";
+import { SettingsNavigation } from "./settings-navigation.js";
 import {
   type ModelListResult,
   sortModelOptions,
@@ -36,6 +47,9 @@ import { FAIL_MARK } from "./theme.js";
 
 export interface OpenTuiSettingsActions {
   web?: WebSettingsActions;
+  lsp?: LspSettingsActions;
+  workspaceRoot?: string;
+  openIntegration?(route: "tools.mcp" | "tools.skills"): void;
   catalog?(): Promise<{
     providers: ProviderDefinition[];
     profiles: Record<string, ProviderProfile>;
@@ -58,7 +72,7 @@ type Screen =
   | "key"
   | "base-url"
   | "profile-id";
-type Page = "connection" | "appearance" | "permissions" | "web";
+type Page = SettingsRoute | "web";
 type Work =
   | "load"
   | "models"
@@ -110,6 +124,8 @@ export function OpenTuiSettings({
   allowBypassPermissions = false,
   onBypassAvailabilityChange,
   setup = false,
+  active = true,
+  onOpenIntegration,
 }: {
   actions?: OpenTuiSettingsActions;
   width: number;
@@ -126,6 +142,8 @@ export function OpenTuiSettings({
   allowBypassPermissions?: boolean;
   onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   setup?: boolean;
+  active?: boolean;
+  onOpenIntegration?: (route: "tools.mcp" | "tools.skills") => void;
 }) {
   const { borderChars } = useTerminalDecoration();
   const [decorative, setDecorative] = useState(unicodeDecorations);
@@ -141,6 +159,29 @@ export function OpenTuiSettings({
   const [loaded, setLoaded] = useState(!actions);
   const [page, setPage] = useState<Page>(
     actions || initialPage === "permissions" ? initialPage : "appearance",
+  );
+  const [shellFocus, setShellFocus] = useState<
+    "search" | "navigation" | "content" | "actions"
+  >("content");
+  const [settingsQuery, setSettingsQuery] = useState("");
+  const [navigationIndex, setNavigationIndex] = useState(0);
+  const [compactDetail, setCompactDetail] = useState(
+    setup || initialPage !== "connection",
+  );
+  const [fieldTarget, setFieldTarget] = useState<string>();
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [webDirty, setWebDirty] = useState(false);
+  const webControls = useRef<SettingsPanelControl | undefined>(undefined);
+  const recordWebDirty = useCallback(
+    (value: boolean) => setWebDirty(value),
+    [],
+  );
+  const [closeSelection, setCloseSelection] = useState(0);
+  const [lspDirty, setLspDirty] = useState(false);
+  const lspControls = useRef<SettingsPanelControl | undefined>(undefined);
+  const recordLspDirty = useCallback(
+    (dirty: boolean) => setLspDirty(dirty),
+    [],
   );
   const [screen, setScreen] = useState<Screen>("menu");
   const [selected, setSelectedState] = useState(initialSelection);
@@ -181,19 +222,42 @@ export function OpenTuiSettings({
   restore.current.preview = onThemePreview;
   const valuesRef = useRef(values);
   valuesRef.current = values;
-  const { popupHeight, innerWidth, roomy, tiny } = dialogLayout(width, height);
-  const showHint = popupHeight >= 10;
-  const bodyHeight = Math.max(
+  const {
+    popupHeight,
+    innerWidth: surfaceWidth,
+    roomy,
+    tiny,
+  } = dialogLayout(width, height, height, 120);
+  const split = width >= 100 && height >= 26;
+  const navigationWidth = split ? 26 : surfaceWidth;
+  const innerWidth = split
+    ? Math.max(1, surfaceWidth - navigationWidth - 1)
+    : surfaceWidth;
+  const catalogue = searchSettings(settingsQuery);
+  const showNavigation = split || !compactDetail || !!settingsQuery;
+  const route = page === "web" ? "tools.web" : page;
+  const section = SETTINGS_SECTIONS.find((item) => item.id === route);
+  useEffect(() => {
+    if (!settingsQuery)
+      setNavigationIndex(
+        SETTINGS_SECTIONS.findIndex((item) => item.id === route),
+      );
+  }, [route, settingsQuery]);
+  const simpleFooter =
+    (showNavigation && !split) ||
+    ["tools.lsp", "tools.mcp", "tools.skills", "web"].includes(page);
+  const showHint = popupHeight >= 10 && !simpleFooter;
+  const contentHeight = Math.max(
     1,
     popupHeight -
       (tiny ? 0 : 2) -
       (roomy ? 2 : 0) -
-      3 -
-      (showHint ? 1 : 0) -
-      (roomy ? 5 : 0) -
-      (page === "appearance" ? 1 : 0) -
-      (notice ? 1 : 0),
+      (tiny && compactDetail && shellFocus !== "search" ? 0 : 2) -
+      (showHint ? 2 : 1) -
+      (notice ? 1 : 0) -
+      (page === "appearance" ? 1 : 0),
   );
+  const bodyHeight = Math.max(1, contentHeight - (split ? 2 : 0));
   const wide = innerWidth >= 70 && roomy;
   const listWidth = wide
     ? Math.min(38, Math.floor(innerWidth * 0.43))
@@ -213,7 +277,6 @@ export function OpenTuiSettings({
   );
   const definition = providers.find((p) => p.id === values.provider);
   const endpoint = definition?.endpoint.normalization !== "none";
-  const dirty = loaded && baseline.current !== JSON.stringify(values);
   const rows: Array<{
     screen: Screen;
     label: string;
@@ -321,6 +384,20 @@ export function OpenTuiSettings({
     screen === "key" ||
     screen === "base-url" ||
     screen === "profile-id";
+  const fieldDirty =
+    field &&
+    editing !==
+      (screen === "key"
+        ? (values.apiKey ?? "")
+        : screen === "base-url"
+          ? (values.baseUrl ?? "")
+          : screen === "profile-id"
+            ? ""
+            : values.model);
+  const dirty =
+    !!actions &&
+    loaded &&
+    (baseline.current !== JSON.stringify(values) || fieldDirty);
   const setMessage = (
     text: string,
     kind: "error" | "success" | "info" = "info",
@@ -395,6 +472,11 @@ export function OpenTuiSettings({
       lifetime.current.busy === "permissions"
     )
       return;
+    if (dirty || currentTheme !== savedTheme || lspDirty || webDirty) {
+      setCloseSelection(0);
+      setConfirmClose(true);
+      return;
+    }
     cancelWork();
     onThemePreview?.(restore.current.theme);
     onClose();
@@ -408,21 +490,25 @@ export function OpenTuiSettings({
       return;
     if (next === "connection" && !actions) return;
     if (lifetime.current.busy !== "load") cancelWork();
-    onThemePreview?.(restore.current.theme);
-    setPage(next);
-    setScreen("menu");
-    setSelected(0);
-    setThemeIndex(THEME_NAMES.indexOf(restore.current.theme));
+    setNavigationIndex(
+      SETTINGS_SECTIONS.findIndex(
+        (item) => item.id === (next === "web" ? "tools.web" : next),
+      ),
+    );
+    setPage(next === "tools.web" ? "web" : next);
+    setCompactDetail(true);
+    setShellFocus("content");
+    setFieldTarget(undefined);
     setNotice("");
   };
-  const save = () => {
+  const save = (draftValues = values) => {
     if (!actions || !loaded) return;
     run("save", async (valid) => {
       const next = {
-        ...values,
-        model: values.model.trim(),
-        apiKey: values.apiKey?.trim() || undefined,
-        baseUrl: values.baseUrl?.trim() || undefined,
+        ...draftValues,
+        model: draftValues.model.trim(),
+        apiKey: draftValues.apiKey?.trim() || undefined,
+        baseUrl: draftValues.baseUrl?.trim() || undefined,
       };
       if (!next.model) throw new Error("Введите название модели");
       if (
@@ -445,8 +531,14 @@ export function OpenTuiSettings({
       }
       const result = await actions.save(next);
       if (!valid()) return;
-      if (result === "saved") onClose("saved");
-      else setMessage("Добавьте API-ключ для выбранного сервиса", "error");
+      if (result === "saved") {
+        const saved = { ...next, apiKey: undefined };
+        setValues(saved);
+        baseline.current = JSON.stringify(saved);
+        setHasKey(true);
+        setMessage("Подключение сохранено", "success");
+        if (setup) onClose("saved");
+      } else setMessage("Добавьте API-ключ для выбранного сервиса", "error");
     });
   };
   const check = () => {
@@ -504,6 +596,8 @@ export function OpenTuiSettings({
     });
   };
   const open = (next: Screen) => {
+    setCompactDetail(true);
+    setShellFocus("content");
     if (lifetime.current.busy || !loaded) return;
     setNotice("");
     setQuery("");
@@ -582,6 +676,7 @@ export function OpenTuiSettings({
       };
     setValues(next);
     back();
+    return next;
   };
   const choose = (
     index = Math.min(selectedRef.current, choices.length - 1),
@@ -659,14 +754,149 @@ export function OpenTuiSettings({
       });
     }
   };
+  const saveCurrent = () => {
+    if (page === "appearance") applyTheme();
+    else if (page === "tools.lsp") lspControls.current?.save();
+    else if (page === "web") webControls.current?.save();
+    else if (page === "connection") {
+      if (field) {
+        const next = acceptField();
+        if (next) save(next);
+      } else save();
+    }
+  };
+  const selectRoute = (index: number) => {
+    const item = catalogue[index];
+    if (!item) return;
+    setNavigationIndex(index);
+    changePage(item.section.id);
+    setSettingsQuery("");
+    if (item.field) {
+      if (item.section.id === "connection") open(item.field as Screen);
+      else setFieldTarget(item.field);
+    }
+    if (item.section.id === "tools.mcp" || item.section.id === "tools.skills")
+      (onOpenIntegration ?? actions?.openIntegration)?.(item.section.id);
+  };
   useKeyboard((key) => {
+    if (!active) return;
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;
-    if (page === "web" && name !== "tab") return;
+    if (key.ctrl && name === "f") {
+      key.preventDefault();
+      setShellFocus("search");
+      return;
+    }
+    if (confirmClose) {
+      key.preventDefault();
+      if (name === "escape") setConfirmClose(false);
+      else if (["up", "down", "tab"].includes(name))
+        setCloseSelection(
+          (i) => (i + (name === "up" || key.shift ? 2 : 1)) % 3,
+        );
+      else if (name === "return") {
+        if (closeSelection === 0) setConfirmClose(false);
+        else if (closeSelection === 1) {
+          setConfirmClose(false);
+          saveCurrent();
+        } else {
+          webControls.current?.discard();
+          lspControls.current?.discard();
+          onThemePreview?.(restore.current.theme);
+          onClose();
+        }
+      }
+      return;
+    }
+    if (name === "tab") {
+      key.preventDefault();
+      const zones = split
+        ? (["search", "navigation", "content", "actions"] as const)
+        : compactDetail
+          ? (["content", "actions", "search"] as const)
+          : (["search", "navigation"] as const);
+      const index = zones.indexOf(shellFocus as never);
+      setShellFocus(
+        zones[(index + (key.shift ? -1 : 1) + zones.length) % zones.length] ??
+          "content",
+      );
+      return;
+    }
+    if (
+      (shellFocus === "navigation" ||
+        shellFocus === "search" ||
+        (!split && !compactDetail)) &&
+      !key.ctrl
+    ) {
+      if (name === "escape") {
+        key.preventDefault();
+        if (settingsQuery) {
+          setSettingsQuery("");
+          setNavigationIndex(0);
+          setShellFocus(compactDetail ? "content" : "navigation");
+        } else close();
+      } else if (["up", "down", "pageup", "pagedown"].includes(name)) {
+        key.preventDefault();
+        const delta =
+          name === "up" ? -1 : name === "down" ? 1 : name === "pageup" ? -6 : 6;
+        setNavigationIndex((i) =>
+          Math.max(0, Math.min(catalogue.length - 1, i + delta)),
+        );
+      } else if (name === "return") {
+        key.preventDefault();
+        selectRoute(navigationIndex);
+      }
+      return;
+    }
+    if (name === "f2" || (key.ctrl && name === "s")) {
+      key.preventDefault();
+      saveCurrent();
+      return;
+    }
+    if (shellFocus === "actions" && name === "return") {
+      key.preventDefault();
+      if (page === "permissions") toggleBypass();
+      else saveCurrent();
+      return;
+    }
+    if (page === "tools.lsp") {
+      if (name === "escape") {
+        key.preventDefault();
+        if (!lspControls.current?.back()) {
+          if (!split) {
+            setCompactDetail(false);
+            setShellFocus("navigation");
+          } else close();
+        }
+      }
+      return;
+    }
+    if (page === "web") {
+      if (name === "escape") {
+        key.preventDefault();
+        if (!webControls.current?.back()) {
+          if (!split) {
+            setCompactDetail(false);
+            setShellFocus("navigation");
+          } else close();
+        }
+      }
+      return;
+    }
     if (name === "escape") {
       key.preventDefault();
       if (page === "connection" && screen !== "menu") back();
-      else close();
+      else if (!split && compactDetail) {
+        setCompactDetail(false);
+        setShellFocus("navigation");
+      } else close();
+      return;
+    }
+    if (shellFocus === "actions") {
+      if (name === "return") {
+        key.preventDefault();
+        saveCurrent();
+      }
       return;
     }
     if (page === "appearance" && key.ctrl && name === "g") {
@@ -684,36 +914,9 @@ export function OpenTuiSettings({
       if (name === "return" || name === "tab") key.preventDefault();
       return;
     }
-    if (key.ctrl && name === "s") {
-      key.preventDefault();
-      if (page === "appearance") applyTheme();
-      else if (page === "permissions") toggleBypass();
-      else if (!field) save();
-      return;
-    }
     if (key.ctrl && name === "r") {
       key.preventDefault();
       if (page === "connection") check();
-      return;
-    }
-    if (name === "tab") {
-      key.preventDefault();
-      if (!field) {
-        const pages: Page[] = actions
-          ? [
-              "connection",
-              "appearance",
-              "permissions",
-              ...(actions.web ? ["web" as const] : []),
-            ]
-          : ["appearance", "permissions"];
-        changePage(
-          pages[
-            (pages.indexOf(page) + (key.shift ? -1 : 1) + pages.length) %
-              pages.length
-          ] ?? "appearance",
-        );
-      }
       return;
     }
     if (page === "permissions") {
@@ -783,28 +986,6 @@ export function OpenTuiSettings({
   const safeValue = (value: string) =>
     safeNotice(value, values, editing, screen === "key");
   const help = rows[menuIndex]?.help ?? "";
-  const hints =
-    page === "web"
-      ? "Up/Down выбрать | Enter изменить | Tab раздел | Esc"
-      : page === "permissions"
-        ? innerWidth < 45
-          ? "Enter вкл/выкл | Tab | Esc"
-          : "Enter переключить | Tab раздел | Esc закрыть"
-        : innerWidth < 50
-          ? page === "appearance"
-            ? "Up/Down | Enter применить | Esc отмена"
-            : field
-              ? "Enter готово | Esc отмена"
-              : selector
-                ? "Поиск | Up/Down | Enter | Esc назад"
-                : "Up/Down Enter | Tab | Ctrl+S | Esc"
-          : page === "appearance"
-            ? "Up/Down предпросмотр | Enter применить | Esc отменить"
-            : field
-              ? "Enter подтвердить | Esc отменить"
-              : selector
-                ? "Поиск | Up/Down выбрать | Enter | Esc назад"
-                : "Up/Down / Enter | Tab раздел | Ctrl+S сохранить";
   return (
     <OpenTuiDialog
       id="settings"
@@ -812,463 +993,625 @@ export function OpenTuiSettings({
       height={height}
       palette={palette}
       onClose={close}
+      maxHeight={height}
+      maxWidth={120}
+      shadow={false}
     >
-      <box
-        height={1}
-        flexShrink={0}
-        flexDirection="row"
-        justifyContent="space-between"
-      >
-        <text fg={palette.accent} height={1}>
-          <strong>Настройки ChiselCode</strong>
-        </text>
-        <DialogAction
-          id="settings-close"
-          label="Esc x"
-          palette={palette}
-          onSelect={close}
-          disabled={
-            busy === "save" || busy === "theme" || busy === "permissions"
-          }
-        />
-      </box>
-      {roomy && (
-        <text height={1} fg={palette.muted}>
-          {setup
-            ? "Подключите сервис, чтобы начать работу"
-            : "Подключение, оформление и разрешения"}
-        </text>
+      {!(tiny && compactDetail && shellFocus !== "search") && (
+        <>
+          <box
+            height={1}
+            flexShrink={0}
+            flexDirection="row"
+            justifyContent="space-between"
+          >
+            <text fg={palette.accent} height={1}>
+              <strong>
+                {terminalLine(
+                  split || !compactDetail
+                    ? "Настройки ChiselCode"
+                    : `Настройки > ${section?.title ?? ""}`,
+                  surfaceWidth - 7,
+                )}
+              </strong>
+            </text>
+            <DialogAction
+              id="settings-close"
+              label="Esc x"
+              palette={palette}
+              onSelect={close}
+            />
+          </box>
+          <box height={1} flexShrink={0} backgroundColor={palette.raised}>
+            <input
+              id="settings-global-search"
+              value={settingsQuery}
+              focused={active && !confirmClose && shellFocus === "search"}
+              placeholder="Поиск настроек · Ctrl+F"
+              backgroundColor={palette.raised}
+              focusedBackgroundColor={palette.raised}
+              textColor={palette.text}
+              focusedTextColor={palette.text}
+              placeholderColor={palette.muted}
+              onInput={(value) => {
+                if (value === settingsQuery) return;
+                setSettingsQuery(cleanSettingsInput(value));
+                setNavigationIndex(0);
+              }}
+            />
+          </box>
+        </>
       )}
       <box
-        height={1}
-        flexShrink={0}
-        marginTop={roomy ? 1 : 0}
         flexDirection="row"
-        gap={1}
+        height={contentHeight}
+        flexShrink={0}
+        width="100%"
+        gap={split && !settingsQuery ? 1 : 0}
       >
-        <DialogAction
-          id="settings-connection"
-          label={innerWidth < 45 ? "API" : "Подключение"}
-          palette={palette}
-          active={page === "connection"}
-          disabled={!actions}
-          onSelect={() => changePage("connection")}
-        />
-        <DialogAction
-          id="settings-appearance"
-          label={innerWidth < 45 ? "Вид" : "Оформление"}
-          palette={palette}
-          active={page === "appearance"}
-          onSelect={() => changePage("appearance")}
-        />
-        <DialogAction
-          id="settings-permissions"
-          label={innerWidth < 45 ? "Доступ" : "Разрешения"}
-          palette={palette}
-          active={page === "permissions"}
-          onSelect={() => changePage("permissions")}
-        />
-        {actions?.web && (
-          <DialogAction
-            id="settings-web"
-            label="Web"
+        {showNavigation && (
+          <SettingsNavigation
+            results={catalogue}
+            selected={navigationIndex}
+            height={contentHeight}
+            width={settingsQuery ? surfaceWidth : navigationWidth}
+            separated={split && !settingsQuery}
             palette={palette}
-            active={page === "web"}
-            onSelect={() => changePage("web")}
+            query={settingsQuery}
+            focused={
+              shellFocus === "navigation" ||
+              shellFocus === "search" ||
+              !compactDetail
+            }
+            onMove={setNavigationIndex}
+            onSelect={selectRoute}
           />
         )}
-      </box>
-      {page === "appearance" && (
-        <box height={1} flexShrink={0} flexDirection="row">
-          <DialogAction
-            id="settings-decoration-toggle"
-            label={`Графика: [${decorative ? "x" : " "}] Ctrl+G`}
-            palette={palette}
-            active={decorative}
-            disabled={!!busy || !onUnicodeDecorationsChange}
-            onSelect={toggleDecoration}
-          />
-        </box>
-      )}
-      <box
-        height={bodyHeight}
-        flexShrink={0}
-        marginTop={roomy ? 1 : 0}
-        flexDirection="column"
-        overflow="hidden"
-      >
-        {page === "web" && actions?.web ? (
-          <OpenTuiWebSettings
-            actions={actions.web}
-            height={bodyHeight}
-            palette={palette}
-            onClose={close}
-          />
-        ) : page === "permissions" ? (
-          <TerminalScrollbox width="100%" height="100%">
-            <box flexDirection="column" gap={roomy ? 1 : 0}>
-              <text height={1} fg={palette.accent}>
-                <strong>Доступ к Bypass</strong>
+        <box
+          width={settingsQuery ? 0 : innerWidth}
+          height="100%"
+          flexDirection="column"
+          visible={
+            (split && !settingsQuery) || (compactDetail && !settingsQuery)
+          }
+        >
+          {split && (
+            <box height={2} flexShrink={0} flexDirection="column">
+              <text fg={palette.accent} height={1}>
+                <strong>
+                  {terminalLine(
+                    `${section?.group ?? ""} > ${section?.title ?? ""}`,
+                    innerWidth,
+                  )}
+                </strong>
               </text>
+              <text fg={palette.muted} height={1}>
+                {terminalLine(section?.description ?? "", innerWidth)}
+              </text>
+            </box>
+          )}
+          {page === "appearance" && (
+            <box height={1} flexShrink={0} flexDirection="row">
               <DialogAction
-                id="settings-bypass-toggle"
-                label={`[${bypassAllowed ? "* Вкл" : "o Выкл"}] Разрешить Bypass`}
+                id="settings-decoration-toggle"
+                label={`Графика: [${decorative ? "x" : " "}] Ctrl+G`}
                 palette={palette}
-                active={bypassAllowed}
-                disabled={!!busy || !onBypassAvailabilityChange}
-                onSelect={toggleBypass}
+                active={decorative}
+                disabled={!!busy || !onUnicodeDecorationsChange}
+                onSelect={toggleDecoration}
               />
-              <text fg={palette.text}>
-                Переключатель добавляет Bypass в меню разрешений и цикл F4. Сам
-                режим выбирается отдельно.
-              </text>
-              <text fg={palette.yellow}>
-                В Bypass правки и команды выполняются без подтверждения, с
-                правами процесса ChiselCode.
-              </text>
-              <text fg={palette.muted}>
-                Явные запреты, границы файловых инструментов и режим Plan
-                сохраняются. Это не песочница.
-              </text>
-              <text fg={palette.muted}>
-                Выключение возвращает Bypass-сессии и очередь в Manual;
-                следующие действия активного запроса снова проверяют разрешения.
-              </text>
-              <text fg={palette.muted}>
-                Настройка принадлежит пользователю и сохраняется сразу. Проект и
-                скиллы не могут её включить.
-              </text>
             </box>
-          </TerminalScrollbox>
-        ) : page === "appearance" ? (
-          <box flexDirection="row" height="100%" width="100%">
-            <box
-              width={wide ? listWidth : innerWidth}
-              height="100%"
-              flexDirection="column"
-            >
-              {THEME_NAMES.slice(
-                start(themeIndex, THEME_NAMES.length),
-                start(themeIndex, THEME_NAMES.length) + visibleCount,
-              ).map((name) => {
-                const colors = THEMES[name];
-                const active = name === currentTheme;
-                return (
-                  // biome-ignore lint/a11y/noStaticElementInteractions: Arrow keys preview themes and Enter applies.
-                  <box
-                    id={`settings-theme-${name}`}
-                    key={name}
-                    height={rowHeight}
-                    flexShrink={0}
-                    flexDirection="column"
-                    paddingLeft={1}
-                    paddingRight={1}
-                    backgroundColor={active ? palette.raised : palette.surface}
-                    onMouseUp={(event) => {
-                      if (event.button !== 0) return;
-                      event.stopPropagation();
-                      if (!busy) {
-                        setThemeIndex(THEME_NAMES.indexOf(name));
-                        setNotice("");
-                      }
-                    }}
-                  >
-                    <box
-                      height={1}
-                      flexDirection="row"
-                      justifyContent="space-between"
-                    >
-                      <text
-                        height={1}
-                        fg={active ? palette.accent : palette.text}
-                      >
-                        {(active ? "> " : "  ") +
-                          colors.label +
-                          (name === savedTheme ? " +" : "")}
-                      </text>
-                      <text height={1} fg={colors.accent} selectable={false}>
-                        <span bg={colors.bg}>{"  "}</span>{" "}
-                        <span bg={colors.surface}>{"  "}</span>{" "}
-                        <span bg={colors.accent}>{"  "}</span>
-                      </text>
-                    </box>
-                    {roomy && (
-                      <text height={1} fg={palette.muted}>
-                        {colors.description}
-                      </text>
-                    )}
-                  </box>
-                );
-              })}
-            </box>
-            {wide && (
-              <box
-                width={innerWidth - listWidth}
-                height="100%"
-                paddingLeft={2}
-                flexDirection="column"
-              >
-                <text height={1} fg={palette.accent}>
-                  <strong>{THEMES[currentTheme].label}</strong>
-                </text>
+          )}
+          <box
+            height={
+              page === "tools.lsp" || page === "web"
+                ? 0
+                : bodyHeight - (page === "appearance" ? 1 : 0)
+            }
+            visible={page !== "tools.lsp" && page !== "web"}
+            flexShrink={0}
+            flexDirection="column"
+            overflow="hidden"
+          >
+            {page === "tools.lsp" ? (
+              actions?.lsp ? null : (
                 <text fg={palette.muted}>
-                  {THEMES[currentTheme].description}
+                  LSP недоступен в этой composition.
                 </text>
+              )
+            ) : page === "tools.mcp" || page === "tools.skills" ? (
+              <DialogAction
+                label="Открыть управление"
+                palette={palette}
+                onSelect={() =>
+                  (onOpenIntegration ?? actions?.openIntegration)?.(page)
+                }
+              />
+            ) : page === "web" && actions?.web ? null : page ===
+              "permissions" ? (
+              <TerminalScrollbox width="100%" height="100%">
+                <box flexDirection="column" gap={roomy ? 1 : 0}>
+                  <text height={1} fg={palette.accent}>
+                    <strong>Доступ к Bypass</strong>
+                  </text>
+                  <DialogAction
+                    id="settings-bypass-toggle"
+                    label={`[${bypassAllowed ? "* Вкл" : "o Выкл"}] Разрешить Bypass`}
+                    palette={palette}
+                    active={bypassAllowed}
+                    disabled={!!busy || !onBypassAvailabilityChange}
+                    onSelect={toggleBypass}
+                  />
+                  <text fg={palette.text}>
+                    Переключатель добавляет Bypass в меню разрешений и цикл F4.
+                    Сам режим выбирается отдельно.
+                  </text>
+                  <text fg={palette.yellow}>
+                    В Bypass правки и команды выполняются без подтверждения, с
+                    правами процесса ChiselCode.
+                  </text>
+                  <text fg={palette.muted}>
+                    Явные запреты, границы файловых инструментов и режим Plan
+                    сохраняются. Это не песочница.
+                  </text>
+                  <text fg={palette.muted}>
+                    Выключение возвращает Bypass-сессии и очередь в Manual;
+                    следующие действия активного запроса снова проверяют
+                    разрешения.
+                  </text>
+                  <text fg={palette.muted}>
+                    Настройка принадлежит пользователю и сохраняется сразу.
+                    Проект и скиллы не могут её включить.
+                  </text>
+                </box>
+              </TerminalScrollbox>
+            ) : page === "appearance" ? (
+              <box flexDirection="row" height="100%" width="100%">
                 <box
-                  marginTop={1}
-                  height={4}
-                  backgroundColor={palette.bg}
-                  border
-                  borderStyle="rounded"
-                  customBorderChars={borderChars}
-                  borderColor={palette.border}
-                  paddingLeft={1}
+                  width={wide ? listWidth : innerWidth}
+                  height="100%"
                   flexDirection="column"
                 >
-                  <text fg={palette.muted}>{">"} Проверь мой проект</text>
-                  <text fg={palette.text}>Готов к следующей задаче.</text>
-                </box>
-                <text marginTop={1} fg={palette.muted}>
-                  {decorative
-                    ? "Coder Mini и округлые рамки. Шрифт должен поддерживать графические символы."
-                    : "ASCII-логотип и рамки совместимы с обычными шрифтами. Графика включается отдельно."}
-                </text>
-                <text marginTop={1} fg={palette.muted}>
-                  Стрелки показывают тему во всём интерфейсе. Примените
-                  понравившийся вариант или нажмите Esc, чтобы вернуться.
-                </text>
-              </box>
-            )}
-          </box>
-        ) : field ? (
-          <box width="100%" height="100%" flexDirection="column">
-            <text height={1} fg={palette.accent}>
-              {labels[screen]}
-            </text>
-            <box
-              width="100%"
-              height={roomy ? 3 : 1}
-              marginTop={roomy ? 1 : 0}
-              border={roomy ? true : []}
-              borderStyle="rounded"
-              customBorderChars={borderChars}
-              borderColor={palette.accent}
-              backgroundColor={palette.raised}
-              paddingLeft={1}
-              paddingRight={1}
-            >
-              {screen === "key" ? (
-                <SettingsSecretInput
-                  value={editing}
-                  onChange={setEditing}
-                  onSubmit={acceptField}
-                  palette={palette}
-                />
-              ) : (
-                <input
-                  key={screen}
-                  id="settings-field"
-                  value={editing}
-                  focused
-                  maxLength={screen === "profile-id" ? 128 : 4096}
-                  placeholder={
-                    screen === "base-url"
-                      ? "https://api.example.com"
-                      : screen === "profile-id"
-                        ? "например work"
-                        : "Точное название модели"
-                  }
-                  backgroundColor={palette.raised}
-                  focusedBackgroundColor={palette.raised}
-                  textColor={palette.text}
-                  focusedTextColor={palette.text}
-                  placeholderColor={palette.muted}
-                  onInput={(value) => {
-                    setEditing(cleanSettingsInput(value));
-                    setNotice("");
-                  }}
-                  onSubmit={acceptField}
-                />
-              )}
-            </box>
-            {roomy && (
-              <text marginTop={1} fg={palette.muted}>
-                {screen === "key"
-                  ? "Ключ скрыт и будет записан только после сохранения подключения."
-                  : screen === "profile-id"
-                    ? "Уникальное имя для отдельного аккаунта этого сервиса."
-                    : "Введите значение. Enter подтвердит его, Esc отменит редактирование."}
-              </text>
-            )}
-          </box>
-        ) : (
-          <>
-            {selector && (
-              <box
-                height={1}
-                flexShrink={0}
-                backgroundColor={palette.raised}
-                paddingLeft={1}
-              >
-                <input
-                  key={screen}
-                  id="settings-search"
-                  value={query}
-                  focused
-                  placeholder={`${labels[screen]} | поиск...`}
-                  backgroundColor={palette.raised}
-                  focusedBackgroundColor={palette.raised}
-                  textColor={palette.text}
-                  focusedTextColor={palette.text}
-                  placeholderColor={palette.muted}
-                  onInput={(value) => {
-                    setQuery(cleanSettingsInput(value));
-                    setSelected(0);
-                  }}
-                />
-              </box>
-            )}
-            <box width="100%" flexGrow={1} minHeight={0} flexDirection="row">
-              <box
-                width={listWidth}
-                height="100%"
-                flexDirection="column"
-                onMouseScroll={(event) => {
-                  event.stopPropagation();
-                  const direction = event.scroll?.direction;
-                  if (!busy && (direction === "up" || direction === "down"))
-                    setSelected((i) =>
-                      Math.max(
-                        0,
-                        Math.min(
-                          list.length - 1,
-                          i + (direction === "up" ? -1 : 1),
-                        ),
-                      ),
-                    );
-                }}
-              >
-                {page === "connection" && !loaded ? (
-                  <text fg={palette.muted}>
-                    {busy
-                      ? "Загружаем подключение..."
-                      : "Не удалось загрузить настройки"}
-                  </text>
-                ) : (
-                  list
-                    .slice(
-                      first,
-                      first +
-                        Math.max(
-                          1,
-                          Math.floor(
-                            (bodyHeight - (selector ? 1 : 0)) / rowHeight,
-                          ),
-                        ),
-                    )
-                    .map((item, offset) => (
-                      // biome-ignore lint/a11y/noStaticElementInteractions: Enter also activates the selected item.
+                  {THEME_NAMES.slice(
+                    start(themeIndex, THEME_NAMES.length),
+                    start(themeIndex, THEME_NAMES.length) + visibleCount,
+                  ).map((name) => {
+                    const colors = THEMES[name];
+                    const active = name === currentTheme;
+                    return (
+                      // biome-ignore lint/a11y/noStaticElementInteractions: Arrow keys preview themes and Enter applies.
                       <box
-                        key={item.id}
-                        id={`settings-row-${item.id}`}
+                        id={`settings-theme-${name}`}
+                        key={name}
                         height={rowHeight}
                         flexShrink={0}
+                        flexDirection="column"
                         paddingLeft={1}
                         paddingRight={1}
                         backgroundColor={
-                          first + offset === index
-                            ? palette.raised
-                            : palette.surface
+                          active ? palette.raised : palette.surface
                         }
-                        flexDirection="column"
                         onMouseUp={(event) => {
                           if (event.button !== 0) return;
                           event.stopPropagation();
-                          if (
-                            busy &&
-                            !(busy === "models" && item.id === "__manual")
-                          )
-                            return;
-                          setSelected(first + offset);
-                          if (selector) choose(first + offset);
-                          else {
-                            const row = rows[first + offset];
-                            if (row) open(row.screen);
+                          if (!busy) {
+                            setThemeIndex(THEME_NAMES.indexOf(name));
+                            setNotice("");
                           }
                         }}
                       >
-                        <text
+                        <box
                           height={1}
-                          fg={
-                            first + offset === index
-                              ? palette.accent
-                              : palette.text
-                          }
+                          flexDirection="row"
+                          justifyContent="space-between"
                         >
-                          {terminalLine(
-                            (first + offset === index ? "> " : "  ") +
-                              item.label +
-                              (!roomy && !selector
-                                ? `: ${safeValue(item.hint ?? "")}`
-                                : ""),
-                            listWidth - 2,
-                          )}
-                        </text>
+                          <text
+                            height={1}
+                            fg={active ? palette.accent : palette.text}
+                          >
+                            {(active ? "> " : "  ") +
+                              colors.label +
+                              (name === savedTheme ? " +" : "")}
+                          </text>
+                          <text
+                            height={1}
+                            fg={colors.accent}
+                            selectable={false}
+                          >
+                            <span bg={colors.bg}>{"  "}</span>{" "}
+                            <span bg={colors.surface}>{"  "}</span>{" "}
+                            <span bg={colors.accent}>{"  "}</span>
+                          </text>
+                        </box>
                         {roomy && (
                           <text height={1} fg={palette.muted}>
-                            {terminalLine(
-                              safeValue(item.hint ?? ""),
-                              listWidth - 2,
-                            )}
+                            {colors.description}
                           </text>
                         )}
                       </box>
-                    ))
-                )}
-                {!list.length && loaded && (
-                  <text fg={palette.muted}>Ничего не найдено</text>
+                    );
+                  })}
+                </box>
+                {wide && (
+                  <box
+                    width={innerWidth - listWidth}
+                    height="100%"
+                    paddingLeft={2}
+                    flexDirection="column"
+                  >
+                    <text height={1} fg={palette.accent}>
+                      <strong>{THEMES[currentTheme].label}</strong>
+                    </text>
+                    <text fg={palette.muted}>
+                      {THEMES[currentTheme].description}
+                    </text>
+                    <box
+                      marginTop={1}
+                      height={4}
+                      backgroundColor={palette.bg}
+                      border
+                      borderStyle="rounded"
+                      customBorderChars={borderChars}
+                      borderColor={palette.border}
+                      paddingLeft={1}
+                      flexDirection="column"
+                    >
+                      <text fg={palette.muted}>{">"} Проверь мой проект</text>
+                      <text fg={palette.text}>Готов к следующей задаче.</text>
+                    </box>
+                    <text marginTop={1} fg={palette.muted}>
+                      {decorative
+                        ? "Coder Mini и округлые рамки. Шрифт должен поддерживать графические символы."
+                        : "ASCII-логотип и рамки совместимы с обычными шрифтами. Графика включается отдельно."}
+                    </text>
+                    <text marginTop={1} fg={palette.muted}>
+                      Стрелки показывают тему во всём интерфейсе. Примените
+                      понравившийся вариант или нажмите Esc, чтобы вернуться.
+                    </text>
+                  </box>
                 )}
               </box>
-              {wide && (
+            ) : field ? (
+              <box width="100%" height="100%" flexDirection="column">
+                <text height={1} fg={palette.accent}>
+                  {labels[screen]}
+                </text>
                 <box
-                  width={innerWidth - listWidth}
-                  height="100%"
-                  paddingLeft={2}
-                  flexDirection="column"
+                  width="100%"
+                  height={roomy ? 3 : 1}
+                  marginTop={roomy ? 1 : 0}
+                  border={roomy ? true : []}
+                  borderStyle="rounded"
+                  customBorderChars={borderChars}
+                  borderColor={palette.accent}
+                  backgroundColor={palette.raised}
+                  paddingLeft={1}
+                  paddingRight={1}
                 >
-                  <text height={1} fg={palette.accent}>
-                    <strong>
-                      {selector ? labels[screen] : rows[menuIndex]?.label}
-                    </strong>
-                  </text>
-                  <text marginTop={1} fg={palette.text}>
-                    {safeValue(
-                      selector
-                        ? (choices[choiceIndex]?.label ?? "Нет результатов")
-                        : (rows[menuIndex]?.value ?? ""),
-                    )}
-                  </text>
-                  <text marginTop={1} fg={palette.muted}>
-                    {selector
-                      ? safeValue(choices[choiceIndex]?.hint ?? "")
-                      : help}
-                  </text>
-                  {!selector && (
-                    <text
-                      marginTop={1}
-                      fg={dirty ? palette.yellow : palette.green}
-                    >
-                      {dirty
-                        ? "Есть несохранённые изменения"
-                        : "Подключение сохранено"}
-                    </text>
+                  {screen === "key" ? (
+                    <SettingsSecretInput
+                      value={editing}
+                      onChange={setEditing}
+                      onSubmit={acceptField}
+                      palette={palette}
+                      active={
+                        active &&
+                        !confirmClose &&
+                        shellFocus === "content" &&
+                        page === "connection"
+                      }
+                    />
+                  ) : (
+                    <input
+                      key={screen}
+                      id="settings-field"
+                      value={editing}
+                      focused={
+                        active &&
+                        !confirmClose &&
+                        shellFocus === "content" &&
+                        page === "connection"
+                      }
+                      maxLength={screen === "profile-id" ? 128 : 4096}
+                      placeholder={
+                        screen === "base-url"
+                          ? "https://api.example.com"
+                          : screen === "profile-id"
+                            ? "например work"
+                            : "Точное название модели"
+                      }
+                      backgroundColor={palette.raised}
+                      focusedBackgroundColor={palette.raised}
+                      textColor={palette.text}
+                      focusedTextColor={palette.text}
+                      placeholderColor={palette.muted}
+                      onInput={(value) => {
+                        setEditing(cleanSettingsInput(value));
+                        setNotice("");
+                      }}
+                      onSubmit={acceptField}
+                    />
                   )}
                 </box>
-              )}
+                {roomy && (
+                  <text marginTop={1} fg={palette.muted}>
+                    {screen === "key"
+                      ? "Ключ скрыт и будет записан только после сохранения подключения."
+                      : screen === "profile-id"
+                        ? "Уникальное имя для отдельного аккаунта этого сервиса."
+                        : "Введите значение. Enter подтвердит его, Esc отменит редактирование."}
+                  </text>
+                )}
+              </box>
+            ) : (
+              <>
+                {selector && (
+                  <box
+                    height={1}
+                    flexShrink={0}
+                    backgroundColor={palette.raised}
+                    paddingLeft={1}
+                  >
+                    <input
+                      key={screen}
+                      id="settings-search"
+                      value={query}
+                      focused={
+                        active &&
+                        !confirmClose &&
+                        shellFocus === "content" &&
+                        page === "connection"
+                      }
+                      placeholder={`${labels[screen]} | поиск...`}
+                      backgroundColor={palette.raised}
+                      focusedBackgroundColor={palette.raised}
+                      textColor={palette.text}
+                      focusedTextColor={palette.text}
+                      placeholderColor={palette.muted}
+                      onInput={(value) => {
+                        setQuery(cleanSettingsInput(value));
+                        setSelected(0);
+                      }}
+                    />
+                  </box>
+                )}
+                <box
+                  width="100%"
+                  flexGrow={1}
+                  minHeight={0}
+                  flexDirection="row"
+                >
+                  <box
+                    width={listWidth}
+                    height="100%"
+                    flexDirection="column"
+                    onMouseScroll={(event) => {
+                      event.stopPropagation();
+                      const direction = event.scroll?.direction;
+                      if (!busy && (direction === "up" || direction === "down"))
+                        setSelected((i) =>
+                          Math.max(
+                            0,
+                            Math.min(
+                              list.length - 1,
+                              i + (direction === "up" ? -1 : 1),
+                            ),
+                          ),
+                        );
+                    }}
+                  >
+                    {page === "connection" && !loaded ? (
+                      <text fg={palette.muted}>
+                        {busy
+                          ? "Загружаем подключение..."
+                          : "Не удалось загрузить настройки"}
+                      </text>
+                    ) : (
+                      list
+                        .slice(
+                          first,
+                          first +
+                            Math.max(
+                              1,
+                              Math.floor(
+                                (bodyHeight - (selector ? 1 : 0)) / rowHeight,
+                              ),
+                            ),
+                        )
+                        .map((item, offset) => (
+                          // biome-ignore lint/a11y/noStaticElementInteractions: Enter also activates the selected item.
+                          <box
+                            key={item.id}
+                            id={`settings-row-${item.id}`}
+                            height={rowHeight}
+                            flexShrink={0}
+                            paddingLeft={1}
+                            paddingRight={1}
+                            backgroundColor={
+                              first + offset === index
+                                ? palette.raised
+                                : palette.surface
+                            }
+                            flexDirection="column"
+                            onMouseUp={(event) => {
+                              if (event.button !== 0) return;
+                              event.stopPropagation();
+                              if (
+                                busy &&
+                                !(busy === "models" && item.id === "__manual")
+                              )
+                                return;
+                              setSelected(first + offset);
+                              if (selector) choose(first + offset);
+                              else {
+                                const row = rows[first + offset];
+                                if (row) open(row.screen);
+                              }
+                            }}
+                          >
+                            <text
+                              height={1}
+                              fg={
+                                first + offset === index
+                                  ? palette.accent
+                                  : palette.text
+                              }
+                            >
+                              {terminalLine(
+                                (first + offset === index ? "> " : "  ") +
+                                  item.label +
+                                  (!roomy && !selector
+                                    ? `: ${safeValue(item.hint ?? "")}`
+                                    : ""),
+                                listWidth - 2,
+                              )}
+                            </text>
+                            {roomy && (
+                              <text height={1} fg={palette.muted}>
+                                {terminalLine(
+                                  safeValue(item.hint ?? ""),
+                                  listWidth - 2,
+                                )}
+                              </text>
+                            )}
+                          </box>
+                        ))
+                    )}
+                    {!list.length && loaded && (
+                      <text fg={palette.muted}>Ничего не найдено</text>
+                    )}
+                  </box>
+                  {wide && (
+                    <box
+                      width={innerWidth - listWidth}
+                      height="100%"
+                      paddingLeft={2}
+                      flexDirection="column"
+                    >
+                      <text height={1} fg={palette.accent}>
+                        <strong>
+                          {selector ? labels[screen] : rows[menuIndex]?.label}
+                        </strong>
+                      </text>
+                      <text marginTop={1} fg={palette.text}>
+                        {safeValue(
+                          selector
+                            ? (choices[choiceIndex]?.label ?? "Нет результатов")
+                            : (rows[menuIndex]?.value ?? ""),
+                        )}
+                      </text>
+                      <text marginTop={1} fg={palette.muted}>
+                        {selector
+                          ? safeValue(choices[choiceIndex]?.hint ?? "")
+                          : help}
+                      </text>
+                      {!selector && (
+                        <text
+                          marginTop={1}
+                          fg={dirty ? palette.yellow : palette.green}
+                        >
+                          {dirty
+                            ? "Есть несохранённые изменения"
+                            : "Подключение сохранено"}
+                        </text>
+                      )}
+                    </box>
+                  )}
+                </box>
+              </>
+            )}
+          </box>
+          {actions?.web && (
+            <box
+              height={page === "web" ? bodyHeight : 0}
+              visible={page === "web"}
+              overflow="hidden"
+              flexShrink={0}
+            >
+              <OpenTuiWebSettings
+                actions={actions.web}
+                height={bodyHeight}
+                palette={palette}
+                active={
+                  active &&
+                  page === "web" &&
+                  shellFocus === "content" &&
+                  !confirmClose
+                }
+                controls={webControls}
+                onDirty={recordWebDirty}
+                onClose={() => {}}
+              />
             </box>
-          </>
-        )}
+          )}
+          {actions?.lsp && (
+            <box
+              width="100%"
+              height={page === "tools.lsp" ? bodyHeight : 0}
+              visible={
+                page === "tools.lsp" &&
+                ((split && !settingsQuery) || (compactDetail && !settingsQuery))
+              }
+            >
+              <OpenTuiLspSettings
+                actions={actions.lsp}
+                palette={palette}
+                width={innerWidth}
+                height={bodyHeight}
+                active={active && page === "tools.lsp" && !confirmClose}
+                focused={shellFocus === "content"}
+                fieldTarget={fieldTarget}
+                controls={lspControls}
+                onDirty={recordLspDirty}
+              />
+            </box>
+          )}
+        </box>
       </box>
+      {confirmClose && (
+        <box
+          position="absolute"
+          left={1}
+          top={1}
+          width="100%"
+          height={Math.max(1, popupHeight - (tiny ? 1 : 2))}
+          backgroundColor={palette.surface}
+          flexDirection="column"
+        >
+          <text height={1} fg={palette.yellow}>
+            {tiny ? "Есть изменения" : "Несохранённые изменения"}
+          </text>
+          <DialogAction
+            id="settings-stay"
+            active={closeSelection === 0}
+            label={tiny ? "Остаться" : "Остаться (Esc)"}
+            palette={palette}
+            onSelect={() => setConfirmClose(false)}
+          />
+          <DialogAction
+            id="settings-save-current"
+            active={closeSelection === 1}
+            label={tiny ? "Сохранить текущую" : "Сохранить текущую форму"}
+            palette={palette}
+            onSelect={() => {
+              setConfirmClose(false);
+              saveCurrent();
+            }}
+          />
+          <DialogAction
+            id="settings-discard"
+            active={closeSelection === 2}
+            label={tiny ? "Сбросить всё" : "Сбросить все изменения и закрыть"}
+            palette={palette}
+            onSelect={() => {
+              webControls.current?.discard();
+              lspControls.current?.discard();
+              onThemePreview?.(restore.current.theme);
+              onClose();
+            }}
+          />
+        </box>
+      )}
       {notice && (
         <text
           height={1}
@@ -1284,15 +1627,20 @@ export function OpenTuiSettings({
           {terminalLine(safeValue(notice), innerWidth)}
         </text>
       )}
-      <box
-        height={1}
-        marginTop={roomy ? 1 : 0}
-        flexShrink={0}
-        flexDirection="row"
-        gap={1}
-      >
-        {page === "web" ? (
-          <text fg={palette.muted}>Изменения сохраняются сразу</text>
+      <box height={1} flexShrink={0} flexDirection="row" gap={1}>
+        {simpleFooter ? (
+          <text fg={palette.muted}>
+            {terminalLine(
+              tiny
+                ? "F2 save | Esc back"
+                : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
+              surfaceWidth,
+            )}
+          </text>
+        ) : page === "web" ? (
+          <text fg={palette.muted}>
+            {terminalLine("Ctrl+S/F2 сохранить Web | Esc назад", surfaceWidth)}
+          </text>
         ) : page === "permissions" ? (
           <DialogAction
             id="settings-bypass-action"
@@ -1364,7 +1712,7 @@ export function OpenTuiSettings({
         )}
       </box>
       {showHint && (
-        <text height={1} marginTop={roomy ? 1 : 0} fg={palette.muted}>
+        <text height={1} fg={palette.muted}>
           {terminalSafeText(
             page !== "web" && busy
               ? busy === "models"
@@ -1372,7 +1720,7 @@ export function OpenTuiSettings({
                 : busy === "check"
                   ? "Проверяем подключение... | Esc закрыть"
                   : "Подождите..."
-              : hints,
+              : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
             innerWidth,
           )}
         </text>

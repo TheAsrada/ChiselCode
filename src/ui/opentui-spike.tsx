@@ -6,7 +6,7 @@ import type {
   TextareaRenderable,
 } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import React, { useEffect, useLayoutEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   type CommandProjection,
   composeCommandProjection,
@@ -112,6 +112,13 @@ export function OpenTuiSpike(
     [props.workspace],
   );
   const controller = props.workspace?.controller ?? props.controller;
+  const currentScreenKey = props.workspace
+    ? (props.workspace.activeKey ??
+      `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
+    : "probe";
+  const [settingsOwnerKey, setSettingsOwnerKey] = useState<string | undefined>(
+    props.initialSettingsOpen ? currentScreenKey : undefined,
+  );
   return (
     <UnicodeDecorationContext value={unicodeDecorations}>
       <OpenTuiClipboard
@@ -119,13 +126,11 @@ export function OpenTuiSpike(
         clipboard={props.clipboard}
       >
         <OpenTuiScreen
-          key={
-            props.workspace
-              ? (props.workspace.activeKey ??
-                `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
-              : "probe"
-          }
+          key={settingsOwnerKey ?? currentScreenKey}
           {...props}
+          onSettingsVisibility={(open) =>
+            setSettingsOwnerKey(open ? currentScreenKey : undefined)
+          }
           controller={controller}
           approvalResolver={
             props.approvalResolver ??
@@ -177,6 +182,8 @@ function OpenTuiScreen({
   onSubmit,
   sessionPicker,
   settingsActions,
+  getSettingsActions,
+  onSettingsVisibility,
   updater,
   getModelsActions,
   getDefaultModel,
@@ -207,6 +214,8 @@ function OpenTuiScreen({
   onSubmit?: (prompt: string) => Promise<void>;
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
+  getSettingsActions?: () => OpenTuiSettingsActions;
+  onSettingsVisibility?: (open: boolean) => void;
   updater?: UpdateController;
   getModelsActions?: () => OpenTuiModelsActions;
   getDefaultModel?: () => string;
@@ -219,7 +228,7 @@ function OpenTuiScreen({
   onInitialSettingsComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
   commandActions?: WorkspaceCommandsPort;
-  getMcpActions?: () => OpenTuiMcpActions;
+  getMcpActions?: (root?: string) => OpenTuiMcpActions;
   initialTheme?: ThemeName;
   accent?: string;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
@@ -261,6 +270,10 @@ function OpenTuiScreen({
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
+  const [capturedSettingsActions, setCapturedSettingsActions] = useState(
+    () => getSettingsActions?.() ?? settingsActions,
+  );
+  const settingsIntegration = useRef(false);
   const [settingsSelection, setSettingsSelection] = useState(0);
   const [settingsPage, setSettingsPage] = useState<
     "connection" | "appearance" | "permissions" | "web"
@@ -589,9 +602,11 @@ function OpenTuiScreen({
     selection = 0,
   ) => {
     editor.current?.blur();
+    setCapturedSettingsActions(getSettingsActions?.() ?? settingsActions);
     setSettingsSelection(selection);
     setSettingsPage(page);
     setSettingsOpen(true);
+    onSettingsVisibility?.(true);
     controller?.setOverlay("settings");
     controller?.setFocus("modal");
   };
@@ -1018,7 +1033,7 @@ function OpenTuiScreen({
       openUpdate();
       return;
     }
-    if (settingsActions && value === "/settings") {
+    if ((settingsActions || getSettingsActions) && value === "/settings") {
       openSettings("connection");
       clearInput();
       return;
@@ -1067,35 +1082,47 @@ function OpenTuiScreen({
         }}
       />
     );
-  const settingsDialog =
-    settingsOpen && !approval ? (
-      <OpenTuiSettings
-        actions={settingsActions}
-        width={width}
-        height={height}
-        palette={palette}
-        initialSelection={settingsSelection}
-        initialPage={settingsPage}
-        theme={initialTheme}
-        setup={setupPending}
-        onThemePreview={setTheme}
-        onThemeChange={onThemeChange}
-        unicodeDecorations={initialUnicodeDecorations}
-        onUnicodeDecorationsChange={onUnicodeDecorationsChange}
-        allowBypassPermissions={bypassAllowed}
-        onBypassAvailabilityChange={
-          onBypassAvailabilityChange ? changeBypassAvailability : undefined
+  const settingsDialog = settingsOpen ? (
+    <OpenTuiSettings
+      actions={capturedSettingsActions}
+      active={!approval && !mcpActions && !skillsOpen}
+      onOpenIntegration={(route) => {
+        settingsIntegration.current = true;
+        if (route === "tools.mcp" && getMcpActions) {
+          setMcpActions(getMcpActions(capturedSettingsActions?.workspaceRoot));
+          controller?.setOverlay("mcp");
+        } else if (route === "tools.skills" && skillsActions) {
+          setSkillsOpen(true);
+          controller?.setOverlay("skills");
         }
-        onClose={(outcome) => {
-          if (setupPending && outcome === "saved") onSetupComplete?.();
-          onInitialSettingsComplete?.();
-          setSetupPending(false);
-          setSettingsOpen(false);
-          controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : focus);
-        }}
-      />
-    ) : undefined;
+      }}
+      width={width}
+      height={height}
+      palette={palette}
+      initialSelection={settingsSelection}
+      initialPage={settingsPage}
+      theme={initialTheme}
+      setup={setupPending}
+      onThemePreview={setTheme}
+      onThemeChange={onThemeChange}
+      unicodeDecorations={initialUnicodeDecorations}
+      onUnicodeDecorationsChange={onUnicodeDecorationsChange}
+      allowBypassPermissions={bypassAllowed}
+      onBypassAvailabilityChange={
+        onBypassAvailabilityChange ? changeBypassAvailability : undefined
+      }
+      onClose={(outcome) => {
+        settingsIntegration.current = false;
+        if (setupPending && outcome === "saved") onSetupComplete?.();
+        onInitialSettingsComplete?.();
+        setSetupPending(false);
+        setSettingsOpen(false);
+        onSettingsVisibility?.(false);
+        controller?.setOverlay();
+        controller?.setFocus(focus === "editor" ? "composer" : focus);
+      }}
+    />
+  ) : undefined;
   if (setupPending && settingsOpen)
     return (
       <box width={width} height={height} backgroundColor={palette.bg}>
@@ -1104,8 +1131,16 @@ function OpenTuiScreen({
     );
   const closeSkills = () => {
     setSkillsOpen(false);
-    controller?.setOverlay();
-    controller?.setFocus(focus === "editor" ? "composer" : focus);
+    controller?.setOverlay(
+      settingsIntegration.current ? "settings" : undefined,
+    );
+    controller?.setFocus(
+      settingsIntegration.current
+        ? "modal"
+        : focus === "editor"
+          ? "composer"
+          : focus,
+    );
   };
   const prepareSkill = (value: string) => {
     acceptedCompletion.current = value;
@@ -1525,8 +1560,16 @@ function OpenTuiScreen({
           palette={palette}
           onClose={() => {
             setMcpActions(undefined);
-            controller?.setOverlay();
-            controller?.setFocus(focus === "editor" ? "composer" : focus);
+            controller?.setOverlay(
+              settingsIntegration.current ? "settings" : undefined,
+            );
+            controller?.setFocus(
+              settingsIntegration.current
+                ? "modal"
+                : focus === "editor"
+                  ? "composer"
+                  : focus,
+            );
           }}
         />
       )}

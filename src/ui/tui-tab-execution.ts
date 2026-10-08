@@ -3,6 +3,7 @@ import type { RunOptions } from "../app/run-prompt.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
+import type { ToolExecutionResult } from "../types/domain.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController } from "./tui-controller.js";
 
@@ -19,6 +20,8 @@ export interface QueuedTabCommand extends Omit<QueuedTabPrompt, "kind"> {
   kind: "command";
   prepared: PreparedExtensionCommand;
   scope: WorkspaceExtensionScope;
+  /** Optional Settings waiter; the operation still belongs to this conversation. */
+  onResult?(result: ToolExecutionResult): void;
 }
 export type QueuedTabOperation = QueuedTabPrompt | QueuedTabCommand;
 
@@ -47,6 +50,13 @@ export class TuiTabExecution {
   }
 
   cancel(): void {
+    for (const item of this.pendingOperations)
+      if (item.kind === "command")
+        item.onResult?.({
+          output: "Queued command cancelled.",
+          isError: true,
+          errorCode: "CANCELLED",
+        });
     this.pendingOperations.length = 0;
     for (const submission of this.pendingSubmissions) submission.abort();
     this.pendingSubmissions.clear();

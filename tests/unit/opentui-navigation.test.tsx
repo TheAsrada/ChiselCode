@@ -410,9 +410,13 @@ test("approval takes priority over skills, settings and session picker; Escape c
         setup.renderer.root.findDescendantById("approval-popup"),
       ).toBeTruthy();
       expect(setup.captureCharFrame()).toContain("Background command");
-      expect(
-        setup.renderer.root.findDescendantById("settings-popup"),
-      ).toBeFalsy();
+      expect(!!setup.renderer.root.findDescendantById("settings-popup")).toBe(
+        command === "/settings",
+      );
+      // Settings stays mounted behind approval to preserve its drafts; it has no keyboard ownership.
+      expect(setup.renderer.currentFocusedEditor?.id).not.toBe(
+        "settings-secret",
+      );
       expect(
         setup.renderer.root.findDescendantById("skills-popup"),
       ).toBeFalsy();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LspConfigSchema } from "../lsp/config.js";
 import { McpConfigSchema } from "../mcp/schema.js";
 import { WebConfigSchema } from "../web/schema.js";
 export const ProfileIdSchema = z
@@ -15,6 +16,7 @@ export const ProviderProfileSchema = z.looseObject({
   defaultModel: z.string().min(1).optional(),
 });
 export const GlobalConfigV2Schema = z.looseObject({
+  lsp: LspConfigSchema.optional(),
   schemaVersion: z.literal(2),
   defaultProfileId: ProfileIdSchema.optional(),
   profiles: z.record(ProfileIdSchema, ProviderProfileSchema),

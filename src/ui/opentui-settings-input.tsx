@@ -26,11 +26,13 @@ export function SettingsSecretInput({
   onChange,
   onSubmit,
   palette,
+  active = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
   palette: Palette;
+  active?: boolean;
 }) {
   const input = useRef<InputRenderable>(null);
   const secret = useRef(value);
@@ -73,10 +75,12 @@ export function SettingsSecretInput({
     update(chars.join(""), cursor + added.length);
   };
   usePaste((event) => {
+    if (!active) return;
     event.preventDefault();
     insert(new TextDecoder().decode(event.bytes));
   });
   useKeyboard((key) => {
+    if (!active) return;
     if (key.ctrl && key.name === "c") return;
     const chars = [...secret.current];
     const cursor = input.current?.cursorOffset ?? chars.length;
@@ -158,7 +162,7 @@ export function SettingsSecretInput({
       id="settings-secret"
       ref={input}
       value={"*".repeat([...value].length)}
-      focused
+      focused={active}
       placeholder="Вставьте API-ключ..."
       backgroundColor={palette.raised}
       focusedBackgroundColor={palette.raised}

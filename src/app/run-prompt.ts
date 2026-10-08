@@ -341,7 +341,7 @@ export async function runPrompt(
   try {
     return await withExtensionWorkspace(
       options.cwd ?? process.cwd(),
-      extensions ?? { extensions: defaultExtensions() },
+      extensions ?? { extensions: defaultExtensions([], options) },
       signal,
       async (scope, operation) => {
         completed = await runPromptInWorkspace(

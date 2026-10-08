@@ -228,6 +228,18 @@ export class ExtensionHost implements Disposable {
   >();
   private closed = false;
   private disposal?: Promise<void>;
+  /** Application composition only; pending/closed scopes are never published here. */
+  readyScopes(): readonly WorkspaceExtensionScope[] {
+    if (this.closed) return [];
+    return [...this.workspaces.values()].flatMap(({ scope }) => {
+      try {
+        scope.assertUsable();
+        return [scope];
+      } catch {
+        return [];
+      }
+    });
+  }
   constructor(definitions: readonly ChiselExtension[] = []) {
     const ids = new Set<string>();
     for (const definition of definitions) {

@@ -47,6 +47,16 @@ try {
     "--external",
     "@opentui/core-*",
   ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-lsp-settings.ts",
+    "--outdir",
+    join(packageRoot, "dist/lsp-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
   const tarball = (
     await run(
       "npm",
@@ -81,6 +91,16 @@ try {
     ).includes(marker),
   );
   process.stdout.write("Installed linked TUI command scenario passed.\n");
+  const lspMarker =
+    "LSP Settings: real UI setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "lsp-smoke/tui-lsp-settings.js"),
+      ])
+    ).includes(lspMarker),
+  );
+  process.stdout.write("Installed LSP Settings/real-server scenario passed.\n");
   const binary = join(
     staging,
     process.platform === "win32" ? "linked-tui.exe" : "linked-tui",
@@ -94,6 +114,19 @@ try {
   ]);
   assert.ok((await run(binary, [])).includes(marker));
   process.stdout.write("Compiled linked TUI command scenario passed.\n");
+  const lspBinary = join(
+    staging,
+    process.platform === "win32" ? "lsp-tui.exe" : "lsp-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-lsp-settings.ts",
+    "--compile",
+    "--outfile",
+    lspBinary,
+  ]);
+  assert.ok((await run(lspBinary, [])).includes(lspMarker));
+  process.stdout.write("Compiled LSP Settings/real-server scenario passed.\n");
 } finally {
   await rm(staging, { recursive: true, force: true });
 }

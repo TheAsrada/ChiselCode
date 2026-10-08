@@ -197,3 +197,46 @@ Profile ID — 1–128 символов, буквы/цифры/точка/деф
 Репозиторий может только ужесточать `.chiselrc`: `"web": { "enabled": false, "denyDomains": ["example.com"], "maxRequestsPerTurn": 8 }`. Project config не принимает allow rules, credentials, custom transport или отключение SSRF. Deny имеет приоритет над domain/tool/session grants и Bypass. `*.example.com` разрешает/запрещает поддомены, apex добавляется отдельным правилом.
 
 Private network всегда заблокирован. JavaScript/browser automation не поддерживаются. Корпоративные proxy, дополнительные CA и scoped mTLS задаются только в окружении пользователя: [корпоративная сеть](network.md). Для полного отключения user config — `"web": { "enabled": false }`. [Workflow, данные и troubleshooting](web.md).
+
+## Анализ кода (LSP)
+
+Основной способ настройки — `/settings` → Инструменты → Анализ кода. Без секции `lsp` анализ выключен; обычные prompts, manifest tool и навигация работают. Сохранение не запускает process. Установка серверов — отдельное действие пользователя, вне анализируемого репозитория, например:
+
+```bash
+npm install --prefix /absolute/user/lsp-runtime --ignore-scripts typescript-language-server@6.0.1 typescript@6.0.3
+```
+
+Поддерживаемая пара: **typescript-language-server 6.0.1**, **TypeScript 6.x** (tests: **6.0.3**), **Node ≥22.22.2** (CI: **24.19.0**). Dev dependency TypeScript 7 ChiselCode не используется как backend. Packages не включены в release binary. Проверка путей проверяет metadata server/TypeScript, но не выполняет Node `--version`.
+
+Global config сохраняет schemaVersion 2:
+
+```json
+{
+  "lsp": {
+    "servers": {
+      "typescript": {
+        "enabled": true,
+        "backend": "typescript",
+        "command": "/absolute/path/to/node",
+        "args": ["/absolute/user/lsp-runtime/node_modules/typescript-language-server/lib/cli.mjs", "--stdio"],
+        "typescriptPath": "/absolute/user/lsp-runtime/node_modules/typescript/lib/tsserver.js",
+        "trustedWorkspaces": ["/canonical/project/root"]
+      }
+    }
+  }
+}
+```
+
+На Linux/macOS используйте реальный абсолютный путь `node` и установленные JS/TypeScript файлы; на Windows — например `C:\Program Files\nodejs\node.exe` и абсолютные пути `cli.mjs`/`tsserver.js` (в JSON обратный слеш экранируется). Friendly UI принимает пробелы и Windows drives без JSON escaping. Путь `typescriptPath` может указывать на `lib`; client разрешит `tsserver.js`. Реальные canonical пути runtime/server/TypeScript должны находиться вне target repository. Никакого PATH lookup из проекта, `.cmd`, shell, `npx`/`bunx`, install scripts, env overrides или произвольных initialization options. Допустимый дополнительный argv — одна пара `--log-level` и `1`–`4`; trace/file logging и ATA отключены, дополнительные plugins не включаются.
+
+Доверие проверяется по **точному canonical root**, включая symlink aliases. Родитель, потомок, соседний project и wildcard доверие не наследуют. `enabled` без `trustedWorkspaces` не запускает сервер. Workspace trust включает обработку imports/configs/dependencies доверенным процессом с правами пользователя: LSP path filtering не изолирует внутренние filesystem/network calls сервера. Model/API credentials в environment сервера не передаются.
+
+Project `.chiselrc` разрешает только выбор существующего global ID или отключение:
+
+```json
+{ "lsp": { "serverId": "typescript" } }
+```
+
+Для отключения: `"lsp": { "enabled": false }`; `{}` наследует global выбор. При нескольких enabled/trusted записях без явного ID выводится ошибка неоднозначности. Project launch/trust/args/runtime/initializationOptions отклоняются. Settings сохраняет только project `lsp`, оставляет остальные и unknown поля; concurrent edit/invalid JSON не перезаписывается. Global panels сериализуют patches принадлежащих им полей, LSP draft проверяет revision своей секции. Config-path override используется и UI, и configured definition.
+
+Отзыв trust/disable применяется к открытым scopes без повторной activation и завершает affected servers. Изменённые launch fields дают «Нужен перезапуск»; новые явные calls применяют новый launch, старые requests/results не продолжают скрыто прежнюю generation. Status/list/search/context не запускают сервер; explicit read tools после setup trust запускают его лениво.

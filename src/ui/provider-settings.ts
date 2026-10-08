@@ -1,4 +1,4 @@
-import { loadGlobalConfig, saveGlobalConfig } from "../config/load.js";
+import { loadGlobalConfig, updateGlobalConfig } from "../config/load.js";
 import { ProfileIdSchema } from "../config/schema.js";
 import {
   type CredentialsReader,
@@ -118,24 +118,34 @@ export async function saveProviderSettings(
   )
     throw new Error("Provider requires baseUrl.");
   const key = values.apiKey?.trim();
-  const apiKeyRef = previous?.apiKeyRef ?? (key ? id : undefined);
   const credentials = options.credentials ?? new CredentialStore();
-  const profile: ProviderProfile = {
+  let profile: ProviderProfile = {
     ...previous,
     providerId: values.provider,
-    apiKeyRef,
     baseUrl,
     defaultModel: model,
   };
-  if (key && apiKeyRef) await credentials.set(apiKeyRef, key);
-  await saveGlobalConfig(
-    {
-      ...current,
+  await updateGlobalConfig(options.configPath, async (latest) => {
+    const existing = latest.profiles[id];
+    if (existing && existing.providerId !== values.provider)
+      throw new Error(
+        `Profile "${id}" belongs to another provider; reload Settings.`,
+      );
+    const apiKeyRef = existing?.apiKeyRef ?? (key ? id : undefined);
+    if (key && apiKeyRef) await credentials.set(apiKeyRef, key);
+    profile = {
+      ...existing,
+      providerId: values.provider,
+      apiKeyRef,
+      baseUrl,
+      defaultModel: model,
+    };
+    return {
+      ...latest,
       defaultProfileId: id,
-      profiles: { ...current.profiles, [id]: profile },
-    },
-    options.configPath,
-  );
+      profiles: { ...latest.profiles, [id]: profile },
+    };
+  });
   return (await settingsKeyReady(registry, profile, credentials))
     ? "saved"
     : "setup_required";

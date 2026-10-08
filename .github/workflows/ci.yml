@@ -31,6 +31,12 @@ jobs:
           bun-version: "1.4.2"
       - name: Install dependencies
         run: npm ci
+      - name: Set up external Node for TypeScript LSP
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+      - name: Prepare pinned external LSP test dependencies
+        run: bun scripts/prepare-lsp-tests.ts
       - name: Type check
         run: bun run typecheck
       - name: Test
@@ -41,7 +47,7 @@ jobs:
         run: bun run eval --category all
       - name: Build package
         run: bun run build
-      - name: Smoke packaged and compiled linked command contributions
+      - name: Smoke packaged/compiled commands and LSP Settings with real server
         run: bun tests/fixtures/command-packaging.ts
       - name: Smoke installed npm package
         shell: bash
@@ -53,6 +59,7 @@ jobs:
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' installed-doctor.txt
           bun tests/fixtures/manifest-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
+          bun tests/fixtures/lsp-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |
@@ -87,6 +94,7 @@ jobs:
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' doctor-output.txt
           bun tests/fixtures/manifest-cli.ts "$binary"
+          bun tests/fixtures/lsp-cli.ts "$binary"
       - name: Validate Windows updater installer
         if: runner.os == 'Windows'
         shell: pwsh

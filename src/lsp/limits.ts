@@ -1,0 +1,18 @@
+export const LSP_LIMITS = Object.freeze({
+  initializeMs: 15_000,
+  requestMs: 10_000,
+  diagnosticsMs: 3_000,
+  shutdownMs: 2_000,
+  contextMs: 250,
+  frameBytes: 8 * 1024 * 1024,
+  stderrBytes: 64 * 1024,
+  pendingRequests: 32,
+  documentBytes: 512_000,
+  documents: 64,
+  cacheBytes: 16 * 1024 * 1024,
+  diagnostics: 100,
+  locations: 200,
+  symbols: 200,
+  contextBytes: 8 * 1024,
+  contextDiagnostics: 20,
+});

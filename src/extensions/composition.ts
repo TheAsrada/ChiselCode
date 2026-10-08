@@ -1,4 +1,5 @@
 import { cancelled } from "../runtime/errors.js";
+import { createLspExtension } from "./builtins/lsp.js";
 import { projectExtension } from "./builtins/project.js";
 import type { ChiselExtension, ContextCollectionPort } from "./contracts.js";
 import {
@@ -21,8 +22,9 @@ export type ExtensionDependencies =
 /** Explicit application defaults; an ExtensionHost([]) still has no definitions. */
 export function defaultExtensions(
   custom: readonly ChiselExtension[] = [],
+  options: { configPath?: string } = {},
 ): readonly ChiselExtension[] {
-  return [projectExtension, ...custom];
+  return [projectExtension, createLspExtension(options), ...custom];
 }
 
 export async function withOwnedExtensionHost<T>(

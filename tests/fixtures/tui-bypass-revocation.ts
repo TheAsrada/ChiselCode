@@ -58,6 +58,14 @@ const settingsSaves: boolean[] = [];
 mock.module("../../src/config/load.js", () => ({
   ...config,
   loadGlobalConfig: async () => structuredClone(current),
+  updateGlobalConfig: async (
+    _path: string | undefined,
+    update: (current: GlobalConfig) => GlobalConfig | Promise<GlobalConfig>,
+  ) => {
+    current = structuredClone(await update(structuredClone(current)));
+    settingsSaves.push(current.permissions?.allowBypassPermissions === true);
+    return current;
+  },
   saveGlobalConfig: async (next: GlobalConfig) => {
     current = structuredClone(next);
     settingsSaves.push(next.permissions?.allowBypassPermissions === true);
@@ -109,9 +117,10 @@ try {
   await settled(() => !!setup.renderer.currentFocusedEditor);
   await act(async () => setup.mockInput.pressKey("\u001b[44;5u"));
   await settled(
-    () => !!setup.renderer.root.findDescendantById("settings-permissions"),
+    () =>
+      !!setup.renderer.root.findDescendantById("settings-route-permissions"),
   );
-  await click("settings-permissions");
+  await click("settings-route-permissions");
   await settled(
     () => !!setup.renderer.root.findDescendantById("settings-bypass-toggle"),
   );
@@ -135,9 +144,10 @@ try {
   expect(requests).toHaveLength(2);
   await act(async () => setup.mockInput.pressKey("\u001b[44;5u"));
   await settled(
-    () => !!setup.renderer.root.findDescendantById("settings-permissions"),
+    () =>
+      !!setup.renderer.root.findDescendantById("settings-route-permissions"),
   );
-  await click("settings-permissions");
+  await click("settings-route-permissions");
   await click("settings-bypass-toggle");
   await settled(() => current.permissions?.allowBypassPermissions === false);
   expect(requests[0]?.isBypassAllowed?.()).toBe(false);

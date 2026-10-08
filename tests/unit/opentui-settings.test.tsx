@@ -40,7 +40,7 @@ test("graphics toggle saves, redraws and survives tab changes while preserving t
     expect(setup.captureCharFrame()).toContain("╭");
     await key(setup, "ESCAPE");
     expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
-    expect(setup.renderer.currentFocusedEditor).toBe(editor);
+    expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
     expect(editor?.plainText).toBe("черновик 😀");
     await act(async () => {
       workspace.newTab();
@@ -79,7 +79,8 @@ test("failed graphics persistence keeps compatible borders and an unsent draft",
     expect(setup.captureCharFrame()).toContain("Save failed");
     expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
     await key(setup, "ESCAPE");
-    expect(setup.renderer.currentFocusedEditor).toBe(editor);
+    await key(setup, "ESCAPE");
+    expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
     expect(editor?.plainText).toBe("черновик");
   } finally {
     destroy(setup);
@@ -203,7 +204,7 @@ test("settings overlay preserves native composer, cursor and ongoing conversatio
     act(() => controller.append("Ответ продолжает поступать", "assistant"));
     await frame(setup);
     await key(setup, "ESCAPE");
-    expect(setup.renderer.currentFocusedEditor).toBe(editor);
+    expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
     expect(editor.plainText).toBe("первая строка\nвторая строка");
     expect(editor.cursorOffset).toBe(5);
     expect(setup.captureCharFrame()).toContain("Ответ продолжает поступать");
@@ -578,6 +579,7 @@ for (const [width, height] of [
       expect(popup.y).toBeGreaterThanOrEqual(0);
       expect(popup.x + popup.width).toBeLessThanOrEqual(width);
       expect(popup.y + popup.height).toBeLessThanOrEqual(height);
+      if (width < 100 || height < 26) await key(setup, "ENTER");
       expect(setup.captureCharFrame()).toContain("Сохранить");
       await key(setup, "DOWN");
       await key(setup, "ENTER");
@@ -621,7 +623,7 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
       expect(persisted).toEqual([theme]);
       expect(setup.captureCharFrame()).toContain("Тема сохранена");
       await key(setup, "ESCAPE");
-      expect(setup.renderer.currentFocusedEditor).toBe(editor);
+      expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
       expect(editor?.plainText).toBe("черновик\nвторая строка");
       await key(setup, "t", true);
       expect(setup.captureCharFrame()).toContain("+");
@@ -651,6 +653,8 @@ test("cancelled preview and failed persistence restore the saved theme", async (
     await click(setup, "settings-theme-ember");
     await key(setup, "ESCAPE");
     expect(persisted).toEqual([]);
+    expect(setup.captureCharFrame()).toContain("Несохранённые");
+    await click(setup, "settings-discard");
     await key(setup, "t", true);
     expect(setup.captureCharFrame()).toContain("Paper");
     await click(setup, "settings-theme-graphite");
@@ -658,6 +662,7 @@ test("cancelled preview and failed persistence restore the saved theme", async (
     expect(setup.captureCharFrame()).toContain("Не удалось записать конфиг");
     expect(persisted).toEqual(["graphite"]);
     await key(setup, "ESCAPE");
+    await click(setup, "settings-discard");
     await key(setup, "t", true);
     const paper = setup.renderer.root.findDescendantById(
       "settings-theme-paper",
