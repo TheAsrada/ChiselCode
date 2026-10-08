@@ -37,10 +37,22 @@ async function windowsNodeProcesses(): Promise<
     while (present) {
       if (++scanned > 4096)
         throw new Error("Windows process snapshot exceeded test budget.");
-      result.push({
-        pid: entry.readUInt32LE(8),
-        parent: entry.readUInt32LE(32),
-      });
+      const executable = entry
+        .toString("utf16le", 44, 564)
+        .split("\0", 1)[0]
+        ?.toLowerCase();
+      const parent = entry.readUInt32LE(32);
+      // Exclude only the fixture's own Windows console host, like the POSIX
+      // ps observer. Analyzer/SDK children (including their console hosts)
+      // remain observed and must exit after workspace disposal.
+      if (
+        parent !== process.pid ||
+        (executable !== "conhost.exe" && executable !== "openconsole.exe")
+      )
+        result.push({
+          pid: entry.readUInt32LE(8),
+          parent,
+        });
       present = api.Process32NextW(snapshot, ptr(entry));
     }
     return result;
@@ -123,6 +135,7 @@ export async function installedLsp(): Promise<
       execFileSync("node", ["-p", "process.execPath"], {
         encoding: "utf8",
         timeout: 5000,
+        windowsHide: true,
       }).trim();
     return {
       enabled: true,

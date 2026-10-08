@@ -15,6 +15,7 @@ async function run(file: string, args: string[], cwd = root) {
   const result = await execa(file, args, {
     cwd,
     reject: false,
+    windowsHide: true,
     maxBuffer: 8 * 1024 * 1024,
   });
   if (result.exitCode !== 0)
