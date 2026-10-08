@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  commandHelpText,
   isSlashInput,
   MAX_VISIBLE_SUGGESTIONS,
   matchingCommands,
@@ -21,7 +20,11 @@ import {
 
 describe("interactive commands", () => {
   test("parses only known complete slash commands", () => {
-    expect(parseSlashCommand(" /help ")).toEqual({ name: "/help", args: "" });
+    expect(parseSlashCommand(" /settings ")).toEqual({
+      name: "/settings",
+      args: "",
+    });
+    expect(parseSlashCommand("/help")).toBeUndefined();
     expect(parseSlashCommand("/unknown")).toBeUndefined();
     expect(parseSlashCommand("/new")).toEqual({ name: "/new", args: "" });
     expect(parseSlashCommand("/home")).toEqual({ name: "/home", args: "" });
@@ -34,7 +37,7 @@ describe("interactive commands", () => {
     expect(isSlashInput("объясни /model")).toBe(false);
   });
 
-  test("filters suggestions and provides safe local help", () => {
+  test("filters available command suggestions", () => {
     expect(matchingCommands("/s").map((command) => command.name)).toEqual([
       "/settings",
       "/skills",
@@ -46,10 +49,10 @@ describe("interactive commands", () => {
       "/clear",
       "/cwd",
     ]);
-    expect(commandHelpText()).toContain("/settings");
-    expect(commandHelpText()).toContain("/cwd");
-    expect(commandHelpText()).toContain("Shift+Enter");
-    expect(commandHelpText()).toContain("PgUp/PgDn");
+    expect(matchingCommands("/h").map((command) => command.name)).toEqual([
+      "/home",
+    ]);
+    expect(matchingCommands("/help")).toEqual([]);
   });
 
   test("suggests the closest command for typos", () => {
@@ -57,8 +60,8 @@ describe("interactive commands", () => {
     // Транспозиция (2 правки) и пропущенная буква (1 правка).
     expect(suggestSimilarCommand("/sessons")).toBe("/sessions");
     expect(suggestSimilarCommand("/setings")).toBe("/settings");
-    expect(suggestSimilarCommand("/hlep")).toBe("/help");
-    expect(suggestSimilarCommand("/help")).toBe("/help");
+    expect(suggestSimilarCommand("/hlep")).toBeUndefined();
+    expect(suggestSimilarCommand("/help")).toBeUndefined();
     // Чушь без похожих вариантов — молчим, а не гадаем.
     expect(suggestSimilarCommand("/zzz")).toBeUndefined();
     expect(suggestSimilarCommand("/")).toBeUndefined();

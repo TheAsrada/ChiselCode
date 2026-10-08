@@ -267,14 +267,14 @@ test("slash completion accepts a prefix before submitting the command", async ()
   );
   try {
     await setup.renderOnce();
-    await act(async () => setup.mockInput.pasteBracketedText("/he"));
+    await act(async () => setup.mockInput.pasteBracketedText("/ho"));
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("/help");
+    expect(setup.captureCharFrame()).toContain("/home");
     act(() => setup.mockInput.pressEnter());
-    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/help");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/home");
     expect(submitted).toEqual([]);
     act(() => setup.mockInput.pressEnter());
-    expect(submitted).toEqual(["/help"]);
+    expect(submitted).toEqual(["/home"]);
   } finally {
     act(() => setup.renderer.destroy());
   }
@@ -289,7 +289,7 @@ test("slash suggestions keep the selected command visible past the first page", 
     await setup.renderOnce();
     await act(async () => setup.mockInput.pasteBracketedText("/"));
     act(() => {
-      for (let index = 0; index < 7; index++)
+      for (let index = 0; index < 6; index++)
         setup.mockInput.pressArrow("down");
     });
     await setup.renderOnce();

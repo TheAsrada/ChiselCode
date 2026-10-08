@@ -5,7 +5,6 @@ import type {
 import { SecretRedactor } from "../security/redaction.js";
 
 export const SLASH_COMMANDS = [
-  { name: "/help", description: "показать справку по командам" },
   {
     name: "/clear",
     description: "начать новую вкладку, сохранив текущий разговор",

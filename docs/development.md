@@ -69,7 +69,7 @@ bun tests/fixtures/manifest-cli.ts ./dist/chisel
 
 Последние две команды запускаются после `npm pack`/установки и `bun run compile`. Windows compiled binary — `dist/chisel.exe`. CI matrix выполняет тот же manifest smoke для установленного пакета и compiled CLI на Windows/macOS/Linux; `--version`/`doctor` остаются отдельными проверками запуска. Harness не обращается к live LLM и не изменяет пользовательские credentials/config.
 
-Command acceptance fixture явно передаёт linked extension настоящему TUI application, использует OpenTUI test renderer и реальные files/executor/store. Проверяются welcome/help/autocomplete, exactly-once dispatch без ключа модели, approvals/Plan/guards, очередь commands/prompts, соседние вкладки, Ctrl+C, artifact и checkpoint. Один специально queued ordinary prompt использует локальный deterministic model endpoint; commands не вызывают chat. Fixture запускается из исходников и может быть собрана тем же Bun pipeline:
+Command acceptance fixture явно передаёт linked extension настоящему TUI application, использует OpenTUI test renderer и реальные files/executor/store. Проверяются welcome/autocomplete, exactly-once dispatch без ключа модели, approvals/Plan/guards, очередь commands/prompts, соседние вкладки, Ctrl+C, artifact и checkpoint. Один специально queued ordinary prompt использует локальный deterministic model endpoint; commands не вызывают chat. Fixture запускается из исходников и может быть собрана тем же Bun pipeline:
 
 ```bash
 bun tests/fixtures/tui-command-contributions.ts

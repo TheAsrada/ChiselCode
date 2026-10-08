@@ -351,28 +351,13 @@ try {
     "Scope did not activate before a prompt",
   );
   await send("/help");
-  await act(async () => {
-    setup.mockInput.pressTab();
-  });
-  await frame();
-  for (
-    let page = 0;
-    page < 30 && !setup.captureCharFrame().includes("Расширения");
-    page++
-  ) {
-    await act(async () => {
-      setup.mockInput.pressKey("\x1b[6~");
-    });
-    await frame();
-  }
   await until(
-    () => setup.captureCharFrame().includes("Расширения"),
-    "Help omitted contributions",
+    () => setup.captureCharFrame().includes("Неизвестная команда /help"),
+    "Removed help command was not rejected",
   );
-  await act(async () => {
-    setup.mockInput.pressTab();
-  });
-  await frame();
+  assert.ok(!setup.captureCharFrame().includes("быстрые команды"));
+  assert.ok(setup.captureCharFrame().includes("Shift+Tab режим"));
+  assert.ok(setup.captureCharFrame().includes("F4 разрешения"));
   assert.equal(peeks, 0);
   assert.equal(modelCalls, 0);
   assert.equal(
@@ -617,10 +602,10 @@ try {
     () => activations === 2,
     "Second workspace activation did not start",
   );
-  await send("/help");
+  await send("/cwd");
   await until(
-    () => setup.captureCharFrame().includes("быстрые команды"),
-    "Built-in help waited for the pending workspace activation",
+    () => setup.captureCharFrame().includes("Чтобы сменить папку: /cwd <путь>"),
+    "Built-in project feedback waited for the pending workspace activation",
   );
   await send("/peek");
   await act(async () => {

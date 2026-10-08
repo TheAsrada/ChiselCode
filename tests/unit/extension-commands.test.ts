@@ -21,7 +21,6 @@ import {
 } from "../../src/extensions/index.js";
 import { userSkillsDir } from "../../src/paths/home.js";
 import {
-  commandHelpText,
   MAX_VISIBLE_SUGGESTIONS,
   matchingCommands,
   suggestSimilarCommand,
@@ -74,7 +73,7 @@ function definition(
   };
 }
 
-test("one projection resolves, helps, completes and suggests commands with source attribution", async () => {
+test("one projection resolves, completes and suggests commands with source attribution", async () => {
   const scope = await host([definition("Vendor/a", [command()])]).open(
     await root(),
   );
@@ -87,15 +86,19 @@ test("one projection resolves, helps, completes and suggests commands with sourc
     extensionId: "Vendor/a",
     name: "inspect",
   });
-  expect(commandHelpText(projection)).toContain("-- Расширения --");
-  expect(commandHelpText(projection)).toContain("[Vendor/a] | /inspect [text]");
-  expect(commandHelpText(projection)).toContain("-- Скиллы --");
+  expect(resolveSlashCommand(projection, "/inspect")).toMatchObject({
+    description: "Inspect the workspace",
+    usage: "/inspect [text]",
+  });
+  expect(resolveSlashCommand(projection, "/review")?.source.type).toBe("skill");
   expect(
     matchingCommands("/ins", projection).map((command) => command.name),
   ).toEqual(["/inspect"]);
   expect(suggestSimilarCommand("/inspec arg", projection)).toBe("/inspect");
   expect(MAX_VISIBLE_SUGGESTIONS).toBe(6);
-  expect(commandHelpText(projection)).toContain("/sidebar");
+  expect(resolveSlashCommand(projection, "/sidebar")?.source.type).toBe(
+    "builtin",
+  );
 });
 
 test("slash parsing preserves quotes, backslashes and inner whitespace without case aliases", async () => {
@@ -286,9 +289,10 @@ test("aliases/concurrent callers reuse one activation; cancelled waiting does no
   const first = manager.load(workspace, cancelled.signal);
   const second = manager.load(relative(process.cwd(), alias));
   await ready;
-  expect(commandHelpText(manager.current(workspace).projection)).toContain(
-    "/help",
-  );
+  expect(
+    resolveSlashCommand(manager.current(workspace).projection, "/cwd")?.source
+      .type,
+  ).toBe("builtin");
   expect(
     resolveSlashCommand(manager.current(workspace).projection, "/inspect"),
   ).toBeUndefined();
@@ -335,9 +339,9 @@ test("fresh invocable skill conflicts reject the extension layer atomically with
     resolveSlashCommand(conflict.projection, "/inspect")?.source.type,
   ).toBe("skill");
   expect(resolveSlashCommand(conflict.projection, "/another")).toBeUndefined();
-  expect(resolveSlashCommand(conflict.projection, "/help")?.source.type).toBe(
-    "builtin",
-  );
+  expect(
+    resolveSlashCommand(conflict.projection, "/settings")?.source.type,
+  ).toBe("builtin");
   initial.scope?.assertUsable();
   await writeFile(join(directory, "SKILL.md"), skill(false));
   const restored = await manager.load(workspace);

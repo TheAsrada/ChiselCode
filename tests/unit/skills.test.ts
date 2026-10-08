@@ -30,7 +30,6 @@ import {
   stripActiveSkillsBlock,
 } from "../../src/skills/skills.js";
 import {
-  commandHelpText,
   matchingCommands,
   suggestSimilarCommand,
 } from "../../src/ui/commands.js";
@@ -406,7 +405,7 @@ describe("SKILL.md files", () => {
   });
 });
 
-describe("skill completion and help", () => {
+describe("skill completion", () => {
   const skills = [
     { name: "review", description: "Ревью diff" },
     { name: "commit", description: "Коммит" },
@@ -414,7 +413,7 @@ describe("skill completion and help", () => {
 
   test("suggestions merge built-in and skill commands", () => {
     const all = matchingCommands("/", skills);
-    expect(all.map((c) => c.name)).toContain("/help");
+    expect(all.map((c) => c.name)).not.toContain("/help");
     expect(all.map((c) => c.name)).toContain("/skills");
     expect(all.map((c) => c.name)).toContain("/review");
     const filtered = matchingCommands("/re", skills);
@@ -427,12 +426,13 @@ describe("skill completion and help", () => {
     expect(suggestSimilarCommand("/revie", skills)).toBe("/review");
   });
 
-  test("help lists skills in their own section", () => {
-    const plain = commandHelpText();
-    expect(plain).not.toContain("-- Скиллы --");
-    const extended = commandHelpText(skills);
-    expect(extended).toContain("-- Скиллы --");
-    expect(extended).toContain("/review");
-    expect(extended).toContain("Ревью diff");
+  test("skill suggestions retain their descriptions and source", () => {
+    expect(matchingCommands("/review", skills)).toEqual([
+      {
+        name: "/review",
+        description: "Ревью diff",
+        source: { type: "skill", name: "review" },
+      },
+    ]);
   });
 });

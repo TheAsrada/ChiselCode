@@ -4,11 +4,7 @@ import type { InputRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
-import {
-  commandHelpText,
-  matchingCommands,
-  parseSlashCommand,
-} from "../../src/ui/commands.js";
+import { matchingCommands, parseSlashCommand } from "../../src/ui/commands.js";
 import { renderLogoRows } from "../../src/ui/logo.js";
 import {
   OpenTuiSettings,
@@ -676,6 +672,5 @@ test("cancelled preview and failed persistence restore the saved theme", async (
 test("built-in commands expose settings without a separate theme command", () => {
   expect(parseSlashCommand("/theme")).toBeUndefined();
   expect(matchingCommands("/the")).toEqual([]);
-  expect(commandHelpText()).not.toContain("/theme");
   expect(parseSlashCommand("/settings")?.name).toBe("/settings");
 });

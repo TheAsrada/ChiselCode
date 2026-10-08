@@ -59,7 +59,7 @@ import { VERSION } from "../version.js";
 import { resolveWebConfig } from "../web/schema.js";
 import { WebSettingsStore } from "../web/settings.js";
 import { themePalette } from "./appearance.js";
-import { commandHelpText, suggestSimilarCommand } from "./commands.js";
+import { suggestSimilarCommand } from "./commands.js";
 import type { OpenTuiModelsActions } from "./opentui-models.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
@@ -679,12 +679,6 @@ async function runApplication(
     if (input === "/home") return workspace.select();
     if (input === "/clear" || input === "/new") {
       workspace.newDraft(controller.snapshot.projectPath);
-      return;
-    }
-    if (input === "/help") {
-      const snapshot = commandActions.current(originRoot);
-      if (snapshot.error) controller.append(snapshot.error, "error");
-      controller.append(commandHelpText(snapshot.projection), "info");
       return;
     }
     if (input === "/status" || input === "/doctor") {
