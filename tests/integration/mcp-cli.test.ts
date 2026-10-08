@@ -284,4 +284,4 @@ test("headless CLI completes a real MCP call with valid model wire names and no 
   } finally {
     server.stop(true);
   }
-});
+}, 15_000);

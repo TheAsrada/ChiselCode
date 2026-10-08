@@ -183,8 +183,9 @@ async function receive(message) {
   if (method === "fixture/malformed")
     return process.stdout.write("Content-Length: 3\r\n\r\nbad");
   if (method === "fixture/EOF") {
-    // Node's process.stdout has a dummy destroy; Windows named pipes do not
-    // expose a peer EOF on writable .end(). Close the actual descriptor.
+    // Close the Windows libuv copy as well as descriptor 1; .end() alone
+    // cannot produce EOF while another write handle to the pipe remains open.
+    if (process.platform === "win32") process.stdout._handle.close();
     closeSync(1);
     return;
   }

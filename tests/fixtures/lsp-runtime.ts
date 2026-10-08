@@ -6,26 +6,63 @@ import { promisify } from "node:util";
 import type { LspServerConfig } from "../../src/lsp/config.js";
 
 const execute = promisify(execFile);
+async function windowsNodeProcesses(): Promise<
+  Array<{ pid: number; parent: number }>
+> {
+  const { dlopen, ptr } = await import("bun:ffi");
+  const library = dlopen(
+    join(
+      process.env.SystemRoot ?? process.env.SYSTEMROOT ?? "C:\\Windows",
+      "System32/kernel32.dll",
+    ),
+    {
+      CreateToolhelp32Snapshot: { args: ["u32", "u32"], returns: "u64" },
+      Process32FirstW: { args: ["u64", "ptr"], returns: "u32" },
+      Process32NextW: { args: ["u64", "ptr"], returns: "u32" },
+      CloseHandle: { args: ["u64"], returns: "u32" },
+    },
+  );
+  const api = library.symbols;
+  const snapshot = api.CreateToolhelp32Snapshot(2, 0); // TH32CS_SNAPPROCESS
+  const invalid = !snapshot || BigInt(snapshot) === (1n << 64n) - 1n;
+  try {
+    if (invalid) throw new Error("Windows process snapshot failed.");
+    const entry = Buffer.alloc(568); // PROCESSENTRY32W on 64-bit Windows
+    entry.writeUInt32LE(entry.length);
+    const result: Array<{ pid: number; parent: number }> = [];
+    let present = api.Process32FirstW(snapshot, ptr(entry));
+    if (!present)
+      throw new Error("Windows process snapshot could not be read.");
+    let scanned = 0;
+    while (present) {
+      if (++scanned > 4096)
+        throw new Error("Windows process snapshot exceeded test budget.");
+      if (
+        entry
+          .subarray(44, 564)
+          .toString("utf16le")
+          .split("\0")[0]
+          ?.toLowerCase() === "node.exe"
+      )
+        result.push({
+          pid: entry.readUInt32LE(8),
+          parent: entry.readUInt32LE(32),
+        });
+      present = api.Process32NextW(snapshot, ptr(entry));
+    }
+    return result;
+  } finally {
+    if (!invalid) api.CloseHandle(snapshot);
+    library.close();
+  }
+}
 async function nodeProcesses(): Promise<
   Array<{ pid: number; parent: number }>
 > {
-  const windows = process.platform === "win32";
-  const command = windows
-    ? join(
-        process.env.SystemRoot ?? process.env.SYSTEMROOT ?? "C:\\Windows",
-        "System32/WindowsPowerShell/v1.0/powershell.exe",
-      )
-    : "/bin/ps";
+  if (process.platform === "win32") return windowsNodeProcesses();
   // Only process IDs, ancestry and executable names; never collect argv/env.
-  const args = windows
-    ? [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | ForEach-Object { '{0} {1}' -f $_.ProcessId, $_.ParentProcessId }",
-      ]
-    : ["-e", "-o", "pid=,ppid=,stat=,comm="];
-  const { stdout } = await execute(command, args, {
+  const args = ["-e", "-ww", "-o", "pid=,ppid=,stat=,comm="];
+  const { stdout } = await execute("/bin/ps", args, {
     encoding: "utf8",
     timeout: 5000,
     maxBuffer: 256 * 1024,
@@ -35,10 +72,9 @@ async function nodeProcesses(): Promise<
     const match = /^\s*(\d+)\s+(\d+)(?:\s+(\S+)\s+(.+))?\s*$/.exec(line);
     if (!match) return [];
     if (
-      !windows &&
-      (match[3]?.startsWith("Z") ||
-        // Node 24 names its Linux main thread MainThread.
-        !["node", "MainThread"].includes(basename((match[4] ?? "").trim())))
+      match[3]?.startsWith("Z") ||
+      // Node 24 names its Linux main thread MainThread.
+      !["node", "MainThread"].includes(basename((match[4] ?? "").trim()))
     )
       return [];
     return [{ pid: Number(match[1]), parent: Number(match[2]) }];
