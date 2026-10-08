@@ -6,9 +6,14 @@
 
 ## [Не выпущено]
 
+## [0.6.18] - 2026-10-08
+
+- Многоязычный LSP Auto определяет Python, Go, Rust, C/C++, C#, Java, Kotlin, PHP, Ruby, Swift, Lua, Dart, HTML/CSS/SCSS/Less, JSON/YAML, Bash и Dockerfile. Расширяемый reviewed каталог лениво готовит закреплённые серверы/SDK вне проекта без ручных путей; для Ruby и Swift нужен установленный SDK, Kotlin пока ограничен standalone файлами. Нет скрытой установки dependencies проекта.
+- «Своя настройка» подключает совместимый stdio LSP через executable/argv, language IDs, расширения и bounded initialization/settings; пользовательские launch files находятся вне repository и требуют точного workspace trust. Auto / Своя настройка / Выключено, project overrides и расширенные параметры доступны из Settings.
 - LSP для TypeScript/JavaScript по умолчанию работает в Auto: совместимые language server 6.0.1 и TypeScript 6.0.3 включены в npm package и compiled binary. Запуск ленивый, проект определяется по tsconfig/jsconfig; отдельный Node, ручные пути и разрешение каждого проекта не нужны.
 - Settings → Анализ кода предлагает Auto / Своя настройка / Выключено, настройки проекта и расширенные поля собственного сервера. Пользовательские исполняемые файлы сохраняют точное workspace trust; отключение завершает server и tsserver.
 - Агент использует LSP для навигации и проверки изменений вместе с тестами. Диагностика без версии остаётся observed и не выдаётся за подтверждение отсутствия ошибок; сохранены permissions, отмена и shared workspace lifecycle.
+- Проверены реальные многоязычные diagnostics/navigation, shared servers, ревизии файлов, отмена, sanitized artifacts/checkpoints и installed/compiled CLI/TUI. Native server checks добавлены в CI Windows/macOS/Linux; unsupported backends/SDK и unversioned (включая OmniSharp version=0) данные обозначаются честно.
 - Удалена slash-команда `/help` и её справочный блок. Горячие клавиши на главной и автодополнение остальных команд сохранены.
 
 ## [0.6.17] - 2026-10-08

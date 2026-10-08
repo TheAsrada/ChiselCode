@@ -12,6 +12,29 @@ permissions:
   contents: read
 
 jobs:
+  native-lsp:
+    name: Real Auto LSP (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.11"
+      - name: Install application dependencies
+        run: npm ci
+      - name: Real diagnostics, navigation and cleanup for the standard catalog
+        run: bun tests/fixtures/multi-lsp-probe.ts python go rust cpp csharp java kotlin php ruby lua dart html css json yaml bash docker
+      - name: Real SourceKit with the installed Xcode toolchain
+        if: runner.os == 'macOS'
+        run: bun tests/fixtures/multi-lsp-probe.ts swift
   quality:
     name: Quality (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

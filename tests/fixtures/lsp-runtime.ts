@@ -37,23 +37,10 @@ async function windowsNodeProcesses(): Promise<
     while (present) {
       if (++scanned > 4096)
         throw new Error("Windows process snapshot exceeded test budget.");
-      if (
-        [
-          "node.exe",
-          "bun.exe",
-          basename(process.execPath).toLowerCase(),
-        ].includes(
-          entry
-            .subarray(44, 564)
-            .toString("utf16le")
-            .split("\0")[0]
-            ?.toLowerCase() ?? "",
-        )
-      )
-        result.push({
-          pid: entry.readUInt32LE(8),
-          parent: entry.readUInt32LE(32),
-        });
+      result.push({
+        pid: entry.readUInt32LE(8),
+        parent: entry.readUInt32LE(32),
+      });
       present = api.Process32NextW(snapshot, ptr(entry));
     }
     return result;
@@ -77,19 +64,15 @@ async function nodeProcesses(): Promise<
   return stdout.split(/\r?\n/).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)(?:\s+(\S+)\s+(.+))?\s*$/.exec(line);
     if (!match) return [];
-    if (
-      match[3]?.startsWith("Z") ||
-      // Node 24 names its Linux main thread MainThread.
-      !["node", "MainThread", "bun", basename(process.execPath)].includes(
-        basename((match[4] ?? "").trim()),
-      )
-    )
+    // Servers may rename their main thread (clangd.main, dart:*). Follow
+    // ancestry for every live process; exclude only this observer itself.
+    if (match[3]?.startsWith("Z") || basename((match[4] ?? "").trim()) === "ps")
       return [];
     return [{ pid: Number(match[1]), parent: Number(match[2]) }];
   });
 }
 
-/** Observe the real TLS/tsserver descendants without adding a production PID port. */
+/** Observe real language servers and their SDK descendants without adding a production PID port. */
 export async function lspProcessTree(): Promise<number[]> {
   const processes = await nodeProcesses();
   const parents = new Set([process.pid]);
@@ -110,7 +93,9 @@ export async function waitForLspProcessExit(pids: number[]): Promise<void> {
   throw new Error("Language server or tsserver descendants did not exit.");
 }
 
-export async function installedLsp(): Promise<LspServerConfig> {
+export async function installedLsp(): Promise<
+  Extract<LspServerConfig, { backend: "typescript" }>
+> {
   const installation = resolve(
     process.env.CHISEL_TEST_LSP_ROOT ??
       join(tmpdir(), "chiselcode-lsp-test-runtime"),

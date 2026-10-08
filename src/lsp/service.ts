@@ -7,6 +7,12 @@ import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { workspaceCoordinator } from "../tools/workspace-coordinator.js";
 import { VERSION } from "../version.js";
 import {
+  catalogPlatformAvailable,
+  catalogServer,
+  LSP_SERVER_CATALOG,
+} from "./catalog.js";
+import {
+  configuredLanguage,
   effectiveLspMode,
   type LspConfiguration,
   type LspLaunch,
@@ -28,6 +34,7 @@ import {
   validatePosition,
 } from "./documents.js";
 import { LSP_LIMITS } from "./limits.js";
+import { lspProjectRoot } from "./project-root.js";
 import { type LspClock, LspTransport } from "./transport.js";
 
 export type DiagnosticFreshness =
@@ -58,13 +65,29 @@ export interface LspDiagnostic {
 export interface LspStatus {
   workspaceRoot: string;
   serverId?: string;
-  backend: "typescript";
+  backend: string;
   state: LspState;
   generation: number;
   trackedDocuments: number;
   requiresRestart: boolean;
   mode?: LspMode;
-  versions?: { server: string; typescript: string; runtime: string };
+  versions?: { server: string; typescript?: string; runtime: string };
+  servers?: readonly {
+    serverId: string;
+    projectRoot: string;
+    state: LspState;
+    generation: number;
+    trackedDocuments: number;
+    reason?: string;
+  }[];
+  catalog?: readonly {
+    id: string;
+    title: string;
+    languages: readonly string[];
+    version: string;
+    prerequisites?: string;
+    platformAvailable?: boolean;
+  }[];
   reason?: string;
   capabilities?: readonly string[];
 }
@@ -80,6 +103,7 @@ interface Document extends LspFile {
 }
 interface Server {
   id: string;
+  projectRoot: string;
   state: LspState;
   generation: number;
   launch?: LspLaunch;
@@ -120,6 +144,9 @@ export class LspService {
   private cleanup?: Promise<void>;
   private configuration?: LspConfiguration;
   private configError?: string;
+  private configurationReads = 0;
+  private configurationApplied = 0;
+  private preferred?: Server;
   private readonly onAbort = () => {
     void this.dispose().catch(() => {});
   };
@@ -145,11 +172,18 @@ export class LspService {
       ...(server ? [server.controller.signal] : []),
     ]);
   }
-  private entry(id: string): Server {
-    let entry = this.entries.get(id);
+  private entry(id: string, projectRoot = this.workspaceRoot): Server {
+    const key = `${id}\0${projectRoot}`;
+    let entry = this.entries.get(key);
     if (!entry) {
+      if (this.entries.size >= LSP_LIMITS.servers)
+        throw new RuntimeError(
+          "LSP_UNAVAILABLE",
+          "Too many active language server project roots; restart/close the workspace to free resources.",
+        );
       entry = {
         id,
+        projectRoot,
         state: "stopped",
         generation: 0,
         controller: new AbortController(),
@@ -160,21 +194,27 @@ export class LspService {
         requiresRestart: false,
         revision: workspaceCoordinator.revision([this.workspaceRoot]),
       };
-      this.entries.set(id, entry);
+      this.entries.set(key, entry);
     }
     return entry;
   }
   /** Reload without spawning; revocation fences data before awaited cleanup. */
   async refreshConfiguration(): Promise<void> {
     this.available();
+    const read = ++this.configurationReads;
     const previousView = JSON.stringify([
       this.configuration?.project,
       this.configuration?.ignorePatterns,
     ]);
     try {
-      this.configuration = await this.loadConfiguration();
+      const configuration = await this.loadConfiguration();
+      if (read < this.configurationApplied) return;
+      this.configurationApplied = read;
+      this.configuration = configuration;
       this.configError = undefined;
     } catch {
+      if (read < this.configurationApplied) return;
+      this.configurationApplied = read;
       this.configuration = undefined;
       this.configError =
         "Не удалось прочитать LSP configuration. Проверьте Settings и .chiselrc.";
@@ -186,6 +226,7 @@ export class LspService {
         this.configuration?.ignorePatterns,
       ]);
     for (const entry of this.entries.values()) {
+      if (read !== this.configurationApplied) return;
       if (viewChanged) this.invalidate(entry);
       const selection = this.configuration
         ? await selectLspServer(
@@ -194,11 +235,13 @@ export class LspService {
             entry.id,
           )
         : { state: "unavailable" as const };
+      if (read !== this.configurationApplied) return;
       if (selection.state !== "stopped") {
         entry.state = selection.state;
         entry.reason = selection.reason ?? this.configError;
         this.invalidate(entry);
         await this.stopEntry(entry);
+        await entry.pending?.catch(() => {});
         continue;
       }
       if (entry.launch) {
@@ -208,6 +251,7 @@ export class LspService {
         } catch {
           /* Changed or removed installations cannot keep serving. */
         }
+        if (read !== this.configurationApplied) return;
         if (!launch || launch.fingerprint !== entry.launch.fingerprint) {
           entry.requiresRestart = true;
           entry.controller.abort();
@@ -217,11 +261,22 @@ export class LspService {
       }
     }
   }
-  private async selection(id?: string): Promise<LspSelection> {
+  private async selection(id?: string, path?: string): Promise<LspSelection> {
     await this.refreshConfiguration();
     if (!this.configuration)
       return { state: "unavailable", reason: this.configError };
-    return selectLspServer(this.workspaceRoot, this.configuration, id);
+    const preferredId = this.preferred?.id;
+    const preferredApplicable =
+      preferredId &&
+      (effectiveLspMode(this.configuration) === "auto"
+        ? !!catalogServer(preferredId)
+        : !!this.configuration.global.servers[preferredId]);
+    return selectLspServer(
+      this.workspaceRoot,
+      this.configuration,
+      id ?? (!path && preferredApplicable ? preferredId : undefined),
+      path,
+    );
   }
   async status(serverId?: string): Promise<LspStatus> {
     if (this.closed)
@@ -234,7 +289,11 @@ export class LspService {
         requiresRestart: false,
       };
     const selected = await this.selection(serverId);
-    const entry = selected.id ? this.entries.get(selected.id) : undefined;
+    const entry = selected.id
+      ? this.preferred?.id === selected.id
+        ? this.preferred
+        : [...this.entries.values()].find((item) => item.id === selected.id)
+      : undefined;
     let state: LspState =
       selected.state === "stopped"
         ? (entry?.state ?? "stopped")
@@ -244,18 +303,24 @@ export class LspService {
     if (selected.state === "stopped" && selected.id) {
       try {
         launch = await resolveLspLaunch(this.workspaceRoot, selected);
-      } catch {
+      } catch (error) {
         state = "unavailable";
         reason =
-          selected.kind === "auto"
-            ? "Стандартный backend недоступен. Проверьте каталог данных ChiselCode."
-            : "Сервер или TypeScript не найден/несовместим. Проверьте пути в Settings.";
+          error instanceof RuntimeError
+            ? error.message
+            : selected.kind === "auto"
+              ? "Стандартный backend недоступен. Проверьте каталог данных ChiselCode."
+              : "Сервер или TypeScript не найден/несовместим. Проверьте пути в Settings.";
       }
     }
     return {
       workspaceRoot: this.workspaceRoot,
       serverId: selected.id,
-      backend: "typescript",
+      backend:
+        launch?.backend ??
+        selected.descriptor?.id ??
+        selected.config?.backend ??
+        "typescript",
       state,
       generation: entry?.generation ?? 0,
       trackedDocuments: entry?.documents.size ?? 0,
@@ -269,12 +334,32 @@ export class LspService {
               server: launch.serverVersion,
               typescript: launch.typescriptVersion,
               runtime:
-                launch.kind === "auto" ? `Bun ${Bun.version}` : "Node (custom)",
+                launch.command === process.execPath
+                  ? `Bun ${Bun.version}`
+                  : launch.backend === "typescript"
+                    ? "Node (custom)"
+                    : "native / SDK",
             },
           }
         : {}),
       ...(reason ? { reason } : {}),
       ...(entry?.transport ? { capabilities: this.features(entry) } : {}),
+      servers: [...this.entries.values()].map((item) => ({
+        serverId: item.id,
+        projectRoot: item.projectRoot,
+        state: item.state,
+        generation: item.generation,
+        trackedDocuments: item.documents.size,
+        ...(item.reason ? { reason: item.reason } : {}),
+      })),
+      catalog: LSP_SERVER_CATALOG.map((item) => ({
+        id: item.id,
+        title: item.title,
+        languages: item.languages.map((language) => language.id),
+        version: item.version,
+        platformAvailable: catalogPlatformAvailable(item),
+        ...(item.prerequisites ? { prerequisites: item.prerequisites } : {}),
+      })),
     };
   }
   private features(entry: Server): string[] {
@@ -300,12 +385,15 @@ export class LspService {
   private async ensureEntry(
     signal?: AbortSignal,
     serverId?: string,
+    path?: string,
+    projectRoot?: string,
   ): Promise<Server> {
     cancelled(signal);
     this.available();
-    const selected = await this.selection(serverId);
+    const selected = await this.selection(serverId, path);
     if (selected.state !== "stopped" || !selected.id) this.denied(selected);
-    const entry = this.entry(selected.id);
+    const entry = this.entry(selected.id, projectRoot);
+    this.preferred = entry;
     if (entry.requiresRestart)
       await abortable(
         () => this.restartEntry(entry, selected),
@@ -342,14 +430,20 @@ export class LspService {
     this.available();
     if (entry.stopping) await entry.stopping;
     entry.state = "starting";
+    entry.controller = new AbortController();
+    const preparationSignal = AbortSignal.any([
+      this.signal(undefined, entry),
+      AbortSignal.timeout(LSP_LIMITS.preparationMs),
+    ]);
     let launch: LspLaunch;
     try {
       launch = await resolveLspLaunch(
         this.workspaceRoot,
         selected,
         true,
-        this.signal(),
+        preparationSignal,
       );
+      cancelled(preparationSignal);
     } catch (error) {
       entry.state = "error";
       entry.reason =
@@ -358,6 +452,7 @@ export class LspService {
     }
     this.available();
     const latest = await this.loadConfiguration();
+    cancelled(preparationSignal);
     const permission = await selectLspServer(
       this.workspaceRoot,
       latest,
@@ -372,17 +467,17 @@ export class LspService {
         "LSP_UNAVAILABLE",
         "LSP configuration changed before spawn; retry.",
       );
+    cancelled(preparationSignal);
     this.available();
     entry.state = "starting";
     entry.reason = undefined;
     entry.requiresRestart = false;
-    entry.controller = new AbortController();
     const generation = ++entry.generation;
     entry.launch = launch;
     let transport: LspTransport;
     try {
       transport = new LspTransport(
-        this.workspaceRoot,
+        entry.projectRoot,
         launch,
         () => {
           if (entry.generation !== generation || entry.transport !== transport)
@@ -413,10 +508,17 @@ export class LspService {
         {
           processId: process.pid,
           clientInfo: { name: "ChiselCode", version: VERSION },
-          rootUri: pathToFileURL(this.workspaceRoot).href,
-          workspaceFolders: [
-            { uri: pathToFileURL(this.workspaceRoot).href, name: "workspace" },
-          ],
+          rootUri: selected.descriptor?.singleFileOnly
+            ? null
+            : pathToFileURL(entry.projectRoot).href,
+          workspaceFolders: selected.descriptor?.singleFileOnly
+            ? []
+            : [
+                {
+                  uri: pathToFileURL(entry.projectRoot).href,
+                  name: "workspace",
+                },
+              ],
           capabilities: {
             general: { positionEncodings: ["utf-16"] },
             textDocument: {
@@ -430,23 +532,27 @@ export class LspService {
               },
             },
             workspace: {
-              configuration: true,
+              configuration:
+                !selected.descriptor?.configurationViaNotificationOnly,
               applyEdit: false,
               workspaceFolders: true,
             },
           },
-          initializationOptions: {
-            disableAutomaticTypingAcquisition: true,
-            plugins: [],
-            tsserver: {
-              path: launch.typescriptPath,
-              fallbackPath: launch.typescriptPath,
-              logVerbosity: "off",
-              trace: "off",
-              useSyntaxServer: "never",
-              useClientFileWatcher: false,
-            },
-          },
+          initializationOptions:
+            launch.backend === "typescript" || !launch.backend
+              ? {
+                  disableAutomaticTypingAcquisition: true,
+                  plugins: [],
+                  tsserver: {
+                    path: launch.typescriptPath,
+                    fallbackPath: launch.typescriptPath,
+                    logVerbosity: "off",
+                    trace: "off",
+                    useSyntaxServer: "never",
+                    useClientFileWatcher: false,
+                  },
+                }
+              : (launch.initializationOptions ?? {}),
           trace: "off",
         },
         this.signal(undefined, entry),
@@ -462,6 +568,10 @@ export class LspService {
           "Server requires an unsupported position encoding.",
         );
       await transport.notification("initialized", {});
+      if (launch.settings && Object.keys(launch.settings).length)
+        await transport.notification("workspace/didChangeConfiguration", {
+          settings: launch.settings,
+        });
       this.available();
       if (entry.generation !== generation || entry.controller.signal.aborted)
         throw new RuntimeError(
@@ -475,8 +585,17 @@ export class LspService {
       entry.reason =
         launch.kind === "auto"
           ? "Не удалось запустить стандартный анализ кода. Перезапустите LSP; проверьте установку ChiselCode."
-          : "Не удалось выполнить initialize. Проверьте Node >=22.22.2, server и TypeScript; затем перезапустите.";
+          : "Не удалось выполнить initialize. Проверьте совместимость и пути собственного stdio LSP; затем перезапустите.";
       await this.stopEntry(entry);
+      if (
+        error instanceof RuntimeError &&
+        error.code === "CANCELLED" &&
+        !this.signal().aborted
+      )
+        throw new RuntimeError(
+          "LSP_UNAVAILABLE",
+          "Language server exited or was revoked during initialization. Check status and restart explicitly.",
+        );
       throw error;
     }
   }
@@ -504,9 +623,15 @@ export class LspService {
     cancelled(signal);
     const selected = await this.selection(serverId);
     if (selected.state !== "stopped" || !selected.id) this.denied(selected);
-    const entry = this.entry(selected.id);
+    const entries = [...this.entries.values()].filter(
+      (item) => item.id === selected.id,
+    );
+    if (!entries.length) entries.push(this.entry(selected.id));
     // Restart itself is cooperative: once stop starts its cleanup finishes before cancellation returns.
-    await this.restartEntry(entry, selected, signal);
+    for (const entry of entries) {
+      this.preferred = entry;
+      await this.restartEntry(entry, selected, signal);
+    }
     return this.status(selected.id);
   }
   private restartEntry(
@@ -526,7 +651,10 @@ export class LspService {
     selected: LspSelection,
     signal?: AbortSignal,
   ): Promise<void> {
-    if (entry.pending) await entry.pending.catch(() => {});
+    if (entry.pending) {
+      entry.controller.abort();
+      await entry.pending.catch(() => {});
+    }
     const reopen = [...entry.documents.values()].map((doc) => doc.relativePath);
     entry.state = "restarting";
     this.invalidate(entry);
@@ -549,7 +677,18 @@ export class LspService {
     };
     for (const path of reopen) {
       try {
-        await this.syncDocument(entry, await readLspFile(port, path));
+        await this.syncDocument(
+          entry,
+          await readLspFile(
+            {
+              ...port,
+              languageId: this.configuration
+                ? configuredLanguage(this.configuration, path)
+                : undefined,
+            },
+            path,
+          ),
+        );
       } catch {
         cancelled(signal); /* Removed/ignored files are not reopened. */
       }
@@ -668,9 +807,13 @@ export class LspService {
     return doc;
   }
   private async evict(entry: Server, keep: string): Promise<void> {
+    const all = () =>
+      [...this.entries.values()].flatMap((server) =>
+        [...server.documents.values()].map((doc) => ({ server, doc })),
+      );
     const bytes = () =>
-      [...entry.documents.values()].reduce(
-        (sum, doc) =>
+      all().reduce(
+        (sum, { doc }) =>
           sum +
           doc.bytes.length +
           2 * doc.text.length +
@@ -678,23 +821,28 @@ export class LspService {
         0,
       );
     while (
-      entry.documents.size > LSP_LIMITS.documents ||
+      all().length > LSP_LIMITS.documents ||
       bytes() > LSP_LIMITS.cacheBytes
     ) {
-      const oldest = [...entry.documents.values()]
-        .filter((doc) => doc.path !== keep && !entry.locks.has(doc.path))
-        .sort((a, b) => a.accessed - b.accessed)[0];
+      const oldest = all()
+        .filter(
+          ({ server, doc }) =>
+            !(server === entry && doc.path === keep) &&
+            !server.locks.has(doc.path),
+        )
+        .sort((a, b) => a.doc.accessed - b.doc.accessed)[0];
       if (!oldest)
         throw new RuntimeError(
           "LSP_UNAVAILABLE",
-          "LSP document cache is full.",
+          "LSP workspace document cache is full.",
         );
-      entry.documents.delete(oldest.path);
-      await entry.transport?.notification("textDocument/didClose", {
-        textDocument: { uri: oldest.uri },
+      oldest.server.documents.delete(oldest.doc.path);
+      await oldest.server.transport?.notification("textDocument/didClose", {
+        textDocument: { uri: oldest.doc.uri },
       });
     }
   }
+
   private async publish(
     entry: Server,
     generation: number,
@@ -709,11 +857,19 @@ export class LspService {
       typeof payload !== "object"
     )
       return;
-    const notification = payload as {
-      uri?: unknown;
-      version?: unknown;
-      diagnostics?: unknown;
+    const notification = {
+      ...(payload as {
+        uri?: unknown;
+        version?: unknown;
+        diagnostics?: unknown;
+      }),
     };
+    if (
+      notification.version === 0 &&
+      entry.launch?.kind === "auto" &&
+      catalogServer(entry.id)?.zeroVersionUnconfirmed
+    )
+      notification.version = undefined;
     const receipt = ++entry.publications;
     const policy = new WorkspacePolicy(
       this.workspaceRoot,
@@ -838,7 +994,7 @@ export class LspService {
       cancelled(port.signal);
       try {
         const file = await readLspFile(
-          { ...port, observe: undefined },
+          { ...port, observe: undefined, languageId: doc.languageId },
           doc.relativePath,
         );
         if (file.hash !== doc.hash && !synchronize) {
@@ -878,8 +1034,33 @@ export class LspService {
     // Do not start Auto for an unsupported, ignored, missing or invalid document.
     // Re-read after initialize/refresh below so bytes changed during startup are
     // never sent from this preflight and only the final read grants observation.
-    await readLspFile({ ...port, observe: undefined }, path);
-    const entry = await this.ensureEntry(port.signal);
+    await this.refreshConfiguration();
+    const languageId = this.configuration
+      ? configuredLanguage(this.configuration, path)
+      : undefined;
+    if (!languageId)
+      throw new RuntimeError(
+        "LSP_UNSUPPORTED",
+        "Язык не поддержан текущим Auto/custom набором. Подключите совместимый stdio сервер в Settings.",
+      );
+    const preflight = await readLspFile(
+      { ...port, observe: undefined, languageId },
+      path,
+    );
+    const selected = await this.selection(undefined, path);
+    if (selected.state !== "stopped") this.denied(selected);
+    const projectRoot = await lspProjectRoot(
+      port.policy,
+      preflight.path,
+      selected.descriptor,
+      port.signal,
+    );
+    const entry = await this.ensureEntry(
+      port.signal,
+      selected.id,
+      path,
+      projectRoot,
+    );
     const signal = this.signal(port.signal, entry);
     const policy = new WorkspacePolicy(this.workspaceRoot, [
       ...new Set([
@@ -887,7 +1068,7 @@ export class LspService {
         ...port.policy.ignorePatterns,
       ]),
     ]);
-    const readPort = { ...port, policy, signal };
+    const readPort = { ...port, policy, signal, languageId };
     const policyFingerprint = JSON.stringify(
       this.configuration?.ignorePatterns ?? [],
     );
@@ -921,7 +1102,12 @@ export class LspService {
         );
       }
       const selectedNow = this.configuration
-        ? await selectLspServer(this.workspaceRoot, this.configuration)
+        ? await selectLspServer(
+            this.workspaceRoot,
+            this.configuration,
+            entry.id,
+            path,
+          )
         : undefined;
       if (selectedNow?.state !== "stopped" || selectedNow.id !== entry.id) {
         this.invalidate(entry);
@@ -932,7 +1118,7 @@ export class LspService {
       }
       for (const tracked of entry.documents.values()) {
         const checked = await readLspFile(
-          { ...readPort, observe: undefined },
+          { ...readPort, observe: undefined, languageId: tracked.languageId },
           tracked.relativePath,
         );
         if (checked.hash !== tracked.hash) {
@@ -1194,45 +1380,60 @@ export class LspService {
     try {
       return await abortable(async () => {
         await this.refreshConfiguration();
-        const selected = this.configuration
-          ? await selectLspServer(this.workspaceRoot, this.configuration)
-          : undefined;
-        const entry = selected?.id ? this.entries.get(selected.id) : undefined;
-        if (
-          selected?.state !== "stopped" ||
-          !entry?.transport ||
-          entry.state !== "ready" ||
-          entry.requiresRestart ||
-          !entry.documents.size
-        )
-          return undefined;
+        const entries = [...this.entries.values()].filter(
+          (entry) =>
+            entry.transport &&
+            entry.state === "ready" &&
+            !entry.requiresRestart &&
+            entry.documents.size,
+        );
+        if (!entries.length || !this.configuration) return undefined;
         return workspaceCoordinator.withAccess(
           [this.workspaceRoot],
           "read",
           bounded,
           async () => {
+            const policyFingerprint = JSON.stringify(
+              this.configuration?.ignorePatterns ?? [],
+            );
             const policy = new WorkspacePolicy(
               this.workspaceRoot,
               this.configuration?.ignorePatterns ?? [],
             );
-            await this.refreshDocuments(
-              entry,
-              { policy, signal: bounded },
-              false,
-            );
-            const generation = entry.generation;
-            const policyFingerprint = JSON.stringify(
-              this.configuration?.ignorePatterns ?? [],
-            );
             const diagnostics: LspDiagnostic[] = [];
-            let observed = 0;
-            for (const doc of entry.documents.values()) {
+            const lines: string[] = [];
+            const generations: [Server, number][] = [];
+            for (const entry of entries) {
               cancelled(bounded);
-              if (doc.generation !== generation) continue;
-              if (doc.freshness === "current")
-                diagnostics.push(...doc.diagnostics);
-              else ++observed;
+              const selection = this.configuration
+                ? await selectLspServer(
+                    this.workspaceRoot,
+                    this.configuration,
+                    entry.id,
+                  )
+                : undefined;
+              if (selection?.state !== "stopped") continue;
+              await this.refreshDocuments(
+                entry,
+                { policy, signal: bounded },
+                false,
+              );
+              if (entry.state !== "ready" || entry.requiresRestart) continue;
+              generations.push([entry, entry.generation]);
+              let observed = 0;
+              for (const doc of entry.documents.values()) {
+                if (doc.generation !== entry.generation) continue;
+                if (doc.freshness === "current")
+                  diagnostics.push(...doc.diagnostics);
+                else ++observed;
+              }
+              lines.push(`LSP ${entry.id}: ready; tracked documents only.`);
+              if (observed)
+                lines.push(
+                  `${entry.id}: some diagnostics are pending/observed; their analysis version is not confirmed. They are not included as current errors.`,
+                );
             }
+            if (!lines.length) return undefined;
             diagnostics.sort(
               (a, b) =>
                 a.severity - b.severity ||
@@ -1240,14 +1441,6 @@ export class LspService {
                 a.range.start.line - b.range.start.line ||
                 a.range.start.character - b.range.start.character,
             );
-            const lines = [
-              `LSP ${entry.id}: ready; tracked documents only.`,
-              ...(observed
-                ? [
-                    "Some diagnostics are pending/observed; their analysis version is not confirmed. They are not included as current errors.",
-                  ]
-                : []),
-            ];
             let included = 0;
             for (const item of diagnostics.slice(
               0,
@@ -1262,18 +1455,21 @@ export class LspService {
               lines.push(line);
               ++included;
             }
-            if (included < diagnostics.length)
+            if (diagnostics.length > included)
               lines.push(
-                `${diagnostics.length - included} diagnostics omitted by context limits.`,
+                `${diagnostics.length - included} diagnostics omitted by context budget.`,
               );
+            await this.refreshConfiguration();
+            cancelled(bounded);
             if (
-              entry.generation !== generation ||
-              entry.state !== "ready" ||
-              entry.controller.signal.aborted ||
-              entry.requiresRestart ||
               JSON.stringify(this.configuration?.ignorePatterns ?? []) !==
                 policyFingerprint ||
-              bounded.aborted
+              generations.some(
+                ([entry, generation]) =>
+                  entry.state !== "ready" ||
+                  entry.generation !== generation ||
+                  entry.requiresRestart,
+              )
             )
               return undefined;
             return redactor.text(lines.join("\n"));

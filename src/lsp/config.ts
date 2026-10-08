@@ -1,5 +1,13 @@
 import { readFile, realpath, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  sep,
+} from "node:path";
 import { z } from "zod";
 import { canonicalWorkspaceRoot } from "../extensions/host.js";
 import { RuntimeError } from "../runtime/errors.js";
@@ -8,6 +16,12 @@ import {
   autoLspLaunch,
   prepareAutoBackend,
 } from "./backend.js";
+import {
+  catalogLanguage,
+  catalogServer,
+  type LspServerDescriptor,
+} from "./catalog.js";
+import { catalogLspLaunch } from "./provision.js";
 
 export const LspServerIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 const absolutePath = z
@@ -15,9 +29,8 @@ const absolutePath = z
   .min(1)
   .max(4096)
   .refine(isAbsolute, "Use an absolute path.");
-export const LspServerSchema = z.strictObject({
+const serverFields = {
   enabled: z.boolean(),
-  backend: z.literal("typescript"),
   command: absolutePath,
   args: z
     .array(
@@ -27,9 +40,74 @@ export const LspServerSchema = z.strictObject({
         .refine((arg) => !arg.includes("\0")),
     )
     .max(32),
-  typescriptPath: absolutePath,
   trustedWorkspaces: z.array(absolutePath).max(128),
-});
+};
+const jsonSettings = z
+  .record(z.string().max(128), z.json())
+  .refine(
+    (value) => Buffer.byteLength(JSON.stringify(value)) <= 65536,
+    "LSP settings are limited to 64 KiB.",
+  );
+export const LspServerSchema = z.discriminatedUnion("backend", [
+  z.strictObject({
+    ...serverFields,
+    backend: z.literal("typescript"),
+    typescriptPath: absolutePath,
+  }),
+  z.strictObject({
+    ...serverFields,
+    backend: z.literal("generic"),
+    languageIds: z
+      .array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.+-]{0,63}$/))
+      .min(1)
+      .max(32),
+    extensions: z
+      .array(z.string().regex(/^\.[a-zA-Z0-9_-]{1,32}$/))
+      .max(64)
+      .default([]),
+    initializationOptions: jsonSettings.optional(),
+    settings: jsonSettings.optional(),
+  }),
+]);
+export function customLanguage(
+  config: LspServerConfig,
+  path: string,
+): string | undefined {
+  const detected = catalogLanguage(path)?.language.id;
+  if (config.backend === "typescript")
+    return detected &&
+      [
+        "typescript",
+        "typescriptreact",
+        "javascript",
+        "javascriptreact",
+      ].includes(detected)
+      ? detected
+      : undefined;
+  if (detected && config.languageIds.includes(detected)) return detected;
+  return config.extensions
+    .map((extension) => extension.toLowerCase())
+    .includes(extname(path).toLowerCase())
+    ? config.languageIds[0]
+    : undefined;
+}
+export function configuredLanguage(
+  configuration: LspConfiguration,
+  path: string,
+): string | undefined {
+  if (effectiveLspMode(configuration) !== "custom")
+    return catalogLanguage(path)?.language.id;
+  const selected = configuration.project?.serverId;
+  if (selected)
+    return (
+      configuration.global.servers[selected] &&
+      customLanguage(configuration.global.servers[selected], path)
+    );
+  return Object.values(configuration.global.servers)
+    .filter((server) => server.enabled)
+    .map((server) => customLanguage(server, path))
+    .find(Boolean);
+}
 export const LspConfigSchema = z.strictObject({
   mode: z.enum(["auto", "custom", "off"]).optional(),
   servers: z
@@ -37,7 +115,9 @@ export const LspConfigSchema = z.strictObject({
     .refine(
       (servers) =>
         Object.keys(servers).length <= 32 &&
-        !Object.hasOwn(servers, AUTO_SERVER_ID),
+        !Object.keys(servers).some(
+          (id) => id === AUTO_SERVER_ID || id.startsWith("auto-"),
+        ),
       "The auto server ID is reserved.",
     )
     .default({}),
@@ -75,10 +155,14 @@ export interface LspLaunch {
   kind?: "auto" | "custom";
   command: string;
   args: string[];
-  typescriptPath: string;
+  backend?: string;
+  typescriptPath?: string;
+  initializationOptions?: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+  environment?: Record<string, string>;
   fingerprint: string;
   serverVersion: string;
-  typescriptVersion: string;
+  typescriptVersion?: string;
 }
 export type LspAvailability =
   | "disabled"
@@ -90,12 +174,14 @@ export interface LspSelection {
   kind?: "auto" | "custom";
   id?: string;
   config?: LspServerConfig;
+  descriptor?: LspServerDescriptor;
   reason?: string;
 }
 export async function selectLspServer(
   root: string,
   configuration: LspConfiguration,
   requestedId?: string,
+  path?: string,
 ): Promise<LspSelection> {
   const mode = effectiveLspMode(configuration);
   if (mode === "off")
@@ -106,16 +192,23 @@ export async function selectLspServer(
           ? "Анализ кода выключен для всех проектов в Settings."
           : "Анализ кода выключен для этого проекта.",
     };
-  if (mode === "auto")
-    return requestedId && requestedId !== AUTO_SERVER_ID
+  if (mode === "auto") {
+    const descriptor = requestedId
+      ? catalogServer(requestedId)
+      : path
+        ? catalogLanguage(path)?.server
+        : catalogServer(AUTO_SERVER_ID);
+    return !descriptor
       ? {
           state: "unavailable",
           id: requestedId,
-          reason:
-            "Выбран Auto. Для пользовательского сервера выберите «Своя настройка».",
+          reason: path
+            ? "Для этого языка нет Auto backend. Подключите совместимый stdio LSP в своей настройке."
+            : "Этот Auto backend неизвестен. Для пользовательского сервера выберите «Своя настройка».",
         }
-      : { state: "stopped", id: AUTO_SERVER_ID, kind: "auto" };
-  if (requestedId === AUTO_SERVER_ID)
+      : { state: "stopped", id: descriptor.id, kind: "auto", descriptor };
+  }
+  if (requestedId === AUTO_SERVER_ID || requestedId?.startsWith("auto-"))
     return {
       state: "disabled",
       id: requestedId,
@@ -133,6 +226,13 @@ export async function selectLspServer(
       };
     if (!config.enabled)
       return { state: "disabled", id, config, reason: "Сервер выключен." };
+    if (path && !customLanguage(config, path))
+      return {
+        state: "unavailable",
+        id,
+        config,
+        reason: "Этот сервер не настроен для языка файла.",
+      };
     return (await trusted(root, config))
       ? { state: "stopped", id, kind: "custom", config }
       : {
@@ -143,7 +243,10 @@ export async function selectLspServer(
         };
   }
   const enabled = Object.entries(servers)
-    .filter(([, server]) => server.enabled)
+    .filter(
+      ([, server]) =>
+        server.enabled && (!path || !!customLanguage(server, path)),
+    )
     .sort(([a], [b]) => a.localeCompare(b));
   const allowed: typeof enabled = [];
   for (const entry of enabled)
@@ -180,8 +283,15 @@ export async function resolveLspLaunch(
   materialize = false,
   signal?: AbortSignal,
 ): Promise<LspLaunch> {
-  if (selection.kind === "auto")
-    return materialize ? prepareAutoBackend(root, signal) : autoLspLaunch(root);
+  if (selection.kind === "auto") {
+    if (selection.id === AUTO_SERVER_ID)
+      return materialize
+        ? prepareAutoBackend(root, signal)
+        : autoLspLaunch(root);
+    if (!selection.descriptor)
+      throw new RuntimeError("LSP_UNAVAILABLE", "Unknown Auto backend.");
+    return catalogLspLaunch(root, selection.descriptor, materialize, signal);
+  }
   if (!selection.id || !selection.config)
     throw new RuntimeError(
       "LSP_UNAVAILABLE",
@@ -237,6 +347,40 @@ export async function validateLspLaunch(
   };
   try {
     const command = await external(config.command);
+    if (config.backend === "generic") {
+      if (/\.(?:cmd|bat|ps1)$/i.test(command))
+        throw new Error("Use a direct executable, not a shell wrapper.");
+      const args = [...config.args];
+      for (const argument of args)
+        if (/\.(?:js|mjs|cjs|py|rb|jar|dll)$/i.test(argument)) {
+          if (!isAbsolute(argument))
+            throw new Error(
+              "Executable script paths must be absolute and outside the repository.",
+            );
+          await external(argument);
+        }
+      return {
+        id,
+        kind: "custom",
+        backend: "generic",
+        command,
+        args,
+        serverVersion: "custom",
+        initializationOptions: structuredClone(
+          config.initializationOptions ?? {},
+        ),
+        settings: structuredClone(config.settings ?? {}),
+        fingerprint: JSON.stringify([
+          id,
+          command,
+          args,
+          config.languageIds,
+          config.extensions,
+          config.initializationOptions,
+          config.settings,
+        ]),
+      };
+    }
     if (!/^node(?:\.exe)?$/i.test(basename(command)))
       throw new Error("Use a direct Node.js runtime.");
     if (
@@ -286,6 +430,8 @@ export async function validateLspLaunch(
     const args = [entry, ...extra];
     return {
       id,
+      kind: "custom",
+      backend: "typescript",
       command,
       args,
       typescriptPath,
@@ -297,7 +443,9 @@ export async function validateLspLaunch(
     if (error instanceof RuntimeError) throw error;
     throw new RuntimeError(
       "LSP_UNAVAILABLE",
-      `Проверьте пути: ${component} не найден или несовместим. Нужны Node >=22.22.2, typescript-language-server 6.0.1 и TypeScript 6 вне проекта.`,
+      config.backend === "generic"
+        ? "Проверьте executable и script paths: нужен установленный совместимый stdio LSP вне проекта."
+        : `Проверьте пути: ${component} не найден или несовместим. Нужны Node >=22.22.2, typescript-language-server 6.0.1 и TypeScript 6 вне проекта.`,
     );
   }
 }

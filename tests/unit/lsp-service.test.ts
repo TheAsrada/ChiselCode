@@ -107,6 +107,78 @@ async function poll<T>(
   } while (Date.now() < deadline);
   throw new Error("LSP state did not settle within its bound.");
 }
+
+test("a late configuration snapshot cannot undo revocation or publish a ready server", async () => {
+  const f = await fixture();
+  let release!: () => void;
+  let entered!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const paused = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let reads = 0;
+  const service = new LspService(
+    f.root,
+    async () => {
+      const snapshot = structuredClone(f.configuration);
+      if (++reads === 1) {
+        entered();
+        await delayed;
+      }
+      return snapshot;
+    },
+    f.lifetime.signal,
+  );
+  services.push(service);
+  const old = service.status();
+  await paused;
+  f.configuration.global.mode = "off";
+  expect((await service.status()).state).toBe("disabled");
+  release();
+  expect((await old).state).toBe("disabled");
+  await expect(service.ensureStarted()).rejects.toMatchObject({
+    code: "LSP_UNAVAILABLE",
+  });
+  expect(await Bun.file(join(f.root, "peer.log")).exists()).toBe(false);
+});
+
+test("revocation while validating a pending start does not replace its cancelled generation", async () => {
+  const f = await fixture();
+  let release!: () => void;
+  let entered!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const paused = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let reads = 0;
+  const service = new LspService(
+    f.root,
+    async () => {
+      const snapshot = structuredClone(f.configuration);
+      if (++reads === 2) {
+        entered();
+        await delayed;
+      }
+      return snapshot;
+    },
+    f.lifetime.signal,
+  );
+  services.push(service);
+  const start = service.ensureStarted().catch((error) => error);
+  await paused;
+  f.configuration.global.mode = "off";
+  const revoked = service.refreshConfiguration();
+  await Bun.sleep(0); // Deliver the newer snapshot and its lifetime cancellation.
+  release();
+  expect(await start).toBeInstanceOf(Error);
+  await revoked;
+  expect((await service.status()).state).toBe("disabled");
+  expect(await Bun.file(join(f.root, "peer.log")).exists()).toBe(false);
+});
 test("versioned diagnostics track bytes, old notifications cannot replace current, and empty current clears errors", async () => {
   const f = await fixture({ encodedUri: true });
   expect((await f.service.status()).generation).toBe(0);

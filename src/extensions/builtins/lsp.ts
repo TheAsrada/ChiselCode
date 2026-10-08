@@ -57,7 +57,7 @@ export function createLspExtension(
           {
             name: "status",
             description:
-              "Show Auto/custom/off TypeScript/JavaScript analysis state, backend versions and readiness. Never starts a server or scans the workspace.",
+              "Show Auto/custom/off multilingual analysis state, backend versions and readiness. Never starts a server or scans the workspace.",
             effect: "read",
             permission: "read",
             workspaceAccess: "none",
@@ -69,7 +69,21 @@ export function createLspExtension(
             preview: "Show LSP status",
             resources: [],
           }),
-          async () => output(await service.status()),
+          async () => {
+            const status = await service.status();
+            return output({
+              mode: status.mode,
+              serverId: status.serverId,
+              backend: status.backend,
+              trackedDocuments: status.trackedDocuments,
+              generation: status.generation,
+              requiresRestart: status.requiresRestart,
+              versions: status.versions,
+              ...(status.reason ? { reason: status.reason } : {}),
+              servers: status.servers,
+              state: status.state,
+            });
+          },
         ),
       );
       const prepare = async <T extends { path: string }>(
@@ -85,7 +99,7 @@ export function createLspExtension(
         permission: "read",
         workspaceAccess: "read" as const,
         parallelSafe: true,
-        timeoutMs: 30_000,
+        timeoutMs: 300_000,
         outputPolicy: { maxInlineTokens: 1600 },
       };
       ctx.tools.register(
@@ -94,7 +108,7 @@ export function createLspExtension(
             ...readSpec,
             name: "diagnostics",
             description:
-              "Check a saved .ts/.tsx/.js/.jsx file after edits. Auto starts the bundled backend lazily and detects tsconfig/jsconfig or an inferred project; custom executables require explicit trust. Includes revision and freshness; observed/unversioned results do not prove current error-free analysis. Pair with relevant tests.",
+              "Check a saved supported source file (TypeScript/JavaScript, Python, Go, Rust, C/C++, C#, Java, Kotlin, PHP, Ruby, Swift, Lua, Dart, HTML/CSS/JSON/YAML, shell, Dockerfile) after edits. Auto detects the language/project and prepares a pinned backend lazily; custom executables require explicit trust. Includes revision and freshness; observed/unversioned results do not prove current error-free analysis. Pair with relevant tests.",
           },
           file,
           (context, input) => prepare(context, input),
@@ -110,7 +124,7 @@ export function createLspExtension(
             ...readSpec,
             name: "definition",
             description:
-              "Navigate to symbol definitions before editing saved TypeScript/JavaScript. Auto selects the project and starts lazily without manual paths. line and character are zero-based; character counts UTF-16 code units. External/ignored locations are omitted; a location does not grant edit permission.",
+              "Navigate to symbol definitions before editing saved source files. Auto selects the project and starts lazily without manual paths. line and character are zero-based; character counts UTF-16 code units. External/ignored locations are omitted; a location does not grant edit permission.",
           },
           position,
           (context, input) => prepare(context, input),
@@ -130,7 +144,7 @@ export function createLspExtension(
             ...readSpec,
             name: "references",
             description:
-              "Find affected callers/references before changing saved TypeScript/JavaScript. Auto starts lazily. Zero-based line and UTF-16 character; at most 200 permitted workspace locations.",
+              "Find affected callers/references before changing saved source files. Auto starts lazily. Zero-based line and UTF-16 character; at most 200 permitted workspace locations.",
           },
           position
             .extend({ includeDeclaration: z.boolean().optional() })
@@ -154,7 +168,7 @@ export function createLspExtension(
             ...readSpec,
             name: "symbols",
             description:
-              "Read document symbols in a saved TypeScript/JavaScript file. At most 200 flattened entries with parent hierarchy. Does not modify code.",
+              "Read document symbols in a saved source file. At most 200 flattened entries with parent hierarchy. Does not modify code.",
           },
           file,
           (context, input) => prepare(context, input),
@@ -169,12 +183,12 @@ export function createLspExtension(
           {
             name: "restart",
             description:
-              "Explicitly start/restart Auto or a trusted custom TypeScript/JavaScript server. Ordinary navigation starts lazily; use restart for recovery/config changes. Affects every tab. Requires normal process permission and Build mode; no arbitrary executable or arguments accepted.",
+              "Explicitly start/restart Auto or a trusted custom language server. Ordinary navigation starts lazily; use restart for recovery/config changes. Affects every tab. Requires normal process permission and Build mode; no arbitrary executable or arguments accepted.",
             effect: "process",
             permission: "process",
             workspaceAccess: "write",
             parallelSafe: false,
-            timeoutMs: 45_000,
+            timeoutMs: 300_000,
           },
           restartInput,
           async (_context, input) => {
@@ -185,7 +199,7 @@ export function createLspExtension(
             return {
               data: { serverId: launch.id, fingerprint: launch.fingerprint },
               command,
-              preview: `Restart LSP ${launch.id} for ${ctx.workspaceRoot}; affects every tab in this workspace.\n${command}\nTypeScript: ${launch.typescriptPath}`,
+              preview: `Restart LSP ${launch.id} for ${ctx.workspaceRoot}; affects every tab in this workspace.\n${command}${launch.typescriptPath ? `\nTypeScript: ${launch.typescriptPath}` : ""}`,
               resources: [ctx.workspaceRoot],
             };
           },

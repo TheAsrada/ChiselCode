@@ -213,7 +213,9 @@ export class LspSettingsStore implements LspSettingsActions {
       config,
     );
     cancelled(signal);
-    return `Пути доступны. language-server ${launch.serverVersion}, TypeScript ${launch.typescriptVersion}. Node version не выполнялась: требуется >=22.22.2. Сервер не запущен.`;
+    return config.backend === "typescript"
+      ? `Пути доступны. language-server ${launch.serverVersion}, TypeScript ${launch.typescriptVersion}. Node version не выполнялась: требуется >=22.22.2. Сервер не запущен.`
+      : "Пути доступны. Проверка не выполняла executable и не подтверждает его версию/совместимость. stdio handshake выполняется при явном запуске.";
   }
   restart(serverId?: string): Promise<ToolExecutionResult> {
     return this.runtime.restart(serverId);

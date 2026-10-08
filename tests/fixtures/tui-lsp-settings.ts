@@ -247,7 +247,16 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     await capture("lsp-auto-project-120x40");
     await key("ESCAPE");
     await key("ESCAPE");
-    await command("/inspect-types");
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await command("/inspect-types");
+      await wait(
+        () =>
+          setup.captureCharFrame().includes("Завершено") ||
+          setup.captureCharFrame().includes("2322"),
+        "Analysis did not finish",
+      );
+      if (setup.captureCharFrame().includes("2322")) break;
+    }
     await wait(
       () => setup.captureCharFrame().includes("2322"),
       "Default Auto must lazily analyse without paths/trust",
@@ -483,7 +492,16 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     }
     await key("ESCAPE");
     await key("ESCAPE");
-    await command("/inspect-types");
+    for (let attempt = 0; attempt < 4; ++attempt) {
+      await command("/inspect-types");
+      await wait(
+        () =>
+          setup.captureCharFrame().includes("2322") ||
+          setup.captureCharFrame().includes("Завершено"),
+        "Custom analysis did not finish",
+      );
+      if (setup.captureCharFrame().includes("2322")) break;
+    }
     await wait(
       () => setup.captureCharFrame().includes("2322"),
       "Real diagnostics missing",
@@ -565,6 +583,27 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       0,
       "Local LSP setup/commands must not request model chat",
     );
+    // Any compatible LSP can be configured through real native fields. No
+    // production fixture command or model credential is involved.
+    await key("ESCAPE"); // Leave the saved TypeScript form.
+    await click("lsp-row-add-generic");
+    await field("id", "notes");
+    await field("node", paths.command);
+    await field("languages", "notes");
+    await field("extensions", ".notes");
+    if (captures) await capture("lsp-generic-draft-120x40");
+    await click("lsp-save");
+    await wait(
+      () => setup.captureCharFrame().includes("Сохранено"),
+      "Generic form save failed",
+    );
+    const genericConfig = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(genericConfig.lsp.servers.notes.backend, "generic");
+    assert.deepEqual(genericConfig.lsp.servers.notes.languageIds, ["notes"]);
+    assert.deepEqual(genericConfig.lsp.servers.notes.extensions, [".notes"]);
+    assert.deepEqual(genericConfig.lsp.servers.notes.trustedWorkspaces, []);
+    await key("ESCAPE");
+    await click("lsp-row-typescript");
     if (captures) {
       await field("typescript", join(storage, "missing-tsserver.js"));
       await click("lsp-row-check");

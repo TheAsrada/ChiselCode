@@ -33,6 +33,7 @@ try {
       name: "chiselcode-command-smoke",
       private: true,
       scripts: {},
+      files: [...manifest.files, "dist/command-smoke", "dist/lsp-smoke"],
     }),
   );
   for (const file of ["README.md", "LICENSE"])

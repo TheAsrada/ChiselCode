@@ -12,7 +12,14 @@ import { isAbsolute, join, resolve } from "node:path";
 import { execa } from "execa";
 
 /** Actual CLI + provider protocol + LSP + checkpoint; the model endpoint is local/scripted. */
-export async function smokeLspCli(command: string, args: string[]) {
+export async function smokeLspCli(
+  command: string,
+  args: string[],
+  language: "typescript" | "python" = "typescript",
+) {
+  const file = language === "python" ? "main.py" : "main.ts";
+  const diagnosticCode =
+    language === "python" ? "reportAssignmentType" : "2322";
   const executable =
     isAbsolute(command) || /[\\/]/.test(command) ? resolve(command) : command;
   const entryArgs = args[0] ? [resolve(args[0]), ...args.slice(1)] : [];
@@ -59,12 +66,14 @@ export async function smokeLspCli(command: string, args: string[]) {
           (message) => message.role === "tool",
         );
         const complete = results.some((message) =>
-          message.content?.includes("2322"),
+          message.content?.includes(diagnosticCode),
         );
         if (results.length) {
           const last = results.at(-1)?.content ?? "";
           assert.ok(!last.includes('"isError": true'), last);
-          if (last.includes('"freshness": "observed"'))
+          if (last.includes('"freshness": "current"'))
+            assert.ok(last.includes("Server confirmed this document version."));
+          else if (last.includes('"freshness": "observed"'))
             assert.ok(last.includes("версия анализа не подтверждена"));
           else
             assert.ok(
@@ -72,14 +81,18 @@ export async function smokeLspCli(command: string, args: string[]) {
                 last.includes('"freshness": "pending"'),
               last,
             );
-          assert.ok(
-            body.messages.some(
-              (message) =>
-                message.role === "user" &&
-                message.content?.includes("analysis version is not confirmed"),
-            ),
-            "Bounded request-only LSP context missing",
-          );
+          if (language === "typescript") {
+            assert.ok(
+              body.messages.some(
+                (message) =>
+                  message.role === "user" &&
+                  message.content?.includes(
+                    "analysis version is not confirmed",
+                  ),
+              ),
+              "Bounded request-only LSP context missing",
+            );
+          }
           assert.ok(
             !body.messages.some(
               (message) =>
@@ -110,7 +123,7 @@ export async function smokeLspCli(command: string, args: string[]) {
                         type: "function",
                         function: {
                           name: tool.function.name,
-                          arguments: '{"path":"main.ts"}',
+                          arguments: JSON.stringify({ path: file }),
                         },
                       },
                     ],
@@ -134,8 +147,10 @@ export async function smokeLspCli(command: string, args: string[]) {
   });
   try {
     await writeFile(
-      join(root, "main.ts"),
-      'export const value: number = "wrong";\n',
+      join(root, file),
+      language === "python"
+        ? 'value: int = "wrong"\n'
+        : 'export const value: number = "wrong";\n',
     );
     await writeFile(
       join(root, "tsconfig.json"),
@@ -165,12 +180,12 @@ export async function smokeLspCli(command: string, args: string[]) {
         "--mode",
         "plan",
         "--json",
-        "Use Auto LSP to diagnose the saved TypeScript file",
+        `Use Auto LSP to diagnose the saved ${language} file`,
       ],
       {
         cwd: root,
         reject: false,
-        timeout: 35000,
+        timeout: 120000,
         env: {
           XDG_CONFIG_HOME: directory,
           XDG_DATA_HOME: directory,
@@ -224,7 +239,10 @@ export async function smokeLspCli(command: string, args: string[]) {
     return {
       requests: requests.length,
       status: output.status,
-      backend: "typescript-language-server 6.0.1 / TypeScript 6.0.3",
+      backend:
+        language === "python"
+          ? "Pyright 1.1.414 / Node 24.19.0"
+          : "typescript-language-server 6.0.1 / TypeScript 6.0.3",
     };
   } finally {
     server.stop(true);
@@ -238,4 +256,7 @@ if (import.meta.main) {
       "Usage: bun tests/fixtures/lsp-cli.ts <CLI command> [entry path]",
     );
   process.stdout.write(`${JSON.stringify(await smokeLspCli(command, args))}\n`);
+  process.stdout.write(
+    `${JSON.stringify(await smokeLspCli(command, args, "python"))}\n`,
+  );
 }

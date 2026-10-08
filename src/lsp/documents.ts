@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
-import { extname, relative } from "node:path";
+import { relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { WorkspacePolicy } from "../security/workspace-policy.js";
+import { catalogLanguage } from "./catalog.js";
 import { LSP_LIMITS } from "./limits.js";
 
 export interface Position {
@@ -26,25 +27,20 @@ export interface LspFile {
 export interface LspReadPort {
   policy: WorkspacePolicy;
   signal?: AbortSignal;
+  languageId?: string;
   observe?(path: string, bytes: Buffer): Promise<unknown>;
 }
-const languages: Record<string, string> = {
-  ".ts": "typescript",
-  ".tsx": "typescriptreact",
-  ".js": "javascript",
-  ".jsx": "javascriptreact",
-};
 export async function readLspFile(
   port: LspReadPort,
   candidate: string,
 ): Promise<LspFile> {
   cancelled(port.signal);
   const path = await port.policy.resolve(candidate);
-  const languageId = languages[extname(path).toLowerCase()];
+  const languageId = port.languageId ?? catalogLanguage(path)?.language.id;
   if (!languageId)
     throw new RuntimeError(
       "LSP_UNSUPPORTED",
-      "LSP supports .ts, .tsx, .js and .jsx files.",
+      "Для языка этого файла нет LSP backend. Настройте совместимый stdio сервер в Settings.",
     );
   const handle = await open(path, "r");
   try {

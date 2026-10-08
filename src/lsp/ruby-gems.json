@@ -1,0 +1,360 @@
+[
+  {
+    "name": "ast",
+    "version": "2.4.3",
+    "url": "https://rubygems.org/downloads/ast-2.4.3.gem",
+    "sha256": "954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383",
+    "format": "gem"
+  },
+  {
+    "name": "backport",
+    "version": "1.2.0",
+    "url": "https://rubygems.org/downloads/backport-1.2.0.gem",
+    "sha256": "912c7dfdd9ee4625d013ddfccb6205c3f92da69a8990f65c440e40f5b2fc7f75",
+    "format": "gem"
+  },
+  {
+    "name": "benchmark",
+    "version": "0.5.0",
+    "url": "https://rubygems.org/downloads/benchmark-0.5.0.gem",
+    "sha256": "465df122341aedcb81a2a24b4d3bd19b6c67c1530713fd533f3ff034e419236c",
+    "format": "gem"
+  },
+  {
+    "name": "bundler",
+    "version": "4.0.22",
+    "url": "https://rubygems.org/downloads/bundler-4.0.22.gem",
+    "sha256": "d8d5ec84c8555e0af71db63ed7aee4d1a8fb839ec46d84212d61979242a5d75a",
+    "format": "gem"
+  },
+  {
+    "name": "commander",
+    "version": "5.0.0",
+    "url": "https://rubygems.org/downloads/commander-5.0.0.gem",
+    "sha256": "22ca42866ce5ed1a7f3e9a9c831a23d03b75b3743c7ad0302c3cbcd9eb5f257d",
+    "format": "gem"
+  },
+  {
+    "name": "date",
+    "version": "3.6.0",
+    "url": "https://rubygems.org/downloads/date-3.6.0.gem",
+    "sha256": "18ac945c4e24ebd93534f8eab8c2fd8c5604b3e977105b3798d62a1e8d27b580",
+    "format": "gem"
+  },
+  {
+    "name": "diff-lcs",
+    "version": "1.6.2",
+    "url": "https://rubygems.org/downloads/diff-lcs-1.6.2.gem",
+    "sha256": "9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962",
+    "format": "gem"
+  },
+  {
+    "name": "erb",
+    "version": "6.0.7",
+    "url": "https://rubygems.org/downloads/erb-6.0.7.gem",
+    "sha256": "c5ca6dc25b0ef974a44dc8f59fe847577122483b1968a38dec305c60bf91ee92",
+    "format": "gem"
+  },
+  {
+    "name": "highline",
+    "version": "3.0.1",
+    "url": "https://rubygems.org/downloads/highline-3.0.1.gem",
+    "sha256": "ca18b218fd581b1fae832f89bfeaf2b34d3a93429c44fd4411042ffce286f009",
+    "format": "gem"
+  },
+  {
+    "name": "jaro_winkler",
+    "version": "1.7.0",
+    "url": "https://rubygems.org/downloads/jaro_winkler-1.7.0.gem",
+    "sha256": "8daa05a5cd05bf7d27c1c65caa8ab0d47c05419d80210feaa17126db24044ada",
+    "format": "gem"
+  },
+  {
+    "name": "json",
+    "version": "3.0.2",
+    "url": "https://rubygems.org/downloads/json-3.0.2.gem",
+    "sha256": "8e6d7e7b11384c21230430cef90b71f14849a34a1f4452796670f7c981bd19df",
+    "format": "gem"
+  },
+  {
+    "name": "kramdown",
+    "version": "2.5.2",
+    "url": "https://rubygems.org/downloads/kramdown-2.5.2.gem",
+    "sha256": "1ba542204c66b6f9111ff00dcc26075b95b220b07f2905d8261740c82f7f02fa",
+    "format": "gem"
+  },
+  {
+    "name": "kramdown-parser-gfm",
+    "version": "1.1.0",
+    "url": "https://rubygems.org/downloads/kramdown-parser-gfm-1.1.0.gem",
+    "sha256": "fb39745516427d2988543bf01fc4cf0ab1149476382393e0e9c48592f6581729",
+    "format": "gem"
+  },
+  {
+    "name": "language_server-protocol",
+    "version": "3.17.0.6",
+    "url": "https://rubygems.org/downloads/language_server-protocol-3.17.0.6.gem",
+    "sha256": "5ef2c0c138f8267e1bc631d3328347d354f96724b0af22f2c79516120443b7f0",
+    "format": "gem"
+  },
+  {
+    "name": "lint_roller",
+    "version": "1.1.0",
+    "url": "https://rubygems.org/downloads/lint_roller-1.1.0.gem",
+    "sha256": "2c0c845b632a7d172cb849cc90c1bce937a28c5c8ccccb50dfd46a485003cc87",
+    "format": "gem"
+  },
+  {
+    "name": "logger",
+    "version": "1.7.0",
+    "url": "https://rubygems.org/downloads/logger-1.7.0.gem",
+    "sha256": "196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203",
+    "format": "gem"
+  },
+  {
+    "name": "mini_portile2",
+    "version": "2.8.9",
+    "url": "https://rubygems.org/downloads/mini_portile2-2.8.9.gem",
+    "sha256": "0cd7c7f824e010c072e33f68bc02d85a00aeb6fce05bb4819c03dfd3c140c289",
+    "format": "gem"
+  },
+  {
+    "name": "nokogiri",
+    "version": "1.19.4",
+    "url": "https://rubygems.org/downloads/nokogiri-1.19.4.gem",
+    "sha256": "50c951611c92bca05c51411aef45f1cbc50f2821c4802758c5c6d34696533ab5",
+    "format": "gem",
+    "platforms": {
+      "linux-x64": {
+        "url": "https://rubygems.org/downloads/nokogiri-1.19.4-x86_64-linux-gnu.gem",
+        "sha256": "379fae440b28915e3f19d752ce2dcf8465ed2b2fbefd2a7ca0dd497bc981a06a"
+      },
+      "linux-arm64": {
+        "url": "https://rubygems.org/downloads/nokogiri-1.19.4-aarch64-linux-gnu.gem",
+        "sha256": "1269fb644a6de405057a53dd5c762b1209b43ca7424f839454d3dbc677c31a8f"
+      },
+      "darwin-x64": {
+        "url": "https://rubygems.org/downloads/nokogiri-1.19.4-x86_64-darwin.gem",
+        "sha256": "7fd17057d3e1f00e9954a74b3cd76595d3d4a5ef233b7ed9599047c204f70551"
+      },
+      "darwin-arm64": {
+        "url": "https://rubygems.org/downloads/nokogiri-1.19.4-arm64-darwin.gem",
+        "sha256": "a46db9853286e6597b36ebc6953817d15acf3a299583eb3f89fdc6f91dd63527"
+      },
+      "win32-x64": {
+        "url": "https://rubygems.org/downloads/nokogiri-1.19.4-x64-mingw-ucrt.gem",
+        "sha256": "051da97b8eccfdb5444fed40246a35e10d7298b9efe759b4cd25455ea04c587e"
+      }
+    }
+  },
+  {
+    "name": "observer",
+    "version": "0.1.2",
+    "url": "https://rubygems.org/downloads/observer-0.1.2.gem",
+    "sha256": "d8a3107131ba661138d748e7be3dbafc0d82e732fffba9fccb3d7829880950ac",
+    "format": "gem"
+  },
+  {
+    "name": "open3",
+    "version": "0.2.1",
+    "url": "https://rubygems.org/downloads/open3-0.2.1.gem",
+    "sha256": "8e2d7d2113526351201438c1aa35c8139f0141c9e8913baa007c898973bf3952",
+    "format": "gem"
+  },
+  {
+    "name": "ostruct",
+    "version": "0.6.3",
+    "url": "https://rubygems.org/downloads/ostruct-0.6.3.gem",
+    "sha256": "95a2ed4a4bd1d190784e666b47b2d3f078e4a9efda2fccf18f84ddc6538ed912",
+    "format": "gem"
+  },
+  {
+    "name": "parallel",
+    "version": "2.3.0",
+    "url": "https://rubygems.org/downloads/parallel-2.3.0.gem",
+    "sha256": "f75a3e904101ce6a1ccb6b8dc800cbafd42166d83330192438dcf29395167a6f",
+    "format": "gem"
+  },
+  {
+    "name": "parlour",
+    "version": "9.1.2",
+    "url": "https://rubygems.org/downloads/parlour-9.1.2.gem",
+    "sha256": "446ce24243e125f0e8c4f9b5722c3b86063d42d8b106c847a7d73a8cc693c382",
+    "format": "gem"
+  },
+  {
+    "name": "parser",
+    "version": "3.3.12.0",
+    "url": "https://rubygems.org/downloads/parser-3.3.12.0.gem",
+    "sha256": "21a6d7f755d5a24dfbdc6e6b772e4e879a52e7631a88bc5a3a134606052c9828",
+    "format": "gem"
+  },
+  {
+    "name": "prism",
+    "version": "1.9.0",
+    "url": "https://rubygems.org/downloads/prism-1.9.0.gem",
+    "sha256": "7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85",
+    "format": "gem"
+  },
+  {
+    "name": "psych",
+    "version": "5.5.0",
+    "url": "https://rubygems.org/downloads/psych-5.5.0.gem",
+    "sha256": "4b245bbbd0f3238df8ccee766ebc1a6b062b10e4ee1d3284eb588739ba156a0a",
+    "format": "gem"
+  },
+  {
+    "name": "racc",
+    "version": "1.8.1",
+    "url": "https://rubygems.org/downloads/racc-1.8.1.gem",
+    "sha256": "4a7f6929691dbec8b5209a0b373bc2614882b55fc5d2e447a21aaa691303d62f",
+    "format": "gem"
+  },
+  {
+    "name": "rainbow",
+    "version": "3.1.1",
+    "url": "https://rubygems.org/downloads/rainbow-3.1.1.gem",
+    "sha256": "039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a",
+    "format": "gem"
+  },
+  {
+    "name": "rbs",
+    "version": "4.2.0",
+    "url": "https://rubygems.org/downloads/rbs-4.2.0.gem",
+    "sha256": "51f7b886dcc05bc09e10b901daa6a81829f6adc03101d6ca9ea4aac6103e0674",
+    "format": "gem"
+  },
+  {
+    "name": "rdoc",
+    "version": "7.2.0",
+    "url": "https://rubygems.org/downloads/rdoc-7.2.0.gem",
+    "sha256": "8650f76cd4009c3b54955eb5d7e3a075c60a57276766ebf36f9085e8c9f23192",
+    "format": "gem"
+  },
+  {
+    "name": "regexp_parser",
+    "version": "2.13.1",
+    "url": "https://rubygems.org/downloads/regexp_parser-2.13.1.gem",
+    "sha256": "5aedb6b7c35688f51e86eef17a15374dfd287c83f4ca644b2c5f3ec50a33b44b",
+    "format": "gem"
+  },
+  {
+    "name": "reverse_markdown",
+    "version": "3.0.2",
+    "url": "https://rubygems.org/downloads/reverse_markdown-3.0.2.gem",
+    "sha256": "818ebb92ce39dbb1a291690dd1ec9a6d62530d4725296b17e9c8f668f9a5b8af",
+    "format": "gem"
+  },
+  {
+    "name": "rexml",
+    "version": "3.4.4",
+    "url": "https://rubygems.org/downloads/rexml-3.4.4.gem",
+    "sha256": "19e0a2c3425dfbf2d4fc1189747bdb2f849b6c5e74180401b15734bc97b5d142",
+    "format": "gem"
+  },
+  {
+    "name": "rubocop",
+    "version": "1.91.0",
+    "url": "https://rubygems.org/downloads/rubocop-1.91.0.gem",
+    "sha256": "9c82b7bf391c5d7e3798c5b9996e22a1fe3bd7468e351dfdeb96140c058296d0",
+    "format": "gem"
+  },
+  {
+    "name": "rubocop-ast",
+    "version": "1.50.0",
+    "url": "https://rubygems.org/downloads/rubocop-ast-1.50.0.gem",
+    "sha256": "b9ca88300da0803ee222ad20cdb30494c0a784eed06fdc35d254b06d662788db",
+    "format": "gem"
+  },
+  {
+    "name": "ruby-progressbar",
+    "version": "1.13.0",
+    "url": "https://rubygems.org/downloads/ruby-progressbar-1.13.0.gem",
+    "sha256": "80fc9c47a9b640d6834e0dc7b3c94c9df37f08cb072b7761e4a71e22cff29b33",
+    "format": "gem"
+  },
+  {
+    "name": "solargraph",
+    "version": "0.61.0",
+    "url": "https://rubygems.org/downloads/solargraph-0.61.0.gem",
+    "sha256": "7fcc98d75bf5483b09ea07c86ba695486b9859c557574f7a6d26ec3009c9f138",
+    "format": "gem"
+  },
+  {
+    "name": "sorbet-runtime",
+    "version": "0.6.13543",
+    "url": "https://rubygems.org/downloads/sorbet-runtime-0.6.13543.gem",
+    "sha256": "05e356de3ee8c2594db193f74f0ce77ae068d6688ed90cc8de3229768f8acab9",
+    "format": "gem"
+  },
+  {
+    "name": "sord",
+    "version": "7.1.0",
+    "url": "https://rubygems.org/downloads/sord-7.1.0.gem",
+    "sha256": "e02fd59294da520e50cea80a07fb9bc93db709c552d055871379ae8d8e87601f",
+    "format": "gem"
+  },
+  {
+    "name": "stringio",
+    "version": "3.2.0",
+    "url": "https://rubygems.org/downloads/stringio-3.2.0.gem",
+    "sha256": "c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1",
+    "format": "gem"
+  },
+  {
+    "name": "thor",
+    "version": "1.5.0",
+    "url": "https://rubygems.org/downloads/thor-1.5.0.gem",
+    "sha256": "e3a9e55fe857e44859ce104a84675ab6e8cd59c650a49106a05f55f136425e73",
+    "format": "gem"
+  },
+  {
+    "name": "tilt",
+    "version": "2.9.0",
+    "url": "https://rubygems.org/downloads/tilt-2.9.0.gem",
+    "sha256": "da5735d0280bba96e9a91041bb14aee435ccad5c17b0fa519249ae543d9aa3a5",
+    "format": "gem"
+  },
+  {
+    "name": "tsort",
+    "version": "0.2.0",
+    "url": "https://rubygems.org/downloads/tsort-0.2.0.gem",
+    "sha256": "9650a793f6859a43b6641671278f79cfead60ac714148aabe4e3f0060480089f",
+    "format": "gem"
+  },
+  {
+    "name": "unicode-display_width",
+    "version": "3.3.0",
+    "url": "https://rubygems.org/downloads/unicode-display_width-3.3.0.gem",
+    "sha256": "4b7aa66a4b11db50f6f7e98411215cd0dd10eaecb665d36eec5bcacb3fa0b613",
+    "format": "gem"
+  },
+  {
+    "name": "unicode-emoji",
+    "version": "4.3.0",
+    "url": "https://rubygems.org/downloads/unicode-emoji-4.3.0.gem",
+    "sha256": "11c02fa73290378c066bb0562cd4c87d8e1b706fbbe0059ca12746a4244de8ce",
+    "format": "gem"
+  },
+  {
+    "name": "yard",
+    "version": "0.9.45",
+    "url": "https://rubygems.org/downloads/yard-0.9.45.gem",
+    "sha256": "52e211493f7cb8a3ebf7e104a25a1e73937a3103092545d34cb88fafebb3dc51",
+    "format": "gem"
+  },
+  {
+    "name": "yard-activesupport-concern",
+    "version": "0.0.1",
+    "url": "https://rubygems.org/downloads/yard-activesupport-concern-0.0.1.gem",
+    "sha256": "be790cb0efc23e2e87677063598ac8b743586154657bbd9655a7f03ce78390ef",
+    "format": "gem"
+  },
+  {
+    "name": "yard-solargraph",
+    "version": "0.1.0",
+    "url": "https://rubygems.org/downloads/yard-solargraph-0.1.0.gem",
+    "sha256": "a19a4619c942181a618fb9458970a9d2534cf7fda69fc43949629a7948a5930e",
+    "format": "gem"
+  }
+]

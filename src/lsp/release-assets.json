@@ -1,0 +1,556 @@
+{
+  "rust-analyzer": {
+    "rust-analyzer-aarch64-apple-darwin.gz": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-aarch64-apple-darwin.gz",
+      "sha256": "64d3f6b8aacd94a93a03298d7988dfa0c747f8a4fcc539a4e59d9c9f920ca62f",
+      "format": "gz"
+    },
+    "rust-analyzer-aarch64-pc-windows-msvc.zip": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-aarch64-pc-windows-msvc.zip",
+      "sha256": "6dd175fe96b321fa28061a935951ddebd8f919b73192ee2e3d06f9bb9c01e89f",
+      "format": "zip"
+    },
+    "rust-analyzer-aarch64-unknown-linux-gnu.gz": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-aarch64-unknown-linux-gnu.gz",
+      "sha256": "3974c863acbbd96ef2cc02a7aaa79123935b05f27ffe4fd393fc229522f75cb9",
+      "format": "gz"
+    },
+    "rust-analyzer-arm-unknown-linux-gnueabihf.gz": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-arm-unknown-linux-gnueabihf.gz",
+      "sha256": "15f25744579e712b7c0a67701562cd3ba772b1cc359a6b8d86c7b6b4aa8dd9f1",
+      "format": "gz"
+    },
+    "rust-analyzer-i686-pc-windows-msvc.zip": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-i686-pc-windows-msvc.zip",
+      "sha256": "e923242e71e8ea3592a80c9e497860e24f1a55e83a4bd016557fb763c52f198b",
+      "format": "zip"
+    },
+    "rust-analyzer-x86_64-apple-darwin.gz": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-x86_64-apple-darwin.gz",
+      "sha256": "32400dfe2b1472fff9689e063dbb80b8c90e0d4f883af49de7abbba3f2e20705",
+      "format": "gz"
+    },
+    "rust-analyzer-x86_64-pc-windows-msvc.zip": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-x86_64-pc-windows-msvc.zip",
+      "sha256": "5a9d499aa26d835406cbccfc52f12bce8286733c5bfe62d79f0ed87cae2e64b9",
+      "format": "zip"
+    },
+    "rust-analyzer-x86_64-unknown-linux-gnu.gz": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-x86_64-unknown-linux-gnu.gz",
+      "sha256": "28070188df63b6f217768040781decc8db43bc9d29b126847acb365575b09bc9",
+      "format": "gz"
+    },
+    "rust-analyzer-x86_64-unknown-linux-musl.gz": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-10-05/rust-analyzer-x86_64-unknown-linux-musl.gz",
+      "sha256": "c7f8b193d3b226fd69c899c3b991a961dd9afebbe53cefca0595e089ed5285de",
+      "format": "gz"
+    }
+  },
+  "clangd": {
+    "clangd-linux-23.1.0.zip": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-linux-23.1.0.zip",
+      "sha256": "e53b1a96196095faedb7642cf64964f7fb9ad4a0c1f00dd2c172a3d9dcbafdfd",
+      "format": "zip"
+    },
+    "clangd-mac-23.1.0.zip": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-mac-23.1.0.zip",
+      "sha256": "1082e6638223b785ca2daf0939f13afcd0bb95c84ee9a4bbaff4745365159253",
+      "format": "zip"
+    },
+    "clangd-windows-23.1.0.zip": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-windows-23.1.0.zip",
+      "sha256": "23412a240756a162e7b98a282f36aa2a23a88db5ce16a0cbc4fef7253768c810",
+      "format": "zip"
+    },
+    "clangd_indexing_tools-linux-23.1.0.zip": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd_indexing_tools-linux-23.1.0.zip",
+      "sha256": "48259f33a0684760fdb363be036eb5c6f707fbeb0877e5fff58d1e6cc308a763",
+      "format": "zip"
+    },
+    "clangd_indexing_tools-mac-23.1.0.zip": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd_indexing_tools-mac-23.1.0.zip",
+      "sha256": "cb1097ba1178d03a7759c94dc8e0e62ef4f8b06d5f4d87f0043b2fb6730755ee",
+      "format": "zip"
+    },
+    "clangd_indexing_tools-windows-23.1.0.zip": {
+      "url": "https://github.com/clangd/clangd/releases/download/23.1.0/clangd_indexing_tools-windows-23.1.0.zip",
+      "sha256": "af61d011d87bdf577db45c46f05a10a4f98842027be21c642a336b95f6149e71",
+      "format": "zip"
+    }
+  },
+  "lua-language-server": {
+    "lua-language-server-3.19.1-darwin-arm64.tar.gz": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-darwin-arm64.tar.gz",
+      "sha256": "0bc077f4447f076b4c92c14e9fd303f5b569eda2ec74b4dca2b55f75fae2e90c",
+      "format": "tar.gz"
+    },
+    "lua-language-server-3.19.1-darwin-x64.tar.gz": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-darwin-x64.tar.gz",
+      "sha256": "eb373c159cbe556711d7cd316315de2dce969bfd54b31edb7eb9cab2937f2cca",
+      "format": "tar.gz"
+    },
+    "lua-language-server-3.19.1-linux-arm64.tar.gz": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-linux-arm64.tar.gz",
+      "sha256": "abd2572e8fc929dc838a81ffb8473c5bce0bf39bfe8edb4b120b3b623176ce83",
+      "format": "tar.gz"
+    },
+    "lua-language-server-3.19.1-linux-x64.tar.gz": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-linux-x64.tar.gz",
+      "sha256": "e9235d2d72ef55bc41cf8c99cda2ed64777682024b4bb81f5dea425060c5cbb8",
+      "format": "tar.gz"
+    },
+    "lua-language-server-3.19.1-submodules.zip": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-submodules.zip",
+      "sha256": "9796297d5f6932c68cb75b3fa008d9194b54d08c11afe831c9664847cbc63d63",
+      "format": "zip"
+    },
+    "lua-language-server-3.19.1-win32-ia32.zip": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-win32-ia32.zip",
+      "sha256": "27c3fe1ca2c24bbae5370882bb2c4c1cb77025734004f9cb37e79304109232fb",
+      "format": "zip"
+    },
+    "lua-language-server-3.19.1-win32-x64.zip": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.1/lua-language-server-3.19.1-win32-x64.zip",
+      "sha256": "fdb9a59108cf62517813c97fa5549b0e16d1ef0688306bac728b08434db7e4cd",
+      "format": "zip"
+    }
+  },
+  "omnisharp-roslyn": {
+    "omnisharp-linux-arm64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-arm64.tar.gz",
+      "sha256": "536bfca4a20d5bfcce3855b73a3b4a74b4e9edd4eabc430fc1c646de126020e3",
+      "format": "tar.gz"
+    },
+    "omnisharp-linux-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-arm64.zip",
+      "sha256": "ab4ef2c639ef0a116bf85335563693dc7c5b911357b21cbcfabb81aa2e44c8c1",
+      "format": "zip"
+    },
+    "omnisharp-linux-bionic-arm64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-bionic-arm64.tar.gz",
+      "sha256": "89b9ebfcb6fc29aec3c2ab15bb82bf780d0d13ee624f67bcf561459286bb6190",
+      "format": "tar.gz"
+    },
+    "omnisharp-linux-bionic-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-bionic-arm64.zip",
+      "sha256": "15e8e3a2f99f798365854604c12ddf33032b46df35e4d2c7528bff57c7c27c2f",
+      "format": "zip"
+    },
+    "omnisharp-linux-musl-arm64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-musl-arm64.tar.gz",
+      "sha256": "52ca419cf937e3c4ffe246d2787c12cdb4e70540fb296ee1e64c692cdf8a651e",
+      "format": "tar.gz"
+    },
+    "omnisharp-linux-musl-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-musl-arm64.zip",
+      "sha256": "b1f5b507bad8437bb4946d41ae598bf06f5f8ea91dbb9cc8cb8328214f5aa689",
+      "format": "zip"
+    },
+    "omnisharp-linux-musl-x64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-musl-x64.tar.gz",
+      "sha256": "fd3da881f74055d391b66f66ff957c65964c662b163777c3402c8c97adac4d9d",
+      "format": "tar.gz"
+    },
+    "omnisharp-linux-musl-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-musl-x64.zip",
+      "sha256": "57201a32d58b91efdebeb40b1f9dfa2195660dce965fb6454c49add7fbf6834e",
+      "format": "zip"
+    },
+    "omnisharp-linux-x64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-x64.tar.gz",
+      "sha256": "0e756249cdc61950aabd50c9a74fb97d6aa77a05e4d76f26589caf96c639c013",
+      "format": "tar.gz"
+    },
+    "omnisharp-linux-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-linux-x64.zip",
+      "sha256": "b1a8c1df228893c7c1842721b6155b2240b91438e857d822c7fa5fbdc04f527a",
+      "format": "zip"
+    },
+    "omnisharp-osx-arm64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-osx-arm64.tar.gz",
+      "sha256": "dd2b16f64c42085cc27980376cb795b8ee80ba58af12e219f27c392b010913d4",
+      "format": "tar.gz"
+    },
+    "omnisharp-osx-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-osx-arm64.zip",
+      "sha256": "6620cb1620fbf74ce34c636adc984f6dcd7821ab4c5b84b20d03f58c22499c2a",
+      "format": "zip"
+    },
+    "omnisharp-osx-x64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-osx-x64.tar.gz",
+      "sha256": "4096abe8595f37d3799c8fb25a4cb974ec77208453c7d1a91f99f1d83d25d94d",
+      "format": "tar.gz"
+    },
+    "omnisharp-osx-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-osx-x64.zip",
+      "sha256": "89b39594f410ed00e0d71a60f6ed5d83a188be1ee38ca5538009cfa13aaa8b48",
+      "format": "zip"
+    },
+    "omnisharp-win-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-win-arm64.zip",
+      "sha256": "90bdcb071aa62ca68e01e4b7a92deb8ae5d35921c79980e670a07a68318849f1",
+      "format": "zip"
+    },
+    "omnisharp-win-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-win-x64.zip",
+      "sha256": "05e961233b4b620f46e6bd46d762122e3008f49b01e6fd31c8d7a70e917f7bfb",
+      "format": "zip"
+    },
+    "omnisharp-win-x86.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp-win-x86.zip",
+      "sha256": "04fe6be9b60b4b3c1682dbd1c9ae92c0d97aca20b8dc4d66e5796339784a43dc",
+      "format": "zip"
+    },
+    "omnisharp.http-linux-arm64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-arm64.tar.gz",
+      "sha256": "ba12ae6622f6ba82175e59c607c73a4adafe1ec9d60cffe1304c0bcb53fb1e6f",
+      "format": "tar.gz"
+    },
+    "omnisharp.http-linux-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-arm64.zip",
+      "sha256": "d71b59818821c6dfbf74e07d09f17319f0837a9ba8ddc78ae464c8a0409ae93c",
+      "format": "zip"
+    },
+    "omnisharp.http-linux-musl-arm64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-musl-arm64.tar.gz",
+      "sha256": "d435eb469eba18937a968f2876ab9c2975cf3aa6f1c06fe11a3a6941f88833c4",
+      "format": "tar.gz"
+    },
+    "omnisharp.http-linux-musl-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-musl-arm64.zip",
+      "sha256": "33c683383b6c253f874bc25547bb3df7b743bf6637d37e0a39fc0faadb9cc1b1",
+      "format": "zip"
+    },
+    "omnisharp.http-linux-musl-x64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-musl-x64.tar.gz",
+      "sha256": "c49258229f85c8b9c6f735767dbd2cde8cb8fe11bc3ab8a76a543dca75404bd3",
+      "format": "tar.gz"
+    },
+    "omnisharp.http-linux-musl-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-musl-x64.zip",
+      "sha256": "7d5b81b9313f0581a314b2249c84bd101137afb1e321827535c433c44b51eb9d",
+      "format": "zip"
+    },
+    "omnisharp.http-linux-x64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-x64.tar.gz",
+      "sha256": "573b6408db0d50db06b52c71d1b2d973456f3cd6be3af5c9d487a9e968d980d1",
+      "format": "tar.gz"
+    },
+    "omnisharp.http-linux-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-linux-x64.zip",
+      "sha256": "c8deafa758b7e342ac50b68e7d73fd90ed89795cbab59e628a3b71932f335481",
+      "format": "zip"
+    },
+    "omnisharp.http-osx-arm64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-osx-arm64.tar.gz",
+      "sha256": "7ee4f1aefde5cd909a7e79dd78636d0a977fb80ae8d95a405a429ec197131af7",
+      "format": "tar.gz"
+    },
+    "omnisharp.http-osx-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-osx-arm64.zip",
+      "sha256": "5172c0e555d515845fcb8c852ece00afca3013cb6b279562b9c6a96491d1ac27",
+      "format": "zip"
+    },
+    "omnisharp.http-osx-x64.tar.gz": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-osx-x64.tar.gz",
+      "sha256": "2b589a91612b33cfb1df1de6431190d871086e76e0dbc1c22ad180adb1912477",
+      "format": "tar.gz"
+    },
+    "omnisharp.http-osx-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-osx-x64.zip",
+      "sha256": "11749f79ed01d02407bac5f4fc2c26ec7eb5334d318a9939da43afb976ddaa10",
+      "format": "zip"
+    },
+    "omnisharp.http-win-arm64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-win-arm64.zip",
+      "sha256": "8bb457f3541968485025b0c546e7efe07331707f21522b84a5e9c4e090590d17",
+      "format": "zip"
+    },
+    "omnisharp.http-win-x64.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-win-x64.zip",
+      "sha256": "3e36b7699a316bffb83a9669809a9d11246718025af756f28ae2a4e2f440ea0b",
+      "format": "zip"
+    },
+    "omnisharp.http-win-x86.zip": {
+      "url": "https://github.com/OmniSharp/omnisharp-roslyn/releases/download/v2.0.0/omnisharp.http-win-x86.zip",
+      "sha256": "eca6b2164302ac6b1ebbbab74171ce78360f1679a902d9c2b98ef16f974826bf",
+      "format": "zip"
+    }
+  },
+  "kotlin-language-server": {
+    "server.zip": {
+      "url": "https://github.com/fwcd/kotlin-language-server/releases/download/1.3.13/server.zip",
+      "sha256": "4fe7d71d087b307c7869036171bd9d8c6a4284cd7c25b89098b0a24eb2d9b6d2",
+      "format": "zip"
+    }
+  },
+  "jdtls": {
+    "jdt-language-server-1.61.0-202609031315.tar.gz": {
+      "url": "https://download.eclipse.org/jdtls/milestones/1.61.0/jdt-language-server-1.61.0-202609031315.tar.gz",
+      "sha256": "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64",
+      "format": "tar.gz"
+    }
+  },
+  "dart-sdk": {
+    "linux-x64": {
+      "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/dartsdk-linux-x64-release.zip",
+      "sha256": "ea864bc64df30a6b8bdf30b2e32550f7717d9a890de8f40293aeabb924fe232b",
+      "format": "zip"
+    },
+    "linux-arm64": {
+      "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/dartsdk-linux-arm64-release.zip",
+      "sha256": "19a731647c3ed55058ee46dde00330150e6a8729bb6121b4a31e86084c8a3e6d",
+      "format": "zip"
+    },
+    "darwin-x64": {
+      "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/dartsdk-macos-x64-release.zip",
+      "sha256": "15aaffcc5c6aebcf5e907f721671a9f03cdc5e0b95affa59a9d8291fb2972421",
+      "format": "zip"
+    },
+    "darwin-arm64": {
+      "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/dartsdk-macos-arm64-release.zip",
+      "sha256": "9dfe7d6f2558816c2a978aff6c80e8a4509c6cb726c0702a616c64d286f60e88",
+      "format": "zip"
+    },
+    "win32-x64": {
+      "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/dartsdk-windows-x64-release.zip",
+      "sha256": "aed8e4a8932ce8fa18ea32f990e43b4a1c9390a4c73777ab6fdf77fc9f4524d1",
+      "format": "zip"
+    },
+    "win32-arm64": {
+      "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/dartsdk-windows-arm64-release.zip",
+      "sha256": "e7df6db651743440194df9e90005f70700da171bcfb8852dd7cc26303792a09b",
+      "format": "zip"
+    }
+  },
+  "java-sdk": {
+    "linux-arm64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_aarch64_linux_hotspot_21.0.12.1_1.tar.gz",
+      "sha256": "14be1f35ebdbd1f6e8d57eb911a3ffb74d6d9aa255abc5daf2b1302002cf2cf2",
+      "format": "tar.gz"
+    },
+    "darwin-arm64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_aarch64_mac_hotspot_21.0.12.1_1.tar.gz",
+      "sha256": "dec50fc6f9fcd4fe3ae8cabf5a5fa68f6afc48841f7698e468e9aa5d54beed84",
+      "format": "tar.gz"
+    },
+    "win32-arm64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_aarch64_windows_hotspot_21.0.12.1_1.zip",
+      "sha256": "e82cc17e0bf89a25b0b0ed106d072f2ea420587d0a6870534b71b1dce3ae28c3",
+      "format": "zip"
+    },
+    "linux-x64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_linux_hotspot_21.0.12.1_1.tar.gz",
+      "sha256": "2413149700df0f7d440500a84a8f764c535f21e5a5e87d38328b64eec2c5b500",
+      "format": "tar.gz"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_mac_hotspot_21.0.12.1_1.tar.gz",
+      "sha256": "6717ec641fd9ce0bb209ca083ee23b42202ac68cb6fcc5753496e0e4a0f41989",
+      "format": "tar.gz"
+    },
+    "win32-x64": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip",
+      "sha256": "d35f31e712f0fcf6ac5a093edc90204fbff22f720ba3950bd09d331d5e621636",
+      "format": "zip"
+    }
+  },
+  "node-sdk": {
+    "linux-x64": {
+      "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.gz",
+      "sha256": "f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4",
+      "format": "tar.gz"
+    },
+    "linux-arm64": {
+      "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-arm64.tar.gz",
+      "sha256": "d28c8a5bf0a808f0ed434a1dce8c54ae98f0371c0bd86ac58abc613f73e6643f",
+      "format": "tar.gz"
+    },
+    "darwin-x64": {
+      "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-x64.tar.gz",
+      "sha256": "d1b5e999db158c62fe8f7267a4476b035d8bd93b1a605bac24a3f0dd166e3316",
+      "format": "tar.gz"
+    },
+    "darwin-arm64": {
+      "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-arm64.tar.gz",
+      "sha256": "8294b7aa9b03997481c06babf1e8b270c859358f27da57a11509afe537ac381d",
+      "format": "tar.gz"
+    },
+    "win32-x64": {
+      "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-win-x64.zip",
+      "sha256": "57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73",
+      "format": "zip"
+    },
+    "win32-arm64": {
+      "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-win-arm64.zip",
+      "sha256": "8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f",
+      "format": "zip"
+    }
+  },
+  "dotnet-sdk": {
+    "linux-arm64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-arm64.tar.gz",
+      "sha512": "58ace73ced6b4360754689a686bdfb8a317f4da6cb8bb416dbc7d0ba9f47e43e3c09f5eb1f1a1cfaacbd10df9558da4882bf2a5e195d6ab56a02c1f9f76102ed",
+      "format": "tar.gz"
+    },
+    "linux-x64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-x64.tar.gz",
+      "sha512": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
+      "format": "tar.gz"
+    },
+    "darwin32-arm64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-osx-arm64.tar.gz",
+      "sha512": "69f64eb00dc045398755c440b152225d544301a345a146a16e86a56a0c52b7c94b2c331520e976dbb821f18d31930aafbd25bb85961e3517e0665414ce0cbcff",
+      "format": "tar.gz"
+    },
+    "darwin32-x64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-osx-x64.tar.gz",
+      "sha512": "33401b4a2da8554e3306db6072ea8569d9fcc608509c271e0aa4b39e7cc432da3631f14e7e1e2445d67d72550d18ce44a8bbd2382a756867ad2edab6b1c963c0",
+      "format": "tar.gz"
+    },
+    "win32-arm64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-win-arm64.zip",
+      "sha512": "8272eaab6f06ad658b1976e19d88beed287a601f968b71d5c26b75d10587cf087665c599d2e136a911002f955c97f59aa8692581bbf6b8e7af5f82604c810256",
+      "format": "zip"
+    },
+    "win32-x64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-win-x64.zip",
+      "sha512": "24b670ad3d923bfcf47df6c3b034152398b42f6dbc388e10d783aee1cfb5e5817d399fc0ae2a12cfa822a55e61d34830ccb15c50ef6efee437ab874bb7c79430",
+      "format": "zip"
+    }
+  },
+  "rust-sdk": {
+    "linux-x64": {
+      "rustc": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "238e72b8617f79bc96f27a5bfeb1a208b5755fe1a48f8bc190fe403ef6d54ab8",
+        "format": "tar.gz"
+      },
+      "cargo": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "c2b8ba1f59e7a230aa5522684f3f7aa620b98e5ad37683a5e5cf9b41f534fa1e",
+        "format": "tar.gz"
+      },
+      "rust-std": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "1dcaa01beb6bc78fdb13815b4f15214719167c58e3d79fbdf214591f8c195ee1",
+        "format": "tar.gz"
+      },
+      "rust-src": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz",
+        "sha256": "82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7",
+        "format": "tar.gz"
+      }
+    },
+    "linux-arm64": {
+      "rustc": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "6780ebb1b8ae66cc5d37ebfdc70b18fe775b1083c997f4e2c963d45a7eec59bc",
+        "format": "tar.gz"
+      },
+      "cargo": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "f8b85e84b0514b69e17e3bad1c2dec7526f4a40cec565d233bbdcb66484dd9e0",
+        "format": "tar.gz"
+      },
+      "rust-std": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "cdffa7100206633ccfd2514ea7781b4211813bf04c831a509240e1cda5308512",
+        "format": "tar.gz"
+      },
+      "rust-src": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz",
+        "sha256": "82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7",
+        "format": "tar.gz"
+      }
+    },
+    "darwin-x64": {
+      "rustc": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-apple-darwin.tar.gz",
+        "sha256": "4b909ba0153d4a67eb83a31ef11157b7c54e5c04a323d80e46436b778c18df52",
+        "format": "tar.gz"
+      },
+      "cargo": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-x86_64-apple-darwin.tar.gz",
+        "sha256": "ec5bd1c782e5b9d58cfcafbc4131d19fd7ca2ec6b1a197f2fd1a1f953802a26a",
+        "format": "tar.gz"
+      },
+      "rust-std": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-x86_64-apple-darwin.tar.gz",
+        "sha256": "7321ff86554726b8ab7b0a5c0d9ba0a3e763824f5d09b0c997e36bd72b80fa06",
+        "format": "tar.gz"
+      },
+      "rust-src": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz",
+        "sha256": "82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7",
+        "format": "tar.gz"
+      }
+    },
+    "darwin-arm64": {
+      "rustc": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-aarch64-apple-darwin.tar.gz",
+        "sha256": "2f6b9c9cdc9c2e87ab2e27335e8bb0c4dbe4daea486e39030b66980058f74353",
+        "format": "tar.gz"
+      },
+      "cargo": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-aarch64-apple-darwin.tar.gz",
+        "sha256": "318b85c276b43134102fb49bbb54bfd0757e5cce47a772461149aeab5adea2ab",
+        "format": "tar.gz"
+      },
+      "rust-std": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-aarch64-apple-darwin.tar.gz",
+        "sha256": "3589b3a6c6470d590aa5aa7fa1a4af0101103847761a5372a7300b0aa85699c6",
+        "format": "tar.gz"
+      },
+      "rust-src": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz",
+        "sha256": "82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7",
+        "format": "tar.gz"
+      }
+    },
+    "win32-x64": {
+      "rustc": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.gz",
+        "sha256": "4d05087fd7786cceb9460f573df54d1c0511ff3aa121e8e8da346c325b9fc3f6",
+        "format": "tar.gz"
+      },
+      "cargo": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-x86_64-pc-windows-msvc.tar.gz",
+        "sha256": "5e7c399c9bcc944791dcd6cb666eec826bfa8cd04e4b81b7790c030165927965",
+        "format": "tar.gz"
+      },
+      "rust-std": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-x86_64-pc-windows-msvc.tar.gz",
+        "sha256": "0f755f2339d6fcb97da532cde33566350e9690398a0fdd06fba8fc281e0bd6dc",
+        "format": "tar.gz"
+      },
+      "rust-src": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz",
+        "sha256": "82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7",
+        "format": "tar.gz"
+      }
+    },
+    "win32-arm64": {
+      "rustc": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-aarch64-pc-windows-msvc.tar.gz",
+        "sha256": "6e78661180d14b185e59c85f8f5a3df6a251269f97be441d9032191383185b8c",
+        "format": "tar.gz"
+      },
+      "cargo": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-aarch64-pc-windows-msvc.tar.gz",
+        "sha256": "cac186febba94cbbf20fa9890d3f23b517d977f5a3b0ff6cc7aae54e1d73a346",
+        "format": "tar.gz"
+      },
+      "rust-std": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-aarch64-pc-windows-msvc.tar.gz",
+        "sha256": "ff6cee0ef9149d9664167fe6de74ad2816d3f6c5f34a17f5f6496cb769014d1d",
+        "format": "tar.gz"
+      },
+      "rust-src": {
+        "url": "https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz",
+        "sha256": "82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7",
+        "format": "tar.gz"
+      }
+    }
+  }
+}

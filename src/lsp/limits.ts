@@ -15,4 +15,6 @@ export const LSP_LIMITS = Object.freeze({
   symbols: 200,
   contextBytes: 8 * 1024,
   contextDiagnostics: 20,
+  servers: 16,
+  preparationMs: 300_000,
 });

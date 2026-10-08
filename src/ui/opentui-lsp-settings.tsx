@@ -7,6 +7,7 @@ import {
   globalLspMode,
   type LspConfig,
   type LspMode,
+  type LspServerConfig,
   LspServerIdSchema,
   LspServerSchema,
   type ProjectLspConfig,
@@ -25,6 +26,11 @@ export interface SettingsPanelControl {
 }
 interface ServerDraft {
   id: string;
+  backend: "typescript" | "generic";
+  languages: string;
+  extensions: string;
+  initialization: string;
+  settings: string;
   node: string;
   server: string;
   typescript: string;
@@ -34,6 +40,11 @@ interface ServerDraft {
 }
 const newDraft = (): ServerDraft => ({
   id: "typescript",
+  backend: "typescript",
+  languages: "",
+  extensions: "",
+  initialization: "{}",
+  settings: "{}",
   node: "",
   server: "",
   typescript: "",
@@ -41,6 +52,32 @@ const newDraft = (): ServerDraft => ({
   args: "",
   trustedWorkspaces: [],
 });
+function draftConfig(draft: ServerDraft): LspServerConfig {
+  const common = {
+    enabled: draft.enabled,
+    command: draft.node,
+    trustedWorkspaces: [...draft.trustedWorkspaces],
+  };
+  const args = draft.args.split("\n").filter((arg) => arg.trim().length > 0);
+  return LspServerSchema.parse(
+    draft.backend === "typescript"
+      ? {
+          ...common,
+          backend: "typescript",
+          args: [draft.server, "--stdio", ...args],
+          typescriptPath: draft.typescript,
+        }
+      : {
+          ...common,
+          backend: "generic",
+          args,
+          languageIds: draft.languages.split(/[\s,]+/).filter(Boolean),
+          extensions: draft.extensions.split(/[\s,]+/).filter(Boolean),
+          initializationOptions: JSON.parse(draft.initialization || "{}"),
+          settings: JSON.parse(draft.settings || "{}"),
+        },
+  );
+}
 export const LSP_STATE_LABELS: Record<LspState, string> = {
   disabled: "Выключен",
   untrusted: "Нет разрешения для проекта",
@@ -204,22 +241,51 @@ export function OpenTuiLspSettings({
       clearInterval(timer);
     };
   }, [active, actions]);
-  const editServer = (id?: string) => {
+  const editServer = (
+    id?: string,
+    backend: "typescript" | "generic" = "typescript",
+  ) => {
     const server = id ? global.servers[id] : undefined;
     const next = server
       ? {
           id: id ?? "",
+          backend: server.backend,
+          languages:
+            server.backend === "generic" ? server.languageIds.join(", ") : "",
+          extensions:
+            server.backend === "generic" ? server.extensions.join(", ") : "",
+          initialization: JSON.stringify(
+            server.backend === "generic"
+              ? (server.initializationOptions ?? {})
+              : {},
+            null,
+            2,
+          ),
+          settings: JSON.stringify(
+            server.backend === "generic" ? (server.settings ?? {}) : {},
+            null,
+            2,
+          ),
           node: server.command,
           server: server.args[0] ?? "",
-          typescript: server.typescriptPath,
+          typescript:
+            server.backend === "typescript" ? server.typescriptPath : "",
           enabled: server.enabled,
-          args: server.args.slice(2).join("\n"),
+          args: (server.backend === "typescript"
+            ? server.args.slice(2)
+            : server.args
+          ).join("\n"),
           trustedWorkspaces: [...server.trustedWorkspaces],
         }
-      : newDraft();
+      : {
+          ...newDraft(),
+          backend,
+          id: backend === "generic" ? "custom" : "typescript",
+        };
     if (!server) {
       let suffix = 1;
-      while (global.servers[next.id]) next.id = `typescript-${suffix++}`;
+      while (global.servers[next.id])
+        next.id = `${backend === "generic" ? "custom" : "typescript"}-${suffix++}`;
     }
     setDraft(next);
     setOriginalId(id);
@@ -286,21 +352,7 @@ export function OpenTuiLspSettings({
           const id = LspServerIdSchema.parse(nextDraft.id);
           if (id !== originalId && nextGlobal.servers[id])
             throw new Error("Server ID уже существует. Выберите другое имя.");
-          const server = LspServerSchema.parse({
-            enabled: nextDraft.enabled,
-            backend: "typescript",
-            command: nextDraft.node,
-            args: [
-              nextDraft.server,
-              "--stdio",
-              ...nextDraft.args
-                .split("\n")
-                .map((arg) => arg.trim())
-                .filter(Boolean),
-            ],
-            typescriptPath: nextDraft.typescript,
-            trustedWorkspaces: nextDraft.trustedWorkspaces,
-          });
+          const server = draftConfig(nextDraft);
           if (originalId && originalId !== id)
             delete nextGlobal.servers[originalId];
           nextGlobal.servers[id] = server;
@@ -413,22 +465,7 @@ export function OpenTuiLspSettings({
     const value = accepted();
     if (!value) return;
     run(async (signal) => {
-      const message = await actions.check(
-        value.id,
-        {
-          enabled: value.enabled,
-          backend: "typescript",
-          command: value.node,
-          args: [
-            value.server,
-            "--stdio",
-            ...value.args.split("\n").filter(Boolean),
-          ],
-          typescriptPath: value.typescript,
-          trustedWorkspaces: value.trustedWorkspaces,
-        },
-        signal,
-      );
+      const message = await actions.check(value.id, draftConfig(value), signal);
       if (alive.current && !signal.aborted) setNotice(message);
     });
   };
@@ -453,7 +490,7 @@ export function OpenTuiLspSettings({
     label: `${mode === value ? "[x]" : "[ ]"} ${modeLabels[value]}`,
     value:
       value === "auto"
-        ? "TypeScript/JavaScript · без ручных путей"
+        ? "Язык и проект автоматически · подготовка при первом запросе"
         : value === "custom"
           ? "Свой установленный сервер · явное доверие"
           : "Не запускать анализ кода",
@@ -568,9 +605,19 @@ export function OpenTuiLspSettings({
             ...(
               [
                 ["id", "Server ID"],
-                ["node", "Node.js"],
-                ["server", "Language server"],
-                ["typescript", "TypeScript"],
+                [
+                  "node",
+                  draft.backend === "generic" ? "Исполняемый файл" : "Node.js",
+                ],
+                ...(draft.backend === "typescript"
+                  ? ([
+                      ["server", "Language server"],
+                      ["typescript", "TypeScript"],
+                    ] as const)
+                  : ([
+                      ["languages", "Language IDs (через запятую)"],
+                      ["extensions", "Дополнительные расширения (.foo)"],
+                    ] as const)),
               ] as const
             ).map(([id, label]) => ({
               id,
@@ -594,12 +641,28 @@ export function OpenTuiLspSettings({
               label: "Дополнительные параметры",
               value: draft.args
                 ? `${draft.args.split("\n").length} argv строк`
-                : "Пресет: --stdio",
+                : draft.backend === "typescript"
+                  ? "Пресет: --stdio"
+                  : "Пустой argv · без shell",
               activate() {
                 setEditing("args");
                 setText(draft.args);
               },
             },
+            ...(draft.backend === "generic"
+              ? (["initialization", "settings"] as const).map((id) => ({
+                  id,
+                  label:
+                    id === "initialization"
+                      ? "Initialization options (JSON)"
+                      : "Server settings (JSON)",
+                  value: "Расширенные параметры · 64 KiB · без credentials",
+                  activate() {
+                    setEditing(id);
+                    setText(draft[id]);
+                  },
+                }))
+              : []),
             {
               id: "trust",
               label: "Разрешить этот проект / отозвать",
@@ -681,16 +744,36 @@ export function OpenTuiLspSettings({
                   },
                 ]
               : []),
+            ...(mode === "auto"
+              ? (state?.status.catalog ?? []).map((item) => ({
+                  id: item.id,
+                  label: item.title,
+                  value: `${item.version} · ${item.platformAvailable === false ? "Нет Auto пакета для этой ОС/CPU · своя настройка" : (item.prerequisites ?? "Готовится автоматически")}`,
+                  activate() {
+                    setNotice(
+                      `${item.title}: ${item.languages.join(", ")}. ${item.prerequisites ?? "Сервер готовится при первом запросе; сохранение ничего не запускает."}`,
+                    );
+                  },
+                }))
+              : []),
             ...(mode === "custom"
               ? [
                   ...entries.map(([id, server]) => ({
                     id,
                     label: id,
-                    value: `TypeScript/JavaScript · ${server.enabled ? "включён" : "выключен"}`,
+                    value: `${server.backend === "generic" ? server.languageIds.join(", ") : "TypeScript/JavaScript"} · ${server.enabled ? "включён" : "выключен"}`,
                     activate() {
                       editServer(id);
                     },
                   })),
+                  {
+                    id: "add-generic",
+                    label: "Подключить совместимый LSP",
+                    value: "Любой язык · stdio · свой executable и argv",
+                    activate() {
+                      editServer(undefined, "generic");
+                    },
+                  },
                   {
                     id: "add",
                     label: "Добавить TypeScript/JavaScript",
@@ -803,9 +886,9 @@ export function OpenTuiLspSettings({
               ? "Аргументы: одна строка = argv"
               : rows.find((row) => row.id === editing)?.label}
           </text>
-          {editing === "args" ? (
+          {["args", "initialization", "settings"].includes(editing) ? (
             <textarea
-              id="lsp-field-args"
+              id={`lsp-field-${editing}`}
               ref={argsEditor}
               initialValue={text}
               focused={active && focused}
@@ -878,7 +961,7 @@ export function OpenTuiLspSettings({
           {details && !compact && (
             <text fg={palette.muted}>
               {terminalLine(
-                `server ${state?.status.versions?.server ?? "?"}; TS ${state?.status.versions?.typescript ?? "?"}; ${state?.status.versions?.runtime ?? "?"}; generation ${state?.status.generation ?? 0}; documents ${state?.status.trackedDocuments ?? 0}`,
+                `server ${state?.status.versions?.server ?? "?"}${state?.status.versions?.typescript ? `; TS ${state.status.versions.typescript}` : ""}; ${state?.status.versions?.runtime ?? "?"}; generation ${state?.status.generation ?? 0}; documents ${state?.status.trackedDocuments ?? 0}`,
                 width,
               )}
             </text>
@@ -894,10 +977,10 @@ export function OpenTuiLspSettings({
                 : scope === "project" && projectMode === "auto"
                   ? "Auto не требует доверия каждому проекту. Свои исполняемые файлы — требуют."
                   : mode === "auto"
-                    ? "Стандартный backend включён в ChiselCode. Проект определяется автоматически."
+                    ? "Сервер и SDK готовятся по запросу. Неизвестный язык — своя настройка."
                     : mode === "off"
                       ? "Серверы остановлены. Чтобы вернуть анализ, выберите Auto."
-                      : "Свой Node >=22.22.2, server 6.0.1, TypeScript 6. Нужны пути и доверие."),
+                      : "Совместимый stdio LSP: executable, argv, языки и доверие проекта."),
             width,
           )}
         </text>

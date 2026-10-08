@@ -372,10 +372,13 @@ for (const backend of ["auto", "custom"] as const)
 test("Auto detects nested TS/JS projects; unsupported files do not start it; global Off/custom trust changes fence the old process", async () => {
   const f = await fixture("auto");
   const r = await runtime(f, { mode: "plan" });
-  await writeFile(join(f.root, "unsupported.py"), "x = 1\n");
+  await writeFile(join(f.root, "unsupported.unsupported"), "x = 1\n");
   expect(
-    (await r.call("ext:builtin.lsp:diagnostics", { path: "unsupported.py" }))
-      .errorCode,
+    (
+      await r.call("ext:builtin.lsp:diagnostics", {
+        path: "unsupported.unsupported",
+      })
+    ).errorCode,
   ).toBe("LSP_UNSUPPORTED");
   expect((await f.service.status()).generation).toBe(0);
   await writeFile(

@@ -175,7 +175,9 @@ export class LspTransport {
     };
     // The compiled CLI doubles as its bundled Bun runtime for the vetted backend
     // and tsserver's child_process.fork. Custom Node launches never inherit this.
-    if (launch.kind === "auto") env.BUN_BE_BUN = "1";
+    if (launch.kind === "auto" && launch.command === process.execPath)
+      env.BUN_BE_BUN = "1";
+    if (launch.environment) Object.assign(env, launch.environment);
     for (const key of [
       "SystemRoot",
       "SYSTEMROOT",
@@ -260,7 +262,29 @@ export class LspTransport {
         };
       if (method === "workspace/configuration") {
         const items = (params as { items?: unknown[] } | undefined)?.items;
-        return Array.isArray(items) ? items.slice(0, 32).map(() => ({})) : [];
+        return Array.isArray(items)
+          ? items.slice(0, 32).map((item) => {
+              const section =
+                item && typeof item === "object"
+                  ? (item as { section?: unknown }).section
+                  : undefined;
+              if (section === undefined || section === "")
+                return launch.settings ?? {};
+              if (typeof section !== "string" || section.length > 128)
+                return {};
+              let value: unknown = launch.settings ?? {};
+              for (const key of section.split(".")) {
+                if (
+                  !value ||
+                  typeof value !== "object" ||
+                  !Object.hasOwn(value, key)
+                )
+                  return {};
+                value = (value as Record<string, unknown>)[key];
+              }
+              return value ?? {};
+            })
+          : [];
       }
       return new ResponseError(
         ErrorCodes.MethodNotFound,

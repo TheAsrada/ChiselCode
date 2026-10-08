@@ -66,6 +66,7 @@ export async function autoLspLaunch(root: string): Promise<LspLaunch> {
   return {
     id: AUTO_SERVER_ID,
     kind: "auto",
+    backend: "typescript",
     command,
     args,
     typescriptPath,
@@ -88,6 +89,11 @@ export async function prepareAutoBackend(
 ): Promise<LspLaunch> {
   cancelled(signal);
   const launch = await autoLspLaunch(root);
+  if (!launch.typescriptPath)
+    throw new RuntimeError(
+      "LSP_UNAVAILABLE",
+      "Bundled TypeScript runtime is missing.",
+    );
   const cache = dirname(dirname(launch.typescriptPath));
   const destination = dirname(cache);
   let work = pending.get(destination);
