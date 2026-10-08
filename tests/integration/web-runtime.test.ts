@@ -226,7 +226,7 @@ for (const approval of ["default", "dontAsk", "bypassPermissions"] as const)
     } finally {
       await env.close();
     }
-  });
+  }, 15000); // Nineteen terminal checkpoints require a bounded Windows IO budget.
 
 test("default Allow rejects DNS with any private, reserved or metadata address", async () => {
   for (const addresses of [

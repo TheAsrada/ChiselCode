@@ -216,6 +216,37 @@ test("versioned diagnostics track bytes, old notifications cannot replace curren
     log.filter((item) => item.method === "textDocument/didSave"),
   ).toHaveLength(2);
 }, 15_000);
+test("advertised pull diagnostics bind to synchronized bytes, clear errors and reject invalid reports", async () => {
+  const f = await fixture({ pullDiagnostics: true, noDiagnostics: true });
+  const first = await f.service.diagnostics("main.ts", f.port);
+  expect(first.freshness).toBe("current");
+  expect(first.provenance).toContain("diagnostic request");
+  expect(first.diagnostics[0]?.code).toBe(999);
+  expect(await f.service.collectContext()).toContain("fixture error");
+  await writeFile(join(f.root, "main.ts"), "export const value = 1;\n");
+  const clean = await f.service.diagnostics("main.ts", f.port);
+  expect(clean.revision).not.toBe(first.revision);
+  expect(clean.freshness).toBe("current");
+  expect(clean.diagnostics).toEqual([]);
+  await f.update({
+    pullDiagnostics: true,
+    invalidPull: true,
+    noDiagnostics: true,
+  });
+  await expect(f.service.diagnostics("main.ts", f.port)).rejects.toMatchObject({
+    code: "LSP_PROTOCOL_ERROR",
+  });
+  await f.update({ pullDiagnostics: true, noDiagnostics: true, pullDelay: 80 });
+  const pending = f.service.diagnostics("main.ts", f.port);
+  await poll(
+    f.log,
+    (events) =>
+      events.filter((event) => event.method === "textDocument/diagnostic")
+        .length >= 4,
+  );
+  await writeFile(join(f.root, "main.ts"), "export const changed = 2;\n");
+  await expect(pending).rejects.toMatchObject({ code: "STALE_FILE_REVISION" });
+});
 test("unversioned provisional empty remains observed; external change invalidates context without sync or observations", async () => {
   const f = await fixture({
     unversioned: true,

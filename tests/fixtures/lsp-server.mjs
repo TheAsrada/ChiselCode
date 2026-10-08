@@ -91,6 +91,14 @@ async function receive(message) {
                 definitionProvider: !settings.unsupported,
                 referencesProvider: true,
                 documentSymbolProvider: true,
+                ...(settings.pullDiagnostics
+                  ? {
+                      diagnosticProvider: {
+                        interFileDependencies: false,
+                        workspaceDiagnostics: false,
+                      },
+                    }
+                  : {}),
               },
             },
           },
@@ -136,6 +144,22 @@ async function receive(message) {
   if (method === "textDocument/didClose") {
     documents.delete(params.textDocument.uri);
     return;
+  }
+  if (method === "textDocument/diagnostic") {
+    const doc = documents.get(params.textDocument.uri);
+    return setTimeout(
+      () =>
+        send({
+          id,
+          result: settings.invalidPull
+            ? { kind: "unchanged" }
+            : {
+                kind: "full",
+                items: doc.text.includes("error") ? [diagnostic] : [],
+              },
+        }),
+      settings.pullDelay ?? 0,
+    );
   }
   if (method === "fixture/echo")
     return send(

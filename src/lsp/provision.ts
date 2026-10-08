@@ -682,6 +682,9 @@ export async function catalogLspLaunch(
   let command = process.execPath;
   let serverVersion = descriptor.version;
   const settings = structuredClone(descriptor.settings ?? {});
+  const initializationOptions = structuredClone(
+    descriptor.initializationOptions ?? {},
+  );
   let args: string[] = [];
   let environment: Record<string, string> = {};
   if (recipe.type === "npm") {
@@ -773,6 +776,9 @@ export async function catalogLspLaunch(
         sysrootSrc: join(sdk, "lib/rustlib/src/rust/library"),
         extraEnv: { RUSTC: environment.RUSTC, CARGO_NET_OFFLINE: "true" },
       };
+      // Apply curated safety/settings before the first workspace discovery,
+      // rather than relying on asynchronous post-initialize configuration.
+      Object.assign(initializationOptions, structuredClone(analyzer));
     }
   } else if (recipe.type === "go") {
     const sdkArtifact = (goSdk.assets as Record<string, Artifact>)[platform()];
@@ -1061,9 +1067,7 @@ export async function catalogLspLaunch(
     args,
     environment,
     settings,
-    initializationOptions: structuredClone(
-      descriptor.initializationOptions ?? {},
-    ),
+    initializationOptions,
     serverVersion,
     fingerprint: JSON.stringify([
       descriptor.id,

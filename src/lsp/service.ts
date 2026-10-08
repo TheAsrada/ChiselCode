@@ -92,6 +92,7 @@ export interface LspStatus {
   capabilities?: readonly string[];
 }
 interface Document extends LspFile {
+  diagnosticEvidence?: "versioned_push" | "unversioned_push" | "pull_request";
   version: number;
   generation: number;
   freshness: DiagnosticFreshness;
@@ -530,6 +531,10 @@ export class LspService {
                 versionSupport: true,
                 relatedInformation: true,
               },
+              diagnostic: {
+                dynamicRegistration: false,
+                relatedDocumentSupport: false,
+              },
             },
             workspace: {
               configuration:
@@ -857,6 +862,9 @@ export class LspService {
       entry.generation !== generation ||
       entry.state !== "ready" ||
       entry.requiresRestart ||
+      // A pull-capable server may push syntax-only/provisional subsets too.
+      // Keep request-bound full reports as the sole cache source for it.
+      entry.capabilities.diagnosticProvider ||
       !payload ||
       typeof payload !== "object"
     )
@@ -899,17 +907,30 @@ export class LspService {
     )
       return;
     doc.notificationSerial = receipt;
+    await this.recordDiagnostics(
+      entry,
+      generation,
+      doc,
+      notification.diagnostics,
+      policy,
+      notification.version === undefined
+        ? "unversioned_push"
+        : "versioned_push",
+    );
+  }
+  private async recordDiagnostics(
+    entry: Server,
+    generation: number,
+    doc: Document,
+    items: unknown[],
+    policy: WorkspacePolicy,
+    evidence: NonNullable<Document["diagnosticEvidence"]>,
+  ): Promise<void> {
     const version = doc.version;
     const serial = ++doc.serial;
     const diagnostics: LspDiagnostic[] = [];
-    let omitted = Math.max(
-      0,
-      notification.diagnostics.length - LSP_LIMITS.diagnostics,
-    );
-    for (const raw of notification.diagnostics.slice(
-      0,
-      LSP_LIMITS.diagnostics,
-    )) {
+    let omitted = Math.max(0, items.length - LSP_LIMITS.diagnostics);
+    for (const raw of items.slice(0, LSP_LIMITS.diagnostics)) {
       if (!raw || typeof raw !== "object") {
         ++omitted;
         continue;
@@ -974,14 +995,15 @@ export class LspService {
       return;
     doc.diagnostics = diagnostics;
     doc.omitted = omitted;
-    doc.freshness = notification.version === undefined ? "observed" : "current";
+    doc.freshness = evidence === "unversioned_push" ? "observed" : "current";
+    doc.diagnosticEvidence = evidence;
     ++doc.serial;
     try {
       await this.evict(entry, doc.path);
     } catch {
       doc.diagnostics = [];
       doc.freshness = "unavailable";
-      doc.omitted = notification.diagnostics.length;
+      doc.omitted = items.length;
     }
   }
   private async refreshDocuments(
@@ -1162,8 +1184,38 @@ export class LspService {
     path: string,
     port: LspReadPort,
   ): Promise<DiagnosticResult> {
-    return this.query(path, port, async (entry, doc, signal) => {
-      if (doc.freshness === "pending" || doc.freshness === "stale") {
+    return this.query(path, port, async (entry, doc, signal, policy) => {
+      if (entry.capabilities.diagnosticProvider) {
+        const provider = entry.capabilities.diagnosticProvider as {
+          identifier?: unknown;
+        };
+        const report = await entry.transport?.request<{
+          kind?: unknown;
+          items?: unknown;
+        }>(
+          "textDocument/diagnostic",
+          {
+            textDocument: { uri: doc.uri },
+            ...(typeof provider.identifier === "string"
+              ? { identifier: provider.identifier }
+              : {}),
+          },
+          signal,
+        );
+        if (report?.kind !== "full" || !Array.isArray(report.items))
+          throw new RuntimeError(
+            "LSP_PROTOCOL_ERROR",
+            "Language server returned an invalid document diagnostic report.",
+          );
+        await this.recordDiagnostics(
+          entry,
+          entry.generation,
+          doc,
+          report.items,
+          policy,
+          "pull_request",
+        );
+      } else if (doc.freshness === "pending" || doc.freshness === "stale") {
         await this.waitForDiagnostics(doc, signal);
       }
       const freshness =
@@ -1177,7 +1229,9 @@ export class LspService {
         freshness,
         provenance:
           freshness === "current"
-            ? "Server confirmed this document version."
+            ? doc.diagnosticEvidence === "pull_request"
+              ? "Server answered the diagnostic request after this document was synchronized; revision/generation revalidated."
+              : "Server confirmed this document version."
             : freshness === "observed"
               ? "Получено от сервера; версия анализа не подтверждена. Пустой набор не подтверждает отсутствие ошибок."
               : "Подтверждённого результата проверки пока нет.",

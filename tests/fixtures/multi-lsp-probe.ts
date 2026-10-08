@@ -92,6 +92,40 @@ for (const language of process.argv.slice(2)) {
       await Bun.sleep(250);
       diagnostic = await service.diagnostics(path, port);
     }
+    // Project-backed servers finish discovery asynchronously after initialize.
+    // Wait for the actual diagnostic evidence before checking cross-file data.
+    if (
+      [
+        "python",
+        "go",
+        "rust",
+        "cpp",
+        "csharp",
+        "java",
+        "dart",
+        "css",
+        "json",
+        "yaml",
+        "docker",
+      ].includes(language)
+    ) {
+      for (
+        let attempt = 0;
+        attempt < 60 && !diagnostic.diagnostics.length;
+        ++attempt
+      ) {
+        await Bun.sleep(500);
+        diagnostic = await service.diagnostics(path, port);
+      }
+      assert.ok(
+        diagnostic.diagnostics.length > 0,
+        `${language}: expected real diagnostic missing`,
+      );
+      assert.ok(
+        ["current", "observed"].includes(diagnostic.freshness),
+        `${language}: invalid provenance`,
+      );
+    }
     const symbols = await service.documentSymbols(path, port);
     const status = await service.status();
     descendants = await lspProcessTree();
@@ -138,38 +172,6 @@ for (const language of process.argv.slice(2)) {
           (definition as { locations: unknown[] }).locations.length > 0,
           `${language}: actual definition missing`,
         );
-    }
-    if (
-      [
-        "python",
-        "go",
-        "rust",
-        "cpp",
-        "csharp",
-        "java",
-        "dart",
-        "css",
-        "json",
-        "yaml",
-        "docker",
-      ].includes(language)
-    ) {
-      for (
-        let attempt = 0;
-        attempt < 60 && !diagnostic.diagnostics.length;
-        ++attempt
-      ) {
-        await Bun.sleep(500);
-        diagnostic = await service.diagnostics(path, port);
-      }
-      assert.ok(
-        diagnostic.diagnostics.length > 0,
-        `${language}: expected real diagnostic missing`,
-      );
-      assert.ok(
-        ["current", "observed"].includes(diagnostic.freshness),
-        `${language}: invalid provenance`,
-      );
     }
     const evidence = {
       freshness: diagnostic.freshness,
