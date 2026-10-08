@@ -538,7 +538,12 @@ try {
 
   await send("/pause collision");
   await until(() => waits.has("collision"), "No collision wait");
+  const beforeCollisionParse = parses;
   await send("/peek");
+  await until(
+    () => parses === beforeCollisionParse + 1,
+    "Command was not prepared before changing skill membership",
+  );
   const beforeCollision = peeks;
   const skill = join(userSkillsDir(), "peek");
   await mkdir(skill, { recursive: true });
