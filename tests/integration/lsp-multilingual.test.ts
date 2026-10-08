@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -28,7 +29,9 @@ import { createSession } from "../../src/sessions/store.js";
 import { installedLsp } from "../fixtures/lsp-runtime.js";
 
 test("manual generic LSP uses the same service for a new language, exact trust, observations and revocation", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "chisel-generic-lsp-"));
+  const directory = await realpath(
+    await mkdtemp(join(tmpdir(), "chisel-generic-lsp-")),
+  );
   const root = join(directory, "workspace");
   await mkdir(root);
   const peer = join(directory, "peer.mjs");
@@ -96,7 +99,9 @@ test("manual generic LSP uses the same service for a new language, exact trust, 
 });
 
 test("real Auto Python and Lua share a workspace through core tools; revisions, source persistence, navigation and cleanup", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "chisel-real-multilingual-"));
+  const directory = await realpath(
+    await mkdtemp(join(tmpdir(), "chisel-real-multilingual-")),
+  );
   const root = join(directory, "workspace");
   await mkdir(root);
   const configPath = join(directory, "config.json");

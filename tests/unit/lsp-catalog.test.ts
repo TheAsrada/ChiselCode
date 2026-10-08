@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -24,7 +31,9 @@ import { catalogLspLaunch } from "../../src/lsp/provision.js";
 import { WorkspacePolicy } from "../../src/security/workspace-policy.js";
 
 test("project detection chooses the nearest permitted project and manual scripts cannot run from the repository", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "chisel-language-project-"));
+  const directory = await realpath(
+    await mkdtemp(join(tmpdir(), "chisel-language-project-")),
+  );
   try {
     const root = join(directory, "workspace");
     const nested = join(root, "app");

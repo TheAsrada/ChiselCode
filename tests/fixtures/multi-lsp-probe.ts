@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LspService } from "../../src/lsp/service.js";
@@ -66,7 +66,9 @@ for (const language of process.argv.slice(2)) {
   const example = examples[language];
   if (!example) throw new Error(`Unknown fixture language: ${language}`);
   const [path, text, files] = example;
-  const root = await mkdtemp(join(tmpdir(), `chisel-real-${language}-`));
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), `chisel-real-${language}-`)),
+  );
   const service = new LspService(
     root,
     async () => ({ global: { servers: {} }, ignorePatterns: [] }),
@@ -167,19 +169,20 @@ for (const language of process.argv.slice(2)) {
         `${language}: invalid provenance`,
       );
     }
-    console.log(
-      language,
-      Date.now() - start,
-      JSON.stringify({
-        freshness: diagnostic.freshness,
-        diagnostics: diagnostic.diagnostics.length,
-        symbols: symbolItems.length,
-        definitions: (definition as { locations?: unknown[] } | undefined)
-          ?.locations?.length,
-        serverId: status.serverId,
-        generation: status.generation,
-      }),
-    );
+    const evidence = {
+      freshness: diagnostic.freshness,
+      diagnostics: diagnostic.diagnostics.length,
+      symbols: symbolItems.length,
+      definitions: (definition as { locations?: unknown[] } | undefined)
+        ?.locations?.length,
+      serverId: status.serverId,
+      generation: status.generation,
+    };
+    console.log(language, Date.now() - start, JSON.stringify(evidence));
+    if (process.env.GITHUB_ACTIONS)
+      console.log(
+        `::notice title=Real LSP ${language}::${JSON.stringify(evidence)}`,
+      );
   } catch (error) {
     console.log(
       language,
@@ -188,6 +191,17 @@ for (const language of process.argv.slice(2)) {
         ? [error.message, (error as { details?: unknown }).details]
         : error,
     );
+    if (process.env.GITHUB_ACTIONS) {
+      const diagnostic = JSON.stringify({
+        language,
+        error: error instanceof Error ? error.message : String(error),
+        details: (error as { details?: unknown })?.details,
+      })
+        .replaceAll("%", "%25")
+        .replaceAll("\r", "%0D")
+        .replaceAll("\n", "%0A");
+      console.error(`::error title=Real LSP ${language}::${diagnostic}`);
+    }
     process.exitCode = 1;
   } finally {
     await service.dispose();

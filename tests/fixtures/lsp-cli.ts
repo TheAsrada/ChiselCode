@@ -185,7 +185,9 @@ export async function smokeLspCli(
       {
         cwd: root,
         reject: false,
-        timeout: 120000,
+        // A cold standard SDK has the same five-minute preparation budget as
+        // production, plus bounded CLI startup/shutdown overhead.
+        timeout: 360000,
         env: {
           XDG_CONFIG_HOME: directory,
           XDG_DATA_HOME: directory,
@@ -196,7 +198,15 @@ export async function smokeLspCli(
       },
     );
     if (failure) throw failure;
-    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(
+      result.exitCode,
+      0,
+      JSON.stringify({
+        stderr: result.stderr,
+        signal: result.signal,
+        timedOut: result.timedOut,
+      }),
+    );
     const output = JSON.parse(result.stdout);
     assert.equal(output.status, "completed");
     assert.equal(output.text, "Real LSP contribution verified");
