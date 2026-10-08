@@ -377,6 +377,12 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       await click("settings-route-tools.lsp");
       await capture("lsp-ready-unicode-120x40");
       await click("settings-route-appearance");
+      await click("settings-theme-paper");
+      await click("settings-route-tools.lsp");
+      await capture("lsp-ready-paper-unicode-120x40");
+      await click("settings-route-appearance");
+      await click("settings-theme-graphite");
+      await click("settings-apply-theme");
       await key("g", true);
       await click("settings-route-tools.lsp");
     }
@@ -422,10 +428,22 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     await paste("lsp");
     await key("ENTER");
     await click("lsp-row-typescript"); // The saved server row, not the form's TypeScript field.
-    await click("lsp-row-trust");
+    await click("lsp-row-trusted-root-0");
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
+        .trustedWorkspaces.length,
+      1,
+      "Removing a root from the draft must not revoke permission before save",
+    );
+    await click("lsp-save");
     await wait(
-      () => setup.captureCharFrame().includes("Доверие отозвано"),
+      () => setup.captureCharFrame().includes("Нет разрешения для проекта"),
       "Trust revocation did not complete",
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
+        .trustedWorkspaces,
+      [],
     );
     await capture("lsp-untrusted-120x40");
     const store = await projectSessionStore(root);

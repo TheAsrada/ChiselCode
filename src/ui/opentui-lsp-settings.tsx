@@ -417,7 +417,9 @@ export function OpenTuiLspSettings({
             value:
               project.enabled === false
                 ? "Выключен"
-                : (project.serverId ?? "Наследовать"),
+                : project.serverId
+                  ? `${project.serverId} · выбор проекта`
+                  : `Наследовать · ${state?.status.serverId ?? "не выбран"} (global)`,
             activate() {
               const choices = [
                 "inherit",
@@ -518,6 +520,22 @@ export function OpenTuiLspSettings({
                   );
               },
             },
+            ...draft.trustedWorkspaces.map((root, index) => ({
+              id: `trusted-root-${index}`,
+              label: "Удалить доверие проекта",
+              value: root,
+              activate() {
+                setDraft({
+                  ...draft,
+                  trustedWorkspaces: draft.trustedWorkspaces.filter(
+                    (value) => value !== root,
+                  ),
+                });
+                setNotice(
+                  "Доверие будет отозвано после сохранения. Ctrl+S остановит сервер этого проекта.",
+                );
+              },
+            })),
             {
               id: "check",
               label: "Проверить пути",

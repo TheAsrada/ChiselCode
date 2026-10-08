@@ -120,6 +120,14 @@ test("search deep links native secret input; hidden/composer controls cannot con
     await key(setup, "t", true);
     await key(setup, "f", true);
     await paste(setup, "ключ");
+    expect(
+      setup.renderer.root.findDescendantById("settings-save"),
+    ).toBeUndefined();
+    await key(setup, "TAB");
+    await key(setup, "TAB");
+    expect(setup.renderer.currentFocusedEditor?.id).toBe(
+      "settings-global-search",
+    );
     await key(setup, "ENTER");
     const secret = setup.renderer.currentFocusedEditor;
     expect(secret?.id).toBe("settings-secret");

@@ -230,6 +230,7 @@ export class LspTransport {
       },
     );
     this.process.stdout.pipe(this.frames);
+    this.process.stdout.once("end", () => this.fail());
     this.frames.on("error", () => this.fail());
     this.process.on("error", () => this.fail());
     this.process.stderr.on("data", (bytes: Buffer) => {

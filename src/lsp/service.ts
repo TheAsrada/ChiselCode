@@ -21,6 +21,7 @@ import {
   permittedLocation,
   type Range,
   readLspFile,
+  resolveLspUri,
   safeRange,
   validatePosition,
 } from "./documents.js";
@@ -70,6 +71,7 @@ interface Document extends LspFile {
   diagnostics: LspDiagnostic[];
   omitted: number;
   serial: number;
+  notificationSerial?: number;
   accessed: number;
 }
 interface Server {
@@ -83,6 +85,7 @@ interface Server {
   documents: Map<string, Document>;
   locks: Map<string, Promise<unknown>>;
   capabilities: Record<string, unknown>;
+  publications: number;
   reason?: string;
   requiresRestart: boolean;
   stopping?: Promise<void>;
@@ -149,6 +152,7 @@ export class LspService {
         documents: new Map(),
         locks: new Map(),
         capabilities: {},
+        publications: 0,
         requiresRestart: false,
         revision: workspaceCoordinator.revision([this.workspaceRoot]),
       };
@@ -457,10 +461,12 @@ export class LspService {
     }
   }
   private invalidate(entry: Server): void {
+    const receipt = ++entry.publications;
     for (const doc of entry.documents.values()) {
       doc.freshness = "stale";
       doc.diagnostics = [];
       doc.omitted = 0;
+      doc.notificationSerial = receipt;
       ++doc.serial;
     }
   }
@@ -689,11 +695,21 @@ export class LspService {
       version?: unknown;
       diagnostics?: unknown;
     };
-    const doc = [...entry.documents.values()].find(
-      (item) => item.uri === notification.uri,
+    const receipt = ++entry.publications;
+    const policy = new WorkspacePolicy(
+      this.workspaceRoot,
+      this.configuration?.ignorePatterns ?? [],
     );
+    const canonicalPath = await resolveLspUri(policy, notification.uri);
+    const doc = canonicalPath ? entry.documents.get(canonicalPath) : undefined;
     if (
+      this.closed ||
+      entry.generation !== generation ||
+      entry.state !== "ready" ||
+      entry.controller.signal.aborted ||
+      entry.requiresRestart ||
       !doc ||
+      receipt <= (doc.notificationSerial ?? 0) ||
       doc.generation !== generation ||
       !Array.isArray(notification.diagnostics)
     )
@@ -703,16 +719,13 @@ export class LspService {
       notification.version !== doc.version
     )
       return;
+    doc.notificationSerial = receipt;
     const version = doc.version;
     const serial = ++doc.serial;
     const diagnostics: LspDiagnostic[] = [];
     let omitted = Math.max(
       0,
       notification.diagnostics.length - LSP_LIMITS.diagnostics,
-    );
-    const policy = new WorkspacePolicy(
-      this.workspaceRoot,
-      this.configuration?.ignorePatterns ?? [],
     );
     for (const raw of notification.diagnostics.slice(
       0,
@@ -771,6 +784,8 @@ export class LspService {
     }
     if (
       entry.generation !== generation ||
+      entry.state !== "ready" ||
+      entry.controller.signal.aborted ||
       entry.documents.get(doc.path) !== doc ||
       doc.version !== version ||
       doc.serial !== serial ||

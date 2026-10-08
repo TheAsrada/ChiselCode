@@ -235,6 +235,7 @@ export function OpenTuiSettings({
     : surfaceWidth;
   const catalogue = searchSettings(settingsQuery);
   const showNavigation = split || !compactDetail || !!settingsQuery;
+  const navigationOnly = !!settingsQuery || (!split && !compactDetail);
   const route = page === "web" ? "tools.web" : page;
   const section = SETTINGS_SECTIONS.find((item) => item.id === route);
   useEffect(() => {
@@ -244,7 +245,7 @@ export function OpenTuiSettings({
       );
   }, [route, settingsQuery]);
   const simpleFooter =
-    (showNavigation && !split) ||
+    navigationOnly ||
     ["tools.lsp", "tools.mcp", "tools.skills", "web"].includes(page);
   const showHint = popupHeight >= 10 && !simpleFooter;
   const contentHeight = Math.max(
@@ -810,11 +811,13 @@ export function OpenTuiSettings({
     }
     if (name === "tab") {
       key.preventDefault();
-      const zones = split
-        ? (["search", "navigation", "content", "actions"] as const)
-        : compactDetail
-          ? (["content", "actions", "search"] as const)
-          : (["search", "navigation"] as const);
+      const zones = navigationOnly
+        ? (["search", "navigation"] as const)
+        : split
+          ? (["search", "navigation", "content", "actions"] as const)
+          : compactDetail
+            ? (["content", "actions", "search"] as const)
+            : (["search", "navigation"] as const);
       const index = zones.indexOf(shellFocus as never);
       setShellFocus(
         zones[(index + (key.shift ? -1 : 1) + zones.length) % zones.length] ??
@@ -1535,6 +1538,7 @@ export function OpenTuiSettings({
                 active={
                   active &&
                   page === "web" &&
+                  !navigationOnly &&
                   shellFocus === "content" &&
                   !confirmClose
                 }
@@ -1558,7 +1562,12 @@ export function OpenTuiSettings({
                 palette={palette}
                 width={innerWidth}
                 height={bodyHeight}
-                active={active && page === "tools.lsp" && !confirmClose}
+                active={
+                  active &&
+                  page === "tools.lsp" &&
+                  !navigationOnly &&
+                  !confirmClose
+                }
                 focused={shellFocus === "content"}
                 fieldTarget={fieldTarget}
                 controls={lspControls}
@@ -1631,9 +1640,17 @@ export function OpenTuiSettings({
         {simpleFooter ? (
           <text fg={palette.muted}>
             {terminalLine(
-              tiny
-                ? "F2 save | Esc back"
-                : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
+              navigationOnly
+                ? surfaceWidth < 28
+                  ? "Enter | Esc назад"
+                  : surfaceWidth < 55
+                    ? "Enter открыть | Ctrl+F | Esc назад"
+                    : "Enter открыть | Tab фокус | Ctrl+F поиск | Esc назад"
+                : tiny
+                  ? "F2 сохр | Esc назад"
+                  : surfaceWidth < 55
+                    ? "F2 сохранить | Esc назад"
+                    : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
               surfaceWidth,
             )}
           </text>

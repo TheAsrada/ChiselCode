@@ -171,17 +171,11 @@ export function safeRange(value: unknown): Range | undefined {
     end: { line: end.line, character: end.character },
   };
 }
-export async function permittedLocation(
+export async function resolveLspUri(
   policy: WorkspacePolicy,
-  value: unknown,
-): Promise<{ path: string; range: Range } | undefined> {
-  if (!value || typeof value !== "object") return;
-  const item = value as Record<string, unknown>;
-  const uri = item.targetUri ?? item.uri;
-  const range = safeRange(
-    item.targetSelectionRange ?? item.range ?? item.targetRange,
-  );
-  if (typeof uri !== "string" || !range) return;
+  uri: unknown,
+): Promise<string | undefined> {
+  if (typeof uri !== "string" || uri.length > 32768) return;
   try {
     const url = new URL(uri);
     if (
@@ -194,8 +188,23 @@ export async function permittedLocation(
     )
       return;
     const path = await policy.resolve(fileURLToPath(url));
-    return { path: relative(policy.root, path).replaceAll("\\", "/"), range };
+    return path;
   } catch {
     return;
   }
+}
+export async function permittedLocation(
+  policy: WorkspacePolicy,
+  value: unknown,
+): Promise<{ path: string; range: Range } | undefined> {
+  if (!value || typeof value !== "object") return;
+  const item = value as Record<string, unknown>;
+  const range = safeRange(
+    item.targetSelectionRange ?? item.range ?? item.targetRange,
+  );
+  if (!range) return;
+  const path = await resolveLspUri(policy, item.targetUri ?? item.uri);
+  return path
+    ? { path: relative(policy.root, path).replaceAll("\\", "/"), range }
+    : undefined;
 }

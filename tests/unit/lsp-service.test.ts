@@ -108,7 +108,7 @@ async function poll<T>(
   throw new Error("LSP state did not settle within its bound.");
 }
 test("versioned diagnostics track bytes, old notifications cannot replace current, and empty current clears errors", async () => {
-  const f = await fixture();
+  const f = await fixture({ encodedUri: true });
   expect((await f.service.status()).generation).toBe(0);
   expect(await f.service.collectContext()).toBeUndefined();
   const first = await f.service.diagnostics("main.ts", f.port);
@@ -397,4 +397,4 @@ test("bounded cache sends didClose; result caps and policy refresh prevent stale
   await expect(f.service.ensureStarted()).rejects.toMatchObject({
     code: "LSP_UNAVAILABLE",
   });
-});
+}, 15_000);

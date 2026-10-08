@@ -393,6 +393,10 @@ try {
   assert.equal(cleanups, 0);
   assert.ok(!setup.renderer.root.findDescendantById("welcome"));
   await send("/peek bad");
+  await until(
+    () => setup.captureCharFrame().includes("неверные аргументы"),
+    "Parse diagnostic was not rendered",
+  );
   assert.equal(peeks, 1);
   assert.ok(setup.captureCharFrame().includes("неверные аргументы"));
   await send("/Peek");

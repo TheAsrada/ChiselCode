@@ -45,10 +45,18 @@ const publish = (doc) => {
       diagnostics: [],
     });
   const version = doc.version;
+  const uri = settings.encodedUri
+    ? doc.uri
+        .replace(/main\.ts$/, "m%61in.ts")
+        .replace(
+          /^file:\/\/\/([A-Z]):/,
+          (_, drive) => `file:///${drive.toLowerCase()}%3A`,
+        )
+    : doc.uri;
   setTimeout(
     () =>
       notify("textDocument/publishDiagnostics", {
-        uri: doc.uri,
+        uri,
         ...(settings.unversioned
           ? {}
           : { version: settings.oldVersion ? version - 1 : version }),
