@@ -591,11 +591,15 @@ export class LspService {
         error instanceof RuntimeError &&
         error.code === "CANCELLED" &&
         !this.signal().aborted
-      )
-        throw new RuntimeError(
+      ) {
+        const closed = new RuntimeError(
           "LSP_UNAVAILABLE",
           "Language server exited or was revoked during initialization. Check status and restart explicitly.",
         );
+        if (error.cause)
+          Object.defineProperty(closed, "cause", { value: error.cause });
+        throw closed;
+      }
       throw error;
     }
   }

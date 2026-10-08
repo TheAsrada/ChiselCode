@@ -156,6 +156,7 @@ export class LspTransport {
   private readonly lifetime = new AbortController();
   private readonly redactor = new SecretRedactor();
   private stderr = "";
+  private failureCause?: Error;
   private pending = 0;
   private closed = false;
   private stopping = false;
@@ -295,6 +296,9 @@ export class LspTransport {
   }
   private fail(): void {
     if (this.closed) return;
+    // Internal, redacted diagnostics survive cleanup. Causes are non-enumerable
+    // and never included in tool results, status, checkpoints or model context.
+    if (this.stderr) this.failureCause = new Error(this.stderr);
     this.closed = true;
     this.lifetime.abort();
     this.processTree?.dispose();
@@ -360,21 +364,25 @@ export class LspTransport {
       if (combined.aborted) source.cancel();
       return await pending;
     } catch {
-      cancelled(signal);
-      if (timedOut)
-        throw new RuntimeError(
-          "TOOL_TIMEOUT",
-          "Language server request timed out.",
-        );
-      if (this.lifetime.signal.aborted)
-        throw new RuntimeError(
-          "LSP_UNAVAILABLE",
-          "Language server generation closed.",
-        );
-      throw new RuntimeError(
-        "LSP_PROTOCOL_ERROR",
-        "Language server request failed.",
-      );
+      const error = signal?.aborted
+        ? new RuntimeError("CANCELLED", "Operation cancelled.")
+        : timedOut
+          ? new RuntimeError(
+              "TOOL_TIMEOUT",
+              "Language server request timed out.",
+            )
+          : this.lifetime.signal.aborted
+            ? new RuntimeError(
+                "LSP_UNAVAILABLE",
+                "Language server generation closed.",
+              )
+            : new RuntimeError(
+                "LSP_PROTOCOL_ERROR",
+                "Language server request failed.",
+              );
+      if (this.failureCause)
+        Object.defineProperty(error, "cause", { value: this.failureCause });
+      throw error;
     } finally {
       this.timers.clearTimeout(timer);
       combined.removeEventListener("abort", abort);

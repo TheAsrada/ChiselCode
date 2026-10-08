@@ -207,7 +207,7 @@ Private network всегда заблокирован. JavaScript/browser automa
 | TypeScript/JavaScript, TSX/JSX, MTS/CTS/MJS/CJS | TLS 6.0.1 + TS 6.0.3 | Встроены в npm package/binary; собственный Bun |
 | Python | Pyright 1.1.414 | Node 24.19.0 готовится автоматически |
 | Go | gopls 0.23.0 | Go 1.27.1 готовится; project dependencies не скачиваются |
-| Rust | rust-analyzer 2026-10-05 | Rust 1.99.0 готовится; build scripts/proc macros/check-on-save и скачивание crates выключены |
+| Rust | rust-analyzer 2026-10-05 | Rust 1.99.0 готовится; native experimental diagnostics включены; build scripts/proc macros/check-on-save и скачивание crates выключены |
 | C/C++, Objective-C/C++ | clangd 23.1.0 | compile_commands.json/compile_flags.txt для project flags; Linux ARM64 пакета нет |
 | C# | OmniSharp 2.0.0 | .NET 10.0.401 готовится; NuGet restore/analyzers выключены; project dependencies должны быть доступны |
 | Java | JDT LS 1.61.0 | Temurin JRE 21.0.12.1 готовится; Maven/Gradle import выключен |

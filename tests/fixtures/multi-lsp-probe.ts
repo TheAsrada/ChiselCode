@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
 import { LspService } from "../../src/lsp/service.js";
 import { WorkspacePolicy } from "../../src/security/workspace-policy.js";
 import { lspProcessTree, waitForLspProcessExit } from "./lsp-runtime.js";
@@ -66,7 +67,7 @@ for (const language of process.argv.slice(2)) {
   const example = examples[language];
   if (!example) throw new Error(`Unknown fixture language: ${language}`);
   const [path, text, files] = example;
-  const root = await realpath(
+  const root = await canonicalWorkspaceRoot(
     await mkdtemp(join(tmpdir(), `chisel-real-${language}-`)),
   );
   const service = new LspService(
@@ -195,6 +196,10 @@ for (const language of process.argv.slice(2)) {
       const diagnostic = JSON.stringify({
         language,
         error: error instanceof Error ? error.message : String(error),
+        cause:
+          error instanceof Error && error.cause instanceof Error
+            ? error.cause.message.slice(-4096)
+            : undefined,
         details: (error as { details?: unknown })?.details,
       })
         .replaceAll("%", "%25")

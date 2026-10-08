@@ -166,6 +166,7 @@ export const LSP_SERVER_CATALOG: readonly LspServerDescriptor[] =
       settings: {
         "rust-analyzer": {
           cargo: { buildScripts: { enable: false }, autoreload: false },
+          diagnostics: { experimental: { enable: true } },
           procMacro: { enable: false },
           checkOnSave: false,
           check: { enable: false },

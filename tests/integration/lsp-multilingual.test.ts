@@ -18,7 +18,10 @@ import {
   saveGlobalConfig,
 } from "../../src/config/load.js";
 import { defaultExtensions } from "../../src/extensions/composition.js";
-import { ExtensionHost } from "../../src/extensions/host.js";
+import {
+  canonicalWorkspaceRoot,
+  ExtensionHost,
+} from "../../src/extensions/host.js";
 import { LspService, lspServiceToken } from "../../src/lsp/service.js";
 import { LspSettingsStore } from "../../src/lsp/settings.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
@@ -56,7 +59,7 @@ test("manual generic LSP uses the same service for a new language, exact trust, 
     ignorePatterns: [] as string[],
   };
   const service = new LspService(
-    root,
+    await canonicalWorkspaceRoot(root),
     async () => structuredClone(configuration),
     new AbortController().signal,
   );
