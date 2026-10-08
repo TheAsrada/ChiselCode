@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
 import { LspService } from "../../src/lsp/service.js";
+import { RuntimeError } from "../../src/runtime/errors.js";
 import { WorkspacePolicy } from "../../src/security/workspace-policy.js";
 import { lspProcessTree, waitForLspProcessExit } from "./lsp-runtime.js";
 
@@ -82,15 +83,36 @@ for (const language of process.argv.slice(2)) {
     for (const [name, bytes] of Object.entries(files ?? {}))
       await writeFile(join(root, name), bytes);
     const port = { policy: new WorkspacePolicy(root, []) };
+    // rust-analyzer can reject a read while its initial crate/VFS snapshot is
+    // being replaced. A ready handshake is not an indexing barrier. Repeat
+    // only this read, with a finite bound; all actual result assertions remain.
+    const settledRead = async <T>(operation: () => Promise<T>): Promise<T> => {
+      for (let attempt = 0; ; ++attempt) {
+        try {
+          return await operation();
+        } catch (error) {
+          if (
+            language !== "rust" ||
+            attempt >= 2 ||
+            !(error instanceof RuntimeError) ||
+            error.code !== "LSP_PROTOCOL_ERROR" ||
+            error.message !== "Language server request failed."
+          )
+            throw error;
+          console.log(`rust: initial read rejected; retry ${attempt + 1}/2`);
+          await Bun.sleep(250);
+        }
+      }
+    };
     const start = Date.now();
-    let diagnostic = await service.diagnostics(path, port);
+    let diagnostic = await settledRead(() => service.diagnostics(path, port));
     for (
       let attempt = 0;
       attempt < 3 && diagnostic.freshness === "unavailable";
       ++attempt
     ) {
       await Bun.sleep(250);
-      diagnostic = await service.diagnostics(path, port);
+      diagnostic = await settledRead(() => service.diagnostics(path, port));
     }
     // Project-backed servers finish discovery asynchronously after initialize.
     // Wait for the actual diagnostic evidence before checking cross-file data.
@@ -115,7 +137,7 @@ for (const language of process.argv.slice(2)) {
         ++attempt
       ) {
         await Bun.sleep(500);
-        diagnostic = await service.diagnostics(path, port);
+        diagnostic = await settledRead(() => service.diagnostics(path, port));
       }
       assert.ok(
         diagnostic.diagnostics.length > 0,
@@ -126,7 +148,9 @@ for (const language of process.argv.slice(2)) {
         `${language}: invalid provenance`,
       );
     }
-    const symbols = await service.documentSymbols(path, port);
+    const symbols = await settledRead(() =>
+      service.documentSymbols(path, port),
+    );
     const status = await service.status();
     descendants = await lspProcessTree();
     assert.ok(
@@ -147,13 +171,15 @@ for (const language of process.argv.slice(2)) {
     const offset = text.lastIndexOf("greet");
     if (offset >= 0 && status.capabilities?.includes("definition")) {
       const prefix = text.slice(0, offset + 1).split("\n");
-      definition = await service.definition(
-        path,
-        {
-          line: prefix.length - 1,
-          character: (prefix.at(-1)?.length ?? 1) - 1,
-        },
-        port,
+      definition = await settledRead(() =>
+        service.definition(
+          path,
+          {
+            line: prefix.length - 1,
+            character: (prefix.at(-1)?.length ?? 1) - 1,
+          },
+          port,
+        ),
       );
       if (
         [
@@ -225,13 +251,14 @@ for (const language of process.argv.slice(2)) {
     if (process.env.GITHUB_ACTIONS) {
       const diagnostic = JSON.stringify({
         language,
-        analyzerStatus,
         error: error instanceof Error ? error.message : String(error),
+        code: error instanceof RuntimeError ? error.code : undefined,
         cause:
           error instanceof Error && error.cause instanceof Error
             ? error.cause.message.slice(-4096)
             : undefined,
         details: (error as { details?: unknown })?.details,
+        analyzerStatus,
       })
         .replaceAll("%", "%25")
         .replaceAll("\r", "%0D")
