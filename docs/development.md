@@ -127,9 +127,9 @@ Live harness создаёт config v2 только в isolated fixture/.chisel, 
 
 `bun scripts/prepare-lsp-tests.ts` явно устанавливает test-only server 6.0.1/TypeScript 6.0.3 во внешний temporary runtime. Node 24.19.0 используется CI; local Node должен соответствовать >=22.22.2. При отсутствии installation real tests завершаются setup error, не skip. `CHISEL_TEST_LSP_ROOT` и `CHISEL_TEST_LSP_NODE` меняют только test harness; production не импортирует эти helpers и не выдаёт fixture trust.
 
-`lsp-runtime.test.ts` использует ordinary default composition, настоящий backend/executor/permissions/EditingService/store: TS error → read observation → valid edit → observed update, navigation, shared generation, Plan/deny/restart/revocation. Protocol peer используется отдельно для byte framing, old/versionless pushes, provisional empty, Full/Incremental, cancellation/EOF/crash/caps/cache и process-tree cleanup. Его metadata fixture и installation не попадают в release.
+`lsp-runtime.test.ts` проверяет и bundled Auto без paths/trust/Node setup, и custom backend через ordinary composition/executor/permissions/EditingService/store: TS error → read observation → valid edit → observed update, navigation, shared generation, Plan/deny/restart/revocation. Protocol peer используется отдельно для byte framing, old/versionless pushes, provisional empty, Full/Incremental, cancellation/EOF/crash/caps/cache и process-tree cleanup. Его metadata fixture и installation не попадают в release.
 
-`lsp-tui.test.ts` выполняет настоящий Settings → friendly path form → read-only check → typed save → explicit trust → normal approval/start → diagnostics/edit → revoke сценарий через OpenTUI inputs. Model chat/key не нужен. Native captures можно получить test-only переменной, без production autoload/flags:
+`lsp-tui.test.ts` выполняет default Auto → lazy diagnostics без paths/trust → Off/child cleanup, затем custom friendly form → read-only check → typed save → explicit trust → normal approval/start → diagnostics/edit → revoke через настоящие OpenTUI inputs. Model chat/key не нужен. Native captures можно получить test-only переменной, без production autoload/flags:
 
 ```bash
 CHISEL_TEST_LSP_CAPTURES=/absolute/capture-directory bun tests/fixtures/tui-lsp-settings.ts
@@ -137,6 +137,10 @@ bun tests/fixtures/lsp-cli.ts bun ./dist/cli.js
 bun tests/fixtures/command-packaging.ts
 ```
 
-CLI smoke использует локальный scripted provider endpoint, real LSP schemas/wire history/tool/result/context/checkpoint. Packaging harness проверяет и linked commands, и тот же LSP Settings scenario в installed staging package и compiled binary. Ordinary installed/compiled CLI дополнительно выполняет `lsp-cli.ts` в CI на трёх OS; server/runtime остаются внешними. `--version`/doctor недостаточно для доказательства contribution.
+CLI smoke использует локальный scripted provider endpoint, real Auto LSP schemas/wire history/tool/result/context/checkpoint без LSP section в config. Packaging harness проверяет linked commands и Auto/custom Settings scenario в installed staging package и compiled binary. Ordinary installed/compiled CLI выполняет `lsp-cli.ts` в CI на трёх OS без внешнего Node/server для Auto. `--version`/doctor недостаточно для доказательства contribution.
+
+Стандартный payload содержит official TLS 6.0.1, TS 6.0.3 и их licenses/notices; воспроизводимое обновление описано в `src/lsp/backend/README.md`. Это единственный новый bundled backend asset (~3.6 MB gzip); production dependencies и dev TypeScript не обновляются. Проверяйте assets при `npm pack`, работу из произвольного cwd и Bun `BUN_BE_BUN` в compiled executable. Auto не импортирует test installation.
+
+`lsp-auto-check-changes` в `eval --category all`/`coding` использует закреплённый настоящий Auto backend и scripted model: definition → references → symbols → diagnostics → EditingService edit → diagnostics → tests. Model network и LSP setup не нужны. Fixture получает isolated config через тот же default extension host/provider binding; providers/context и cleanup остаются настоящими.
 
 Settings visual review: реальные OpenTUI frames при 120×40, 100×30, 80×24, 60×20, 40×12, 24×8; native cursor сохраняется при resize длинного path. Reference patterns — категории/filter и focus zones из [OpenTUI example browser](https://github.com/anomalyco/opentui/blob/main/packages/examples/src/index.ts), installed-compatible [layout](https://opentui.com/docs/core-concepts/layout/) и [interaction](https://opentui.com/docs/core-concepts/interaction/). Routes/search/drafts не зависят от labels или secret values. OpenCode URLs из design brief могут быть недоступны; их configuration model не переносится. OpenTUI/React версии не обновлены.

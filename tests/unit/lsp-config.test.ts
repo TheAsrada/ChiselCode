@@ -17,6 +17,7 @@ import {
 } from "../../src/config/load.js";
 import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
 import {
+  effectiveLspMode,
   LspConfigSchema,
   type LspConfiguration,
   ProjectLspConfigSchema,
@@ -31,6 +32,60 @@ afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+});
+test("Auto is the default without paths/trusted roots; legacy custom settings keep exact-root trust", async () => {
+  const { root } = await fixture();
+  const automatic: LspConfiguration = {
+    global: LspConfigSchema.parse({}),
+    ignorePatterns: [],
+  };
+  expect(await selectLspServer(root, automatic)).toMatchObject({
+    state: "stopped",
+    id: "auto",
+    kind: "auto",
+  });
+  const child = join(root, "nested");
+  await mkdir(child);
+  expect((await selectLspServer(child, automatic)).kind).toBe("auto");
+  expect(
+    (await selectLspServer(root, { ...automatic, project: { mode: "off" } }))
+      .state,
+  ).toBe("disabled");
+  expect(
+    (
+      await selectLspServer(root, {
+        ...automatic,
+        global: { mode: "off", servers: {} },
+        project: { mode: "auto" },
+      })
+    ).state,
+  ).toBe("disabled");
+  const custom = { servers: { external: await installedLsp() } };
+  expect(effectiveLspMode({ ...automatic, global: custom })).toBe("custom");
+  expect(
+    (await selectLspServer(root, { ...automatic, global: custom })).state,
+  ).toBe("untrusted");
+  expect(
+    (
+      await selectLspServer(root, {
+        ...automatic,
+        global: custom,
+        project: { mode: "auto" },
+      })
+    ).kind,
+  ).toBe("auto");
+  expect(
+    (
+      await selectLspServer(root, {
+        ...automatic,
+        global: { mode: "custom", servers: {} },
+      })
+    ).state,
+  ).toBe("unavailable");
+  expect(
+    LspConfigSchema.safeParse({ servers: { auto: await installedLsp() } })
+      .success,
+  ).toBe(false);
 });
 async function fixture() {
   const root = await canonicalWorkspaceRoot(

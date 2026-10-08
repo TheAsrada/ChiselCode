@@ -3,7 +3,10 @@ import type { TextareaRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import {
+  effectiveLspMode,
+  globalLspMode,
   type LspConfig,
+  type LspMode,
   LspServerIdSchema,
   LspServerSchema,
   type ProjectLspConfig,
@@ -58,6 +61,7 @@ export function OpenTuiLspSettings({
   active,
   focused,
   fieldTarget,
+  onFieldTargetHandled,
   controls,
   onDirty,
 }: {
@@ -68,6 +72,7 @@ export function OpenTuiLspSettings({
   active: boolean;
   focused: boolean;
   fieldTarget?: string;
+  onFieldTargetHandled?(): void;
   controls: MutableRefObject<SettingsPanelControl | undefined>;
   onDirty(dirty: boolean): void;
 }) {
@@ -225,6 +230,25 @@ export function OpenTuiLspSettings({
   // biome-ignore lint/correctness/useExhaustiveDependencies: Deep links focus a field when the explicit target changes.
   useEffect(() => {
     if (!fieldTarget || !active || !state) return;
+    // Deep links are one-shot user navigation, not actions to replay when an
+    // approval overlay returns focus to this already configured panel.
+    onFieldTargetHandled?.();
+    if (fieldTarget === "mode" || fieldTarget === "project") {
+      setScope(fieldTarget === "project" ? "project" : "global");
+      if (fieldTarget === "mode" && draft) {
+        if (dirty) {
+          setNotice(
+            "Сохраните или сбросьте черновик своего сервера перед сменой режима.",
+          );
+          return;
+        }
+        setDraft(undefined);
+      }
+      select(0);
+      return;
+    }
+    if (globalLspMode(global) !== "custom")
+      setGlobal({ ...global, mode: "custom" });
     if (!draft) editServer(Object.keys(global.servers).sort()[0]);
     const index = [
       "id",
@@ -285,7 +309,11 @@ export function OpenTuiLspSettings({
         if (alive.current && !signal.aborted) {
           apply(next, "global");
           setNotice(
-            "Сохранено. Разрешение проекта и запуск — отдельные действия.",
+            globalLspMode(next.global) === "auto"
+              ? "Сохранено. Auto запустится при первом LSP запросе."
+              : globalLspMode(next.global) === "off"
+                ? "Сохранено. Анализ выключен; активные серверы закрыты."
+                : "Сохранено. Для своих исполняемых файлов нужно доверие проекта.",
           );
           if (nextDraft) {
             setOriginalId(nextDraft.id);
@@ -407,65 +435,133 @@ export function OpenTuiLspSettings({
   const entries = Object.entries(global.servers).sort(([a], [b]) =>
     a.localeCompare(b),
   );
-  const selectedId = draft?.id ?? state?.status.serverId ?? entries[0]?.[0];
+  const projectServerId =
+    project.serverId ??
+    (state?.status.serverId !== "auto" ? state?.status.serverId : undefined) ??
+    entries[0]?.[0];
+  const selectedId =
+    scope === "project" ? projectServerId : (draft?.id ?? projectServerId);
+  const mode = globalLspMode(global);
+  const projectMode = effectiveLspMode({ global, project, ignorePatterns: [] });
+  const modeLabels: Record<LspMode, string> = {
+    auto: "Auto",
+    custom: "Своя настройка",
+    off: "Выключено",
+  };
+  const modes = (["auto", "custom", "off"] as const).map((value) => ({
+    id: `mode-${value}`,
+    label: `${mode === value ? "[x]" : "[ ]"} ${modeLabels[value]}`,
+    value:
+      value === "auto"
+        ? "TypeScript/JavaScript · без ручных путей"
+        : value === "custom"
+          ? "Свой установленный сервер · явное доверие"
+          : "Не запускать анализ кода",
+    activate() {
+      setGlobal({ ...global, mode: value });
+    },
+  }));
   const rows: { id: string; label: string; value: string; activate(): void }[] =
     scope === "project"
       ? [
           {
-            id: "selection",
-            label: "Сервер проекта",
+            id: "mode",
+            label: "Режим проекта",
             value:
               project.enabled === false
-                ? "Выключен"
-                : project.serverId
-                  ? `${project.serverId} · выбор проекта`
-                  : `Наследовать · ${state?.status.serverId ?? "не выбран"} (global)`,
+                ? "Выключено"
+                : project.mode
+                  ? modeLabels[project.mode]
+                  : project.serverId
+                    ? "Своя настройка"
+                    : `Наследовать · ${modeLabels[mode]}`,
             activate() {
-              const choices = [
-                "inherit",
-                "disabled",
-                ...entries.map(([id]) => id),
-              ];
+              const choices = ["inherit", "auto", "custom", "off"] as const;
               const current =
                 project.enabled === false
-                  ? "disabled"
-                  : (project.serverId ?? "inherit");
+                  ? "off"
+                  : (project.mode ?? (project.serverId ? "custom" : "inherit"));
               const next =
                 choices[(choices.indexOf(current) + 1) % choices.length];
               setProject(
-                next === "disabled"
-                  ? { enabled: false }
-                  : next === "inherit"
-                    ? {}
-                    : { serverId: next },
+                next === "inherit"
+                  ? {}
+                  : {
+                      mode: next,
+                      ...(next === "custom" && project.serverId
+                        ? { serverId: project.serverId }
+                        : {}),
+                    },
               );
             },
           },
-          {
-            id: "trust",
-            label: "Разрешение проекта",
-            value:
-              selectedId &&
-              state?.global.servers[selectedId]?.trustedWorkspaces.includes(
-                state.workspaceRoot,
-              )
-                ? "Разрешён точный root"
-                : "Нет разрешения",
-            activate() {
-              if (selectedId) trust(selectedId);
-              else
-                setNotice("Сначала настройте и сохраните глобальный сервер.");
-            },
-          },
-          {
-            id: "start",
-            label:
-              state?.status.state === "ready" ? "Перезапустить" : "Запустить",
-            value: "Общие tools, очередь и разрешения",
-            activate() {
-              start(project.serverId);
-            },
-          },
+          ...(projectMode === "custom"
+            ? [
+                {
+                  id: "selection",
+                  label: "Сервер проекта",
+                  value:
+                    project.enabled === false
+                      ? "Выключен"
+                      : project.serverId
+                        ? `${project.serverId} · выбор проекта`
+                        : `Наследовать · ${state?.status.serverId ?? "не выбран"} (global)`,
+                  activate() {
+                    const choices = ["inherit", ...entries.map(([id]) => id)];
+                    const current =
+                      project.enabled === false
+                        ? "disabled"
+                        : (project.serverId ?? "inherit");
+                    const next =
+                      choices[(choices.indexOf(current) + 1) % choices.length];
+                    setProject(
+                      next === "inherit"
+                        ? { mode: "custom" }
+                        : { mode: "custom", serverId: next },
+                    );
+                  },
+                },
+              ]
+            : []),
+          ...(projectMode === "custom"
+            ? [
+                {
+                  id: "trust",
+                  label: "Разрешение проекта",
+                  value:
+                    selectedId &&
+                    state?.global.servers[
+                      selectedId
+                    ]?.trustedWorkspaces.includes(state.workspaceRoot)
+                      ? "Разрешён точный root"
+                      : "Нет разрешения",
+                  activate() {
+                    if (selectedId) trust(selectedId);
+                    else
+                      setNotice(
+                        "Сначала настройте и сохраните глобальный сервер.",
+                      );
+                  },
+                },
+              ]
+            : []),
+          ...(projectMode !== "off"
+            ? [
+                {
+                  id: "start",
+                  label:
+                    state?.status.state === "ready"
+                      ? "Перезапустить"
+                      : "Запустить",
+                  value: "Общие tools, очередь и разрешения",
+                  activate() {
+                    start(
+                      projectMode === "auto" ? undefined : project.serverId,
+                    );
+                  },
+                },
+              ]
+            : []),
         ]
       : draft
         ? [
@@ -568,22 +664,43 @@ export function OpenTuiLspSettings({
             },
           ]
         : [
-            ...entries.map(([id, server]) => ({
-              id,
-              label: id,
-              value: `TypeScript/JavaScript · ${server.enabled ? "включён" : "выключен"}`,
-              activate() {
-                editServer(id);
-              },
-            })),
-            {
-              id: "add",
-              label: "Добавить TypeScript/JavaScript",
-              value: "Отдельно установленный сервер",
-              activate() {
-                editServer();
-              },
-            },
+            ...modes,
+            ...(mode === "auto"
+              ? [
+                  {
+                    id: "start",
+                    label:
+                      state?.status.state === "ready"
+                        ? "Перезапустить"
+                        : "Запустить сейчас",
+                    value:
+                      "Обычно запускается сам при анализе · обычные разрешения",
+                    activate() {
+                      start();
+                    },
+                  },
+                ]
+              : []),
+            ...(mode === "custom"
+              ? [
+                  ...entries.map(([id, server]) => ({
+                    id,
+                    label: id,
+                    value: `TypeScript/JavaScript · ${server.enabled ? "включён" : "выключен"}`,
+                    activate() {
+                      editServer(id);
+                    },
+                  })),
+                  {
+                    id: "add",
+                    label: "Добавить TypeScript/JavaScript",
+                    value: "Отдельно установленный сервер",
+                    activate() {
+                      editServer();
+                    },
+                  },
+                ]
+              : []),
             {
               id: "details",
               label: "Технические детали",
@@ -674,7 +791,7 @@ export function OpenTuiLspSettings({
           fg={state?.status.state === "ready" ? palette.green : palette.yellow}
         >
           {terminalLine(
-            `${state?.status.state === "ready" ? "[ok]" : "[i]"} ${state?.status.requiresRestart ? "Нужен перезапуск" : LSP_STATE_LABELS[state?.status.state ?? "disabled"]}${dirty ? " · draft *" : ""}`,
+            `${state?.status.state === "ready" ? "[ok]" : "[i]"} ${state?.status.requiresRestart ? "Нужен перезапуск" : state?.status.state === "stopped" && state.status.mode === "auto" ? "Ждёт запроса анализа" : LSP_STATE_LABELS[state?.status.state ?? "stopped"]} · ${modeLabels[state?.status.mode ?? projectMode]}${dirty ? " · draft *" : ""}`,
             width,
           )}
         </text>
@@ -761,7 +878,7 @@ export function OpenTuiLspSettings({
           {details && !compact && (
             <text fg={palette.muted}>
               {terminalLine(
-                `generation ${state?.status.generation ?? 0}; documents ${state?.status.trackedDocuments ?? 0}; ${state?.status.capabilities?.join(", ") ?? "не initialized"}`,
+                `server ${state?.status.versions?.server ?? "?"}; TS ${state?.status.versions?.typescript ?? "?"}; ${state?.status.versions?.runtime ?? "?"}; generation ${state?.status.generation ?? 0}; documents ${state?.status.trackedDocuments ?? 0}`,
                 width,
               )}
             </text>
@@ -774,7 +891,13 @@ export function OpenTuiLspSettings({
             state?.status.reason ??
               (draft
                 ? (rows[selected]?.value ?? "")
-                : "Node >=22.22.2, language-server 6.0.1, TypeScript 6. Установка отдельно."),
+                : scope === "project" && projectMode === "auto"
+                  ? "Auto не требует доверия каждому проекту. Свои исполняемые файлы — требуют."
+                  : mode === "auto"
+                    ? "Стандартный backend включён в ChiselCode. Проект определяется автоматически."
+                    : mode === "off"
+                      ? "Серверы остановлены. Чтобы вернуть анализ, выберите Auto."
+                      : "Свой Node >=22.22.2, server 6.0.1, TypeScript 6. Нужны пути и доверие."),
             width,
           )}
         </text>

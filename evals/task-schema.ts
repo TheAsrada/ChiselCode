@@ -3,6 +3,7 @@ import { z } from "zod";
 export const EvalTaskSchema = z.object({
   mockOnly: z.boolean().default(false),
   webFixture: z.boolean().default(false),
+  lspFixture: z.boolean().default(false),
   webSearchBackend: z.enum(["brave", "exa", "parallel"]).default("brave"),
   id: z.string().regex(/^[a-z0-9-]+$/),
   fixture: z.string().min(1),

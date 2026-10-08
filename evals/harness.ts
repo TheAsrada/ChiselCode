@@ -1,11 +1,21 @@
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { DEFAULT_PROJECT_CONFIG } from "../src/config/load.js";
 import { ContextManager } from "../src/context/context-manager.js";
 import { BASE_SYSTEM_PROMPT } from "../src/core/prompt.js";
+import {
+  contextCollection,
+  defaultExtensions,
+} from "../src/extensions/composition.js";
+import type { Disposable } from "../src/extensions/contracts.js";
+import {
+  ExtensionHost,
+  type WorkspaceExtensionScope,
+} from "../src/extensions/host.js";
+import { attachExtensionTools } from "../src/extensions/tools.js";
 import { AgentRuntime } from "../src/runtime/agent-runtime.js";
 import { RuntimeEventBus } from "../src/runtime/events.js";
 import { ApprovalGate } from "../src/security/approval.js";
@@ -81,6 +91,8 @@ export async function runTrial(
   };
   const record = traceRecorder(report);
   let webFixture: Awaited<ReturnType<typeof startWebFixture>> | undefined;
+  let extensionHost: ExtensionHost | undefined;
+  let extensionBinding: Disposable | undefined;
   let hostedSearchFixture:
     | Awaited<ReturnType<typeof startHostedSearchFixture>>
     | undefined;
@@ -172,6 +184,24 @@ export async function runTrial(
       session.messages = structuredClone(task.seedMessages);
       const events = new RuntimeEventBus(session.id);
       events.subscribe(record);
+      let extensionScope: WorkspaceExtensionScope | undefined;
+      if (task.lspFixture) {
+        const configPath = join(root, ".chisel", "lsp-eval.json");
+        await mkdir(join(root, ".chisel"), { recursive: true });
+        await writeFile(
+          configPath,
+          JSON.stringify({
+            schemaVersion: 2,
+            profiles: {},
+            web: { enabled: false },
+            lsp: { mode: "auto" },
+          }),
+        );
+        extensionHost = new ExtensionHost(
+          defaultExtensions([], { configPath }),
+        );
+        extensionScope = await extensionHost.open(root);
+      }
       if (task.webFixture) webFixture = await startWebFixture();
       if (task.webFixture && task.webSearchBackend !== "brave")
         hostedSearchFixture = await startHostedSearchFixture(
@@ -214,6 +244,11 @@ export async function runTrial(
               )
             : webFixture.provider,
         );
+      if (extensionScope)
+        extensionBinding = await attachExtensionTools(
+          extensionScope,
+          tools.catalog,
+        );
       result = await new AgentRuntime(
         adapter,
         new ContextManager(task.context, events),
@@ -225,7 +260,12 @@ export async function runTrial(
         },
         BASE_SYSTEM_PROMPT,
         events,
-      ).run(session, task.prompt, { signal: abort.signal });
+      ).run(session, task.prompt, {
+        signal: abort.signal,
+        contextProviders: extensionScope
+          ? contextCollection(extensionScope, (text) => text)
+          : undefined,
+      });
     }
     if (abort.signal.aborted)
       throw new Error("Eval runner timeout (infrastructure)");
@@ -306,8 +346,22 @@ export async function runTrial(
     report.error = String(error);
   } finally {
     clearTimeout(timer);
-    await hostedSearchFixture?.close();
-    await webFixture?.close();
+    for (const [owner, cleanup] of [
+      ["extension binding", () => extensionBinding?.dispose()],
+      ["extension host", () => extensionHost?.dispose()],
+      ["hosted search fixture", () => hostedSearchFixture?.close()],
+      ["web fixture", () => webFixture?.close()],
+    ] as const) {
+      try {
+        await cleanup();
+      } catch {
+        report.task_success = false;
+        if (report.status !== "safety_violation") report.status = "infra_error";
+        report.error = [report.error, `${owner} cleanup failed.`]
+          .filter(Boolean)
+          .join(" ");
+      }
+    }
     metrics.wall_time = performance.now() - start;
     await rm(root, { recursive: true, force: true });
   }

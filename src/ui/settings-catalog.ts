@@ -76,6 +76,16 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
       "diagnostics",
     ],
     fields: [
+      {
+        id: "mode",
+        title: "Auto / Своя настройка / Выключено",
+        keywords: ["auto", "авто", "режим", "выключить", "стандартный"],
+      },
+      {
+        id: "project",
+        title: "Настройки проекта",
+        keywords: ["project", "проект", "наследовать", "tsconfig", "jsconfig"],
+      },
       { id: "node", title: "Node.js", keywords: ["runtime", "node", "путь"] },
       {
         id: "server",

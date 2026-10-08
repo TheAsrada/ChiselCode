@@ -3,6 +3,11 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { z } from "zod";
 import { canonicalWorkspaceRoot } from "../extensions/host.js";
 import { RuntimeError } from "../runtime/errors.js";
+import {
+  AUTO_SERVER_ID,
+  autoLspLaunch,
+  prepareAutoBackend,
+} from "./backend.js";
 
 export const LspServerIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 const absolutePath = z
@@ -26,17 +31,40 @@ export const LspServerSchema = z.strictObject({
   trustedWorkspaces: z.array(absolutePath).max(128),
 });
 export const LspConfigSchema = z.strictObject({
+  mode: z.enum(["auto", "custom", "off"]).optional(),
   servers: z
     .record(LspServerIdSchema, LspServerSchema)
-    .refine((servers) => Object.keys(servers).length <= 32),
+    .refine(
+      (servers) =>
+        Object.keys(servers).length <= 32 &&
+        !Object.hasOwn(servers, AUTO_SERVER_ID),
+      "The auto server ID is reserved.",
+    )
+    .default({}),
 });
 export const ProjectLspConfigSchema = z.strictObject({
+  mode: z.enum(["auto", "custom", "off"]).optional(),
   enabled: z.boolean().optional(),
   serverId: LspServerIdSchema.optional(),
 });
 export type LspConfig = z.infer<typeof LspConfigSchema>;
 export type LspServerConfig = z.infer<typeof LspServerSchema>;
 export type ProjectLspConfig = z.infer<typeof ProjectLspConfigSchema>;
+export type LspMode = "auto" | "custom" | "off";
+export function globalLspMode(config: LspConfig): LspMode {
+  return (
+    config.mode ?? (Object.keys(config.servers).length ? "custom" : "auto")
+  );
+}
+export function effectiveLspMode(configuration: LspConfiguration): LspMode {
+  const global = globalLspMode(configuration.global);
+  if (global === "off" || configuration.project?.enabled === false)
+    return "off";
+  return (
+    configuration.project?.mode ??
+    (configuration.project?.serverId ? "custom" : global)
+  );
+}
 export interface LspConfiguration {
   global: LspConfig;
   project?: ProjectLspConfig;
@@ -44,6 +72,7 @@ export interface LspConfiguration {
 }
 export interface LspLaunch {
   id: string;
+  kind?: "auto" | "custom";
   command: string;
   args: string[];
   typescriptPath: string;
@@ -58,6 +87,7 @@ export type LspAvailability =
   | "stopped";
 export interface LspSelection {
   state: LspAvailability;
+  kind?: "auto" | "custom";
   id?: string;
   config?: LspServerConfig;
   reason?: string;
@@ -67,8 +97,30 @@ export async function selectLspServer(
   configuration: LspConfiguration,
   requestedId?: string,
 ): Promise<LspSelection> {
-  if (configuration.project?.enabled === false)
-    return { state: "disabled", reason: "Анализ кода выключен для проекта." };
+  const mode = effectiveLspMode(configuration);
+  if (mode === "off")
+    return {
+      state: "disabled",
+      reason:
+        globalLspMode(configuration.global) === "off"
+          ? "Анализ кода выключен для всех проектов в Settings."
+          : "Анализ кода выключен для этого проекта.",
+    };
+  if (mode === "auto")
+    return requestedId && requestedId !== AUTO_SERVER_ID
+      ? {
+          state: "unavailable",
+          id: requestedId,
+          reason:
+            "Выбран Auto. Для пользовательского сервера выберите «Своя настройка».",
+        }
+      : { state: "stopped", id: AUTO_SERVER_ID, kind: "auto" };
+  if (requestedId === AUTO_SERVER_ID)
+    return {
+      state: "disabled",
+      id: requestedId,
+      reason: "Auto выключен; выбрана своя настройка.",
+    };
   const servers = configuration.global.servers;
   const id = requestedId ?? configuration.project?.serverId;
   if (id) {
@@ -82,7 +134,7 @@ export async function selectLspServer(
     if (!config.enabled)
       return { state: "disabled", id, config, reason: "Сервер выключен." };
     return (await trusted(root, config))
-      ? { state: "stopped", id, config }
+      ? { state: "stopped", id, kind: "custom", config }
       : {
           state: "untrusted",
           id,
@@ -103,16 +155,39 @@ export async function selectLspServer(
         "Для проекта разрешено несколько серверов. Выберите ID в Settings.",
     };
   if (allowed[0])
-    return { state: "stopped", id: allowed[0][0], config: allowed[0][1] };
+    return {
+      state: "stopped",
+      id: allowed[0][0],
+      kind: "custom",
+      config: allowed[0][1],
+    };
+  if (!enabled.length && Object.keys(servers).length)
+    return { state: "disabled", reason: "Пользовательские серверы выключены." };
   return enabled.length
     ? {
         state: "untrusted",
         reason: "Нет разрешения на запуск для этого проекта.",
       }
     : {
-        state: "disabled",
-        reason: "Настройте TypeScript/JavaScript в Settings → Анализ кода.",
+        state: "unavailable",
+        reason:
+          "Своя настройка не задана. Выберите Auto или добавьте сервер в Settings.",
       };
+}
+export async function resolveLspLaunch(
+  root: string,
+  selection: LspSelection,
+  materialize = false,
+  signal?: AbortSignal,
+): Promise<LspLaunch> {
+  if (selection.kind === "auto")
+    return materialize ? prepareAutoBackend(root, signal) : autoLspLaunch(root);
+  if (!selection.id || !selection.config)
+    throw new RuntimeError(
+      "LSP_UNAVAILABLE",
+      "Language server is not configured.",
+    );
+  return validateLspLaunch(root, selection.id, selection.config);
 }
 async function trusted(
   root: string,

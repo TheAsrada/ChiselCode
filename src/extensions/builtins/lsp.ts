@@ -57,7 +57,7 @@ export function createLspExtension(
           {
             name: "status",
             description:
-              "Show configured TypeScript/JavaScript language server state and readiness. Never starts a server or scans the workspace.",
+              "Show Auto/custom/off TypeScript/JavaScript analysis state, backend versions and readiness. Never starts a server or scans the workspace.",
             effect: "read",
             permission: "read",
             workspaceAccess: "none",
@@ -77,7 +77,7 @@ export function createLspExtension(
         input: T,
       ) => ({
         data: input,
-        preview: `Analyse ${input.path} with configured trusted LSP`,
+        preview: `Analyse ${input.path} with workspace LSP`,
         resources: [await context.workspace.resolve(input.path)],
       });
       const readSpec = {
@@ -94,7 +94,7 @@ export function createLspExtension(
             ...readSpec,
             name: "diagnostics",
             description:
-              "Read diagnostics for one saved .ts/.tsx/.js/.jsx file. Starts only an explicitly trusted configured server. Includes revision and freshness; unversioned TypeScript results are observed, not proof of current error-free analysis.",
+              "Check a saved .ts/.tsx/.js/.jsx file after edits. Auto starts the bundled backend lazily and detects tsconfig/jsconfig or an inferred project; custom executables require explicit trust. Includes revision and freshness; observed/unversioned results do not prove current error-free analysis. Pair with relevant tests.",
           },
           file,
           (context, input) => prepare(context, input),
@@ -110,7 +110,7 @@ export function createLspExtension(
             ...readSpec,
             name: "definition",
             description:
-              "Find symbol definitions in saved TypeScript/JavaScript. line and character are zero-based; character counts UTF-16 code units. External/ignored locations are omitted; reading a location does not grant edit permission.",
+              "Navigate to symbol definitions before editing saved TypeScript/JavaScript. Auto selects the project and starts lazily without manual paths. line and character are zero-based; character counts UTF-16 code units. External/ignored locations are omitted; a location does not grant edit permission.",
           },
           position,
           (context, input) => prepare(context, input),
@@ -130,7 +130,7 @@ export function createLspExtension(
             ...readSpec,
             name: "references",
             description:
-              "Find references in saved TypeScript/JavaScript. Zero-based line and UTF-16 character; at most 200 permitted workspace locations.",
+              "Find affected callers/references before changing saved TypeScript/JavaScript. Auto starts lazily. Zero-based line and UTF-16 character; at most 200 permitted workspace locations.",
           },
           position
             .extend({ includeDeclaration: z.boolean().optional() })
@@ -169,7 +169,7 @@ export function createLspExtension(
           {
             name: "restart",
             description:
-              "Explicitly start/restart a configured trusted TypeScript/JavaScript server. Affects all tabs of this workspace. Requires normal process permission and Build mode; no arbitrary executable or arguments accepted.",
+              "Explicitly start/restart Auto or a trusted custom TypeScript/JavaScript server. Ordinary navigation starts lazily; use restart for recovery/config changes. Affects every tab. Requires normal process permission and Build mode; no arbitrary executable or arguments accepted.",
             effect: "process",
             permission: "process",
             workspaceAccess: "write",

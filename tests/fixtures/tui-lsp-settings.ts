@@ -15,7 +15,7 @@ import {
 } from "./lsp-runtime.js";
 
 export const LSP_TUI_MARKER =
-  "LSP Settings: real UI setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
+  "LSP Settings: Auto, custom setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
 export async function runLspTuiScenario(captures?: string): Promise<void> {
   const storage = await mkdtemp(join(tmpdir(), "chisel-lsp-tui-"));
   const root = join(storage, "workspace");
@@ -214,9 +214,87 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     await capture("search-120x40");
     await key("ENTER");
     await wait(
-      () => !!setup.renderer.root.findDescendantById("lsp-row-add"),
-      "LSP empty state missing",
+      () => !!setup.renderer.root.findDescendantById("lsp-row-mode-auto"),
+      "Default Auto mode missing",
     );
+    assert.ok(setup.captureCharFrame().includes("[x] Auto"));
+    assert.equal(
+      (await lspProcessTree()).length,
+      0,
+      "Settings/listing must not start Auto",
+    );
+    await capture("lsp-auto-idle-120x40");
+    if (captures) {
+      for (const [width, height] of [
+        [100, 30],
+        [80, 24],
+        [60, 20],
+        [40, 12],
+        [24, 8],
+      ] as const) {
+        await act(async () => setup.resize(width, height));
+        await frames();
+        await capture(`lsp-auto-idle-${width}x${height}`);
+      }
+      await act(async () => setup.resize(120, 40));
+      await frames();
+    }
+    await click("lsp-project");
+    assert.ok(
+      !setup.renderer.root.findDescendantById("lsp-row-trust")?.visible,
+      "Standard backend must not require per-project trust",
+    );
+    await capture("lsp-auto-project-120x40");
+    await key("ESCAPE");
+    await key("ESCAPE");
+    await command("/inspect-types");
+    await wait(
+      () => setup.captureCharFrame().includes("2322"),
+      "Default Auto must lazily analyse without paths/trust",
+    );
+    const autoProcesses = await lspProcessTree();
+    assert.ok(
+      autoProcesses.length >= 2,
+      "Real Auto server/tsserver not observed",
+    );
+    await command("/settings");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("settings-global-search"),
+      "Settings did not reopen for Auto",
+    );
+    await key("f", true);
+    await paste("анализ кода");
+    await key("ENTER");
+    await wait(
+      () => setup.captureCharFrame().includes("[ok] Готов"),
+      "Auto should show actual readiness",
+    );
+    await capture("lsp-auto-ready-120x40");
+    if (captures) {
+      await click("settings-route-appearance");
+      await click("settings-theme-paper");
+      await key("s", true);
+      await frames();
+      await click("settings-route-tools.lsp");
+      await capture("lsp-auto-ready-paper-120x40");
+      await click("settings-route-appearance");
+      await click("settings-theme-graphite");
+      await key("s", true);
+      await click("settings-route-tools.lsp");
+    }
+    await click("lsp-row-mode-off");
+    await capture("lsp-auto-off-draft-120x40");
+    await click("lsp-save");
+    await wait(
+      () => setup.captureCharFrame().includes("активные серверы закрыты"),
+      "Off save failed",
+    );
+    await waitForLspProcessExit(autoProcesses);
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.mode,
+      "off",
+    );
+    await click("lsp-row-mode-custom");
     await capture("lsp-empty-120x40");
     await click("lsp-row-add");
     await field("node", paths.command);
@@ -247,14 +325,26 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     await frames();
     await key("ENTER");
     await capture("lsp-form-dirty-120x40");
+    await key("f", true);
+    await key("a", true);
+    await paste("auto");
+    await key("ENTER");
+    assert.ok(
+      setup.captureCharFrame().includes("черновик своего сервера"),
+      "Mode deep link must not discard a dirty server form",
+    );
+    assert.ok(
+      setup.renderer.root.findDescendantById("lsp-row-node")?.visible,
+      "Unsaved custom paths disappeared",
+    );
     await click("lsp-row-check");
     await wait(
       () => setup.captureCharFrame().includes("Пути доступны"),
       "Read-only path check failed",
     );
-    assert.equal(
+    assert.deepEqual(
       JSON.parse(await readFile(configPath, "utf8")).lsp,
-      undefined,
+      { mode: "off", servers: {} },
       "Check must not save or start",
     );
     await click("lsp-save");
@@ -268,7 +358,9 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     // Saving one scope must leave the other scope's draft intact.
     await click("lsp-row-enabled");
     await click("lsp-project");
-    await click("lsp-row-selection"); // inherit → disabled
+    await click("lsp-row-mode"); // inherit → auto
+    await click("lsp-row-mode"); // auto → custom
+    await click("lsp-row-mode"); // custom → off
     await click("lsp-global");
     await click("lsp-save");
     await wait(
@@ -301,11 +393,10 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       "Project draft save failed",
     );
     assert.equal(
-      JSON.parse(await readFile(join(root, ".chiselrc"), "utf8")).lsp.enabled,
-      false,
+      JSON.parse(await readFile(join(root, ".chiselrc"), "utf8")).lsp.mode,
+      "off",
     );
-    await click("lsp-row-selection"); // disabled → configured ID
-    await click("lsp-row-selection"); // configured ID → inherit
+    await click("lsp-row-mode"); // off → inherit
     await click("lsp-save");
     await wait(
       () =>

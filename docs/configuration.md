@@ -200,19 +200,26 @@ Private network всегда заблокирован. JavaScript/browser automa
 
 ## Анализ кода (LSP)
 
-Основной способ настройки — `/settings` → Инструменты → Анализ кода. Без секции `lsp` анализ выключен; обычные prompts, manifest tool и навигация работают. Сохранение не запускает process. Установка серверов — отдельное действие пользователя, вне анализируемого репозитория, например:
+Основной экран — `/settings` → Инструменты → Анализ кода. По умолчанию выбран **Auto**: сохранённые `.ts/.tsx/.js/.jsx` анализируются без ввода путей, установки сервера или разрешения каждого проекта. Стандартный backend **typescript-language-server 6.0.1 + TypeScript 6.0.3** включён в npm package и compiled binary, работает под Bun самого ChiselCode и лениво извлекается в `chiselHomeDir()/lsp` с проверкой SHA-256 и содержимого. Во время пользовательского запуска нет download/install scripts или поиска исполняемых файлов в проекте. Внешний Node для Auto не требуется; CI использует Bun 1.4.2, ordinary CLI smoke проверяет также минимальный Bun 1.3.0.
+
+Сервер появляется при первом явном diagnostics/navigation запросе. TypeScript определяет подходящий `tsconfig.json` / `jsconfig.json` для открытого файла, либо создаёт inferred project; полного сканирования workspace нет. Settings, status, context и сохранение конфигурации не запускают process. Агент получает инструкции применять definitions/references/symbols и проверять изменённые файлы diagnostics вместе с обычными тестами.
+
+Три режима: **Auto**, **Своя настройка**, **Выключено**. Отключение завершает работающие серверы и запрещает новые requests. Минимальный advanced JSON — `"lsp": { "mode": "auto" }` или `"lsp": { "mode": "off" }`. Отсутствие секции означает Auto; существующая конфигурация с непустым `servers` без `mode` сохраняет прежний custom/trust режим. ID `auto` принадлежит стандартному backend.
+
+**Своя настройка** предназначена для опытных пользователей: сервер устанавливается отдельно, вне анализируемого репозитория, например:
 
 ```bash
 npm install --prefix /absolute/user/lsp-runtime --ignore-scripts typescript-language-server@6.0.1 typescript@6.0.3
 ```
 
-Поддерживаемая пара: **typescript-language-server 6.0.1**, **TypeScript 6.x** (tests: **6.0.3**), **Node ≥22.22.2** (CI: **24.19.0**). Dev dependency TypeScript 7 ChiselCode не используется как backend. Packages не включены в release binary. Проверка путей проверяет metadata server/TypeScript, но не выполняет Node `--version`.
+Для своей настройки поддерживается **typescript-language-server 6.0.1**, **TypeScript 6.x** (tests: **6.0.3**), **Node ≥22.22.2** (CI: **24.19.0**). Dev dependency TypeScript 7 и workspace `node_modules/typescript` не заменяют backend скрыто. Проверка путей проверяет metadata server/TypeScript, но не выполняет Node `--version`.
 
 Global config сохраняет schemaVersion 2:
 
 ```json
 {
   "lsp": {
+    "mode": "custom",
     "servers": {
       "typescript": {
         "enabled": true,
@@ -229,14 +236,14 @@ Global config сохраняет schemaVersion 2:
 
 На Linux/macOS используйте реальный абсолютный путь `node` и установленные JS/TypeScript файлы; на Windows — например `C:\Program Files\nodejs\node.exe` и абсолютные пути `cli.mjs`/`tsserver.js` (в JSON обратный слеш экранируется). Friendly UI принимает пробелы и Windows drives без JSON escaping. Путь `typescriptPath` может указывать на `lib`; client разрешит `tsserver.js`. Реальные canonical пути runtime/server/TypeScript должны находиться вне target repository. Никакого PATH lookup из проекта, `.cmd`, shell, `npx`/`bunx`, install scripts, env overrides или произвольных initialization options. Допустимый дополнительный argv — одна пара `--log-level` и `1`–`4`; trace/file logging и ATA отключены, дополнительные plugins не включаются.
 
-Доверие проверяется по **точному canonical root**, включая symlink aliases. Родитель, потомок, соседний project и wildcard доверие не наследуют. `enabled` без `trustedWorkspaces` не запускает сервер. Workspace trust включает обработку imports/configs/dependencies доверенным процессом с правами пользователя: LSP path filtering не изолирует внутренние filesystem/network calls сервера. Model/API credentials в environment сервера не передаются.
+Для **пользовательских исполняемых файлов** доверие проверяется по точному canonical root, включая symlink aliases. Родитель, потомок, соседний project и wildcard доверие не наследуют. `enabled` без `trustedWorkspaces` не запускает custom сервер. Auto использует только стандартный проверенный payload, ему не нужно отдельное подтверждение каждого root. Оба backend анализируют imports/configs/dependencies с правами пользователя: это не sandbox и не enforced network isolation. Model/API credentials в environment сервера не передаются.
 
-Project `.chiselrc` разрешает только выбор существующего global ID или отключение:
+Экран «Этот проект» позволяет наследовать global режим, выбрать Auto, custom сервер или выключить анализ. Project `.chiselrc` разрешает только mode, выбор существующего global ID и прежний enabled flag:
 
 ```json
-{ "lsp": { "serverId": "typescript" } }
+{ "lsp": { "mode": "custom", "serverId": "typescript" } }
 ```
 
-Для отключения: `"lsp": { "enabled": false }`; `{}` наследует global выбор. При нескольких enabled/trusted записях без явного ID выводится ошибка неоднозначности. Project launch/trust/args/runtime/initializationOptions отклоняются. Settings сохраняет только project `lsp`, оставляет остальные и unknown поля; concurrent edit/invalid JSON не перезаписывается. Global panels сериализуют patches принадлежащих им полей, LSP draft проверяет revision своей секции. Config-path override используется и UI, и configured definition.
+Для Auto в проекте: `"lsp": { "mode": "auto" }`, для отключения: `"lsp": { "mode": "off" }` (старое `enabled:false` также действует); `{}` наследует global выбор. Global off имеет приоритет над проектом. При нескольких enabled/trusted custom записях без ID выводится ошибка неоднозначности. Выбор custom не выдаёт доверия. Project launch/trust/args/runtime/initializationOptions отклоняются. Settings сохраняет только project `lsp`, оставляет остальные и unknown поля; concurrent edit/invalid JSON не перезаписывается. Global panels сериализуют patches принадлежащих им полей, LSP draft проверяет revision своей секции. Config-path override используется и UI, и configured definition.
 
-Отзыв trust/disable применяется к открытым scopes без повторной activation и завершает affected servers. Изменённые launch fields дают «Нужен перезапуск»; новые явные calls применяют новый launch, старые requests/results не продолжают скрыто прежнюю generation. Status/list/search/context не запускают сервер; explicit read tools после setup trust запускают его лениво.
+Смена режима / отзыв custom trust / disable применяется к открытым scopes без повторной activation и завершает affected servers. Изменённые custom launch fields дают «Нужен перезапуск»; новые явные calls применяют новый launch, старые requests/results не продолжают скрыто прежнюю generation. Status/list/search/context не запускают сервер. Явный «Запустить/Перезапустить» использует обычный process tool/queue/approval и Build; read-анализ в Auto доступен также в Plan.

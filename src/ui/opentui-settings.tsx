@@ -1570,6 +1570,7 @@ export function OpenTuiSettings({
                 }
                 focused={shellFocus === "content"}
                 fieldTarget={fieldTarget}
+                onFieldTargetHandled={() => setFieldTarget(undefined)}
                 controls={lspControls}
                 onDirty={recordLspDirty}
               />

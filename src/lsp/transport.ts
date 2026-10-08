@@ -173,6 +173,9 @@ export class LspTransport {
       PATH: dirname(launch.command),
       NODE_ENV: "production",
     };
+    // The compiled CLI doubles as its bundled Bun runtime for the vetted backend
+    // and tsserver's child_process.fork. Custom Node launches never inherit this.
+    if (launch.kind === "auto") env.BUN_BE_BUN = "1";
     for (const key of [
       "SystemRoot",
       "SYSTEMROOT",

@@ -7,11 +7,13 @@ import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { workspaceCoordinator } from "../tools/workspace-coordinator.js";
 import { VERSION } from "../version.js";
 import {
+  effectiveLspMode,
   type LspConfiguration,
   type LspLaunch,
+  type LspMode,
   type LspSelection,
+  resolveLspLaunch,
   selectLspServer,
-  validateLspLaunch,
 } from "./config.js";
 import {
   documentEnd,
@@ -61,6 +63,8 @@ export interface LspStatus {
   generation: number;
   trackedDocuments: number;
   requiresRestart: boolean;
+  mode?: LspMode;
+  versions?: { server: string; typescript: string; runtime: string };
   reason?: string;
   capabilities?: readonly string[];
 }
@@ -190,7 +194,7 @@ export class LspService {
             entry.id,
           )
         : { state: "unavailable" as const };
-      if (selection.state !== "stopped" || !selection.config) {
+      if (selection.state !== "stopped") {
         entry.state = selection.state;
         entry.reason = selection.reason ?? this.configError;
         this.invalidate(entry);
@@ -200,11 +204,7 @@ export class LspService {
       if (entry.launch) {
         let launch: LspLaunch | undefined;
         try {
-          launch = await validateLspLaunch(
-            this.workspaceRoot,
-            entry.id,
-            selection.config,
-          );
+          launch = await resolveLspLaunch(this.workspaceRoot, selection);
         } catch {
           /* Changed or removed installations cannot keep serving. */
         }
@@ -240,17 +240,16 @@ export class LspService {
         ? (entry?.state ?? "stopped")
         : selected.state;
     let reason = selected.reason ?? entry?.reason;
-    if (selected.state === "stopped" && selected.config && selected.id) {
+    let launch: LspLaunch | undefined;
+    if (selected.state === "stopped" && selected.id) {
       try {
-        await validateLspLaunch(
-          this.workspaceRoot,
-          selected.id,
-          selected.config,
-        );
+        launch = await resolveLspLaunch(this.workspaceRoot, selected);
       } catch {
         state = "unavailable";
         reason =
-          "Сервер или TypeScript не найден/несовместим. Проверьте пути в Settings.";
+          selected.kind === "auto"
+            ? "Стандартный backend недоступен. Проверьте каталог данных ChiselCode."
+            : "Сервер или TypeScript не найден/несовместим. Проверьте пути в Settings.";
       }
     }
     return {
@@ -261,6 +260,19 @@ export class LspService {
       generation: entry?.generation ?? 0,
       trackedDocuments: entry?.documents.size ?? 0,
       requiresRestart: entry?.requiresRestart ?? false,
+      ...(this.configuration
+        ? { mode: effectiveLspMode(this.configuration) }
+        : {}),
+      ...(launch
+        ? {
+            versions: {
+              server: launch.serverVersion,
+              typescript: launch.typescriptVersion,
+              runtime:
+                launch.kind === "auto" ? `Bun ${Bun.version}` : "Node (custom)",
+            },
+          }
+        : {}),
       ...(reason ? { reason } : {}),
       ...(entry?.transport ? { capabilities: this.features(entry) } : {}),
     };
@@ -282,9 +294,8 @@ export class LspService {
   }
   async launchPreview(serverId?: string): Promise<LspLaunch> {
     const selected = await this.selection(serverId);
-    if (selected.state !== "stopped" || !selected.config || !selected.id)
-      this.denied(selected);
-    return validateLspLaunch(this.workspaceRoot, selected.id, selected.config);
+    if (selected.state !== "stopped" || !selected.id) this.denied(selected);
+    return resolveLspLaunch(this.workspaceRoot, selected);
   }
   private async ensureEntry(
     signal?: AbortSignal,
@@ -293,8 +304,7 @@ export class LspService {
     cancelled(signal);
     this.available();
     const selected = await this.selection(serverId);
-    if (selected.state !== "stopped" || !selected.id || !selected.config)
-      this.denied(selected);
+    if (selected.state !== "stopped" || !selected.id) this.denied(selected);
     const entry = this.entry(selected.id);
     if (entry.requiresRestart)
       await abortable(
@@ -329,14 +339,23 @@ export class LspService {
     }));
   }
   private async start(entry: Server, selected: LspSelection): Promise<void> {
-    if (!selected.config) this.denied(selected);
     this.available();
     if (entry.stopping) await entry.stopping;
-    const launch = await validateLspLaunch(
-      this.workspaceRoot,
-      entry.id,
-      selected.config,
-    );
+    entry.state = "starting";
+    let launch: LspLaunch;
+    try {
+      launch = await resolveLspLaunch(
+        this.workspaceRoot,
+        selected,
+        true,
+        this.signal(),
+      );
+    } catch (error) {
+      entry.state = "error";
+      entry.reason =
+        "Не удалось подготовить backend. Проверьте настройки/установку и перезапустите LSP.";
+      throw error;
+    }
     this.available();
     const latest = await this.loadConfiguration();
     const permission = await selectLspServer(
@@ -344,11 +363,10 @@ export class LspService {
       latest,
       entry.id,
     );
-    if (permission.state !== "stopped" || !permission.config)
-      this.denied(permission);
+    if (permission.state !== "stopped") this.denied(permission);
     if (
-      (await validateLspLaunch(this.workspaceRoot, entry.id, permission.config))
-        .fingerprint !== launch.fingerprint
+      (await resolveLspLaunch(this.workspaceRoot, permission)).fingerprint !==
+      launch.fingerprint
     )
       throw new RuntimeError(
         "LSP_UNAVAILABLE",
@@ -455,7 +473,9 @@ export class LspService {
     } catch (error) {
       entry.state = "error";
       entry.reason =
-        "Не удалось выполнить initialize. Проверьте Node >=22.22.2, server и TypeScript; затем перезапустите.";
+        launch.kind === "auto"
+          ? "Не удалось запустить стандартный анализ кода. Перезапустите LSP; проверьте установку ChiselCode."
+          : "Не удалось выполнить initialize. Проверьте Node >=22.22.2, server и TypeScript; затем перезапустите.";
       await this.stopEntry(entry);
       throw error;
     }
@@ -483,8 +503,7 @@ export class LspService {
   async restart(serverId?: string, signal?: AbortSignal): Promise<LspStatus> {
     cancelled(signal);
     const selected = await this.selection(serverId);
-    if (selected.state !== "stopped" || !selected.id || !selected.config)
-      this.denied(selected);
+    if (selected.state !== "stopped" || !selected.id) this.denied(selected);
     const entry = this.entry(selected.id);
     // Restart itself is cooperative: once stop starts its cleanup finishes before cancellation returns.
     await this.restartEntry(entry, selected, signal);
@@ -854,6 +873,12 @@ export class LspService {
       policy: WorkspacePolicy,
     ) => Promise<T>,
   ): Promise<T> {
+    this.available();
+    cancelled(port.signal);
+    // Do not start Auto for an unsupported, ignored, missing or invalid document.
+    // Re-read after initialize/refresh below so bytes changed during startup are
+    // never sent from this preflight and only the final read grants observation.
+    await readLspFile({ ...port, observe: undefined }, path);
     const entry = await this.ensureEntry(port.signal);
     const signal = this.signal(port.signal, entry);
     const policy = new WorkspacePolicy(this.workspaceRoot, [

@@ -8,13 +8,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { execa } from "execa";
-import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
-import { installedLsp } from "./lsp-runtime.js";
 
 /** Actual CLI + provider protocol + LSP + checkpoint; the model endpoint is local/scripted. */
 export async function smokeLspCli(command: string, args: string[]) {
+  const executable =
+    isAbsolute(command) || /[\\/]/.test(command) ? resolve(command) : command;
+  const entryArgs = args[0] ? [resolve(args[0]), ...args.slice(1)] : [];
   const directory = await mkdtemp(join(tmpdir(), "chisel-lsp-cli-"));
   const root = join(directory, "project");
   await mkdir(root);
@@ -61,9 +62,16 @@ export async function smokeLspCli(command: string, args: string[]) {
           message.content?.includes("2322"),
         );
         if (results.length) {
-          assert.ok(
-            results.at(-1)?.content?.includes('"freshness": "observed"'),
-          );
+          const last = results.at(-1)?.content ?? "";
+          assert.ok(!last.includes('"isError": true'), last);
+          if (last.includes('"freshness": "observed"'))
+            assert.ok(last.includes("версия анализа не подтверждена"));
+          else
+            assert.ok(
+              last.includes('"freshness": "unavailable"') ||
+                last.includes('"freshness": "pending"'),
+              last,
+            );
           assert.ok(
             body.messages.some(
               (message) =>
@@ -76,7 +84,7 @@ export async function smokeLspCli(command: string, args: string[]) {
             !body.messages.some(
               (message) =>
                 message.role === "system" &&
-                message.content?.includes("LSP typescript: ready"),
+                message.content?.includes("LSP auto: ready"),
             ),
             "LSP context received system authority",
           );
@@ -133,14 +141,11 @@ export async function smokeLspCli(command: string, args: string[]) {
       join(root, "tsconfig.json"),
       '{"compilerOptions":{"strict":true},"include":["*.ts"]}',
     );
-    const lsp = await installedLsp();
-    lsp.trustedWorkspaces = [await canonicalWorkspaceRoot(root)];
     await writeFile(
       configPath,
       JSON.stringify({
         schemaVersion: 2,
         web: { enabled: false },
-        lsp: { servers: { typescript: lsp } },
         defaultProfileId: "fixture",
         profiles: {
           fixture: {
@@ -152,17 +157,18 @@ export async function smokeLspCli(command: string, args: string[]) {
       }),
     );
     const result = await execa(
-      command,
+      executable,
       [
-        ...args,
+        ...entryArgs,
         "--cwd",
         root,
         "--mode",
         "plan",
         "--json",
-        "Use the configured LSP to diagnose the saved TypeScript file",
+        "Use Auto LSP to diagnose the saved TypeScript file",
       ],
       {
+        cwd: root,
         reject: false,
         timeout: 35000,
         env: {
@@ -207,7 +213,7 @@ export async function smokeLspCli(command: string, args: string[]) {
           ),
         );
         assert.ok(
-          !JSON.stringify(session.messages).includes("LSP typescript: ready"),
+          !JSON.stringify(session.messages).includes("LSP auto: ready"),
         );
         persisted = true;
       } catch (error) {

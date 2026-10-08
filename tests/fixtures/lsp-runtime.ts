@@ -38,11 +38,17 @@ async function windowsNodeProcesses(): Promise<
       if (++scanned > 4096)
         throw new Error("Windows process snapshot exceeded test budget.");
       if (
-        entry
-          .subarray(44, 564)
-          .toString("utf16le")
-          .split("\0")[0]
-          ?.toLowerCase() === "node.exe"
+        [
+          "node.exe",
+          "bun.exe",
+          basename(process.execPath).toLowerCase(),
+        ].includes(
+          entry
+            .subarray(44, 564)
+            .toString("utf16le")
+            .split("\0")[0]
+            ?.toLowerCase() ?? "",
+        )
       )
         result.push({
           pid: entry.readUInt32LE(8),
@@ -74,7 +80,9 @@ async function nodeProcesses(): Promise<
     if (
       match[3]?.startsWith("Z") ||
       // Node 24 names its Linux main thread MainThread.
-      !["node", "MainThread"].includes(basename((match[4] ?? "").trim()))
+      !["node", "MainThread", "bun", basename(process.execPath)].includes(
+        basename((match[4] ?? "").trim()),
+      )
     )
       return [];
     return [{ pid: Number(match[1]), parent: Number(match[2]) }];

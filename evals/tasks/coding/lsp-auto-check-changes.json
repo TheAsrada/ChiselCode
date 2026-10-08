@@ -1,0 +1,44 @@
+{
+  "id": "lsp-auto-check-changes",
+  "fixture": "lsp-auto",
+  "lspFixture": true,
+  "prompt": "Use the available language service to navigate greet and its callers. Correct the mismatched value type, check diagnostics after editing, and run bun test. Respect observed diagnostics provenance; do not claim current error-free analysis without confirmation.",
+  "graders": [
+    { "type": "tool_result", "tool": "ext:builtin.lsp:definition" },
+    { "type": "tool_result", "tool": "ext:builtin.lsp:references" },
+    { "type": "tool_result", "tool": "ext:builtin.lsp:symbols" },
+    {
+      "type": "tool_result",
+      "tool": "ext:builtin.lsp:diagnostics",
+      "minimum": 2
+    },
+    { "type": "tool_result", "tool": "edit_file" },
+    { "type": "command", "command": "bun test" }
+  ],
+  "constraints": {
+    "forbidden_paths": ["main.test.ts", "library.ts", "tsconfig.json"]
+  },
+  "tags": ["lsp", "navigation", "verification", "auto"],
+  "mockCalls": [
+    {
+      "name": "ext:builtin.lsp:definition",
+      "input": { "path": "main.ts", "line": 0, "character": 10 }
+    },
+    {
+      "name": "ext:builtin.lsp:references",
+      "input": { "path": "library.ts", "line": 0, "character": 17 }
+    },
+    { "name": "ext:builtin.lsp:symbols", "input": { "path": "library.ts" } },
+    { "name": "ext:builtin.lsp:diagnostics", "input": { "path": "main.ts" } },
+    {
+      "name": "edit_file",
+      "input": {
+        "path": "main.ts",
+        "old_str": "value: number",
+        "new_str": "value: string"
+      }
+    },
+    { "name": "ext:builtin.lsp:diagnostics", "input": { "path": "main.ts" } },
+    { "name": "run_shell", "input": { "command": "bun test" } }
+  ]
+}

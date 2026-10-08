@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
@@ -35,8 +35,15 @@ try {
       scripts: {},
     }),
   );
-  for (const file of ["README.md", "LICENSE", "dist/cli.js"])
+  for (const file of ["README.md", "LICENSE"])
     await copyFile(join(root, file), join(packageRoot, file));
+  // Include actual build assets (not local installed smoke dirs or compiled binaries).
+  for (const file of await readdir(join(root, "dist"), { withFileTypes: true }))
+    if (file.isFile() && /\.(?:js|gz|scm|wasm)$/.test(file.name))
+      await copyFile(
+        join(root, "dist", file.name),
+        join(packageRoot, "dist", file.name),
+      );
   await run(process.execPath, [
     "build",
     "tests/fixtures/tui-command-contributions.ts",
@@ -92,7 +99,7 @@ try {
   );
   process.stdout.write("Installed linked TUI command scenario passed.\n");
   const lspMarker =
-    "LSP Settings: real UI setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
+    "LSP Settings: Auto, custom setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
   assert.ok(
     (
       await run(process.execPath, [
