@@ -8,7 +8,11 @@ import { defaultExtensions } from "../../src/extensions/composition.js";
 import type { ChiselExtension } from "../../src/extensions/contracts.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
-import { installedLsp } from "./lsp-runtime.js";
+import {
+  installedLsp,
+  lspProcessTree,
+  waitForLspProcessExit,
+} from "./lsp-runtime.js";
 
 export const LSP_TUI_MARKER =
   "LSP Settings: real UI setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
@@ -393,6 +397,8 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       () => setup.captureCharFrame().includes("2322"),
       "Real diagnostics missing",
     );
+    const descendants = await lspProcessTree();
+    assert.ok(descendants.length >= 2, "Real TLS/tsserver processes missing");
     await command("/fix-type");
     await wait(
       () => !!setup.renderer.root.findDescendantById("approval-popup"),
@@ -445,6 +451,7 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
         .trustedWorkspaces,
       [],
     );
+    await waitForLspProcessExit(descendants);
     await capture("lsp-untrusted-120x40");
     const store = await projectSessionStore(root);
     const sessions = await store.list();

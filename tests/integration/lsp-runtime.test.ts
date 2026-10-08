@@ -39,7 +39,11 @@ import type {
   JsonObject,
   ToolExecutionResult,
 } from "../../src/types/domain.js";
-import { installedLsp } from "../fixtures/lsp-runtime.js";
+import {
+  installedLsp,
+  lspProcessTree,
+  waitForLspProcessExit,
+} from "../fixtures/lsp-runtime.js";
 
 let directory: string;
 const hosts: ExtensionHost[] = [];
@@ -254,8 +258,11 @@ test("real TypeScript tools initialise lazily, navigate, observe actual bytes, e
   );
   await r.dispose();
   expect((await f.service.status()).state).toBe("ready");
+  const descendants = await lspProcessTree();
+  expect(descendants.length).toBeGreaterThanOrEqual(2);
   await f.host.dispose();
   expect((await f.service.status()).state).toBe("disposed");
+  await waitForLspProcessExit(descendants);
 }, 30_000);
 
 test("Plan reads analyse with trust; restart Plan/user deny/Dont Ask preserve the existing generation", async () => {

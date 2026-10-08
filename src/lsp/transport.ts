@@ -364,8 +364,7 @@ export class LspTransport {
     if (!this.closed) {
       try {
         await this.request("shutdown", null, undefined, LSP_LIMITS.shutdownMs);
-        if (process.platform !== "win32")
-          await this.notification("exit", undefined);
+        await this.notification("exit", undefined);
       } catch {
         /* Force cleanup still runs on EOF or timeout. */
       }

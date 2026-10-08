@@ -306,13 +306,13 @@ async function frame() {
     await setup.renderOnce();
   });
 }
-async function until(ready: () => boolean, label: string) {
+async function until(ready: () => boolean | Promise<boolean>, label: string) {
   for (let i = 0; i < 350; i++) {
     await act(async () => {
       await Bun.sleep(10);
       await setup.renderOnce();
     });
-    if (ready()) return;
+    if (await ready()) return;
   }
   throw new Error(`${label}\n${setup.captureCharFrame()}`);
 }
@@ -467,6 +467,14 @@ try {
   assert.ok(!setup.captureCharFrame().includes("fixture-secret"));
   assert.ok(setup.captureCharFrame().includes("fixture.commands"));
   await send("/large");
+  await until(async () => {
+    persisted = await store.load(sessions[0]?.id ?? "");
+    return Object.values(persisted.runtime?.invocations ?? {}).some(
+      (record) =>
+        record.name === "ext:fixture.commands:large" &&
+        record.state === "succeeded",
+    );
+  }, "Large tool did not reach its terminal checkpoint");
   await idle();
   persisted = await store.load(sessions[0]?.id ?? "");
   const large = Object.values(persisted.runtime?.invocations ?? {}).find(

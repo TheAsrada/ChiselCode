@@ -1,7 +1,12 @@
 // Deterministic protocol/race peer only. Acceptance uses the real installed server.
 
 import { spawn } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -177,7 +182,12 @@ async function receive(message) {
     return process.stdout.write("Content-Length: 99999999\r\n\r\n");
   if (method === "fixture/malformed")
     return process.stdout.write("Content-Length: 3\r\n\r\nbad");
-  if (method === "fixture/EOF") return process.stdout.end();
+  if (method === "fixture/EOF") {
+    // Node's process.stdout has a dummy destroy; Windows named pipes do not
+    // expose a peer EOF on writable .end(). Close the actual descriptor.
+    closeSync(1);
+    return;
+  }
   if (method === "fixture/crash") return process.exit(2);
   if (
     method === "textDocument/definition" ||
