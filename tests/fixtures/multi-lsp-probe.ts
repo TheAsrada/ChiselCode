@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
 import { LspService } from "../../src/lsp/service.js";
 import { WorkspacePolicy } from "../../src/security/workspace-policy.js";
@@ -185,6 +186,33 @@ for (const language of process.argv.slice(2)) {
         `::notice title=Real LSP ${language}::${JSON.stringify(evidence)}`,
       );
   } catch (error) {
+    // Failure-only investigation of the reviewed backend. No test flag, raw
+    // transport or arbitrary request surface is added to production consumers.
+    let analyzerStatus: string | undefined;
+    if (language === "rust") {
+      const entries = (
+        service as unknown as {
+          entries: Map<
+            string,
+            {
+              transport?: {
+                request<T>(method: string, params: unknown): Promise<T>;
+              };
+            }
+          >;
+        }
+      ).entries;
+      try {
+        const transport = [...entries.values()][0]?.transport;
+        analyzerStatus = (
+          await transport?.request<string>("rust-analyzer/analyzerStatus", {
+            textDocument: { uri: pathToFileURL(join(root, path)).href },
+          })
+        )?.slice(0, 4096);
+      } catch {
+        // An unavailable debug request never hides the actual acceptance failure.
+      }
+    }
     console.log(
       language,
       "FAILED",
@@ -195,6 +223,7 @@ for (const language of process.argv.slice(2)) {
     if (process.env.GITHUB_ACTIONS) {
       const diagnostic = JSON.stringify({
         language,
+        analyzerStatus,
         error: error instanceof Error ? error.message : String(error),
         cause:
           error instanceof Error && error.cause instanceof Error

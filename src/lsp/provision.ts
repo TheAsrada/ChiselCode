@@ -681,6 +681,7 @@ export async function catalogLspLaunch(
   );
   let command = process.execPath;
   let serverVersion = descriptor.version;
+  const settings = structuredClone(descriptor.settings ?? {});
   let args: string[] = [];
   let environment: Record<string, string> = {};
   if (recipe.type === "npm") {
@@ -764,6 +765,13 @@ export async function catalogLspLaunch(
         CARGO_NET_OFFLINE: "true",
         RUSTUP_NO_UPDATE_CHECK: "1",
         CARGO_HOME: join(directory, "analysis/cargo"),
+      };
+      const analyzer = settings["rust-analyzer"] as Record<string, unknown>;
+      analyzer.cargo = {
+        ...(analyzer.cargo as Record<string, unknown>),
+        sysroot: sdk,
+        sysrootSrc: join(sdk, "lib/rustlib/src/rust/library"),
+        extraEnv: { RUSTC: environment.RUSTC, CARGO_NET_OFFLINE: "true" },
       };
     }
   } else if (recipe.type === "go") {
@@ -1025,6 +1033,7 @@ export async function catalogLspLaunch(
       ...rubyEnv,
       GEM_HOME: directory,
       GEM_PATH: directory,
+      SOLARGRAPH_CACHE: join(directory, "analysis/solargraph"),
       RUBYLIB: [...gemLibs, ...(rubyEnv.RUBYLIB ? [rubyEnv.RUBYLIB] : [])].join(
         delimiter,
       ),
@@ -1051,7 +1060,7 @@ export async function catalogLspLaunch(
     command,
     args,
     environment,
-    settings: structuredClone(descriptor.settings ?? {}),
+    settings,
     initializationOptions: structuredClone(
       descriptor.initializationOptions ?? {},
     ),

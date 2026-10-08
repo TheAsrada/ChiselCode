@@ -33,7 +33,7 @@ jobs:
       - name: Real diagnostics, navigation and cleanup for the standard catalog
         run: bun tests/fixtures/multi-lsp-probe.ts python go rust cpp csharp java kotlin php ruby lua dart html css json yaml bash docker
       - name: Real SourceKit with the installed Xcode toolchain
-        if: runner.os == 'macOS'
+        if: always() && !cancelled() && runner.os == 'macOS'
         run: bun tests/fixtures/multi-lsp-probe.ts swift
   quality:
     name: Quality (${{ matrix.os }})
@@ -63,7 +63,12 @@ jobs:
       - name: Type check
         run: bun run typecheck
       - name: Test
-        run: bun test
+        shell: bash
+        run: |
+          set -o pipefail
+          if bun test --reporter=junit --reporter-outfile=test-results.xml 2>&1 | tee test-results.log; then exit 0; fi
+          bun scripts/report-ci-tests.ts
+          exit 1
       - name: Lint
         run: bun run lint
       - name: Deterministic runtime evaluation
