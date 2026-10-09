@@ -39,6 +39,7 @@ function side(session: Session, revision = 1): SideQueryRecord {
     knownCost: 0.2,
   };
 }
+// Retention exercises 54 real atomic writes/locks; Windows CI needs an IO budget, not the default 5 s.
 test("main checkpoints and operation-only patches merge under lock, deduplicate accounting and preserve legacy state", async () => {
   const storage = await mkdtemp(join(tmpdir(), "chisel-side-store-"));
   const variable =
@@ -122,4 +123,4 @@ test("main checkpoints and operation-only patches merge under lock, deduplicate 
     else process.env[variable] = previous;
     await rm(storage, { recursive: true, force: true });
   }
-});
+}, 30_000);
