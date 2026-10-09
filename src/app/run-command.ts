@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { composeCommandProjection } from "../commands/slash.js";
-import { loadGlobalConfig, loadProjectConfig } from "../config/load.js";
+import {
+  loadGlobalConfig,
+  loadProjectConfig,
+  loadProjectInstructions,
+} from "../config/load.js";
+import { subagentServiceToken } from "../extensions/builtins/subagents.js";
 import type { RegisteredExtensionCommand } from "../extensions/commands.js";
 import type { ExtensionCommandInvocation } from "../extensions/contracts.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
@@ -36,8 +41,12 @@ import {
   type CapturedCommandModel,
   commandModelInvocation,
 } from "./model-command.js";
-import { captureModelConfiguration } from "./model-runtime.js";
+import {
+  captureModelConfiguration,
+  captureUnavailableModel,
+} from "./model-runtime.js";
 import type { RunEventHandlers, RunOptions } from "./run-prompt.js";
+import { subagentControls } from "./subagent-inspection.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
 
 export interface PreparedExtensionCommand {
@@ -71,6 +80,11 @@ export async function runExtensionCommand(
   let session = options.resume
     ? await store.load((await store.resolve(options.resume)).id)
     : undefined;
+  if (session?.subagent)
+    throw new RuntimeError(
+      "SUBAGENT_RECOVERY_REQUIRED",
+      "История помощника открывается только для просмотра; обычные команды не расширяют его права.",
+    );
   if (!session) {
     const { registry } = await getProviderCatalog();
     if (Object.keys(global.profiles).length) {
@@ -120,7 +134,54 @@ export async function runExtensionCommand(
   }
   const bus = new RuntimeEventBus(session.id, invocationId);
   const redactor = new SecretRedactor();
+  await store.save(session);
+  const subagents = scope.services.lookup(subagentServiceToken);
+  const subagentOwner = options.subagentOwner ?? {
+    conversationId: session.id,
+    generation: 0,
+    signal,
+    assertAvailable: () => scope.assertUsable(),
+  };
+  let subagentTools:
+    | import("../subagents/service.js").SubagentToolBinding
+    | undefined;
+  if (subagents) {
+    const { registry } = await getProviderCatalog();
+    const childOwner = {
+      extensionId: prepared.command.source.extensionId,
+      session,
+      store,
+      root,
+      ...subagentOwner,
+      scope,
+      capturedModel:
+        modelOptions.captured?.model ??
+        (Object.keys(global.profiles).length
+          ? captureModelConfiguration(global, registry, options, session)
+          : captureUnavailableModel(registry, session)),
+      captureModel: options.subagentOwner?.modelOptions
+        ? () =>
+            captureModelConfiguration(
+              global,
+              registry,
+              { ...options, ...options.subagentOwner?.modelOptions?.() },
+              session,
+            )
+        : undefined,
+      config,
+      global,
+      options,
+      approvalMode,
+      resolver,
+      redactor,
+      instructions: await loadProjectInstructions(root),
+      onEvent: handlers.onSubagent,
+    };
+    subagentTools = await subagents.bind(childOwner);
+    handlers.onSubagentControls?.(subagentControls(subagents, childOwner));
+  }
   const tools = await createSessionToolRuntime({
+    subagentTools,
     root,
     session,
     store,
@@ -131,7 +192,7 @@ export async function runExtensionCommand(
     approvalMode,
     scope,
     events: bus,
-    resolver,
+    resolver: subagents?.foregroundResolver(resolver) ?? resolver,
     signal,
     sanitizeExtra: (value) => redactor.value(value),
   });
@@ -206,7 +267,68 @@ export async function runExtensionCommand(
       return work;
     },
   });
+  const linkedSubagents: import("../subagents/contracts.js").SubagentPort =
+    Object.freeze({
+      submit: async (
+        input: import("../subagents/contracts.js").SubagentInput,
+      ) => {
+        const { mode, ...values } = input;
+        const result = await invocation.tools.execute(
+          `ext:builtin.subagents:${mode === "coding" ? "submit_coding" : "submit_readonly"}`,
+          values as import("../types/domain.js").JsonObject,
+        );
+        if (result.isError || result.requiresApproval)
+          throw new RuntimeError("SUBAGENT_UNAVAILABLE", result.output);
+        return frozenClone(JSON.parse(result.output));
+      },
+      list: async () => {
+        const result = await invocation.tools.execute(
+          "ext:builtin.subagents:list",
+          {},
+        );
+        if (result.isError)
+          throw new RuntimeError("SUBAGENT_UNAVAILABLE", result.output);
+        return frozenClone(JSON.parse(result.output));
+      },
+      status: async (id: string) => {
+        const result = await invocation.tools.execute(
+          "ext:builtin.subagents:status",
+          { id },
+        );
+        if (result.isError)
+          throw new RuntimeError("SUBAGENT_UNAVAILABLE", result.output);
+        return frozenClone(JSON.parse(result.output));
+      },
+      result: async (id: string) => {
+        const result = await invocation.tools.execute(
+          "ext:builtin.subagents:result",
+          { id },
+        );
+        if (result.isError)
+          throw new RuntimeError("SUBAGENT_UNAVAILABLE", result.output);
+        return frozenClone(JSON.parse(result.output));
+      },
+      cancel: async (id: string) => {
+        const result = await invocation.tools.execute(
+          "ext:builtin.subagents:cancel",
+          { id },
+        );
+        if (result.isError)
+          throw new RuntimeError("SUBAGENT_UNAVAILABLE", result.output);
+        return frozenClone(JSON.parse(result.output));
+      },
+      wait: async (ids: readonly string[], timeoutMs = 30000) => {
+        const result = await invocation.tools.execute(
+          "ext:builtin.subagents:wait",
+          { ids: [...ids], timeoutMs },
+        );
+        if (result.isError)
+          throw new RuntimeError("SUBAGENT_UNAVAILABLE", result.output);
+        return frozenClone(JSON.parse(result.output));
+      },
+    });
   const invocation: ExtensionCommandInvocation = Object.freeze({
+    ...(subagentTools ? { subagents: linkedSubagents } : {}),
     worktrees: Object.freeze({
       open: (id: string) => {
         const work = (async () => {
@@ -363,6 +485,28 @@ export async function runExtensionCommand(
         config.context?.maxInlineToolResultTokens,
       );
     await tools.saveCheckpoint();
+    if (subagents && !options.interactive) {
+      await subagents.drain(session.id);
+      result = tools.sanitize({
+        ...result,
+        details: {
+          ...result.details,
+          children: Object.values(session.children ?? {}).map(
+            (receipt) => receipt.child,
+          ),
+        },
+      });
+      if (
+        Object.values(session.children ?? {}).some(
+          (receipt) => receipt.child.status !== "completed",
+        )
+      )
+        result = {
+          ...result,
+          isError: true,
+          errorCode: "SUBAGENT_UNAVAILABLE",
+        };
+    }
     return { session, result };
   } finally {
     detach();

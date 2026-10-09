@@ -22,6 +22,7 @@ export function OpenTuiApproval({
   onAlwaysApprove,
   onSessionApprove,
   onDeny = () => {},
+  onCancelChild,
 }: {
   request: ApprovalRequest;
   width: number;
@@ -31,6 +32,7 @@ export function OpenTuiApproval({
   onAlwaysApprove?: () => void;
   onSessionApprove?: () => void;
   onDeny?: () => void;
+  onCancelChild?: () => void;
 }) {
   const diffs = request.diffs ?? (request.fileDiff ? [request.fileDiff] : []);
   const maxHeight = Math.min(
@@ -76,34 +78,41 @@ export function OpenTuiApproval({
     >
       <text fg={palette.yellow} height={1}>
         <strong>
-          {request.mcp?.destructive
-            ? "Подтвердить опасное действие?"
-            : request.mcp
-              ? request.mcp.serverTitle
-              : tiny &&
-                  request.source?.type === "extension" &&
-                  request.source.extensionId === "builtin.worktrees"
-                ? "Рабочая копия"
-                : (extensionToolLabel(request.source) ??
-                  (request.network
-                    ? "Доступ к интернету"
-                    : "Разрешить действие?"))}
+          {tiny && request.owner?.childId
+            ? terminalLine(
+                `Помощник: ${request.owner.label ?? "Задача"}`,
+                innerWidth,
+              )
+            : request.mcp?.destructive
+              ? "Подтвердить опасное действие?"
+              : request.mcp
+                ? request.mcp.serverTitle
+                : tiny &&
+                    request.source?.type === "extension" &&
+                    request.source.extensionId === "builtin.worktrees"
+                  ? "Рабочая копия"
+                  : (extensionToolLabel(request.source) ??
+                    (request.network
+                      ? "Доступ к интернету"
+                      : "Разрешить действие?"))}
         </strong>
       </text>
-      <text fg={palette.muted} height={1}>
-        {terminalSafeText(
-          request.mcp?.title ??
-            (request.network
-              ? request.network.operation === "search"
-                ? "Поиск в интернете"
-                : "Открытие страницы"
-              : request.source?.type === "extension"
-                ? request.source.originalName
-                : request.tool),
-          innerWidth,
-        )}
-        {diffs.length > 1 ? ` | файлов: ${diffs.length}` : ""}
-      </text>
+      {!(tiny && onCancelChild) && (
+        <text fg={palette.muted} height={1}>
+          {terminalSafeText(
+            request.mcp?.title ??
+              (request.network
+                ? request.network.operation === "search"
+                  ? "Поиск в интернете"
+                  : "Открытие страницы"
+                : request.source?.type === "extension"
+                  ? request.source.originalName
+                  : request.tool),
+            innerWidth,
+          )}
+          {diffs.length > 1 ? ` | файлов: ${diffs.length}` : ""}
+        </text>
+      )}
       {popupHeight >= 5 && (
         <TerminalScrollbox
           id="approval-preview"
@@ -112,6 +121,22 @@ export function OpenTuiApproval({
           minHeight={0}
           viewportCulling
         >
+          {request.owner?.childId && (
+            <>
+              <text fg={palette.yellow}>
+                {terminalLine(
+                  `Помощник: ${request.owner.label ?? "Задача"} · ${request.owner.mode}`,
+                  innerWidth,
+                )}
+              </text>
+              <text fg={palette.muted}>
+                {terminalLine(
+                  `Рабочий каталог: ${request.owner.cwd}`,
+                  innerWidth,
+                )}
+              </text>
+            </>
+          )}
           {diffs.length ? (
             <>
               {request.source?.type === "extension" &&
@@ -205,6 +230,16 @@ export function OpenTuiApproval({
             />
           )}
       </box>
+      {onCancelChild && (
+        <box height={1} flexShrink={0}>
+          <DialogAction
+            id="approval-stop-child"
+            label={tiny ? "S Стоп задачи" : "Остановить задачу (S)"}
+            onSelect={onCancelChild}
+            palette={palette}
+          />
+        </box>
+      )}
       {request.network && onSessionApprove && (
         <box height={1} flexShrink={0}>
           <DialogAction

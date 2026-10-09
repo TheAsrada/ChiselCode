@@ -146,6 +146,7 @@ export function DialogAction({
   disabled?: boolean;
   id?: string;
 }) {
+  const pressed = useRef<(() => void) | undefined>(undefined);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Dialog actions have keyboard equivalents.
     <box
@@ -160,10 +161,17 @@ export function DialogAction({
             ? palette.raised
             : palette.surface
       }
-      onMouseUp={(event) => {
-        if (event.button !== 0) return;
+      onMouseDown={(event) => {
+        pressed.current =
+          event.button === 0 && !disabled ? onSelect : undefined;
         event.stopPropagation();
-        if (!disabled) onSelect();
+      }}
+      onMouseUp={(event) => {
+        const activate = event.button === 0 ? pressed.current : undefined;
+        pressed.current = undefined;
+        if (!activate) return;
+        event.stopPropagation();
+        if (!disabled) activate();
       }}
     >
       <text

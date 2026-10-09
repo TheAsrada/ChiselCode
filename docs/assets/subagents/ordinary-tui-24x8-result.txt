@@ -1,0 +1,8 @@
++ Помощник · Готово    +
+|  Ход  Diff  Итог     |
++ Base:              ^ +
+А b06dbffa51eb24dbfa1v  
+  c27e0a82c02153c0f59  ^
+                       v
+|                       
+E [Назад] Tab · Enter  .

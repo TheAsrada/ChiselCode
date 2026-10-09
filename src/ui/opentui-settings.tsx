@@ -1,4 +1,5 @@
 /** @jsxImportSource @opentui/react */
+
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProfileIdSchema } from "../config/schema.js";
@@ -8,6 +9,7 @@ import type {
   ProviderProfile,
 } from "../providers/contracts.js";
 import { createBuiltinProviderRegistry } from "../providers/runtime.js";
+import type { SubagentSettingsActions } from "../subagents/settings.js";
 import type { ProviderId } from "../types/domain.js";
 import type { WebSettingsActions } from "../web/settings.js";
 import {
@@ -25,6 +27,7 @@ import {
   cleanSettingsInput,
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
+import { OpenTuiSubagentSettings } from "./opentui-subagent-settings.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
 import {
@@ -46,6 +49,7 @@ import { terminalLine } from "./terminal-text.js";
 import { FAIL_MARK } from "./theme.js";
 
 export interface OpenTuiSettingsActions {
+  subagents?: SubagentSettingsActions;
   web?: WebSettingsActions;
   lsp?: LspSettingsActions;
   workspaceRoot?: string;
@@ -170,6 +174,12 @@ export function OpenTuiSettings({
   );
   const [fieldTarget, setFieldTarget] = useState<string>();
   const [confirmClose, setConfirmClose] = useState(false);
+  const [subagentDirty, setSubagentDirty] = useState(false);
+  const subagentControls = useRef<SettingsPanelControl | undefined>(undefined);
+  const recordSubagentDirty = useCallback(
+    (value: boolean) => setSubagentDirty(value),
+    [],
+  );
   const [webDirty, setWebDirty] = useState(false);
   const webControls = useRef<SettingsPanelControl | undefined>(undefined);
   const recordWebDirty = useCallback(
@@ -227,7 +237,7 @@ export function OpenTuiSettings({
     innerWidth: surfaceWidth,
     roomy,
     tiny,
-  } = dialogLayout(width, height, height, 120);
+  } = dialogLayout(width, height, 30, 104);
   const split = width >= 100 && height >= 26;
   const navigationWidth = split ? 26 : surfaceWidth;
   const innerWidth = split
@@ -246,7 +256,13 @@ export function OpenTuiSettings({
   }, [route, settingsQuery]);
   const simpleFooter =
     navigationOnly ||
-    ["tools.lsp", "tools.mcp", "tools.skills", "web"].includes(page);
+    [
+      "tools.subagents",
+      "tools.lsp",
+      "tools.mcp",
+      "tools.skills",
+      "web",
+    ].includes(page);
   const showHint = popupHeight >= 10 && !simpleFooter;
   const contentHeight = Math.max(
     1,
@@ -473,7 +489,13 @@ export function OpenTuiSettings({
       lifetime.current.busy === "permissions"
     )
       return;
-    if (dirty || currentTheme !== savedTheme || lspDirty || webDirty) {
+    if (
+      dirty ||
+      currentTheme !== savedTheme ||
+      lspDirty ||
+      webDirty ||
+      subagentDirty
+    ) {
       setCloseSelection(0);
       setConfirmClose(true);
       return;
@@ -758,6 +780,7 @@ export function OpenTuiSettings({
   const saveCurrent = () => {
     if (page === "appearance") applyTheme();
     else if (page === "tools.lsp") lspControls.current?.save();
+    else if (page === "tools.subagents") subagentControls.current?.save();
     else if (page === "web") webControls.current?.save();
     else if (page === "connection") {
       if (field) {
@@ -803,6 +826,7 @@ export function OpenTuiSettings({
         } else {
           webControls.current?.discard();
           lspControls.current?.discard();
+          subagentControls.current?.discard();
           onThemePreview?.(restore.current.theme);
           onClose();
         }
@@ -862,10 +886,16 @@ export function OpenTuiSettings({
       else saveCurrent();
       return;
     }
-    if (page === "tools.lsp") {
+    if (page === "tools.lsp" || page === "tools.subagents") {
       if (name === "escape") {
         key.preventDefault();
-        if (!lspControls.current?.back()) {
+        if (
+          !(
+            page === "tools.subagents"
+              ? subagentControls.current
+              : lspControls.current
+          )?.back()
+        ) {
           if (!split) {
             setCompactDetail(false);
             setShellFocus("navigation");
@@ -996,9 +1026,8 @@ export function OpenTuiSettings({
       height={height}
       palette={palette}
       onClose={close}
-      maxHeight={height}
-      maxWidth={120}
-      shadow={false}
+      maxHeight={30}
+      maxWidth={104}
     >
       {!(tiny && compactDetail && shellFocus !== "search") && (
         <>
@@ -1107,11 +1136,17 @@ export function OpenTuiSettings({
           )}
           <box
             height={
-              page === "tools.lsp" || page === "web"
+              page === "tools.lsp" ||
+              page === "tools.subagents" ||
+              page === "web"
                 ? 0
                 : bodyHeight - (page === "appearance" ? 1 : 0)
             }
-            visible={page !== "tools.lsp" && page !== "web"}
+            visible={
+              page !== "tools.lsp" &&
+              page !== "tools.subagents" &&
+              page !== "web"
+            }
             flexShrink={0}
             flexDirection="column"
             overflow="hidden"
@@ -1548,6 +1583,29 @@ export function OpenTuiSettings({
               />
             </box>
           )}
+          {actions?.subagents && (
+            <box
+              width="100%"
+              height={page === "tools.subagents" ? bodyHeight : 0}
+              visible={page === "tools.subagents" && !navigationOnly}
+            >
+              <OpenTuiSubagentSettings
+                actions={actions.subagents}
+                palette={palette}
+                width={innerWidth}
+                height={bodyHeight}
+                active={
+                  active &&
+                  page === "tools.subagents" &&
+                  !navigationOnly &&
+                  !confirmClose
+                }
+                focused={shellFocus === "content"}
+                controls={subagentControls}
+                onDirty={recordSubagentDirty}
+              />
+            </box>
+          )}
           {actions?.lsp && (
             <box
               width="100%"
@@ -1616,6 +1674,7 @@ export function OpenTuiSettings({
             onSelect={() => {
               webControls.current?.discard();
               lspControls.current?.discard();
+              subagentControls.current?.discard();
               onThemePreview?.(restore.current.theme);
               onClose();
             }}

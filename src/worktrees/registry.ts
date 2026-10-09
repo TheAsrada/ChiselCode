@@ -44,7 +44,7 @@ export const WorktreeRecordSchema = z
     base: z.string().regex(/^[a-f0-9]{40,64}$/),
     label: z.string().min(1).max(120),
     conversationId: z.string(),
-    extensionId: z.literal("builtin.worktrees"),
+    extensionId: z.enum(["builtin.worktrees", "builtin.subagents"]),
     createdAt: z.string(),
     updatedAt: z.string(),
     state: z.enum(worktreeStates),

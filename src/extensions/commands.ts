@@ -9,6 +9,7 @@ import type {
   ExtensionCommandDescriptor,
   ExtensionCommandInvocation,
   SideQueryCommandInvocation,
+  SubagentControlInvocation,
 } from "./contracts.js";
 import { ExtensionLifecycleError, frozenClone } from "./lifecycle.js";
 
@@ -29,6 +30,15 @@ const registration = z
     description: plainText(COMMAND_DESCRIPTION_LIMIT),
     usage: plainText(COMMAND_USAGE_LIMIT).optional(),
     executionPolicy: z.enum(["foreground", "side_query"]).default("foreground"),
+    controlActions: z
+      .array(z.string().regex(/^[a-z_]+$/))
+      .max(8)
+      .optional(),
+    executeControl: z
+      .custom<(context: SubagentControlInvocation, input: unknown) => unknown>(
+        (value) => typeof value === "function",
+      )
+      .optional(),
     parse: z.custom<(...args: never[]) => unknown>(
       (value) => typeof value === "function",
     ),
@@ -40,6 +50,10 @@ const registration = z
 
 export interface RegisteredExtensionCommand extends ExtensionCommandDescriptor {
   readonly executionPolicy: "foreground" | "side_query";
+  executeControl?(
+    context: SubagentControlInvocation,
+    input: unknown,
+  ): Promise<ToolExecutionResult>;
   parse(args: string): unknown;
   execute(
     context: ExtensionCommandInvocation | SideQueryCommandInvocation,
@@ -68,6 +82,12 @@ export class ExtensionCommandContributions {
     let stored: RegisteredExtensionCommand;
     try {
       const metadata = registration.parse(command);
+      if (
+        !!metadata.controlActions !== !!metadata.executeControl ||
+        (metadata.controlActions && metadata.executionPolicy !== "foreground")
+      )
+        throw new Error("Invalid command control policy");
+      const executeControl = command.executeControl?.bind(command);
       if (BUILTIN_COMMAND_NAMES.has(`/${metadata.name}`))
         throw new ExtensionLifecycleError(
           `Command /${metadata.name} from extension ${extensionId} conflicts with a built-in command.`,
@@ -98,6 +118,9 @@ export class ExtensionCommandContributions {
           name: metadata.name,
           description: metadata.description,
           executionPolicy: metadata.executionPolicy,
+          ...(metadata.controlActions
+            ? { controlActions: metadata.controlActions }
+            : {}),
           ...(metadata.usage ? { usage: metadata.usage } : {}),
           source: {
             type: "extension" as const,
@@ -105,6 +128,23 @@ export class ExtensionCommandContributions {
             name: metadata.name,
           },
         }),
+        ...(executeControl
+          ? {
+              executeControl: async (
+                context: SubagentControlInvocation,
+                input: unknown,
+              ) => {
+                available();
+                cancelled(context.signal);
+                if ("tools" in context || "model" in context)
+                  throw new ExtensionLifecycleError(
+                    "Control received a broad port",
+                    extensionId,
+                  );
+                return executeControl(context, input as T);
+              },
+            }
+          : {}),
         parse: (args: string) => {
           available();
           return parse(args);
@@ -162,8 +202,22 @@ export class ExtensionCommandContributions {
     this.available();
     return Object.freeze(
       [...this.commands.values()].map(
-        ({ name, description, usage, source, executionPolicy }) =>
-          Object.freeze({ name, description, usage, source, executionPolicy }),
+        ({
+          name,
+          description,
+          usage,
+          source,
+          executionPolicy,
+          controlActions,
+        }) =>
+          Object.freeze({
+            name,
+            description,
+            usage,
+            source,
+            executionPolicy,
+            controlActions,
+          }),
       ),
     );
   }

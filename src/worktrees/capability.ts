@@ -4,6 +4,8 @@ import type { WorkspaceAccess } from "../tools/workspace-coordinator.js";
 import type { ToolExecutionResult } from "../types/domain.js";
 
 interface PreparedCapability {
+  action?: import("./service.js").WorktreeAction;
+  consumer?: "builtin.worktrees" | "builtin.subagents";
   sessionId: string;
   invocationId?: string;
   lifetime?: AbortSignal;
@@ -13,9 +15,13 @@ interface PreparedCapability {
 export function bindWorktreePlanLifetime(
   plan: ToolPlan,
   lifetime: AbortSignal,
+  action?: import("./service.js").WorktreeAction,
 ): ToolPlan {
   const capability = plans.get(plan);
-  if (capability) capability.lifetime = lifetime;
+  if (capability) {
+    capability.lifetime = lifetime;
+    capability.action = action;
+  }
   return plan;
 }
 const plans = new WeakMap<ToolPlan, PreparedCapability>();
@@ -49,13 +55,43 @@ export function worktreePlanAccess(
   const capability = plans.get(plan);
   if (
     capability &&
-    (source?.type !== "extension" || source.extensionId !== "builtin.worktrees")
+    (source?.type !== "extension" ||
+      source.extensionId !== (capability.consumer ?? "builtin.worktrees"))
   )
     throw new RuntimeError(
       "PERMISSION_DENIED",
       "Worktree capability belongs to its core consumer.",
     );
   return capability?.execution;
+}
+/** Create owns precise identity/OID/record rechecks; another owned registration is harmless. */
+export function subagentCreateOwnsRevalidation(plan: ToolPlan): boolean {
+  const capability = plans.get(plan);
+  return (
+    capability?.consumer === "builtin.subagents" &&
+    capability.action === "create"
+  );
+}
+/** Narrow core composition: only a create plan can serve the subagent lifecycle. */
+export function bindSubagentWorktreeCreation(plan: ToolPlan): ToolPlan {
+  const capability = plans.get(plan);
+  if (!capability || capability.action !== "create")
+    throw new RuntimeError(
+      "PERMISSION_DENIED",
+      "Доступен только подготовленный create plan.",
+    );
+  capability.consumer = "builtin.subagents";
+  return plan;
+}
+export function bindSubagentWorktreeRead(plan: ToolPlan): ToolPlan {
+  const capability = plans.get(plan);
+  if (!capability || capability.action !== "diff")
+    throw new RuntimeError(
+      "PERMISSION_DENIED",
+      "Просмотр помощника получает только подготовленный diff plan.",
+    );
+  capability.consumer = "builtin.subagents";
+  return plan;
 }
 export function authorizeWorktreePlan(
   plan: ToolPlan,

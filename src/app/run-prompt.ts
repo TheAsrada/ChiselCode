@@ -31,9 +31,11 @@ import {
   captureModelConfiguration,
   resolveCapturedModelRuntime,
 } from "./model-runtime.js";
+import { subagentControls } from "./subagent-inspection.js";
 
 export { MissingApiKeyError } from "../providers/runtime.js";
 
+import { subagentServiceToken } from "../extensions/builtins/subagents.js";
 import type { McpConnectionManager } from "../mcp/manager.js";
 import {
   type ConversationSource,
@@ -41,6 +43,7 @@ import {
 } from "../models/context.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { AgentRuntime } from "../runtime/agent-runtime.js";
+import { RuntimeError } from "../runtime/errors.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
 import type { ApprovalResolver } from "../security/approval.js";
 import {
@@ -62,6 +65,10 @@ import type { WebConfig } from "../web/schema.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
 
 export interface RunEventHandlers {
+  onSubagent?(event: import("../subagents/contracts.js").SubagentEvent): void;
+  onSubagentControls?(
+    controls: import("./subagent-binding.js").SubagentControls,
+  ): void;
   onOpenWorktree?(
     descriptor: Readonly<import("../worktrees/service.js").WorktreeDescriptor>,
   ): Promise<void>;
@@ -79,6 +86,18 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
+  /** Conversation lifetime, deliberately separate from a foreground turn signal. */
+  subagentOwner?: {
+    conversationId: string;
+    generation: number;
+    signal: AbortSignal;
+    assertAvailable(): void;
+    /** Core-only current picker capture; evaluated synchronously at child submit. */
+    modelOptions?(): Pick<
+      RunOptions,
+      "provider" | "profile" | "model" | "baseUrl"
+    >;
+  };
   /** Internal TUI composition; a headless run never sets this. */
   interactive?: boolean;
   /** Shared across TUI turns/tabs of a project; headless runs own their manager. */
@@ -404,6 +423,11 @@ async function runPromptInWorkspace(
   const previous = options.resume
     ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)
     : undefined;
+  if (previous?.subagent)
+    throw new RuntimeError(
+      "SUBAGENT_RECOVERY_REQUIRED",
+      "История помощника доступна для просмотра; обычный --resume не повторяет его инструменты. Создайте новое поручение после проверки результата.",
+    );
   if (previous && !options.provider && !options.profile)
     registry.require(previous.providerId);
   const capturedModel = captureModelConfiguration(
@@ -480,7 +504,46 @@ async function runPromptInWorkspace(
     ((name: string, result: ToolExecutionResult) =>
       renderer.toolResult(name, result));
   const eventBus = new RuntimeEventBus(session.id);
+  const subagents = extensionScope.services.lookup(subagentServiceToken);
+  const owner: NonNullable<RunOptions["subagentOwner"]> =
+    options.subagentOwner ?? {
+      conversationId: session.id,
+      generation: 0,
+      signal,
+      assertAvailable: () => extensionScope.assertUsable(),
+    };
+  const childOwner = {
+    session,
+    store: sessionStore,
+    root: extensionScope.workspaceRoot,
+    ...owner,
+    scope: extensionScope,
+    capturedModel,
+    captureModel: owner.modelOptions
+      ? () =>
+          captureModelConfiguration(
+            global,
+            registry,
+            { ...options, ...owner.modelOptions?.() },
+            session,
+          )
+      : undefined,
+    config,
+    global,
+    options,
+    approvalMode,
+    resolver,
+    redactor: modelRedactor,
+    instructions: await loadProjectInstructions(projectRoot),
+    onEvent: events.onSubagent,
+  };
+  const subagentTools = subagents
+    ? await subagents.bind(childOwner)
+    : undefined;
+  if (subagents)
+    events.onSubagentControls?.(subagentControls(subagents, childOwner));
   const tools = await createSessionToolRuntime({
+    subagentTools,
     sanitizeExtra: (value) => modelRedactor.value(value),
     root: projectRoot,
     session,
@@ -492,7 +555,14 @@ async function runPromptInWorkspace(
     approvalMode,
     scope: extensionScope,
     events: eventBus,
-    resolver,
+    resolver: subagents?.foregroundResolver(resolver) ?? resolver,
+    approvalOwner: {
+      rootOwnerId: session.id,
+      sessionId: session.id,
+      generation: owner.generation,
+      mode,
+      cwd: extensionScope.workspaceRoot,
+    },
     signal,
   });
   const { sanitize, saveCheckpoint, skills } = tools;
@@ -602,7 +672,27 @@ async function runPromptInWorkspace(
     );
   if (runtimeFailed) throw runtimeFailure;
   if (!result) throw new Error("Runtime returned no result.");
-  result.elapsedMs = Math.max(0, performance.now() - startedAt);
+  const foregroundElapsedMs = Math.max(0, performance.now() - startedAt);
+  if (subagents && !options.interactive) {
+    await subagents.drain(session.id);
+    if (subagents.busy(session.id)) {
+      await subagents.cancelOwner(session.id);
+      await subagents.drain(session.id, 10_000);
+    }
+    const children = Object.values(result.session.children ?? {}).map(
+      (receipt) => receipt.child,
+    );
+    if (
+      result.status === "completed" &&
+      children.some((child) => child.status !== "completed")
+    ) {
+      result.status = "failed";
+      result.error =
+        "Основной ответ завершён, но не все помощники успешно закончили работу. Изучите сохранённые результаты.";
+      result.errorCode = "SUBAGENT_UNAVAILABLE";
+    }
+  }
+  result.elapsedMs = foregroundElapsedMs;
   result.text = sanitize(result.text);
   if (result.error) result.error = sanitize(result.error);
   if (result.pendingApproval)
@@ -624,7 +714,9 @@ async function runPromptInWorkspace(
   return { result, exitCode: exitCodeFor(result) };
 }
 
-async function collectDynamicContext(cwd: string): Promise<DynamicContext> {
+export async function collectDynamicContext(
+  cwd: string,
+): Promise<DynamicContext> {
   const [gitBranch, gitStatus] = await Promise.all([
     runGit(["branch", "--show-current"], cwd),
     runGit(["status", "--short"], cwd),

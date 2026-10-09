@@ -101,8 +101,20 @@ export function SessionTabs({
       )}
       {visible.map((tab) => {
         const active = workspace.activeKey === tab.key;
-        const busy = !!tab.controller.snapshot.busy;
-        const awaitingApproval = !!tab.controller.snapshot.awaitingApproval;
+        const children = tab.controller.snapshot.children ?? [];
+        const activeChildren = children.filter((child) =>
+          [
+            "queued",
+            "preparing",
+            "running",
+            "awaiting_approval",
+            "cancelling",
+          ].includes(child.status),
+        ).length;
+        const busy = !!tab.controller.snapshot.busy || activeChildren > 0;
+        const awaitingApproval =
+          !!tab.controller.snapshot.awaitingApproval ||
+          children.some((child) => child.status === "awaiting_approval");
         const title = tab.controller.snapshot.sessionTitle ?? "Новая сессия";
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: Alt+Left/Right also selects tabs.
@@ -144,7 +156,7 @@ export function SessionTabs({
               selectable={false}
             >
               {terminalLine(
-                `${awaitingApproval ? "? " : busy ? "* " : ""}${title}`,
+                `${awaitingApproval ? "? " : busy ? "* " : ""}${activeChildren ? `${activeChildren}п · ` : ""}${title}`,
                 Math.max(1, tabWidth - 6),
               )}
             </text>

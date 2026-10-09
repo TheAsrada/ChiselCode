@@ -92,3 +92,22 @@ export async function resolveCapturedModelRuntime(
     },
   });
 }
+
+/** Metadata-only fallback allows saved task inspection after a profile was removed. */
+export function captureUnavailableModel(
+  registry: ProviderRegistry,
+  session: Session,
+): CapturedModelConfiguration {
+  const source = registry.get(session.providerId) ?? registry.list()[0];
+  if (!source) throw new Error("Нет описания сервиса модели.");
+  return frozenClone({
+    profileId: session.profileId,
+    profile: { providerId: source.id },
+    definition: {
+      ...source,
+      capabilities: { ...source.capabilities, toolCalling: false },
+    },
+    model: session.model,
+    capabilities: { tokenCounting: "local_estimate" },
+  });
+}

@@ -1,5 +1,6 @@
 export const TOOL_EFFECTS = [
   "read",
+  "delegation",
   "workspace_write",
   "process",
   "git_write",

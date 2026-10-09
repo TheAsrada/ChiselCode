@@ -31,6 +31,7 @@ function duplicate(handler: ToolHandler, previous?: ToolHandler): Error {
 export class ToolCatalog {
   constructor(
     private readonly getMode: () => AgentMode = () => DEFAULT_AGENT_MODE,
+    private readonly permitted: (handler: ToolHandler) => boolean = () => true,
   ) {}
   private handlers = new Map<string, ToolHandler>();
   private providers = new Map<string, Set<string>>();
@@ -94,6 +95,9 @@ export class ToolCatalog {
       if (this.handlers.has(name))
         this.explicit.set(name, ++this.selectionSequence);
   }
+  handlersSnapshot(): readonly ToolHandler[] {
+    return [...this.handlers.values()];
+  }
   specs() {
     return [...this.handlers.values()].map((handler) => handler.spec);
   }
@@ -126,8 +130,10 @@ export class ToolCatalog {
     prompt?: string;
     recentTools?: string[];
   }): ToolDefinition[] {
-    const permitted = [...this.handlers.values()].filter(({ spec }) =>
-      allowsToolInMode(this.getMode(), spec.effect),
+    const permitted = [...this.handlers.values()].filter(
+      (handler) =>
+        this.permitted(handler) &&
+        allowsToolInMode(this.getMode(), handler.spec.effect),
     );
     const local = permitted.filter(({ spec }) => spec.source?.type !== "mcp");
     const mcp = permitted.filter(({ spec }) => spec.source?.type === "mcp");

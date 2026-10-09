@@ -4,10 +4,12 @@ import { allowsToolInMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { ApprovalGate } from "../security/approval.js";
 import { initializeSessionState } from "../sessions/migrations.js";
+import { authorizeSubagentPlan } from "../subagents/capability.js";
 import type { ToolCall, ToolExecutionResult } from "../types/domain.js";
 import {
   abandonWorktreePlan,
   authorizeWorktreePlan,
+  subagentCreateOwnsRevalidation,
 } from "../worktrees/capability.js";
 import { executionAccess, preparationAccess } from "./access.js";
 import type { ToolCatalog } from "./catalog.js";
@@ -118,6 +120,7 @@ export class ToolExecutor {
       cancelled(context.signal);
       const handler = this.catalog.get(call.name);
       record.toolSource = handler.spec.source;
+      await context.executionConstraint?.beforePrepare(handler);
       if (handler.lifetimeSignal)
         context.signal = context.signal
           ? AbortSignal.any([context.signal, handler.lifetimeSignal])
@@ -199,6 +202,9 @@ export class ToolExecutor {
         toolSource: record.toolSource,
       });
       const request = {
+        owner: context.approvalOwner
+          ? { ...context.approvalOwner, invocationId: call.id }
+          : undefined,
         tool: call.name,
         source: handler.spec.source,
         preview: plan.preview,
@@ -243,13 +249,21 @@ export class ToolExecutor {
       };
       await guard("tool.afterPrepare");
       cancelled(context.signal);
-      const permission =
+      const ownPermission =
         handler.spec.effect === "workspace_write" &&
         handler.spec.source?.type !== "extension" &&
         plan.diffs?.length === 0 &&
         plan.resources.length === 0
           ? "allow"
           : this.gate.policy.decide(request, handler.spec.effect, approvalMode);
+      const ceiling =
+        context.executionConstraint?.decision(request, handler) ?? "allow";
+      const permission =
+        ownPermission === "deny" || ceiling === "deny"
+          ? "deny"
+          : ownPermission === "ask" || ceiling === "ask"
+            ? "ask"
+            : "allow";
       if (permission === "deny")
         throw new RuntimeError(
           request.network ? "WEB_NETWORK_DENIED" : "PERMISSION_DENIED",
@@ -340,9 +354,23 @@ export class ToolExecutor {
           : timeout.signal;
         const execute = async () => {
           this.observeWorkspace(scope);
+          await context.executionConstraint?.beforeExecute(handler);
+          if (
+            context.executionConstraint &&
+            (context.executionConstraint.decision(request, handler) ===
+              "deny" ||
+              (permission === "allow" &&
+                context.executionConstraint.decision(request, handler) ===
+                  "ask"))
+          )
+            throw new RuntimeError(
+              "PERMISSION_DENIED",
+              "Права помощника отозваны до выполнения.",
+            );
           if (
             (handler.spec.effect === "process" ||
               handler.spec.effect === "git_write") &&
+            !subagentCreateOwnsRevalidation(plan) &&
             workspaceCoordinator.revision(preparedResources) !==
               preparedRevision
           )
@@ -377,18 +405,40 @@ export class ToolExecutor {
               "MCP permission was revoked before execution.",
             );
           try {
+            const ownNetwork = request.network
+              ? this.gate.policy.authorizeNetwork(
+                  request,
+                  approvalMode,
+                  networkApprovedOnce,
+                )
+              : undefined;
+            const ceilingNetwork = request.network
+              ? context.executionConstraint?.authorizeNetwork?.(
+                  request,
+                  networkApprovedOnce,
+                )
+              : undefined;
+            const networkAuthorization =
+              ownNetwork && ceilingNetwork
+                ? {
+                    destinations: ownNetwork.destinations?.filter(
+                      (host) =>
+                        !ceilingNetwork.destinations ||
+                        ceilingNetwork.destinations.includes(host),
+                    ),
+                    assertDestination(host: string) {
+                      ownNetwork.assertDestination(host);
+                      ceilingNetwork.assertDestination(host);
+                    },
+                  }
+                : ownNetwork;
             return await handler.execute(
               {
                 ...context,
                 worktreeAuthorization: authorizeWorktreePlan(plan, context),
+                subagentAuthorization: authorizeSubagentPlan(plan, context),
                 signal: executionSignal,
-                networkAuthorization: request.network
-                  ? this.gate.policy.authorizeNetwork(
-                      request,
-                      approvalMode,
-                      networkApprovedOnce,
-                    )
-                  : undefined,
+                networkAuthorization,
               },
               plan,
             );

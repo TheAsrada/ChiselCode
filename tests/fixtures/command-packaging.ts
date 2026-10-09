@@ -41,6 +41,7 @@ try {
         "dist/lsp-smoke",
         "dist/side-smoke",
         "dist/worktree-smoke",
+        "dist/subagent-smoke",
       ],
     }),
   );
@@ -88,6 +89,16 @@ try {
     "tests/fixtures/tui-worktrees.ts",
     "--outdir",
     join(packageRoot, "dist/worktree-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-subagents.ts",
+    "--outdir",
+    join(packageRoot, "dist/subagent-smoke"),
     "--target",
     "bun",
     "--external",
@@ -175,6 +186,25 @@ try {
     ).includes(lspMarker),
   );
   process.stdout.write("Installed LSP Settings/real-server scenario passed.\n");
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "subagent-smoke/tui-subagents.js"),
+      ])
+    ).includes("Subagents TUI: production delegation"),
+  );
+  assert.ok(
+    (
+      await run(process.execPath, [
+        "tests/fixtures/subagents-cli.ts",
+        process.execPath,
+        join(distribution, "cli.js"),
+      ])
+    ).includes("Subagents CLI:"),
+  );
+  process.stdout.write(
+    "Установленный пакет: настоящий цикл помощника, правое дерево и CLI проверены.\n",
+  );
   const binary = join(
     staging,
     process.platform === "win32" ? "linked-tui.exe" : "linked-tui",
@@ -230,6 +260,25 @@ try {
   );
   process.stdout.write(
     "Compiled production worktree TUI with real Git/LSP passed.\n",
+  );
+  const subagentBinary = join(
+    staging,
+    process.platform === "win32" ? "subagent-tui.exe" : "subagent-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-subagents.ts",
+    "--compile",
+    "--outfile",
+    subagentBinary,
+  ]);
+  assert.ok(
+    (await run(subagentBinary, [])).includes(
+      "Subagents TUI: production delegation",
+    ),
+  );
+  process.stdout.write(
+    "Compiled: настоящие помощники и дерево OpenTUI проверены.\n",
   );
 } finally {
   await rm(staging, { recursive: true, force: true });

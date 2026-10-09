@@ -31,6 +31,9 @@ export async function createSessionToolRuntime(input: {
   resolver: ApprovalResolver;
   signal: AbortSignal;
   sanitizeExtra?: <T>(value: T) => T;
+  childPolicy?: import("../subagents/policy.js").ChildToolPolicy;
+  approvalOwner?: import("../tools/types.js").ToolContext["approvalOwner"];
+  subagentTools?: import("../subagents/service.js").SubagentToolBinding;
 }) {
   const {
     root,
@@ -50,7 +53,8 @@ export async function createSessionToolRuntime(input: {
     resolveWebConfig(global.web, config.web),
   );
   const mcp =
-    global.mcp || config.mcp || options.mcpManager?.list().length
+    !input.childPolicy &&
+    (global.mcp || config.mcp || options.mcpManager?.list().length)
       ? (options.mcpManager ??
         new McpConnectionManager(
           new McpConfigStore(root, { globalPath: options.configPath }),
@@ -107,9 +111,10 @@ export async function createSessionToolRuntime(input: {
     const gate = new ApprovalGate(
       config,
       {
-        autoApprove: Boolean(options.yes),
+        autoApprove: !input.childPolicy && Boolean(options.yes),
         approvalMode,
         allowBypassPermissions: () =>
+          !input.childPolicy &&
           global.permissions?.allowBypassPermissions === true &&
           (options.isBypassAllowed?.() ?? true),
         allowedTools: new Set(
@@ -152,12 +157,16 @@ export async function createSessionToolRuntime(input: {
         sanitizeResult: sanitize,
         sanitizeApproval: sanitize,
         toolGuards: scope.toolGuards,
+        executionConstraint: input.childPolicy,
+        approvalOwner: input.approvalOwner,
+        subagentTools: input.subagentTools,
         worktrees: scope.services.lookup(worktreeServiceToken),
       },
     );
     await tools.catalog.addProvider(web);
     mcpBinding = mcp ? new McpRuntimeBinding(mcp, tools.catalog) : undefined;
     extensionBinding = await attachExtensionTools(scope, tools.catalog);
+    input.childPolicy?.seal(tools.catalog.handlersSnapshot());
     return {
       ...tools,
       skills,

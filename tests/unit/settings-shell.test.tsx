@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 import { expect, test } from "bun:test";
-import type { InputRenderable } from "@opentui/core";
+import type { BoxRenderable, InputRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
@@ -85,7 +85,7 @@ test("catalog search uses only curated metadata and deep links fields in RU/EN",
   expect(searchSettings("mcp")[0]?.section.id).toBe("tools.mcp");
   expect(searchSettings("web")[0]?.section.id).toBe("tools.web");
   expect(searchSettings("private-key-value")).toEqual([]);
-  expect(searchSettings("")).toHaveLength(7);
+  expect(searchSettings("")).toHaveLength(8);
   expect(
     searchSettings("fixture", [
       ...SETTINGS_SECTIONS,
@@ -214,3 +214,158 @@ test("Web draft survives navigation, targeted save persists only Web, Escape que
     act(() => setup.renderer.destroy());
   }
 });
+
+test("Settings remain a centered popup over the chat; backdrop closes it and restores the draft", async () => {
+  const { actions } = api();
+  const setup = await testRender(
+    <OpenTuiSpike
+      settingsActions={actions}
+      onExit={() => {}}
+      onSubmit={async () => {}}
+    />,
+    { width: 120, height: 40 },
+  );
+  try {
+    await frame(setup);
+    await paste(setup, "Вернуться к основной задаче");
+    const composer = setup.renderer.currentFocusedEditor;
+    await key(setup, "t", true);
+    const popup = setup.renderer.root.findDescendantById("settings-popup");
+    expect(popup).toBeDefined();
+    expect(popup?.width).toBe(104);
+    expect(popup?.height).toBe(30);
+    expect(popup?.x).toBe(8);
+    expect(popup?.y).toBe(5);
+    const backdrop = setup.renderer.root.findDescendantById(
+      "settings-backdrop",
+    ) as BoxRenderable;
+    expect(backdrop.backgroundColor.toInts()[3]).toBeLessThan(255);
+    await act(async () => setup.mockMouse.click(1, 1));
+    await frame(setup);
+    expect(
+      setup.renderer.root.findDescendantById("settings-popup"),
+    ).toBeUndefined();
+    expect(setup.renderer.currentFocusedEditor === composer).toBe(true);
+    expect(composer?.plainText).toBe("Вернуться к основной задаче");
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
+
+test("subagent Settings popup edits global/project limits through native input and real storage without losing other sections", async () => {
+  const { mkdtemp, mkdir, readFile, writeFile, rm } = await import(
+    "node:fs/promises"
+  );
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { SubagentSettingsStore } = await import(
+    "../../src/subagents/settings.js"
+  );
+  const temp = await mkdtemp(join(tmpdir(), "chisel-settings-children-"));
+  const root = join(temp, "проект");
+  await mkdir(root);
+  const path = join(temp, "global.json");
+  await writeFile(
+    path,
+    JSON.stringify({
+      schemaVersion: 2,
+      profiles: {},
+      ui: { theme: "paper" },
+      web: { enabled: false },
+    }),
+  );
+  await writeFile(
+    join(root, ".chiselrc"),
+    JSON.stringify({ custom: "сохранить" }),
+  );
+  let applied = 0;
+  const settings = new SubagentSettingsStore(root, path, async () => {
+    applied++;
+  });
+  const { actions } = api();
+  actions.subagents = settings;
+  const setup = await testRender(
+    <OpenTuiSpike
+      settingsActions={actions}
+      initialTheme="paper"
+      onExit={() => {}}
+    />,
+    { width: 120, height: 40 },
+  );
+  const saved = async (predicate: () => Promise<boolean>) => {
+    for (let i = 0; i < 100; i++) {
+      await frame(setup);
+      if (await predicate()) return;
+    }
+    throw new Error(setup.captureCharFrame());
+  };
+  try {
+    await frame(setup);
+    await paste(setup, "основной черновик");
+    await key(setup, "t", true);
+    await click(setup, "settings-route-tools.subagents");
+    await click(setup, "subagent-setting-2");
+    const input = setup.renderer.currentFocusedEditor;
+    expect(input?.id).toBe("subagent-setting-input");
+    await key(setup, "END");
+    await key(setup, "BACKSPACE");
+    await paste(setup, "1");
+    for (const [width, height] of [
+      [80, 24],
+      [40, 12],
+      [24, 8],
+      [120, 40],
+    ]) {
+      await act(async () => setup.resize(width!, height!));
+      await frame(setup);
+      expect(setup.renderer.currentFocusedEditor).toBe(input);
+      expect(input?.plainText).toBe("1");
+    }
+    await key(setup, "ENTER");
+    await key(setup, "s", true);
+    await saved(async () => (await settings.load()).global.maxActive === 1);
+    await click(setup, "settings-route-appearance");
+    await click(setup, "settings-route-tools.subagents");
+    expect(setup.captureCharFrame()).toContain("Одновременно: 1");
+    await click(setup, "subagent-setting-0");
+    await click(setup, "subagent-setting-1");
+    await key(setup, "s", true);
+    await saved(async () => (await settings.load()).project.enabled === false);
+    const global = JSON.parse(await readFile(path, "utf8"));
+    expect(global.ui.theme).toBe("paper");
+    expect(global.web.enabled).toBe(false);
+    expect(
+      JSON.parse(await readFile(join(root, ".chiselrc"), "utf8")).custom,
+    ).toBe("сохранить");
+    expect(applied).toBe(2);
+    const folder = process.env.CHISEL_CAPTURE_DIR;
+    if (folder) {
+      await mkdir(folder, { recursive: true });
+      await writeFile(
+        join(folder, "paper-settings-subagents-120x40.txt"),
+        setup.captureCharFrame(),
+      );
+      const spans = setup.captureSpans();
+      await writeFile(
+        join(folder, "paper-settings-subagents-120x40.json"),
+        JSON.stringify({
+          ...spans,
+          lines: spans.lines.map((line) => ({
+            spans: line.spans.map((span) => ({
+              ...span,
+              fg: span.fg.toInts(),
+              bg: span.bg.toInts(),
+            })),
+          })),
+        }),
+      );
+    }
+    await key(setup, "ESCAPE");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+      "основной черновик",
+    );
+  } finally {
+    act(() => setup.renderer.destroy());
+    await rm(temp, { recursive: true, force: true });
+  }
+}, 20000);

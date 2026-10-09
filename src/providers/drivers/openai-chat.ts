@@ -152,7 +152,8 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         const choice = chunk.choices[0];
         if (!choice) continue;
         if (
-          request.purpose === "extension_request" &&
+          (request.purpose === "extension_request" ||
+            request.transport?.validateTerminal) &&
           terminated &&
           (choice.finish_reason ||
             choice.delta.content ||

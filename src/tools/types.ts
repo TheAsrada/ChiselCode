@@ -47,7 +47,27 @@ export type ToolSource =
       };
       classificationReason: string;
     };
+export interface ToolExecutionConstraint {
+  allows(handler: ToolHandler): boolean;
+  beforePrepare(handler: ToolHandler): Promise<void>;
+  beforeExecute(handler: ToolHandler): Promise<void>;
+  authorizeNetwork?(
+    request: import("../security/approval.js").ApprovalRequest,
+    approvedOnce: boolean,
+  ): import("../security/network-policy.js").NetworkAuthorization;
+  decision(
+    request: import("../security/approval.js").ApprovalRequest,
+    handler: ToolHandler,
+  ): import("../security/permission-policy.js").PermissionDecision;
+}
 export interface ToolContext {
+  readonly subagentAuthorization?: object;
+  readonly subagentTools?: import("../subagents/service.js").SubagentToolBinding;
+  readonly executionConstraint?: ToolExecutionConstraint;
+  readonly approvalOwner?: Omit<
+    NonNullable<import("../security/approval.js").ApprovalRequest["owner"]>,
+    "invocationId"
+  >;
   readonly invocationId?: string;
   readonly worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
   /** Single-use core grant, created only after guards and permissions. */

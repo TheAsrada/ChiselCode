@@ -147,6 +147,7 @@ export interface ProviderRequest {
     maxRetries: number;
     timeoutMs: number;
     compatibilityRetries?: boolean;
+    validateTerminal?: boolean;
   };
 }
 
@@ -183,6 +184,7 @@ export interface ProviderAdapter {
 }
 
 export interface ProjectConfig {
+  subagents?: import("../subagents/config.js").ProjectSubagentConfig;
   lsp?: import("../lsp/config.js").ProjectLspConfig;
   web?: import("../web/schema.js").ProjectWebConfig;
   mcp?: import("../mcp/schema.js").McpConfig;
@@ -204,6 +206,7 @@ export interface ProviderConfig {
 }
 
 export interface GlobalConfig {
+  subagents?: import("../subagents/config.js").SubagentConfig;
   lsp?: import("../lsp/config.js").LspConfig;
   web?: import("../web/schema.js").WebConfig;
   schemaVersion: 2;
@@ -235,6 +238,14 @@ export interface UndoEntry {
 }
 
 export interface Session {
+  subagent?: {
+    id: string;
+    ownerId: string;
+    parentRoot: string;
+    mode: "readonly" | "coding";
+    depth: 1;
+  };
+  children?: Record<string, import("../subagents/contracts.js").ChildReceipt>;
   /** Presentation only; never a worktree access/ownership capability. */
   worktree?: { id: string; label: string; base: string; origin: string };
   /** Separate expense ownership. Side records never enter provider history or compaction. */

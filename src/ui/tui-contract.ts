@@ -8,7 +8,7 @@ import type { FileDiff } from "../types/domain.js";
 export interface TuiApprovalResolver extends ApprovalResolver {
   bind(setter?: (request: ApprovalRequest | undefined) => void): void;
   resolve(decision: ApprovalDecision, request?: ApprovalRequest): void;
-  cancel(): void;
+  cancel(scope?: "foreground" | "all"): void;
   dispose(): void;
 }
 
@@ -94,7 +94,8 @@ export function createTuiApprovalResolver(
       if (request && request !== pendingRequest) return;
       settle(decision);
     },
-    cancel() {
+    cancel(scope = "all") {
+      if (scope === "foreground" && pendingRequest?.owner?.childId) return;
       settle("unavailable");
     },
     dispose() {

@@ -572,6 +572,7 @@ export class WorktreeService {
               : lifetime,
           }),
           lifetime,
+          action,
         );
       },
       open: async (id: string) => {
@@ -837,8 +838,10 @@ export class WorktreeService {
       gitDir,
       base,
       label: input.label ?? "Рабочая копия",
-      conversationId: context.session.id,
-      extensionId: "builtin.worktrees",
+      conversationId: context.approvalOwner?.rootOwnerId ?? context.session.id,
+      extensionId: context.approvalOwner?.childId
+        ? "builtin.subagents"
+        : "builtin.worktrees",
       createdAt: now,
       updatedAt: now,
       state: "creating",
@@ -1247,6 +1250,7 @@ export class WorktreeService {
     source: ResultSnapshot,
     context: ToolContext,
   ): Promise<ToolPlan> {
+    await this.assertTransferable(repo, record.id);
     if (source.files.some((file) => file.unsupported))
       fail(
         "WORKTREE_UNSUPPORTED",
@@ -1341,6 +1345,7 @@ export class WorktreeService {
       ],
       async (ctx) =>
         updateWorktreeRegistry(repo.registry, async (registry, assertOwned) => {
+          await this.assertTransferable(repo, record.id);
           const current = this.checkedRecord(repo, registry, record.id);
           const intent = current.intent;
           if (
@@ -1390,6 +1395,7 @@ export class WorktreeService {
               ctx.signal,
               async () => {
                 await assertOwned();
+                await this.assertTransferable(repo, record.id);
                 await this.recheckSource(repo, record, source, ctx.signal);
                 const origin = await this.origin(record, ctx.signal);
                 if (
@@ -1767,8 +1773,8 @@ export class WorktreeService {
   private async users(
     repo: Repository,
     id: string,
-  ): Promise<{ token: string }[]> {
-    const result: { token: string }[] = [];
+  ): Promise<{ token: string; role?: string }[]> {
+    const result: { token: string; role?: string }[] = [];
     for (const name of await readdir(repo.users)) {
       if (!/^[a-f0-9-]{36}\.json$/.test(name)) continue;
       let user: {
@@ -1777,6 +1783,7 @@ export class WorktreeService {
         host: string;
         start?: string;
         token: string;
+        role?: string;
       };
       try {
         const info = await lstat(join(repo.users, name));
@@ -1802,10 +1809,17 @@ export class WorktreeService {
           user.start &&
           process.platform === "linux" &&
           user.start !== (await processStart(user.pid))
-        )
+        ) {
+          if (user.role === "subagent_write")
+            result.push({ token: user.token, role: user.role });
           continue;
-        result.push({ token: user.token });
+        }
+        result.push({ token: user.token, role: user.role });
       } catch (error) {
+        if (user.role === "subagent_write") {
+          result.push({ token: user.token, role: user.role });
+          continue;
+        }
         if (
           (error as NodeJS.ErrnoException).code !== "ESRCH" &&
           (error as NodeJS.ErrnoException).code !== "ENOENT"
@@ -1815,9 +1829,27 @@ export class WorktreeService {
     }
     return result;
   }
+  private async assertTransferable(
+    repo: Repository,
+    id: string,
+  ): Promise<void> {
+    if (
+      (await this.users(repo, id)).some(
+        (user) =>
+          user.role === "subagent_write" || user.token === "unknown-owner",
+      )
+    )
+      fail(
+        "WORKTREE_IN_USE",
+        "Помощник ещё использует копию либо cleanup требует проверки. Остановите задачу и дождитесь завершения перед переносом.",
+      );
+  }
   /** Cross-process admission and remove share the registry lock. A scope holds
    * this through LSP/process shutdown; inactive tabs remain users. */
-  async acquireUse(root: string): Promise<Disposable> {
+  async acquireUse(
+    root: string,
+    role: "workspace" | "subagent_write" = "workspace",
+  ): Promise<Disposable> {
     const home = await realpath(this.home).catch(() => resolve(this.home));
     if (!within(join(home, "worktrees"), await realpath(root)))
       return { dispose() {} };
@@ -1851,6 +1883,7 @@ export class WorktreeService {
         id: record.id,
         root: record.path,
         token,
+        role,
         pid: process.pid,
         host: hostname(),
         start: await processStart(process.pid),

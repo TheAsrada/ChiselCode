@@ -63,6 +63,8 @@ jobs:
       - name: Type check
         run: bun run typecheck
       - name: Test
+        env:
+          CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
         shell: bash
         run: |
           set -o pipefail
@@ -75,7 +77,7 @@ jobs:
         run: bun run eval --category all
       - name: Build package
         run: bun run build
-      - name: Smoke packaged/compiled commands, worktrees, parallel /btw and real LSP
+      - name: Smoke packaged/compiled commands, subagents, worktrees, parallel /btw and real LSP
         run: bun tests/fixtures/command-packaging.ts
       - name: Smoke installed npm package
         shell: bash
@@ -90,6 +92,7 @@ jobs:
           bun tests/fixtures/lsp-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/side-query-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/worktree-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
+          bun tests/fixtures/subagents-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |
@@ -127,6 +130,7 @@ jobs:
           bun tests/fixtures/lsp-cli.ts "$binary"
           bun tests/fixtures/side-query-cli.ts "$binary"
           bun tests/fixtures/worktree-cli.ts "$binary"
+          bun tests/fixtures/subagents-cli.ts "$binary"
       - name: Validate Windows updater installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -150,5 +154,13 @@ jobs:
           path: |
             dist/chisel*
             dist/opentui-spike*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save real OpenTUI agent captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: subagents-opentui-${{ matrix.os }}
+          path: dist/subagent-captures
           if-no-files-found: error
           retention-days: 7

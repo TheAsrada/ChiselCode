@@ -39,6 +39,8 @@ export interface RuntimeTools {
   ): Promise<ToolExecutionResult[]>;
 }
 export interface RuntimeOptions {
+  /** Child history is view-only after a crash; unknown mutations never replay. */
+  recovery?: "new_child";
   mode?: AgentMode;
   approvalMode?: ApprovalMode;
   maxIterations?: number;
@@ -142,6 +144,14 @@ export class AgentRuntime {
       await checkpoint();
     };
     try {
+      if (
+        options.recovery === "new_child" &&
+        partitionTranscript(session.messages).some((unit) => unit.pending)
+      )
+        throw new RuntimeError(
+          "SUBAGENT_RECOVERY_REQUIRED",
+          "История помощника содержит незавершённые инструменты; автоматическое выполнение отключено.",
+        );
       const pending = await executePending();
       if (pending) return pending;
       const text = typeof input === "string" ? input : input.text;
@@ -310,7 +320,9 @@ export class AgentRuntime {
         return { status: "completed", text, session };
       }
       throw new RuntimeError(
-        "PROVIDER_FAILURE",
+        options.recovery === "new_child"
+          ? "SUBAGENT_BUDGET_EXHAUSTED"
+          : "PROVIDER_FAILURE",
         `Agent stopped after ${options.maxIterations ?? 100} iterations.`,
       );
     } catch (error) {

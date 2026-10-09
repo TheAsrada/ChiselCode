@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
+import { ChildReceiptSchema } from "../subagents/schema.js";
+
+export { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
+
 import { AGENT_MODES, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import {
   APPROVAL_MODE_INPUTS,
@@ -170,18 +175,6 @@ export const SessionIdSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 export const SessionTimestampSchema = z.iso.datetime({ offset: true });
-export const SessionUsageSchema = z.object({
-  inputTokens: z.number().nonnegative(),
-  outputTokens: z.number().nonnegative(),
-  cacheReadTokens: z.number().nonnegative().optional(),
-  cacheCreationTokens: z.number().nonnegative().optional(),
-});
-export const ModelSpendSchema = z.object({
-  usage: SessionUsageSchema,
-  knownCost: z.number().finite().nonnegative(),
-  unknownCost: z.boolean(),
-  unknownUsage: z.boolean(),
-});
 export const SideQueryRecordSchema = z.object({
   operationId: SessionIdSchema,
   owner: z.object({
@@ -259,6 +252,16 @@ const contentSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export const SessionV3Schema = z.looseObject({
+  subagent: z
+    .object({
+      id: z.uuid(),
+      ownerId: z.uuid(),
+      parentRoot: z.string(),
+      mode: z.enum(["readonly", "coding"]),
+      depth: z.literal(1),
+    })
+    .optional(),
+  children: z.record(z.uuid(), ChildReceiptSchema).optional(),
   worktree: z
     .object({
       id: z.uuid(),

@@ -128,8 +128,19 @@ export interface ExtensionCommandDescriptor {
   readonly usage?: string;
   readonly source: ExtensionCommandIdentity;
   readonly executionPolicy?: "foreground" | "side_query";
+  readonly controlActions?: readonly string[];
+}
+export interface SubagentControlInvocation {
+  readonly workspaceRoot: string;
+  readonly sessionId: string;
+  readonly signal: AbortSignal;
+  readonly subagents: Omit<
+    import("../subagents/contracts.js").SubagentPort,
+    "submit"
+  >;
 }
 export interface ExtensionCommandInvocation {
+  readonly subagents?: import("../subagents/contracts.js").SubagentPort;
   /** Core-owned open action accepts an owned ID, never an arbitrary cwd. */
   readonly worktrees: { open(id: string): Promise<ToolExecutionResult> };
   readonly workspaceRoot: string;
@@ -159,6 +170,11 @@ interface ExtensionCommandMetadata<T> {
   description: string;
   usage?: string;
   parse(args: string): T;
+  controlActions?: readonly string[];
+  executeControl?(
+    context: SubagentControlInvocation,
+    input: T,
+  ): ToolExecutionResult | Promise<ToolExecutionResult>;
 }
 export type ExtensionCommandContribution<T = unknown> =
   ExtensionCommandMetadata<T> &

@@ -58,7 +58,7 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 Контракт services/context/guards/tools/commands и рабочий пример — в [архитектуре](architecture.md#границы-расширений). `ctx.tools.register(defineTool(...))` и `ctx.commands.register({ name, description, usage, parse, execute })` работают только во время activation. Для tools core присваивает `ext:<extensionId>:<localName>` и source. Slash head имеет отдельную identity `{ type: "extension", extensionId, name }`, без wire namespace. Built-in/skill/extension name conflicts отклоняются явно. Contributions исполняются общим executor с Plan/permissions/EditingService/artifacts. Регистрации автоматически принадлежат workspace; вручную добавлять их в `ctx.add` не нужно. `ctx.add` применяется к ресурсам/service cleanup. Prompt/command tool binding временный, borrowed workspace переживает операции.
 
-Production composition включает `defaultExtensions([], { configPath })` с manifest, LSP и /btw consumers; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. P1.3 добавляет настоящие status/restart contributions builtin.lsp; пользовательский loader по-прежнему отсутствует.
+Production composition включает `defaultExtensions([], { configPath })` с manifest, LSP, побочными вопросами, рабочими копиями и помощниками; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. builtin.lsp предоставляет настоящие status/restart contributions; пользовательский loader по-прежнему отсутствует.
 
 Acceptance tests используют реальные host/catalog/executor/policy/coordinator/storage и deterministic providers. Packaging harness поднимает локальный тестовый model endpoint, отправляет обычный Plan prompt и проверяет цикл model → manifest → model → checkpoint; production test flags/autoload fixtures отсутствуют:
 
@@ -81,6 +81,24 @@ bun build tests/fixtures/tui-command-contributions.ts --compile --outfile ./dist
 ```
 
 Это test-only linked build, не loader установленного CLI. Не включайте `dist/command-smoke` в публикуемый package. После `bun run build` команда `bun tests/fixtures/command-packaging.ts` собирает fixture в отдельный staging package, выполняет `npm pack`/install и тот же TUI сценарий из установленного bundle, затем из compiled binary. CI запускает этот harness на Windows/macOS/Linux; он не меняет production package или lockfile. На Windows compiled fixture имеет суффикс `.exe`. Command feedback остаётся UI projection; restart не запускает callback заново.
+
+## Проверка помощников
+
+[Внутренний контракт помощников](architecture/subagents.md) описывает привязанные к владельцу порты, дочерний runtime, ограничения и независимые записи расходов. Это внутренний linked-code API, а не внешний SDK.
+
+Контролируемые HTTP endpoints используют настоящие OpenAI/Anthropic drivers; Git, инструменты, разрешения и хранилища остаются production. Основной запрос удерживается барьером, пока помощники выполняют чтение и изменения в независимых копиях. Native TUI проверяет адресованные разрешения, дерево, остановку и просмотр после открытия сохранённого разговора:
+
+```bash
+bun test tests/unit/subagent-budget.test.ts tests/unit/subagent-storage-policy.test.ts
+bun test tests/unit/subagent-lifecycle.test.ts tests/unit/opentui-subagents.test.tsx
+CHISEL_CAPTURE_DIR=/absolute/captures bun tests/fixtures/tui-subagents.ts
+bun tests/fixtures/subagents-runtime.ts
+bun tests/fixtures/subagents-cli.ts bun dist/cli.js
+bun tests/fixtures/subagents-cli.ts ./dist/chisel
+bun tests/fixtures/command-packaging.ts
+```
+
+Последняя команда включает установленный тестовый bundle и compiled native TUI. Обычный npm package и compiled CLI проверяются отдельно через их production entrypoint; тестовые страницы и flags не включаются в выпуск. TXT/JSON кадры реального renderer сохраняются в `CHISEL_CAPTURE_DIR`. Результаты и изображения — в [материалах проверки](contributors/reports/subagents.md).
 
 ## Релизы
 

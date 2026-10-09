@@ -24,6 +24,8 @@ import {
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
+import type { ChildReceipt } from "../subagents/contracts.js";
+import { ChildReceiptSchema } from "../subagents/schema.js";
 import type { Session } from "../types/domain.js";
 import { clipText } from "../utils/text.js";
 import { withLock } from "./lock.js";
@@ -67,6 +69,7 @@ const summarySchema = z.object({
   profileId: z.string().min(1),
   model: z.string(),
   gitBranch: z.string().optional(),
+  subagentOwnerId: z.uuid().optional(),
   messageCount: z.number().int().nonnegative(),
   totalTokens: usageSchema,
   lastUserMessage: z.string().optional(),
@@ -199,6 +202,7 @@ function toSummary(session: Session): SessionSummary {
     profileId: session.profileId,
     model: session.model,
     gitBranch: session.gitBranch,
+    ...(session.subagent ? { subagentOwnerId: session.subagent.ownerId } : {}),
     messageCount: session.messages.length,
     totalTokens: session.totalTokens,
     lastUserMessage: last
@@ -302,6 +306,7 @@ export class ProjectSessionStore {
         mainSpend: structuredClone(session.mainSpend),
         sideQueries: prior?.sideQueries ?? persisted.sideQueries,
         sideQuerySpend: prior?.sideQuerySpend ?? persisted.sideQuerySpend,
+        children: prior?.children ?? persisted.children,
       });
       recomputeSessionSpend(merged);
       merged.updatedAt = new Date().toISOString();
@@ -322,11 +327,40 @@ export class ProjectSessionStore {
         ...index.sessions.filter((entry) => entry.id !== session.id),
       ];
       await atomicJson(this.indexPath, index);
+      session.children = structuredClone(merged.children);
       session.sideQueries = structuredClone(merged.sideQueries);
       session.sideQuerySpend = structuredClone(merged.sideQuerySpend);
       session.totalTokens = { ...merged.totalTokens };
       session.totalCost = merged.totalCost;
       session.costEstimate = merged.costEstimate;
+    });
+  }
+  /** A child patch owns only its receipt/spend; it cannot overwrite main or /btw state. */
+  async patchChild(id: string, update: ChildReceipt): Promise<Session> {
+    const receipt = ChildReceiptSchema.parse(update);
+    if (
+      receipt.child.parentSessionId !== assertSessionId(id) ||
+      receipt.child.rootOwnerId !== id
+    )
+      throw new Error("Помощник принадлежит другому разговору.");
+    await this.list();
+    return withLock(this.indexPath, async () => {
+      const session = await this.load(id);
+      ensureMainSpend(session);
+      const prior = session.children?.[receipt.child.id];
+      if (prior && prior.revision >= receipt.revision) return session;
+      if (
+        prior &&
+        (prior.child.parentRoot !== receipt.child.parentRoot ||
+          prior.child.invocationId !== receipt.child.invocationId)
+      )
+        throw new Error("Владелец помощника изменился.");
+      session.children ??= {};
+      session.children[receipt.child.id] = receipt;
+      recomputeSessionSpend(session);
+      session.updatedAt = new Date().toISOString();
+      await this.writePatchedSession(session);
+      return session;
     });
   }
   /** The side writer owns one record/accounting entry, never messages/runtime/preferences. */
@@ -550,6 +584,19 @@ export class ProjectSessionStore {
   async delete(id: string): Promise<void> {
     await this.list();
     await withLock(this.indexPath, async () => {
+      const existing = await this.load(id);
+      if (
+        Object.values(existing.children ?? {}).some(({ child }) =>
+          [
+            "queued",
+            "preparing",
+            "running",
+            "awaiting_approval",
+            "cancelling",
+          ].includes(child.status),
+        )
+      )
+        throw new Error("Сначала остановите активных помощников разговора.");
       await rm(this.file(id));
       let index: z.infer<typeof indexSchema>;
       try {

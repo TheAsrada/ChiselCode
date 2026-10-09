@@ -6,6 +6,7 @@ import { InstructionResolver } from "../context/instructions.js";
 import { ProjectLspConfigSchema } from "../lsp/config.js";
 import { readMcpConfig } from "../mcp/configuration.js";
 import { McpConfigSchema } from "../mcp/schema.js";
+import { ProjectSubagentConfigSchema } from "../subagents/config.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
 import { ProjectWebConfigSchema } from "../web/schema.js";
 import {
@@ -15,6 +16,7 @@ import {
 } from "./migrate.js";
 
 const ProjectConfigSchema = z.object({
+  subagents: ProjectSubagentConfigSchema.optional(),
   lsp: ProjectLspConfigSchema.optional(),
   web: ProjectWebConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),

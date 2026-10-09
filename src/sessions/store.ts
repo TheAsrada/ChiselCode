@@ -53,7 +53,9 @@ export async function listSessions(
   const store = await projectSessionStore(projectPath);
   const summaries = await store.list();
   const results = await Promise.allSettled(
-    summaries.map((item) => store.load(item.id)),
+    summaries
+      .filter((item) => !item.subagentOwnerId)
+      .map((item) => store.load(item.id)),
   );
   return results.flatMap((result) =>
     result.status === "fulfilled" ? [result.value] : [],

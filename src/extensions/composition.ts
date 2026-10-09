@@ -1,7 +1,11 @@
+import { runChildAgent } from "../app/subagent-runtime.js";
 import { cancelled } from "../runtime/errors.js";
+import { SubagentService } from "../subagents/service.js";
+import { WorktreeService } from "../worktrees/service.js";
 import { btwExtension } from "./builtins/btw.js";
 import { createLspExtension } from "./builtins/lsp.js";
 import { projectExtension } from "./builtins/project.js";
+import { createSubagentExtension } from "./builtins/subagents.js";
 import { createWorktreeExtension } from "./builtins/worktrees.js";
 import type { ChiselExtension, ContextCollectionPort } from "./contracts.js";
 import {
@@ -24,13 +28,16 @@ export type ExtensionDependencies =
 /** Explicit application defaults; an ExtensionHost([]) still has no definitions. */
 export function defaultExtensions(
   custom: readonly ChiselExtension[] = [],
-  options: { configPath?: string } = {},
+  options: { configPath?: string; worktreeService?: WorktreeService } = {},
 ): readonly ChiselExtension[] {
+  const worktrees = options.worktreeService ?? new WorktreeService();
+  const subagents = new SubagentService(worktrees, runChildAgent);
   return [
-    createWorktreeExtension(),
+    createWorktreeExtension(worktrees),
     projectExtension,
     createLspExtension(options),
     btwExtension,
+    createSubagentExtension(subagents),
     ...custom,
   ];
 }

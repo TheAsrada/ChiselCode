@@ -5,6 +5,7 @@ import {
   localGitResource,
 } from "../git/driver.js";
 import { RuntimeError } from "../runtime/errors.js";
+import { subagentPlanAccess } from "../subagents/capability.js";
 import { worktreePlanAccess } from "../worktrees/capability.js";
 import type { WorktreeAction, WorktreeInput } from "../worktrees/service.js";
 import { changesWorkspace, isReadEffect } from "./effects.js";
@@ -46,6 +47,27 @@ export async function preparationAccess(
 ): Promise<readonly WorkspaceAccess[]> {
   if (
     handler.spec.source?.type === "extension" &&
+    handler.spec.source.extensionId === "builtin.subagents"
+  ) {
+    if (
+      handler.spec.source.originalName === "prepare_worktree" &&
+      context.worktrees
+    )
+      return context.worktrees.access("create", input as WorktreeInput);
+    if (
+      handler.spec.source.originalName === "inspect_changes" &&
+      context.worktrees
+    )
+      return context.worktrees.access("diff", input as WorktreeInput);
+    if (!context.subagentTools)
+      throw new RuntimeError(
+        "SUBAGENT_UNAVAILABLE",
+        "Порт помощников не подключён.",
+      );
+    return [];
+  }
+  if (
+    handler.spec.source?.type === "extension" &&
     handler.spec.source.extensionId === "builtin.worktrees"
   ) {
     if (!context.worktrees)
@@ -69,6 +91,8 @@ export async function executionAccess(
   plan: ToolPlan,
   scope: readonly string[],
 ): Promise<readonly WorkspaceAccess[]> {
+  const delegated = subagentPlanAccess(plan, handler.spec.source);
+  if (delegated) return delegated;
   const issued = worktreePlanAccess(plan, handler.spec.source);
   if (issued) return issued;
   const holds =

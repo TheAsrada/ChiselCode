@@ -56,6 +56,7 @@ export class TuiWorkspace {
     await Promise.allSettled(
       [...this.executions.values()].flatMap((execution) => [
         execution.activeRun,
+        execution.subagentControls?.wait(),
         ...[...execution.sideRuns.values()].map((run) => run.promise),
       ]),
     );
@@ -126,6 +127,10 @@ export class TuiWorkspace {
   }
 
   openSession(session: Session): TuiController {
+    if (session.subagent)
+      throw new Error(
+        "История помощника доступна только в просмотре задачи; обычная вкладка не расширяет его права.",
+      );
     const existing = this.tabs.find(
       ({ controller }) =>
         controller.snapshot.sessionId === session.id &&
@@ -145,7 +150,10 @@ export class TuiWorkspace {
 
   select(key?: string): void {
     if (key && !this.tabs.some((tab) => tab.key === key)) return;
-    if (this.activeKey !== key) this.controller.hideSide();
+    if (this.activeKey !== key) {
+      this.controller.hideSide();
+      this.controller.hideAgent();
+    }
     this.activeKey = key;
     this.notify();
   }

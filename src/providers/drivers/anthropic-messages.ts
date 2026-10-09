@@ -111,13 +111,21 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
       for await (const event of stream) {
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
-        if (request.purpose === "extension_request" && terminated)
+        if (
+          (request.purpose === "extension_request" ||
+            request.transport?.validateTerminal) &&
+          terminated
+        )
           throw new ProviderError(
             "transport",
             "Provider emitted data after its terminal message.",
           );
         if (event.type === "message_start") {
-          if (request.purpose === "extension_request" && started)
+          if (
+            (request.purpose === "extension_request" ||
+              request.transport?.validateTerminal) &&
+            started
+          )
             throw new ProviderError(
               "transport",
               "Provider emitted multiple messages.",

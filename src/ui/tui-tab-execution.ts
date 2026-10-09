@@ -29,6 +29,7 @@ export type QueuedTabOperation = QueuedTabPrompt | QueuedTabCommand;
 
 /** Execution belongs to the conversation, even while its screen is unmounted. */
 export class TuiTabExecution {
+  subagentControls?: import("../app/subagent-binding.js").SubagentControls;
   readonly sideRuns = new Map<
     string,
     { abort: AbortController; promise: Promise<void> }
@@ -53,7 +54,9 @@ export class TuiTabExecution {
   constructor(controller: TuiController) {
     this.approvalResolver = createTuiApprovalResolver({
       allowUnbound: true,
-      onChange: (request) => controller.setAwaitingApproval(!!request),
+      onChange: (request) => {
+        if (!request?.owner?.childId) controller.setAwaitingApproval(!!request);
+      },
     });
   }
 
@@ -62,7 +65,8 @@ export class TuiTabExecution {
       !!this.activeRun ||
       this.pendingOperations.length > 0 ||
       this.pendingSubmissions.size > 0 ||
-      this.sideRuns.size > 0
+      this.sideRuns.size > 0 ||
+      this.subagentControls?.busy() === true
     );
   }
 
@@ -78,12 +82,14 @@ export class TuiTabExecution {
     for (const submission of this.pendingSubmissions) submission.abort();
     this.pendingSubmissions.clear();
     this.abort?.abort();
+    void this.subagentControls?.cancel().catch(() => {});
     this.approvalResolver.cancel();
   }
 
   dispose(): void {
     this.cancelSides();
     this.cancel();
+    void this.subagentControls?.close().catch(() => {});
     this.approvalResolver.dispose();
   }
 }

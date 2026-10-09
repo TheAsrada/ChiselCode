@@ -29,6 +29,7 @@ import {
   resolveApprovalMode,
 } from "../security/approval-mode.js";
 import { invocableSkills } from "../skills/skills.js";
+import { AgentsSidebar } from "./agents-sidebar.js";
 import { type ThemeName, themePalette } from "./appearance.js";
 import {
   isSlashInput,
@@ -43,9 +44,11 @@ import {
   navigateEditorHistory,
 } from "./editor.js";
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
+import { OpenTuiAgentDetails } from "./opentui-agent-details.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
+import { DialogAction } from "./opentui-dialog.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
@@ -249,6 +252,7 @@ function OpenTuiScreen({
   const acceptedCompletion = React.useRef<string | undefined>(undefined);
   const transcript = React.useRef<ScrollBoxRenderable>(null);
   const sidebar = React.useRef<BoxRenderable>(null);
+  const agentLoad = useRef(0);
   const nextId = React.useRef(1);
   const [draft, setDraft] = useState(controller?.snapshot.draft ?? "");
   const [lines, setLines] = useState([
@@ -300,6 +304,9 @@ function OpenTuiScreen({
       },
   );
   useEffect(() => controller?.subscribe(setView), [controller]);
+  const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
+    "editor",
+  );
   const otherOverlay = !!(
     pickerOpen ||
     settingsOpen ||
@@ -313,19 +320,62 @@ function OpenTuiScreen({
     controller &&
     view.sideView?.visible &&
     !approval &&
+    !otherOverlay &&
+    !view.agentView?.visible
+  );
+  const agentActive = !!(
+    controller &&
+    view.agentView?.visible &&
+    !approval &&
     !otherOverlay
   );
+  const agentsFocused = !!(
+    controller &&
+    view.agentTree?.view === "agents" &&
+    focus === "sidebar" &&
+    !approval &&
+    !otherOverlay &&
+    !sideActive &&
+    !agentActive
+  );
+  const agentsOwner = `agents:${controller?.conversationId}:${controller?.currentGeneration}`;
   const sideOwner = `side:${controller?.conversationId}:${controller?.currentGeneration}`;
   const inputOwner = approval
     ? "approval"
     : otherOverlay
       ? "dialog"
-      : sideActive
-        ? sideOwner
-        : "main";
+      : agentActive
+        ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
+        : sideActive
+          ? sideOwner
+          : agentsFocused
+            ? agentsOwner
+            : "main";
   useOverlayInputOwner(inputOwner);
+  const cancelApprovalChild = approval?.owner?.childId
+    ? () => {
+        const request = approval;
+        const origin = controller;
+        const generation = origin?.currentGeneration;
+        const controls = origin?.subagentControls;
+        const id = request.owner?.childId;
+        if (
+          !origin ||
+          !controls ||
+          !id ||
+          origin.snapshot.sessionId !== request.owner?.rootOwnerId
+        )
+          return;
+        // Capture the addressed child; a later selection/tab cannot redirect Stop.
+        void controls.port.cancel(id).catch(() => {
+          if (origin.currentGeneration !== generation) return;
+          origin.appendNotice("Не удалось остановить помощника", "error");
+        });
+      }
+    : undefined;
   useEffect(() => {
     if (otherOverlay) controller?.hideSide();
+    if (otherOverlay) controller?.hideAgent();
   }, [otherOverlay, controller]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload the shared command projection.
@@ -414,9 +464,6 @@ function OpenTuiScreen({
       projectPath: view.projectPath,
     };
   }, [view.sessionId, view.projectPath]);
-  const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
-    "editor",
-  );
   const [sideRecordIndex, setSideRecordIndex] = useState<number | undefined>();
   const sideRecordIds = view.transcript.flatMap((entry) =>
     entry.sideOperationId ? [entry.sideOperationId] : [],
@@ -426,10 +473,10 @@ function OpenTuiScreen({
       ? sideRecordIds[Math.min(sideRecordIndex, sideRecordIds.length - 1)]
       : undefined;
   useLayoutEffect(() => {
-    if (sideActive) editor.current?.blur();
+    if (sideActive || agentActive) editor.current?.blur();
     else if (!approval && !otherOverlay && focus === "editor")
       editor.current?.focus();
-  }, [sideActive, approval, otherOverlay, focus]);
+  }, [sideActive, agentActive, approval, otherOverlay, focus]);
   const home = !!workspace && !workspace.activeKey;
   const tabRows = workspace?.tabs.length ? 3 : 0;
   useEffect(() => {
@@ -438,7 +485,11 @@ function OpenTuiScreen({
   }, [home, view.transcript.length]);
   const layout = sidebarLayout(
     width,
-    home && mode === "auto" ? "hide" : mode,
+    view.agentTree?.temporary
+      ? "show"
+      : home && mode === "auto"
+        ? "hide"
+        : mode,
     overlayDismissed,
   );
   const showSidebar = layout.placement !== "hidden";
@@ -739,7 +790,7 @@ function OpenTuiScreen({
   };
 
   useClipboardComposer(() => {
-    if (sideActive) return null;
+    if (sideActive || agentActive || agentsFocused) return null;
     if (
       approval ||
       pickerOpen ||
@@ -758,17 +809,58 @@ function OpenTuiScreen({
   });
 
   useKeyboard((key) => {
+    if (capturedInputOwner(key) !== inputOwner) return;
     if (key.ctrl && key.name === "c" && !key.shift) {
       key.preventDefault();
+      if (agentActive || agentsFocused || approval?.owner?.childId) {
+        key.stopPropagation();
+        return;
+      }
       onCancel?.();
       key.stopPropagation();
       return;
     }
-    if (capturedInputOwner(key) !== inputOwner) return;
+    // Core tab navigation captures the origin before a viewer can consume Tab/arrows.
+    if (workspace && (agentActive || agentsFocused)) {
+      if (key.ctrl && key.name === "tab") {
+        key.preventDefault();
+        key.stopPropagation();
+        workspace.cycle(key.shift ? -1 : 1);
+        return;
+      }
+      if (
+        (key.option || key.meta) &&
+        (key.name === "left" || key.name === "right")
+      ) {
+        key.preventDefault();
+        key.stopPropagation();
+        workspace.cycle(key.name === "left" ? -1 : 1);
+        return;
+      }
+    }
+    if (agentActive) return;
+    if (agentsFocused) {
+      if (key.ctrl && key.name === "b") {
+        key.preventDefault();
+        changeMode(toggleSidebarMode(mode, width));
+        controller?.setAgentSidebar("agents", false);
+        setFocus("editor");
+        controller?.setFocus("composer");
+      }
+      return;
+    }
     if (sideActive) return;
     if (key.name === "f6" && !approval && !otherOverlay) {
       key.preventDefault();
       controller?.openSide();
+      return;
+    }
+    if (key.name === "f7" && !approval && !otherOverlay && controller) {
+      key.preventDefault();
+      controller.setAgentSidebar("agents", true);
+      setOverlayDismissed(false);
+      setFocus("sidebar");
+      controller.setFocus("sidebar");
       return;
     }
     // A pending approval belongs to its tab; users can visit another tab first.
@@ -818,6 +910,12 @@ function OpenTuiScreen({
     if (approval) {
       if (key.ctrl || key.meta || key.option) return;
       const answer = key.name.toLowerCase();
+      if (answer === "s" && cancelApprovalChild) {
+        key.preventDefault();
+        key.stopPropagation();
+        cancelApprovalChild();
+        return;
+      }
       if (approval.network && (answer === "a" || answer === "ф"))
         approvalResolver?.resolve("approved_session", approval);
       if (answer === "y" || answer === "н")
@@ -1155,20 +1253,6 @@ function OpenTuiScreen({
     clearInput();
   };
 
-  if (pickerOpen && sessionPicker && !approval)
-    return (
-      <OpenTuiSessions
-        actions={sessionPicker}
-        width={width}
-        height={height}
-        palette={palette}
-        onClose={() => {
-          setPickerOpen(false);
-          controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : focus);
-        }}
-      />
-    );
   const settingsDialog = settingsOpen ? (
     <OpenTuiSettings
       actions={capturedSettingsActions}
@@ -1210,12 +1294,6 @@ function OpenTuiScreen({
       }}
     />
   ) : undefined;
-  if (setupPending && settingsOpen)
-    return (
-      <box width={width} height={height} backgroundColor={palette.bg}>
-        {settingsDialog}
-      </box>
-    );
   const closeSkills = () => {
     setSkillsOpen(false);
     controller?.setOverlay(
@@ -1241,6 +1319,122 @@ function OpenTuiScreen({
     controller?.setFocus("composer");
   };
 
+  const loadAgent = (id: string, section: "history" | "changes") => {
+    const origin = controller;
+    const generation = origin?.currentGeneration;
+    const controls = origin?.subagentControls;
+    if (!origin || generation === undefined) return;
+    if (!controls) {
+      origin.setAgentView({ loading: true, notice: undefined });
+      return;
+    }
+    const request = ++agentLoad.current;
+    origin.setAgentView({ loading: true, notice: undefined });
+    void controls.inspect(id, section).then(
+      (result) => {
+        if (
+          origin.isCurrent(generation) &&
+          origin.snapshot.agentView?.id === id &&
+          origin.snapshot.agentView.section === section &&
+          request === agentLoad.current
+        )
+          origin.setAgentView({
+            loading: false,
+            history: result.text,
+            diffs: result.diffs,
+          });
+      },
+      (error) => {
+        if (
+          origin.isCurrent(generation) &&
+          origin.snapshot.agentView?.id === id &&
+          request === agentLoad.current
+        )
+          origin.setAgentView({
+            loading: false,
+            notice:
+              error instanceof Error
+                ? error.message
+                : "Не удалось открыть результат.",
+          });
+      },
+    );
+  };
+  const stopAgent = (id: string) => {
+    const origin = controller;
+    const generation = origin?.currentGeneration;
+    const port = origin?.subagentControls?.port;
+    if (!origin || !port || generation === undefined) return;
+    void port.cancel(id).catch((error) => {
+      if (origin.isCurrent(generation) && origin.snapshot.agentView?.id === id)
+        origin.setAgentView({
+          notice:
+            error instanceof Error
+              ? error.message
+              : "Не удалось остановить помощника.",
+        });
+    });
+  };
+  const openAgent = (id: string) => {
+    controller?.openAgent(id);
+    loadAgent(id, "history");
+  };
+  // A saved conversation becomes visible before its core owner binding finishes loading.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Retry only when the verified core port arrives, not on streaming/view updates.
+  useEffect(() => {
+    const active = controller?.snapshot.agentView;
+    if (
+      controller?.subagentControls &&
+      active?.visible &&
+      !active.history &&
+      active.section !== "result"
+    )
+      loadAgent(active.id, active.section ?? "history");
+  }, [controller, controller?.subagentControls]);
+  if (pickerOpen && sessionPicker && !approval)
+    return (
+      <OpenTuiSessions
+        actions={sessionPicker}
+        width={width}
+        height={height}
+        palette={palette}
+        onClose={() => {
+          setPickerOpen(false);
+          controller?.setOverlay();
+          controller?.setFocus(focus === "editor" ? "composer" : focus);
+        }}
+      />
+    );
+  if (setupPending && settingsOpen)
+    return (
+      <box width={width} height={height} backgroundColor={palette.bg}>
+        {settingsDialog}
+      </box>
+    );
+  const backFromAgents = () => {
+    controller?.setAgentSidebar(view.agentTree?.view ?? "agents", false);
+    setOverlayDismissed(true);
+    setFocus("editor");
+    controller?.setFocus("composer");
+  };
+  const openAgents = () => {
+    controller?.setAgentSidebar("agents", true);
+    setOverlayDismissed(false);
+    setFocus("sidebar");
+    controller?.setFocus("sidebar");
+  };
+  const activeChildren = (view.children ?? []).filter((child) =>
+    [
+      "queued",
+      "preparing",
+      "running",
+      "awaiting_approval",
+      "cancelling",
+    ].includes(child.status),
+  ).length;
+  const childApproval = (view.children ?? []).some(
+    (child) => child.status === "awaiting_approval",
+  );
   const composer = (
     <box width="100%" flexShrink={0} flexDirection="column">
       {visibleSuggestions.map((command, index) => (
@@ -1272,7 +1466,8 @@ function OpenTuiScreen({
           !permissionsOpen &&
           !updateOpen &&
           !approval &&
-          !sideActive
+          !sideActive &&
+          !agentActive
         }
         hasDraft={!!draft.trim()}
         busy={view.busy}
@@ -1284,7 +1479,8 @@ function OpenTuiScreen({
         approvalMode={view.approvalMode}
         runningApprovalMode={view.runningApprovalMode}
         onToggleMode={() => {
-          if (!sideActive && !approval && !otherOverlay) toggleAgentMode();
+          if (!sideActive && !agentActive && !approval && !otherOverlay)
+            toggleAgentMode();
         }}
         onPermissionsSelect={openPermissions}
         onModelSelect={getModelsActions ? openModels : undefined}
@@ -1303,7 +1499,8 @@ function OpenTuiScreen({
             !permissionsOpen &&
             !updateOpen &&
             !approval &&
-            !sideActive
+            !sideActive &&
+            !agentActive
           }
           initialValue={draft}
           backgroundColor={palette.surface}
@@ -1345,20 +1542,34 @@ function OpenTuiScreen({
           ]}
         />
       </OpenTuiPrompt>
-      <text fg={palette.muted} height={1}>
-        {terminalLine(
-          !home && height < 10
-            ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
-            : view.busy && onCancel
-              ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
-              : composerWidth >= 70
-                ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
-                : composerWidth >= 45
-                  ? "Enter отправить | Shift+Tab режим | F4 разрешения"
-                  : "Shift+Tab режим | F4 доступ | Enter",
-          composerWidth,
+      <box height={1} flexDirection="row" flexShrink={0}>
+        <text
+          fg={palette.muted}
+          height={1}
+          width={Math.max(1, composerWidth - (controller ? 14 : 0))}
+        >
+          {terminalLine(
+            !home && height < 10
+              ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
+              : view.busy && onCancel
+                ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
+                : composerWidth >= 70
+                  ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
+                  : composerWidth >= 45
+                    ? "Enter отправить | Shift+Tab режим | F4 разрешения"
+                    : "Shift+Tab режим | F4",
+            Math.max(1, composerWidth - (controller ? 14 : 0)),
+          )}
+        </text>
+        {controller && (
+          <DialogAction
+            id="open-agents"
+            label={`${childApproval ? "? " : ""}Агенты ${activeChildren} F7`}
+            palette={palette}
+            onSelect={openAgents}
+          />
         )}
-      </text>
+      </box>
     </box>
   );
 
@@ -1575,19 +1786,110 @@ function OpenTuiScreen({
             focusable
           >
             {!contextOnly && <box width={1} backgroundColor={palette.border} />}
-            <ContextSidebar
-              state={view}
-              width={contextOnly ? Math.min(width, 40) : 40}
-              height={height - tabRows}
-              focused={
-                focus === "sidebar" && !sideActive && !approval && !otherOverlay
-              }
-              palette={palette}
-            />
+            {controller && view.agentTree?.view === "agents" ? (
+              <AgentsSidebar
+                controller={controller}
+                state={view}
+                width={contextOnly ? Math.min(width, 40) : 40}
+                height={height - tabRows}
+                palette={palette}
+                focused={agentsFocused}
+                onFocus={() => {
+                  setFocus("sidebar");
+                  controller.setFocus("sidebar");
+                }}
+                onBack={backFromAgents}
+                onContext={() =>
+                  controller.setAgentSidebar(
+                    "context",
+                    view.agentTree?.temporary ?? false,
+                  )
+                }
+                onOpen={openAgent}
+                onStop={stopAgent}
+              />
+            ) : (
+              <box
+                flexDirection="column"
+                width={contextOnly ? Math.min(width, 40) : 40}
+              >
+                {controller && (
+                  <DialogAction
+                    id="context-to-agents"
+                    label={`Агенты ${activeChildren}${childApproval ? " · нужно разрешение" : ""} F7`}
+                    palette={palette}
+                    onSelect={openAgents}
+                  />
+                )}
+                <ContextSidebar
+                  state={view}
+                  width={contextOnly ? Math.min(width, 40) : 40}
+                  height={height - tabRows - (controller ? 1 : 0)}
+                  focused={
+                    focus === "sidebar" &&
+                    !sideActive &&
+                    !approval &&
+                    !otherOverlay
+                  }
+                  palette={palette}
+                />
+              </box>
+            )}
           </box>
         )}
       </box>
       {settingsDialog}
+      {agentActive && controller && (
+        <OpenTuiAgentDetails
+          controller={controller}
+          view={view}
+          width={width}
+          height={height}
+          palette={palette}
+          onLoad={loadAgent}
+          onStop={stopAgent}
+          onApply={(id) => {
+            const origin = controller;
+            const generation = origin.currentGeneration;
+            const controls = origin.subagentControls;
+            if (!controls) return;
+            void controls.port
+              .status(id)
+              .then((child) => {
+                if (
+                  !origin.isCurrent(generation) ||
+                  origin.snapshot.agentView?.id !== id ||
+                  !child.worktree ||
+                  !child.cleanup.quiescent ||
+                  [
+                    "queued",
+                    "preparing",
+                    "running",
+                    "awaiting_approval",
+                    "cancelling",
+                  ].includes(child.status)
+                )
+                  return;
+                return onSubmit?.(
+                  `/worktree apply ${child.worktree.id}`,
+                  origin,
+                );
+              })
+              .catch((error) => {
+                if (
+                  origin.isCurrent(generation) &&
+                  origin.snapshot.agentView?.id === id
+                )
+                  origin.setAgentView({
+                    notice:
+                      error instanceof Error
+                        ? error.message
+                        : "Не удалось подготовить перенос.",
+                  });
+              });
+          }}
+        />
+      )}
       {updateOpen && updater && !approval && (
         <OpenTuiUpdate
           updater={updater}
@@ -1650,6 +1952,7 @@ function OpenTuiScreen({
             approvalResolver?.resolve("approved_always", approval)
           }
           onDeny={() => approvalResolver?.resolve("denied", approval)}
+          onCancelChild={cancelApprovalChild}
         />
       )}
       {mcpActions && !approval && (

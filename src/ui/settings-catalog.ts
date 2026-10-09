@@ -2,6 +2,7 @@ export type SettingsRoute =
   | "connection"
   | "appearance"
   | "permissions"
+  | "tools.subagents"
   | "tools.lsp"
   | "tools.mcp"
   | "tools.web"
@@ -61,6 +62,30 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     description: "Доступность режима Bypass; выбор режима остаётся отдельным",
     keywords: ["permissions", "approval", "bypass", "разрешения", "доступ"],
     fields: [],
+  },
+  {
+    id: "tools.subagents",
+    group: "Инструменты",
+    title: "Субагенты",
+    description: "Помощники: чтение и работа в отдельных копиях",
+    keywords: ["помощники", "делегирование", "subagent", "agents"],
+    fields: [
+      {
+        id: "enabled",
+        title: "Включение помощников",
+        keywords: ["выключить", "enabled"],
+      },
+      {
+        id: "maxActive",
+        title: "Одновременно работающие помощники",
+        keywords: ["лимит", "parallel"],
+      },
+      {
+        id: "project",
+        title: "Настройки проекта",
+        keywords: ["проект", "project"],
+      },
+    ],
   },
   {
     id: "tools.lsp",

@@ -61,6 +61,7 @@ export interface CommandDescriptor {
   readonly usage?: string;
   readonly source: CommandSource;
   readonly executionPolicy?: "foreground" | "side_query";
+  readonly controlActions?: readonly string[];
 }
 export interface CommandProjection {
   readonly commands: readonly CommandDescriptor[];
@@ -141,6 +142,9 @@ export function composeCommandProjection(
         : {}),
       source: { ...contribution.source },
       executionPolicy: contribution.executionPolicy ?? "foreground",
+      ...(contribution.controlActions
+        ? { controlActions: Object.freeze([...contribution.controlActions]) }
+        : {}),
     };
     commands.push(descriptor);
     byName.set(name, descriptor);

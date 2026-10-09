@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { ConversationSourceBridge } from "../app/conversation-source.js";
+import type { SubagentControls } from "../app/subagent-binding.js";
 import type { ContextCompactionRecord } from "../context/types.js";
 import {
   aggregateSpend,
+  childSpend,
   recomputeSessionSpend,
   sideSpend,
   spendForRecord,
@@ -20,6 +22,11 @@ import {
   type ApprovalMode,
   DEFAULT_APPROVAL_MODE,
 } from "../security/approval-mode.js";
+import type {
+  SubagentDescriptor,
+  SubagentEvent,
+} from "../subagents/contracts.js";
+import { subagentStatusTitle } from "../subagents/service.js";
 import type {
   AgentResult,
   ContextSnapshot,
@@ -44,6 +51,24 @@ export interface TranscriptEntry {
 }
 
 export interface TuiViewState {
+  children?: readonly SubagentDescriptor[];
+  childSpend?: ModelSpend;
+  agentTree?: {
+    view: "agents" | "context";
+    manual: boolean;
+    selected?: string;
+    collapsed: boolean;
+    temporary: boolean;
+  };
+  agentView?: {
+    visible: boolean;
+    id: string;
+    section: "history" | "changes" | "result";
+    history?: string;
+    diffs?: FileDiff[];
+    notice?: string;
+    loading?: boolean;
+  };
   sideQueries?: readonly SideQueryRecord[];
   sidePending?: boolean;
   sideNotice?: string;
@@ -88,6 +113,12 @@ export interface TuiViewState {
 
 /** The agent writes to this boundary; either terminal renderer may subscribe. */
 export class TuiController implements TuiTranscript {
+  subagentControls?: SubagentControls;
+  readonly agentPresentation = {
+    scroll: new Map<string, number>(),
+    treeScroll: 0,
+    returnFocus: "composer" as TuiViewState["focus"],
+  };
   readonly conversationId = randomUUID();
   readonly conversation = new ConversationSourceBridge();
   private lifetime = new AbortController();
@@ -175,6 +206,12 @@ export class TuiController implements TuiTranscript {
       streaming: "",
     });
     this.renderer?.append(text, tone, fileDiff);
+  }
+
+  appendNotice(text: string, tone: TranscriptTone = "info"): void {
+    this.update({
+      transcript: [...this.state.transcript, { id: this.serial++, text, tone }],
+    });
   }
 
   appendToLast(text: string): void {
@@ -343,6 +380,16 @@ export class TuiController implements TuiTranscript {
         merged.set(record.operationId, structuredClone(record));
     }
     session.sideQueries = [...merged.values()];
+    session.children = { ...session.children };
+    for (const child of this.state.children ?? []) {
+      const prior = session.children[child.id];
+      if (!prior || prior.revision <= child.revision)
+        session.children[child.id] = {
+          revision: child.revision,
+          child: structuredClone(child),
+          spend: structuredClone(child.spend),
+        };
+    }
     session.sideQuerySpend = { ...session.sideQuerySpend };
     for (const record of session.sideQueries)
       session.sideQuerySpend[record.operationId] = spendForRecord(record);
@@ -373,6 +420,10 @@ export class TuiController implements TuiTranscript {
           ? session.contextSnapshot
           : this.state.contextSnapshot,
       sideSpend: sideSpend(session),
+      childSpend: childSpend(session),
+      children: Object.values(session.children ?? {})
+        .map((receipt) => receipt.child)
+        .sort((a, b) => a.ordinal - b.ordinal),
       usage: {
         provider: selected.provider,
         profileId: selected.profileId,
@@ -474,6 +525,8 @@ export class TuiController implements TuiTranscript {
     this.usageSession = undefined;
     this.sidePresentation.scroll.clear();
     this.sidePresentation.unread.clear();
+    this.subagentControls = undefined;
+    this.agentPresentation.scroll.clear();
     this.generation++;
     this.compactionNotices.clear();
     this.presentation.windowEnd = undefined;
@@ -507,6 +560,136 @@ export class TuiController implements TuiTranscript {
 
   setSidePending(pending: boolean): void {
     this.update({ sidePending: pending });
+  }
+  setSubagentControls(controls: SubagentControls): void {
+    this.subagentControls = controls;
+    this.update({});
+  }
+  acceptSubagent(event: SubagentEvent): void {
+    if (
+      this.ownerSignal.aborted ||
+      (this.state.sessionId && event.ownerId !== this.state.sessionId)
+    )
+      return;
+    const records = new Map(
+      (this.state.children ?? []).map((child) => [child.id, child]),
+    );
+    const prior = records.get(event.child.id);
+    if (prior && prior.revision > event.child.revision) return;
+    records.set(event.child.id, structuredClone(event.child));
+    const children = [...records.values()].sort(
+      (a, b) => a.ordinal - b.ordinal,
+    );
+    const tree = this.state.agentTree ?? {
+      view: "context" as const,
+      manual: false,
+      collapsed: false,
+      temporary: false,
+    };
+    this.update({
+      children,
+      childSpend: aggregateSpend(children.map((child) => child.spend)),
+      agentTree: tree.manual ? tree : { ...tree, view: "agents" },
+    });
+    if (this.usageSession) {
+      this.usageSession.children ??= {};
+      this.usageSession.children[event.child.id] = {
+        revision: event.child.revision,
+        child: structuredClone(event.child),
+        spend: structuredClone(event.child.spend),
+      };
+      recomputeSessionSpend(this.usageSession);
+      if (this.state.usage)
+        this.update({
+          usage: {
+            ...this.state.usage,
+            totalTokens: { ...this.usageSession.totalTokens },
+            totalCost:
+              this.usageSession.costEstimate?.source === "unknown"
+                ? undefined
+                : this.usageSession.totalCost,
+          },
+        });
+    }
+    if (event.type === "accepted")
+      this.appendNotice(
+        `Поручение «${event.child.label}» принято · ${event.child.mode === "coding" ? "Рабочая копия" : "Чтение"}. Смотрите панель «Агенты».`,
+        "info",
+      );
+    if (event.type === "terminal")
+      this.appendNotice(
+        `Помощник «${event.child.label}» · ${subagentStatusTitle(event.child.status)}. Итог доступен в панели «Агенты».`,
+        event.child.status === "completed" ? "success" : "warn",
+      );
+  }
+  setAgentSidebar(view: "agents" | "context", temporary = false): void {
+    this.update({
+      agentTree: {
+        ...(this.state.agentTree ?? {
+          collapsed: false,
+          manual: false,
+          temporary: false,
+        }),
+        view,
+        manual: true,
+        temporary,
+      },
+    });
+  }
+  selectAgent(id?: string): void {
+    this.update({
+      agentTree: {
+        ...(this.state.agentTree ?? {
+          view: "agents",
+          manual: false,
+          collapsed: false,
+          temporary: false,
+        }),
+        selected: id,
+      },
+    });
+  }
+  collapseAgents(collapsed: boolean): void {
+    this.update({
+      agentTree: {
+        ...(this.state.agentTree ?? {
+          view: "agents",
+          manual: false,
+          temporary: false,
+        }),
+        collapsed,
+        selected: collapsed ? undefined : this.state.agentTree?.selected,
+      },
+    });
+  }
+  openAgent(id: string): void {
+    if (!this.state.children?.some((child) => child.id === id)) return;
+    this.agentPresentation.returnFocus = this.state.focus;
+    this.selectAgent(id);
+    this.hideSide();
+    this.update({
+      agentView: {
+        ...(this.state.agentView?.id === id ? this.state.agentView : {}),
+        id,
+        visible: true,
+        section:
+          this.state.agentView?.id === id
+            ? this.state.agentView.section
+            : "history",
+      },
+      focus: "modal",
+    });
+  }
+  hideAgent(): void {
+    if (this.state.agentView?.visible)
+      this.update({
+        agentView: { ...this.state.agentView, visible: false },
+        focus: this.agentPresentation.returnFocus,
+      });
+  }
+  setAgentView(fields: Partial<NonNullable<TuiViewState["agentView"]>>): void {
+    if (this.state.agentView)
+      this.update({ agentView: { ...this.state.agentView, ...fields } });
   }
   setSideNotice(notice?: string): void {
     this.update({ sideNotice: notice });

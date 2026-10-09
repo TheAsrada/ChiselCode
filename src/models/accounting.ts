@@ -42,9 +42,14 @@ export function spendForRecord(record: SideQueryRecord): ModelSpend {
     unknownUsage: record.usageSource !== "observed",
   };
 }
+export function childSpend(session: Pick<Session, "children">): ModelSpend {
+  return aggregateSpend(
+    Object.values(session.children ?? {}).map((receipt) => receipt.spend),
+  );
+}
 export function ensureMainSpend(session: Session): ModelSpend {
   if (session.mainSpend) return session.mainSpend;
-  const side = sideSpend(session);
+  const side = aggregateSpend([sideSpend(session), childSpend(session)]);
   const usage = { ...session.totalTokens };
   usage.inputTokens = Math.max(0, usage.inputTokens - side.usage.inputTokens);
   usage.outputTokens = Math.max(
@@ -69,7 +74,11 @@ export function ensureMainSpend(session: Session): ModelSpend {
 }
 /** Compatibility totals are derived; they are never incremented with the side subtotal twice. */
 export function recomputeSessionSpend(session: Session): void {
-  const total = aggregateSpend([ensureMainSpend(session), sideSpend(session)]);
+  const total = aggregateSpend([
+    ensureMainSpend(session),
+    sideSpend(session),
+    childSpend(session),
+  ]);
   session.totalTokens = { ...total.usage };
   session.totalCost = total.knownCost;
   session.costEstimate = total.unknownCost

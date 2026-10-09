@@ -33,6 +33,17 @@ export interface McpApprovalPreview {
 }
 
 export interface ApprovalRequest {
+  /** Addressed by core, never accepted from model input. */
+  owner?: {
+    rootOwnerId: string;
+    childId?: string;
+    label?: string;
+    sessionId: string;
+    invocationId: string;
+    generation: number;
+    mode: string;
+    cwd: string;
+  };
   /** Core-owned attribution; permission/grant identity remains the canonical tool name. */
   source?: import("../tools/types.js").ToolSource;
   /**

@@ -86,6 +86,9 @@ export class OneShotRenderer {
           mode: result.session.mode ?? "build",
           approvalMode: result.session.approvalMode ?? "default",
           totalTokens: result.session.totalTokens,
+          children: Object.values(result.session.children ?? {}).map(
+            (receipt) => receipt.child,
+          ),
           totalCost:
             result.session.costEstimate?.source === "unknown"
               ? undefined

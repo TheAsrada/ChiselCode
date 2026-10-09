@@ -39,6 +39,9 @@ export function createLocalToolRuntime(
     maxParallelReads?: number;
     requireFreshRead?: boolean;
     toolGuards?: ToolGuardPort;
+    executionConstraint?: import("./types.js").ToolExecutionConstraint;
+    approvalOwner?: import("./types.js").ToolContext["approvalOwner"];
+    subagentTools?: import("../subagents/service.js").SubagentToolBinding;
     worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
   } = {},
 ) {
@@ -50,6 +53,7 @@ export function createLocalToolRuntime(
       session.runtime?.turnMode ??
       session.mode ??
       DEFAULT_AGENT_MODE,
+    (handler) => options.executionConstraint?.allows(handler) ?? true,
   );
   for (const handler of [
     ...new LocalToolProvider().handlers,
@@ -57,6 +61,9 @@ export function createLocalToolRuntime(
   ])
     catalog.register(handler);
   const context: ToolContext = {
+    executionConstraint: options.executionConstraint,
+    approvalOwner: options.approvalOwner,
+    subagentTools: options.subagentTools,
     worktrees: options.worktrees,
     mode: options.mode,
     approvalMode: options.approvalMode,

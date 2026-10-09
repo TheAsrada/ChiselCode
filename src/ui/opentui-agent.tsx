@@ -10,8 +10,12 @@ import {
   type CapturedCommandModel,
   runSideQueryCommand,
 } from "../app/model-command.js";
-import { captureModelConfiguration } from "../app/model-runtime.js";
+import {
+  captureModelConfiguration,
+  captureUnavailableModel,
+} from "../app/model-runtime.js";
 import { runExtensionCommand } from "../app/run-command.js";
+import { subagentControls } from "../app/subagent-inspection.js";
 import {
   checkProviderConnection,
   getModelCapabilities,
@@ -28,8 +32,10 @@ import {
 import {
   loadGlobalConfig,
   loadProjectConfig,
+  loadProjectInstructions,
   updateGlobalConfig,
 } from "../config/load.js";
+import { subagentServiceToken } from "../extensions/builtins/subagents.js";
 import {
   defaultExtensions,
   withOwnedExtensionHost,
@@ -60,6 +66,7 @@ import {
   APPROVAL_MODE_LABELS,
   resolveApprovalMode,
 } from "../security/approval-mode.js";
+import { SecretRedactor } from "../security/redaction.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession, shortSessionId } from "../sessions/store.js";
 import {
@@ -68,6 +75,8 @@ import {
   invocableSkills,
   loadSkills,
 } from "../skills/skills.js";
+import { effectiveSubagentConfig } from "../subagents/config.js";
+import { SubagentSettingsStore } from "../subagents/settings.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
 import { resolveProjectDir } from "../utils/paths.js";
 import { clipText } from "../utils/text.js";
@@ -418,10 +427,73 @@ async function runApplication(
     });
     const controller = workspace.openSession(session);
     persistExecutionModes(controller);
+    await restoreSubagentControls(controller, session);
     warmModelCapabilities(controller);
   };
+  const restoreSubagentControls = async (
+    controller: TuiController,
+    session: Session,
+  ) => {
+    if (!session.children || !Object.keys(session.children).length) return;
+    const generation = controller.currentGeneration;
+    const root = controller.snapshot.projectPath;
+    const scope = await extensionHost.open(root);
+    const service = scope.services.lookup(subagentServiceToken);
+    if (!service) return;
+    const global = await loadGlobalConfig(options.configPath);
+    const project = await loadProjectConfig(root);
+    let capturedModel: import("../app/model-runtime.js").CapturedModelConfiguration;
+    try {
+      capturedModel = captureModelConfiguration(
+        global,
+        catalog.registry,
+        modelOptions(controller),
+        session,
+      );
+    } catch {
+      capturedModel = captureUnavailableModel(catalog.registry, session);
+    }
+    const binding = {
+      session,
+      store: await projectSessionStore(root),
+      root,
+      conversationId: controller.conversationId,
+      generation,
+      signal: controller.ownerSignal,
+      assertAvailable: () => {
+        if (!controller.isCurrent(generation))
+          throw new Error("Разговор заменён.");
+        scope.assertUsable();
+      },
+      scope,
+      capturedModel,
+      config: project,
+      global,
+      options: { ...options, interactive: true },
+      approvalMode: controller.snapshot.approvalMode,
+      resolver: workspace.execution(controller).approvalResolver,
+      redactor: new SecretRedactor(),
+      instructions: await loadProjectInstructions(root),
+      onEvent: (event: import("../subagents/contracts.js").SubagentEvent) => {
+        if (controller.isCurrent(generation)) controller.acceptSubagent(event);
+      },
+    };
+    await service.bind(binding);
+    const controls = subagentControls(service, binding);
+    controller.setSubagentControls(controls);
+    workspace.execution(controller).subagentControls = controls;
+    for (const child of await controls.port.list())
+      controller.acceptSubagent({
+        type: "changed",
+        ownerId: session.id,
+        child,
+      });
+  };
   const sessionPicker: OpenTuiSessionsActions = {
-    load: async () => (await sessionStore()).list(),
+    load: async () =>
+      (await (await sessionStore()).list()).filter(
+        (item) => !item.subagentOwnerId,
+      ),
     preview: async (id) => (await sessionStore()).load(id),
     resume,
     rename: async (id, title) => {
@@ -526,6 +598,22 @@ async function runApplication(
         }),
     });
     return {
+      subagents: new SubagentSettingsStore(
+        root,
+        options.configPath,
+        async () => {
+          const global = await loadGlobalConfig(options.configPath);
+          for (const scope of extensionHost.readyScopes()) {
+            const project = await loadProjectConfig(scope.workspaceRoot);
+            await scope.services
+              .lookup(subagentServiceToken)
+              ?.applyConfiguration(
+                scope.workspaceRoot,
+                effectiveSubagentConfig(global.subagents, project.subagents),
+              );
+          }
+        },
+      ),
       lsp,
       workspaceRoot: root,
       web: {
@@ -1013,6 +1101,48 @@ async function runApplication(
           names: new Set(selectedSkills),
         });
       }
+      const controlAction =
+        prepared?.input &&
+        typeof prepared.input === "object" &&
+        "action" in prepared.input
+          ? String(prepared.input.action)
+          : undefined;
+      if (
+        prepared?.command.controlActions?.includes(controlAction ?? "") &&
+        prepared.command.executeControl &&
+        snapshot?.scope &&
+        controller.subagentControls
+      ) {
+        const origin = controller;
+        const generation = origin.currentGeneration;
+        const selected = prepared;
+        try {
+          snapshot.scope.assertUsable();
+          if (
+            snapshot.scope.commands.get(selected.command.name) !==
+            selected.command
+          )
+            throw new Error("Команда изменилась.");
+          const result = await selected.command.executeControl!(
+            {
+              workspaceRoot: origin.snapshot.projectPath,
+              sessionId: origin.snapshot.sessionId!,
+              signal: origin.ownerSignal,
+              subagents: origin.subagentControls!.port,
+            },
+            selected.input,
+          );
+          if (origin.isCurrent(generation))
+            origin.append(result.output, result.isError ? "error" : "info");
+        } catch (error) {
+          if (origin.isCurrent(generation))
+            origin.append(
+              error instanceof Error ? error.message : String(error),
+              "error",
+            );
+        }
+        return;
+      }
       if (
         prepared?.command.executionPolicy === "side_query" &&
         snapshot?.scope
@@ -1289,12 +1419,32 @@ async function runApplication(
               mode: turnMode,
               approvalMode: turnApprovalMode,
               interactive: true,
+              subagentOwner: {
+                conversationId: controller.conversationId,
+                modelOptions: () => modelOptions(controller),
+                generation: requestGeneration,
+                signal: controller.ownerSignal,
+                assertAvailable: () => {
+                  if (!controller.isCurrent(requestGeneration))
+                    throw new Error("Разговор заменён.");
+                },
+              },
               isBypassAllowed: () => bypassAvailable,
               getWebConfig: () => webConfigLive,
               mcpManager: getMcpController(item.root).manager,
             },
             execution.approvalResolver,
             {
+              onSubagent: (event) => {
+                if (controller.isCurrent(requestGeneration))
+                  controller.acceptSubagent(event);
+              },
+              onSubagentControls: (controls) => {
+                if (controller.isCurrent(requestGeneration)) {
+                  execution.subagentControls = controls;
+                  controller.setSubagentControls(controls);
+                }
+              },
               onOpenWorktree: async (descriptor) => {
                 if (
                   !descriptor.id ||
@@ -1438,6 +1588,16 @@ async function runApplication(
             mode: turnMode,
             approvalMode: turnApprovalMode,
             interactive: true,
+            subagentOwner: {
+              conversationId: controller.conversationId,
+              modelOptions: () => modelOptions(controller),
+              generation: requestGeneration,
+              signal: controller.ownerSignal,
+              assertAvailable: () => {
+                if (!controller.isCurrent(requestGeneration))
+                  throw new Error("Разговор заменён.");
+              },
+            },
             isBypassAllowed: () => bypassAvailable,
             getWebConfig: () => webConfigLive,
             mcpManager: getMcpController(controller.snapshot.projectPath)
@@ -1445,6 +1605,16 @@ async function runApplication(
           },
           execution.approvalResolver,
           {
+            onSubagent: (event) => {
+              if (controller.isCurrent(requestGeneration))
+                controller.acceptSubagent(event);
+            },
+            onSubagentControls: (controls) => {
+              if (controller.isCurrent(requestGeneration)) {
+                execution.subagentControls = controls;
+                controller.setSubagentControls(controls);
+              }
+            },
             onConversation: (source) => {
               if (controller.isCurrent(requestGeneration)) {
                 controller.conversation.bind(source);
@@ -1572,7 +1742,7 @@ async function runApplication(
           controller.conversation.complete();
         execution.activeRun = undefined;
         execution.abort = undefined;
-        execution.approvalResolver.cancel();
+        execution.approvalResolver.cancel("foreground");
         if (controller.isCurrent(requestGeneration)) {
           controller.finishRequest(status, elapsedMs);
           controller.setRunningMode();
@@ -1598,6 +1768,8 @@ async function runApplication(
     await work;
   };
   process.on("SIGINT", cancel);
+  if (initialSession)
+    await restoreSubagentControls(workspace.controller, initialSession);
   process.once("SIGTERM", shutdown);
   let applicationFailure: unknown;
   let applicationFailed = false;
