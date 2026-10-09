@@ -1,0 +1,40 @@
++------------------------++------------------------++------------------------++---+                                     
+| /worktree            x || Первая задача        x || Вторая задача        x || + |                                     
++------------------------++------------------------++------------------------++---+                                     
+ removal.                                                                    ^   Контекст                               
+ WORKTREE_IN_USE: Worktree is open in a conversation, scope/LSP or another   v   fixture-worktree                       
+ application. Close its users before removal.                                    openai-compatible / fixture            
+  Завершено с ошибкой · 0,1 с                                                    Окно: 65 536                           
+                                                                                 ~7 638 / 65 536 · ~12%                 
+  > /worktree apply 2f1f56c3-171f-4e1c-8a75-ac0bcec6ff38                                                                
+  • [extension] /worktree · builtin.worktrees                                    ~ приблизительная оценка               
+  • [extension] builtin.worktrees · apply                                        Расход сессии: 0                       
+                                                                                 Побочные: 0 ток.                       
+ +--------------------------------------------------------------------------+    Проект                                 
+ | same.ts                                                  Изменён  +1  -1 |    Копия: Вторая задача                   
+ | @@ -1,1 +1,1 @@                                                          |    ID: 2d3a29aa-0b0f-4b57-9cdd-cdcdc38... 
+ | 1   - export const value: number = "wrong";                              |    /tmp/chisel-worktree-tui-cSAJCq/...    
+ |   1 + export const value: number = 1;                                    |    Detached HEAD                          
+ | Развернуть  |  Ctrl+D                                                    |    Изменения | 1                          
+ +--------------------------------------------------------------------------+    same.ts +1 -1                          
+ Updated 1 files:                                                                                                       
+ - same.ts (edit)                                                                                                       
+ Origin: /tmp/chisel-worktree-tui-cSAJCq/Проект                                                                         
+ Source 2f1f56c3-171f-4e1c-8a75-ac0bcec6ff38 retained.                                                                  
+  Завершено за 1 с                                                                                                      
+                                                                                                                        
+  > /worktree apply 2d3a29aa-0b0f-4b57-9cdd-cdcdc3847acb                                                                
+  • [extension] /worktree · builtin.worktrees                                                                           
+ x [extension] builtin.worktrees · apply: WORKTREE_CONFLICT: Origin conflicts                                           
+ with the result at "same.ts"; no files were changed.                                                                   
+ WORKTREE_CONFLICT: Origin conflicts with the result at "same.ts"; no files                                             
+ were changed.                                                                                                          
+  Завершено с ошибкой · 0,1 с                                                                                           
+ +- Сообщение ---------------------------------------------------------------+                                          
+ |                                                                           |                                          
+ |  Опишите задачу...                                                        |                                          
+ |                                                                           |                                          
+ |   Build   Manual v                                    Отправить | Enter   |                                          
+ |  fixture-worktree v                                                       |                                          
+ +---------------------------------------------------------------------------+                                          
+ Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения                                                 

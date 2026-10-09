@@ -5,3 +5,5 @@
 
 # OpenTUI char frames preserve terminal-cell padding, including blank columns.
 docs/assets/btw/*.txt whitespace=-blank-at-eol
+
+docs/assets/worktrees/*.txt whitespace=-blank-at-eol,-blank-at-eof

@@ -1,0 +1,40 @@
++------------------------++------------------------++------------------------++---+                                     
+| /worktree            x || Первая задача        x || Вторая задача        x || + |                                     
++------------------------++------------------------++------------------------++---+                                     
+ Рабочая копия: Вторая задача                                                    Контекст                               
+ ID: 2d3a29aa-0b0f-4b57-9cdd-cdcdc3847acb                                        fixture-worktree                       
+ Base: 7e701c7eaa45ed25cfcc37fcfc580013503a08aa                                  openai-compatible / fixture            
+ /tmp/chisel-worktree-tui-cSAJCq/chiselcode/worktrees/                           Окно: 65 536                           
+ c2284f7d3b69679dc548eba974acc95553c4af3a71d37b43fb79a2bdab879d67/trees/         ~7 638 / 65 536 · ~12%                 
+ 2d3a29aa-0b0f-4b57-9cdd-cdcdc3847acb                                                                                   
+ Detached HEAD · файлы и Session изолированы                                     ~ приблизительная оценка               
+                                                                                 Расход сессии: 0                       
+  > Вторая задача: проверь TypeScript и измени same.ts                           Побочные: 0 ток.                       
+  • read_file same.ts                                                            Проект                                 
+  • [extension] builtin.lsp · diagnostics · готово                               Копия: Вторая задача                   
+                                                                                 ID: 2d3a29aa-0b0f-4b57-9cdd-cdcdc38... 
+ +---------------------------------------------------------------------------+   /tmp/chisel-worktree-tui-cSAJCq/...    
+ | same.ts                                                   Изменён  +1  -1 |   Detached HEAD                          
+ | @@ -1,1 +1,1 @@                                                           |   Изменения | 1                          
+ | 1   - export const value: number = "wrong";                               |   same.ts +1 -1                          
+ |   1 + export const value: number = 2;                                     |                                          
+ | Развернуть  |  Ctrl+D                                                     |                                          
+ +---------------------------------------------------------------------------+                                          
+  • [extension] builtin.project · manifest · готово                                                                     
+  • git status --short                                                                                                  
+  Задача 2: изменения сохранены в отдельной рабочей копии. Основной проект не                                           
+  изменён.                                                                                                              
+  Завершено за 1,7 с                                                                                                    
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ +- Сообщение ---------------------------------------------------------------+                                          
+ |                                                                           |                                          
+ |  Опишите задачу...                                                        |                                          
+ |                                                                           |                                          
+ |   Build   Accept edits v                              Отправить | Enter   |                                          
+ |  fixture-worktree v                                                       |                                          
+ +---------------------------------------------------------------------------+                                          
+ Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения                                                 

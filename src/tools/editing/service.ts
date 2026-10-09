@@ -101,6 +101,15 @@ export class EditingService {
       operations.push(await this.operation(path, content));
     return this.plan(operations);
   }
+  /** Core multi-root consumers still use this same fresh-read/commit engine. */
+  async replaceBatch(
+    files: readonly [string, string | null][],
+  ): Promise<PatchPlan> {
+    const operations: PatchOperation[] = [];
+    for (const [path, content] of files)
+      operations.push(await this.operation(path, content, content === null));
+    return this.plan(operations);
+  }
   async write(path: string, content: string): Promise<PatchPlan> {
     return this.plan([await this.operation(path, content)]);
   }
@@ -142,8 +151,20 @@ export class EditingService {
     }
     return this.plan(operations);
   }
-  async commit(plan: PatchPlan, signal?: AbortSignal): Promise<EditingResult> {
-    await commitPatch(plan, this.workspace, signal, this.beforeCommit);
+  async commit(
+    plan: PatchPlan,
+    signal?: AbortSignal,
+    validate?: () => Promise<void>,
+  ): Promise<EditingResult> {
+    await commitPatch(
+      plan,
+      this.workspace,
+      signal,
+      async (operation, index) => {
+        await this.beforeCommit?.(operation, index);
+        await validate?.();
+      },
+    );
     const newRevisions: Record<string, FileRevision> = {};
     for (const operation of plan.operations) {
       if (operation.after === null) delete this.observations[operation.path];

@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import React from "react";
 import { contextProgress } from "../core/context-usage.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiViewState } from "./tui-controller.js";
 
@@ -59,82 +60,103 @@ export function ContextSidebar({
       paddingRight={1}
       backgroundColor={palette.surface}
     >
-      <text fg={title}>{focused ? "> Контекст" : "Контекст"}</text>
-      <text fg={palette.text}>
-        {safeLine(selection?.model ?? usage?.model ?? "-", width - 2)}
-      </text>
-      <text fg={quiet}>
-        {safeLine(
-          `${selection?.provider ?? usage?.provider ?? "-"}${selection?.profileId ? ` / ${selection.profileId}` : ""}`,
-          width - 2,
-        )}
-      </text>
-      <text fg={quiet}>
-        {window
-          ? `Окно: ${window.toLocaleString("ru-RU")}${windowSource === "catalog" ? " (каталог)" : windowSource === "config" ? " (настройки)" : ""}`
-          : "Размер окна неизвестен"}
-      </text>
-      <text fg={quiet}>{snapshot ? progress.label : "Заполнение: —"}</text>
-      {progress.barPercent !== undefined && (
-        <text fg={title}>
-          <span bg={title}>{" ".repeat(filled)}</span>
-          <span bg={palette.border}>{" ".repeat(barWidth - filled)}</span>
+      <TerminalScrollbox
+        flexGrow={1}
+        minHeight={0}
+        focused={focused}
+        viewportCulling
+      >
+        <text fg={title}>{focused ? "> Контекст" : "Контекст"}</text>
+        <text fg={palette.text}>
+          {safeLine(selection?.model ?? usage?.model ?? "-", width - 2)}
         </text>
-      )}
-      {snapshot?.status === "estimated" && (
-        <text fg={quiet}>~ приблизительная оценка</text>
-      )}
-      {usage && (
-        <text fg={quiet}>
-          Расход сессии: {totalTokens.toLocaleString("ru-RU")}
-        </text>
-      )}
-      {state.sideSpend && (
         <text fg={quiet}>
           {safeLine(
-            `Побочные: ${state.sideSpend.usage.inputTokens + state.sideSpend.usage.outputTokens} ток.${state.sideSpend.unknownUsage ? " · часть неизвестна" : ""}`,
+            `${selection?.provider ?? usage?.provider ?? "-"}${selection?.profileId ? ` / ${selection.profileId}` : ""}`,
             width - 2,
           )}
         </text>
-      )}
-      {usage &&
-        usage.totalCost !== undefined &&
-        Number.isFinite(usage.totalCost) &&
-        usage.totalCost > 0 && (
-          <text fg={quiet}>${usage.totalCost.toFixed(4)}</text>
-        )}
-      <text fg={title}>Проект</text>
-      <text fg={quiet}>{safeLine(state.projectPath)}</text>
-      <text fg={quiet}>
-        {state.gitChanges
-          ? safeLine(state.gitChanges.branch)
-          : "Без репозитория"}
-      </text>
-      {state.gitChanges && (
-        <React.Fragment>
-          <text fg={title}>Изменения | {state.gitChanges.totalFiles}</text>
-          {files.length === 0 && <text fg={quiet}>Нет изменений</text>}
-          {files.slice(0, maxFiles).map((file) => (
-            <text key={file.path} fg={quiet}>
-              {safeLine(basename(file.path), 25)} +{file.additions} -
-              {file.deletions}
-            </text>
-          ))}
-          {state.gitChanges.totalFiles > maxFiles && (
-            <text fg={quiet}>
-              ...ещё {state.gitChanges.totalFiles - maxFiles}
-            </text>
-          )}
-        </React.Fragment>
-      )}
-      {(state.toolActivity || state.overlay) && (
-        <React.Fragment>
-          <text fg={title}>Активность</text>
-          <text fg={palette.yellow}>
-            {safeLine(state.overlay ?? state.toolActivity ?? "")}
+        <text fg={quiet}>
+          {window
+            ? `Окно: ${window.toLocaleString("ru-RU")}${windowSource === "catalog" ? " (каталог)" : windowSource === "config" ? " (настройки)" : ""}`
+            : "Размер окна неизвестен"}
+        </text>
+        <text fg={quiet}>{snapshot ? progress.label : "Заполнение: —"}</text>
+        {progress.barPercent !== undefined && (
+          <text fg={title}>
+            <span bg={title}>{" ".repeat(filled)}</span>
+            <span bg={palette.border}>{" ".repeat(barWidth - filled)}</span>
           </text>
-        </React.Fragment>
-      )}
+        )}
+        {snapshot?.status === "estimated" && (
+          <text fg={quiet}>~ приблизительная оценка</text>
+        )}
+        {usage && (
+          <text fg={quiet}>
+            Расход сессии: {totalTokens.toLocaleString("ru-RU")}
+          </text>
+        )}
+        {state.sideSpend && (
+          <text fg={quiet}>
+            {safeLine(
+              `Побочные: ${state.sideSpend.usage.inputTokens + state.sideSpend.usage.outputTokens} ток.${state.sideSpend.unknownUsage ? " · часть неизвестна" : ""}`,
+              width - 2,
+            )}
+          </text>
+        )}
+        {usage &&
+          usage.totalCost !== undefined &&
+          Number.isFinite(usage.totalCost) &&
+          usage.totalCost > 0 && (
+            <text fg={quiet}>${usage.totalCost.toFixed(4)}</text>
+          )}
+        <text fg={title}>Проект</text>
+        {state.worktree && (
+          <text fg={palette.text}>
+            {safeLine(`Копия: ${state.worktree.label}`, width - 2)}
+          </text>
+        )}
+        {state.worktree && (
+          <text fg={quiet}>
+            {safeLine(`ID: ${state.worktree.id}`, width - 2)}
+          </text>
+        )}
+        <text fg={quiet}>{safeLine(state.projectPath)}</text>
+        <text fg={quiet}>
+          {state.gitChanges
+            ? safeLine(
+                state.gitChanges.branch === "HEAD"
+                  ? "Detached HEAD"
+                  : state.gitChanges.branch,
+              )
+            : "Без репозитория"}
+        </text>
+        {state.gitChanges && (
+          <React.Fragment>
+            <text fg={title}>Изменения | {state.gitChanges.totalFiles}</text>
+            {files.length === 0 && <text fg={quiet}>Нет изменений</text>}
+            {files.slice(0, maxFiles).map((file) => (
+              <text key={file.path} fg={quiet}>
+                {safeLine(basename(file.path), 25)} +{file.additions} -
+                {file.deletions}
+              </text>
+            ))}
+            {state.gitChanges.totalFiles > maxFiles && (
+              <text fg={quiet}>
+                ...ещё {state.gitChanges.totalFiles - maxFiles}
+              </text>
+            )}
+          </React.Fragment>
+        )}
+        {(state.toolActivity || state.overlay) && (
+          <React.Fragment>
+            <text fg={title}>Активность</text>
+            <text fg={palette.yellow}>
+              {safeLine(state.overlay ?? state.toolActivity ?? "")}
+            </text>
+          </React.Fragment>
+        )}
+      </TerminalScrollbox>
     </box>
   );
 }

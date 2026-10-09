@@ -75,7 +75,7 @@ jobs:
         run: bun run eval --category all
       - name: Build package
         run: bun run build
-      - name: Smoke packaged/compiled commands, parallel /btw and LSP Settings with real server
+      - name: Smoke packaged/compiled commands, worktrees, parallel /btw and real LSP
         run: bun tests/fixtures/command-packaging.ts
       - name: Smoke installed npm package
         shell: bash
@@ -89,6 +89,7 @@ jobs:
           bun tests/fixtures/manifest-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/lsp-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/side-query-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
+          bun tests/fixtures/worktree-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |
@@ -125,6 +126,7 @@ jobs:
           bun tests/fixtures/manifest-cli.ts "$binary"
           bun tests/fixtures/lsp-cli.ts "$binary"
           bun tests/fixtures/side-query-cli.ts "$binary"
+          bun tests/fixtures/worktree-cli.ts "$binary"
       - name: Validate Windows updater installer
         if: runner.os == 'Windows'
         shell: pwsh

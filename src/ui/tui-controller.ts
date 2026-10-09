@@ -63,6 +63,7 @@ export interface TuiViewState {
   contextSnapshot?: ContextSnapshot;
   sessionId?: string;
   sessionTitle?: string;
+  worktree?: Session["worktree"];
   projectPath: string;
   transcript: readonly TranscriptEntry[];
   streaming: string;
@@ -358,6 +359,7 @@ export class TuiController implements TuiTranscript {
     this.update({
       sessionId: session.id,
       sessionTitle: session.title,
+      worktree: session.worktree,
       modelSelection: selected,
       modelCapabilities: this.state.modelCapabilities ?? {
         tokenCounting: "local_estimate",
@@ -463,7 +465,7 @@ export class TuiController implements TuiTranscript {
   /** Invalidates responses from the previous project or session immediately. */
   switchSession(
     session?: Pick<Session, "id" | "projectPath"> &
-      Partial<Pick<Session, "title" | "mode" | "approvalMode">>,
+      Partial<Pick<Session, "title" | "mode" | "approvalMode" | "worktree">>,
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.lifetime.abort();
@@ -490,6 +492,7 @@ export class TuiController implements TuiTranscript {
       projectPath,
       sessionId: session?.id,
       sessionTitle: session?.title,
+      worktree: session?.worktree,
       transcript: [],
       streaming: "",
       draft: "",

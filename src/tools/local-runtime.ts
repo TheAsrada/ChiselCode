@@ -39,6 +39,7 @@ export function createLocalToolRuntime(
     maxParallelReads?: number;
     requireFreshRead?: boolean;
     toolGuards?: ToolGuardPort;
+    worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
   } = {},
 ) {
   initializeSessionState(session);
@@ -56,6 +57,7 @@ export function createLocalToolRuntime(
   ])
     catalog.register(handler);
   const context: ToolContext = {
+    worktrees: options.worktrees,
     mode: options.mode,
     approvalMode: options.approvalMode,
     session,

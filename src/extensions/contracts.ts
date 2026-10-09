@@ -130,6 +130,8 @@ export interface ExtensionCommandDescriptor {
   readonly executionPolicy?: "foreground" | "side_query";
 }
 export interface ExtensionCommandInvocation {
+  /** Core-owned open action accepts an owned ID, never an arbitrary cwd. */
+  readonly worktrees: { open(id: string): Promise<ToolExecutionResult> };
   readonly workspaceRoot: string;
   readonly sessionId: string;
   readonly invocationId: string;

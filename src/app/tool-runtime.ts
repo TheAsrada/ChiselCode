@@ -1,3 +1,4 @@
+import { worktreeServiceToken } from "../extensions/builtins/worktrees.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { attachExtensionTools } from "../extensions/tools.js";
 import { McpConnectionManager } from "../mcp/manager.js";
@@ -151,6 +152,7 @@ export async function createSessionToolRuntime(input: {
         sanitizeResult: sanitize,
         sanitizeApproval: sanitize,
         toolGuards: scope.toolGuards,
+        worktrees: scope.services.lookup(worktreeServiceToken),
       },
     );
     await tools.catalog.addProvider(web);

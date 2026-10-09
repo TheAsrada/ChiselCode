@@ -142,3 +142,9 @@ Usage/стоимость показываются отдельно и включ
 В one-shot CLI работает `chisel --profile <id> --resume <session-id> "/btw <вопрос>"`. Без resume вопрос выполняется самостоятельно, с выбранной моделью. `--json` выдаёт один bounded DTO с owner/status/text/error/provenance/usage/cost; floating view относится только к TUI. `/btw` без вопроса — usage error без запроса. /help отсутствует; команды доступны в autocomplete и typo hints.
 
 Записи побочных вопросов доступны с клавиатуры: Tab переводит focus на «Открыть», Up/Down выбирают запись, Enter открывает её. Ещё один Tab после последней записи возвращает обычную прокрутку чата. Shift+Tab внутри списка возвращает previous control, сохраняя режим агента.
+
+## Изолированные рабочие копии
+
+`/worktree create <название>` создаёт detached копию committed HEAD с обычным Git approval. `/worktree list` показывает IDs; `/worktree open <ID>` открывает verified root в новой вкладке с собственной Session/LSP/draft. Sidebar показывает label/ID и Detached HEAD. Две задачи могут менять один файл независимо. `/worktree diff <ID>` показывает результат от base, `/worktree apply <ID>` переносит его только в origin после conflict/stale/policy checks. `/worktree remove <ID>` отказывает при любых dirty/ignored файлах или живых пользователях и удерживает clean commit-result перед удалением.
+
+Ctrl+W закрывает вкладку, сохраняя копию. Ctrl+C отменяет операцию/очередь, не удаляет worktree. Approval получает приоритет над `/btw` и Settings. На маленьком терминале sidebar в Auto скрывается; Esc/Ctrl+B возвращает composer из явно открытого context pane. До 24×8 доступны native input, Enter, F4 и обычные slash-команды; tiny approval показывает `Y Да / N Нет`, preview прокручивается стрелками/PgUp/PgDn. Welcome hotkeys сохранены; `/help` не восстановлен. [Полный сценарий и ограничения](worktrees.md).

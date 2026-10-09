@@ -224,6 +224,7 @@ export class ExtensionHost implements Disposable {
     {
       scope: WorkspaceExtensionScope;
       pending: Promise<WorkspaceExtensionScope>;
+      closing?: Promise<void>;
     }
   >();
   private closed = false;
@@ -271,6 +272,10 @@ export class ExtensionHost implements Disposable {
       throw new ExtensionLifecycleError("Extension host is closed.");
     const existing = this.workspaces.get(canonical);
     if (existing) {
+      if (existing.closing) {
+        await existing.closing;
+        return this.open(canonical);
+      }
       const scope = await existing.pending;
       scope.assertUsable();
       return scope;
@@ -311,6 +316,19 @@ export class ExtensionHost implements Disposable {
     });
     this.workspaces.set(canonical, { scope, pending });
     return pending;
+  }
+  /** Application closes an unused root only after its conversation owners have
+   * settled. Other roots keep their services and contributions. */
+  async closeWorkspace(root: string): Promise<void> {
+    const canonical = await canonicalWorkspaceRoot(root);
+    const entry = this.workspaces.get(canonical);
+    if (!entry) return;
+    entry.closing ??= Promise.resolve().then(async () => {
+      entry.scope.abortLifetime();
+      await entry.pending.catch(() => {});
+      await entry.scope.dispose();
+    });
+    await entry.closing;
   }
   dispose(): Promise<void> {
     if (this.disposal) return this.disposal;

@@ -259,6 +259,14 @@ const contentSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export const SessionV3Schema = z.looseObject({
+  worktree: z
+    .object({
+      id: z.uuid(),
+      label: z.string().max(120),
+      base: z.string().regex(/^[a-f0-9]{40,64}$/),
+      origin: z.string(),
+    })
+    .optional(),
   mainSpend: ModelSpendSchema.optional(),
   sideQueries: z.array(SideQueryRecordSchema).optional(),
   sideQuerySpend: z.record(SessionIdSchema, ModelSpendSchema).optional(),

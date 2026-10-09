@@ -1,20 +1,16 @@
 import { realpath } from "node:fs/promises";
 import { relative } from "node:path";
-import { execa } from "execa";
 import { z } from "zod";
+import { gitCommand } from "../../git/driver.js";
 import { defineTool } from "../handler.js";
 import type { ToolContext } from "../types.js";
 
 async function git(context: ToolContext, args: string[]) {
-  const result = await execa("git", ["-c", "core.fsmonitor=false", ...args], {
-    cwd: await realpath(context.workspace.root),
-    reject: false,
-    all: true,
-    cancelSignal: context.signal,
-  });
   return {
-    output: result.all || `(exit ${result.exitCode})`,
-    isError: result.exitCode !== 0,
+    isError: false,
+    output:
+      (await gitCommand(context.workspace.root, args, context.signal)) ||
+      "Git operation completed.",
   };
 }
 export function gitHandlers() {

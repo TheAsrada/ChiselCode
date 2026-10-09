@@ -148,6 +148,7 @@ test("command snapshots bind methods and outlive mutations of registration metad
     approvalMode: "default" as const,
     signal: new AbortController().signal,
     tools: { execute: async () => ({ output: "Unused" }) },
+    worktrees: { open: async () => ({ output: "Unused" }) },
     model: {
       request: async () => {
         throw new Error("Unused");

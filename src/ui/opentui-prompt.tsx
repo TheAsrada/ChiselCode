@@ -27,6 +27,7 @@ export function OpenTuiPrompt({
   onPermissionsSelect,
   onModelSelect,
   onSubmit,
+  compact = false,
 }: {
   children: ReactNode;
   palette: Palette;
@@ -43,8 +44,20 @@ export function OpenTuiPrompt({
   onPermissionsSelect: () => void;
   onModelSelect?: () => void;
   onSubmit: () => void;
+  compact?: boolean;
 }) {
   const { borderChars } = useTerminalDecoration();
+  if (compact)
+    return (
+      <box
+        id="prompt"
+        width="100%"
+        flexShrink={0}
+        backgroundColor={palette.surface}
+      >
+        {children}
+      </box>
+    );
   const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
   const differentRun =
     !!runningMode &&

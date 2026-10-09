@@ -1,0 +1,40 @@
++------------------------++------------------------++------------------------++---+                                     
+| /worktree            x || Первая задача        x || Вторая задача        x || + |                                     
++------------------------++------------------------++------------------------++---+                                     
+ c2284f7d3b69679dc548eba974acc95553c4af3a71d37b43fb79a2bdab879d67/trees/     ^   Контекст                               
+ 2d3a29aa-0b0f-4b57-9cdd-cdcdc3847acb                                        v   fixture-worktree                       
+ Detached HEAD · файлы и Session изолированы                                     openai-compatible / fixture            
+                                                                                 Окно: 65 536                           
+  > Вторая задача: проверь TypeScript и измени same.ts                           ~7 638 / 65 536 · ~12%                 
+  • read_file same.ts                                                                                                   
+  • [extension] builtin.lsp · diagnostics · готово                               ~ приблизительная оценка               
+                                                                                 Расход сессии: 0                       
+ +--------------------------------------------------------------------------+    Побочные: 0 ток.                       
+ | same.ts                                                  Изменён  +1  -1 |    Проект                                 
+ | @@ -1,1 +1,1 @@                                                          |    Копия: Вторая задача                   
+ | 1   - export const value: number = "wrong";                              |    ID: 2d3a29aa-0b0f-4b57-9cdd-cdcdc38... 
+ |   1 + export const value: number = 2;                                    |    /tmp/chisel-worktree-tui-cSAJCq/...    
+ | Развернуть  |  Ctrl+D                                                    |    Detached HEAD                          
+ +--------------------------------------------------------------------------+    Изменения | 1                          
+  • [extension] builtin.project · manifest · готово                              same.ts +1 -1                          
+  • git status --short                                                                                                  
+  Задача 2: изменения сохранены в отдельной рабочей копии. Основной проект не                                           
+  изменён.                                                                                                              
+  Завершено за 1,7 с                                                                                                    
+                                                                                                                        
+  > /worktree remove 2f1f56c3-171f-4e1c-8a75-ac0bcec6ff38                                                               
+  • [extension] /worktree · builtin.worktrees                                                                           
+ x [extension] builtin.worktrees · remove: WORKTREE_IN_USE: Worktree is open                                            
+ in a conversation, scope/LSP or another application. Close its users before                                            
+ removal.                                                                                                               
+ WORKTREE_IN_USE: Worktree is open in a conversation, scope/LSP or another                                              
+ application. Close its users before removal.                                                                           
+  Завершено с ошибкой · 0,1 с                                                                                           
+ +- Сообщение ---------------------------------------------------------------+                                          
+ |                                                                           |                                          
+ |  Опишите задачу...                                                        |                                          
+ |                                                                           |                                          
+ |   Build   Accept edits v                              Отправить | Enter   |                                          
+ |  fixture-worktree v                                                       |                                          
+ +---------------------------------------------------------------------------+                                          
+ Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения                                                 

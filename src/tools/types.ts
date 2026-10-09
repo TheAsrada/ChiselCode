@@ -48,6 +48,10 @@ export type ToolSource =
       classificationReason: string;
     };
 export interface ToolContext {
+  readonly invocationId?: string;
+  readonly worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
+  /** Single-use core grant, created only after guards and permissions. */
+  readonly worktreeAuthorization?: object;
   /** Execution capability issued by the permission layer, not model input. */
   networkAuthorization?: import("../security/network-policy.js").NetworkAuthorization;
   /** Immutable override for the request; never a mutable UI selection. */

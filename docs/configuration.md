@@ -295,3 +295,7 @@ Global config сохраняет schemaVersion 2:
 Для серверов с объявленным LSP 3.17 `diagnosticProvider` используется полный document pull report после sync и с повторной проверкой revision/generation/bytes. У такого сервера push subsets не заменяют полный snapshot. Для push-only серверов current требует совпадающей version; unversioned результаты остаются observed. Rust Auto задаёт безопасные initialization options до discovery и проверяет файл через стандартный pull API: timestamp или provisional empty не выдаются за завершённую semantic проверку. Ни один LSP report не заменяет релевантные compiler/tests.
 
 При первичной индексации Rust сервер может отклонить запрос чтения. Такой вызов возвращает controlled error; диагностику или навигацию можно повторить отдельным вызовом на том же сервере после загрузки workspace. Отклонённый запрос не подтверждает отсутствие ошибок в файле.
+
+## Managed worktrees
+
+Дополнительная глобальная настройка не требуется. `/worktree` использует установленный Git и canonical ChiselCode Home; label не задаёт filesystem path. Registry/managed trees не создаются в repository, global keys/config не копируются. Project rules и LSP читаются отдельно для нового root; пользовательский LSP executable по-прежнему требует доверия этому root, стандартный Auto backend работает по существующей policy. Create не устанавливает dependencies и не переносит dirty origin files. [Команды, limits и recovery](worktrees.md).

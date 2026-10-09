@@ -10,6 +10,7 @@ import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
 
 /** A modal decision surface with its own bounded, scrollable preview. */
 export function OpenTuiApproval({
@@ -79,10 +80,14 @@ export function OpenTuiApproval({
             ? "Подтвердить опасное действие?"
             : request.mcp
               ? request.mcp.serverTitle
-              : (extensionToolLabel(request.source) ??
-                (request.network
-                  ? "Доступ к интернету"
-                  : "Разрешить действие?"))}
+              : tiny &&
+                  request.source?.type === "extension" &&
+                  request.source.extensionId === "builtin.worktrees"
+                ? "Рабочая копия"
+                : (extensionToolLabel(request.source) ??
+                  (request.network
+                    ? "Доступ к интернету"
+                    : "Разрешить действие?"))}
         </strong>
       </text>
       <text fg={palette.muted} height={1}>
@@ -108,16 +113,44 @@ export function OpenTuiApproval({
           viewportCulling
         >
           {diffs.length ? (
-            diffs.map((diff) => (
-              <FileDiffCard
-                key={diff.path}
-                id={`approval-diff-${diff.path}`}
-                diff={diff}
-                width={innerWidth}
-                expanded
-                palette={palette}
-              />
-            ))
+            <>
+              {request.source?.type === "extension" &&
+                request.source.extensionId === "builtin.worktrees" && (
+                  <>
+                    <text fg={palette.text}>
+                      {terminalLine(
+                        request.preview.split("\n")[0] ?? "",
+                        innerWidth,
+                      )}
+                    </text>
+                    <text fg={palette.muted}>
+                      {terminalLine(
+                        request.preview
+                          .split("\n")
+                          .find((line) => line.startsWith("Target origin:")) ??
+                          "",
+                        innerWidth,
+                      )}
+                    </text>
+                  </>
+                )}
+              {diffs.map((diff) => (
+                <FileDiffCard
+                  key={diff.path}
+                  id={`approval-diff-${diff.path}`}
+                  diff={diff}
+                  width={innerWidth}
+                  expanded
+                  palette={palette}
+                />
+              ))}
+              {request.source?.type === "extension" &&
+                request.source.extensionId === "builtin.worktrees" && (
+                  <text fg={palette.muted} selectable>
+                    {terminalSafeText(request.preview, 4096)}
+                  </text>
+                )}
+            </>
           ) : request.mcp ? (
             <box flexDirection="column" gap={1}>
               <text fg={palette.muted}>
@@ -147,14 +180,16 @@ export function OpenTuiApproval({
       <box flexDirection="row" height={1} gap={1} flexShrink={0}>
         <DialogAction
           id="approval-approve"
-          label={tiny || innerWidth < 48 ? "Разрешить" : "Разрешить один раз"}
+          label={
+            tiny ? "Y Да" : innerWidth < 48 ? "Разрешить" : "Разрешить один раз"
+          }
           onSelect={onApprove}
           palette={palette}
           primary
         />
         <DialogAction
           id="approval-deny"
-          label="Отклонить"
+          label={tiny ? "N Нет" : "Отклонить"}
           onSelect={onDeny}
           palette={palette}
         />

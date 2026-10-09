@@ -2,6 +2,7 @@ import { cancelled } from "../runtime/errors.js";
 import { btwExtension } from "./builtins/btw.js";
 import { createLspExtension } from "./builtins/lsp.js";
 import { projectExtension } from "./builtins/project.js";
+import { createWorktreeExtension } from "./builtins/worktrees.js";
 import type { ChiselExtension, ContextCollectionPort } from "./contracts.js";
 import {
   canonicalWorkspaceRoot,
@@ -26,6 +27,7 @@ export function defaultExtensions(
   options: { configPath?: string } = {},
 ): readonly ChiselExtension[] {
   return [
+    createWorktreeExtension(),
     projectExtension,
     createLspExtension(options),
     btwExtension,

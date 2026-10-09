@@ -1260,6 +1260,7 @@ function OpenTuiScreen({
         </text>
       ))}
       <OpenTuiPrompt
+        compact={!home && height < 10}
         palette={palette}
         width={composerWidth}
         focused={
@@ -1346,13 +1347,15 @@ function OpenTuiScreen({
       </OpenTuiPrompt>
       <text fg={palette.muted} height={1}>
         {terminalLine(
-          view.busy && onCancel
-            ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
-            : composerWidth >= 70
-              ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
-              : composerWidth >= 45
-                ? "Enter отправить | Shift+Tab режим | F4 разрешения"
-                : "Shift+Tab режим | F4 доступ | Enter",
+          !home && height < 10
+            ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
+            : view.busy && onCancel
+              ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
+              : composerWidth >= 70
+                ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
+                : composerWidth >= 45
+                  ? "Enter отправить | Shift+Tab режим | F4 разрешения"
+                  : "Shift+Tab режим | F4 доступ | Enter",
           composerWidth,
         )}
       </text>

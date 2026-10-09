@@ -62,6 +62,9 @@ import type { WebConfig } from "../web/schema.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
 
 export interface RunEventHandlers {
+  onOpenWorktree?(
+    descriptor: Readonly<import("../worktrees/service.js").WorktreeDescriptor>,
+  ): Promise<void>;
   /** Core-only live snapshot bridge; never passed to an extension callback. */
   onConversation?(source: ConversationSource): void;
   onEvent?(event: RuntimeEvent): void | Promise<void>;

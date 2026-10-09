@@ -207,6 +207,44 @@ export async function runExtensionCommand(
     },
   });
   const invocation: ExtensionCommandInvocation = Object.freeze({
+    worktrees: Object.freeze({
+      open: (id: string) => {
+        const work = (async () => {
+          if (finished || callbackClosed)
+            return failure(
+              new RuntimeError("CANCELLED", "Command invocation is closed."),
+            );
+          try {
+            cancelled(signal);
+            scope.assertUsable();
+            const port = tools.context.worktrees;
+            if (!port)
+              throw new RuntimeError(
+                "WORKTREE_UNAVAILABLE",
+                "Worktree capability is not available.",
+              );
+            const opened = await port.open(id);
+            try {
+              const descriptor = opened.descriptor;
+              cancelled(signal);
+              scope.assertUsable();
+              await handlers.onOpenWorktree?.(descriptor);
+              return tools.sanitize({
+                output: `Рабочая копия «${descriptor.label}»\n${descriptor.path}\n${handlers.onOpenWorktree ? "Открыта в новой вкладке." : `Запуск CLI: chisel --cwd ${JSON.stringify(descriptor.path)}`}`,
+                details: { worktree: JSON.parse(JSON.stringify(descriptor)) },
+              });
+            } finally {
+              await opened.dispose();
+            }
+          } catch (error) {
+            return tools.sanitize(failure(error));
+          }
+        })();
+        outstanding.add(work);
+        void work.finally(() => outstanding.delete(work)).catch(() => {});
+        return work;
+      },
+    }),
     workspaceRoot: root,
     sessionId: session.id,
     invocationId,

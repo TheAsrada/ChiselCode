@@ -269,6 +269,34 @@ async function runApplication(
     exitSignals: [],
   });
   const scrollbackDetachments = new Map<TuiController, () => void>();
+  const openingRoots = new Set<string>();
+  const closingScopes = new Set<Promise<void>>();
+  const closingRoots = new Set<string>();
+  const releaseUnusedScopes = () => {
+    const roots = new Set([
+      workspace.home.snapshot.projectPath,
+      ...workspace.tabs.map((tab) => tab.controller.snapshot.projectPath),
+      ...openingRoots,
+    ]);
+    for (const scope of extensionHost.readyScopes()) {
+      if (
+        roots.has(scope.workspaceRoot) ||
+        closingRoots.has(scope.workspaceRoot)
+      )
+        continue;
+      closingRoots.add(scope.workspaceRoot);
+      const work = extensionHost.closeWorkspace(scope.workspaceRoot);
+      closingScopes.add(work);
+      void work
+        .catch((error) =>
+          workspace.controller.append(safeDiagnostic(error), "error"),
+        )
+        .finally(() => {
+          closingRoots.delete(scope.workspaceRoot);
+          closingScopes.delete(work);
+        });
+    }
+  };
   const syncScrollback = () => {
     if (!classic) return;
     for (const tab of workspace.tabs) {
@@ -281,7 +309,10 @@ async function runApplication(
         );
     }
   };
-  const detachWorkspace = workspace.subscribe(syncScrollback);
+  const detachWorkspace = workspace.subscribe(() => {
+    syncScrollback();
+    releaseUnusedScopes();
+  });
   syncScrollback();
   const detachScrollback = classic
     ? attachTranscriptScrollback(workspace.home, renderer, () =>
@@ -1260,6 +1291,64 @@ async function runApplication(
             },
             execution.approvalResolver,
             {
+              onOpenWorktree: async (descriptor) => {
+                if (
+                  !descriptor.id ||
+                  descriptor.readOnly ||
+                  !controller.isCurrent(requestGeneration) ||
+                  signal.aborted
+                )
+                  throw new Error("Worktree opening is no longer current.");
+                openingRoots.add(descriptor.path);
+                try {
+                  // Activation obtains the durable use lease before allocating
+                  // a tab/session; it also gives this root independent LSP state.
+                  await extensionHost.open(descriptor.path);
+                  if (
+                    !controller.isCurrent(requestGeneration) ||
+                    signal.aborted
+                  )
+                    throw new Error("Worktree opening cancelled.");
+                  const selected = controller.snapshot.modelSelection;
+                  const session = createSession(
+                    descriptor.path,
+                    selected?.provider ??
+                      homeModel.provider ??
+                      catalog.registry.list()[0]?.id ??
+                      "openai",
+                    selected?.model ?? homeModel.model ?? "",
+                  );
+                  session.title = descriptor.label;
+                  session.titleSource = "user";
+                  if (descriptor.base && descriptor.origin)
+                    session.worktree = {
+                      id: descriptor.id,
+                      label: descriptor.label,
+                      base: descriptor.base,
+                      origin: descriptor.origin,
+                    };
+                  session.mode = turnMode;
+                  session.approvalMode = turnApprovalMode;
+                  if (selected?.profileId)
+                    session.profileId = selected.profileId;
+                  await (await projectSessionStore(descriptor.path)).save(
+                    session,
+                  );
+                  if (
+                    !controller.isCurrent(requestGeneration) ||
+                    signal.aborted
+                  )
+                    throw new Error("Worktree opening cancelled.");
+                  const tab = workspace.openSession(session);
+                  tab.append(
+                    `Рабочая копия: ${descriptor.label}\nID: ${descriptor.id}\nBase: ${descriptor.base}\n${descriptor.path}\nDetached HEAD · файлы и Session изолированы`,
+                    "info",
+                  );
+                } finally {
+                  openingRoots.delete(descriptor.path);
+                  releaseUnusedScopes();
+                }
+              },
               onConversation: (source) => {
                 if (controller.isCurrent(requestGeneration)) {
                   controller.conversation.bind(source);
@@ -1617,6 +1706,7 @@ async function runApplication(
       }
     };
     await cleanup(() => modelService.dispose());
+    await cleanup(() => Promise.allSettled([...closingScopes]));
     await cleanup(() => root.unmount());
     await cleanup(() => updater.dispose());
     for (const controller of mcpProjects.values()) {

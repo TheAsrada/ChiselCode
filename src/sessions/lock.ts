@@ -72,7 +72,7 @@ async function removeStaleLock(lock: string): Promise<void> {
 
 export async function withLock<T>(
   path: string,
-  action: () => Promise<T>,
+  action: (assertOwned: () => Promise<void>) => Promise<T>,
 ): Promise<T> {
   const lock = `${path}.lock`;
   const token = randomUUID();
@@ -108,7 +108,12 @@ export async function withLock<T>(
   }, HEARTBEAT_MS);
   timer.unref();
   try {
-    return await action();
+    return await action(async () => {
+      if ((await readFile(owner, "utf8").catch(() => "")) !== token)
+        throw new Error(
+          "Storage lease ownership changed; retry with a fresh operation.",
+        );
+    });
   } finally {
     clearInterval(timer);
     await heartbeat;

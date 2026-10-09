@@ -1,16 +1,20 @@
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
 import type { ToolGuardPoint, ToolGuardPort } from "../extensions/contracts.js";
 import { allowsToolInMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { ApprovalGate } from "../security/approval.js";
 import { initializeSessionState } from "../sessions/migrations.js";
 import type { ToolCall, ToolExecutionResult } from "../types/domain.js";
+import {
+  abandonWorktreePlan,
+  authorizeWorktreePlan,
+} from "../worktrees/capability.js";
+import { executionAccess, preparationAccess } from "./access.js";
 import type { ToolCatalog } from "./catalog.js";
-import { changesWorkspace, isReadEffect } from "./effects.js";
+import { changesWorkspace } from "./effects.js";
 import { canonicalInput, type ToolInvocationRecord } from "./invocation.js";
 import { failure, normalizeResult } from "./result.js";
-import type { ToolContext, ToolSource } from "./types.js";
+import type { ToolContext, ToolPlan, ToolSource } from "./types.js";
 import { workspaceCoordinator } from "./workspace-coordinator.js";
 
 export class ToolExecutor {
@@ -73,6 +77,7 @@ export class ToolExecutor {
   ): Promise<ToolExecutionResult> {
     const context = {
       ...this.context,
+      invocationId: call.id,
       signal:
         signal && this.context.signal
           ? AbortSignal.any([signal, this.context.signal])
@@ -108,6 +113,7 @@ export class ToolExecutor {
     runtime.invocations[call.id] = record;
     const started = performance.now();
     let outputLimit = this.maxInlineTokens;
+    let preparedPlan: ToolPlan | undefined;
     try {
       cancelled(context.signal);
       const handler = this.catalog.get(call.name);
@@ -151,9 +157,15 @@ export class ToolExecutor {
         context.workspace.root,
       );
       const scope = await this.workspaceScope;
-      const { plan, preparedRevision } = await workspaceCoordinator.withAccess(
+      const preparation = await preparationAccess(
+        handler,
+        context,
+        input,
         scope,
-        "read",
+      );
+      const preparedResources = preparation.map((access) => access.resource);
+      const { plan, preparedRevision } = await workspaceCoordinator.withPlan(
+        preparation,
         context.signal,
         async () => {
           this.observeWorkspace(scope);
@@ -169,17 +181,14 @@ export class ToolExecutor {
             );
           return {
             plan: await handler.prepare(context, input),
-            preparedRevision: workspaceCoordinator.revision(scope),
+            preparedRevision: workspaceCoordinator.revision(preparedResources),
           };
         },
       );
+      const accesses = await executionAccess(handler, context, plan, scope);
+      preparedPlan = plan;
       const executionScope = [
-        ...new Set([
-          ...scope,
-          ...(await workspaceCoordinator.resources(
-            plan.resources.map((path) => resolve(context.workspace.root, path)),
-          )),
-        ]),
+        ...new Set(accesses.map((access) => access.resource)),
       ];
       record.state = "prepared";
       await context.events.emit({
@@ -334,7 +343,8 @@ export class ToolExecutor {
           if (
             (handler.spec.effect === "process" ||
               handler.spec.effect === "git_write") &&
-            workspaceCoordinator.revision(scope) !== preparedRevision
+            workspaceCoordinator.revision(preparedResources) !==
+              preparedRevision
           )
             throw new RuntimeError(
               "STALE_WORKSPACE",
@@ -370,6 +380,7 @@ export class ToolExecutor {
             return await handler.execute(
               {
                 ...context,
+                worktreeAuthorization: authorizeWorktreePlan(plan, context),
                 signal: executionSignal,
                 networkAuthorization: request.network
                   ? this.gate.policy.authorizeNetwork(
@@ -385,25 +396,21 @@ export class ToolExecutor {
             // Shell errors and interrupted patches may also have changed files.
             // Notify peers before releasing the lease, including on failure.
             if (writesWorkspace) {
-              workspaceCoordinator.changed(executionScope);
+              workspaceCoordinator.changed(
+                accesses
+                  .filter((access) => access.mode === "write")
+                  .map((access) => access.resource),
+              );
               this.observedWorkspaceRevision =
                 workspaceCoordinator.revision(scope);
             }
           }
         };
-        result =
-          writesWorkspace ||
-          handler.spec.workspaceAccess === "read" ||
-          (isReadEffect(handler.spec.effect) &&
-            handler.spec.workspaceAccess !== "none" &&
-            handler.spec.source?.type !== "mcp")
-            ? await workspaceCoordinator.withAccess(
-                executionScope,
-                isReadEffect(handler.spec.effect) ? "read" : "write",
-                executionSignal,
-                execute,
-              )
-            : await execute();
+        result = await workspaceCoordinator.withPlan(
+          accesses,
+          executionSignal,
+          execute,
+        );
       } catch (error) {
         if (context.signal?.aborted)
           throw new RuntimeError("CANCELLED", "Tool execution cancelled.");
@@ -446,6 +453,12 @@ export class ToolExecutor {
       });
       return result;
     } catch (error) {
+      let worktreeRecoveryRequired = false;
+      try {
+        await abandonWorktreePlan(preparedPlan);
+      } catch {
+        worktreeRecoveryRequired = true;
+      }
       if (!record.toolSource) {
         try {
           record.toolSource = this.catalog.get(call.name).spec.source;
@@ -454,6 +467,8 @@ export class ToolExecutor {
         }
       }
       let result = failure(error);
+      if (worktreeRecoveryRequired)
+        result.details = { ...result.details, worktreeRecoveryRequired: true };
       result = attributed(result, record.toolSource);
       if (record.toolSource?.type === "mcp")
         result.details = {

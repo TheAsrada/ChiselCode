@@ -17,6 +17,7 @@ ChiselCode — терминальный помощник для работы с 
 | Изучить проект перед изменениями | [Plan / Build](agent-modes.md) |
 | Найти или продолжить разговор | [Сессии и история](sessions.md) |
 | Добавить правила проекта | [Конфигурация](configuration.md) |
+| Вести независимые задачи в отдельных рабочих копиях | [Worktrees](worktrees.md) |
 | Настроить Auto-анализ и навигацию для языков проекта | [Анализ кода (LSP)](configuration.md#анализ-кода-lsp) |
 | Подключить повторяемые инструкции | [Навыки](skills.md) |
 | Подключить инструменты GitHub, базы данных и других сервисов | [MCP](mcp.md) |
@@ -37,3 +38,5 @@ ChiselCode — терминальный помощник для работы с 
 Рекомендуемый маршрут: **установка → быстрый старт → интерактивный режим**. Справку по CLI и конфигурации можно читать по мере необходимости.
 
 P1.4: [побочные вопросы /btw и плавающее окно](interactive.md#побочный-вопрос-btw), [model port / ownership / persistence](architecture.md#model-port-и-побочные-вопросы-p14), [проверки и actual OpenTUI captures](development.md#p14-внутренние-model-requests).
+
+P2.1: [изолированные рабочие копии](worktrees.md), [core ownership/leases](architecture.md#worktreeservice-p21), [implementation report и actual captures](p2.1-implementation.md).

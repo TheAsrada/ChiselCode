@@ -6,6 +6,13 @@
 
 ## [Не выпущено]
 
+## [0.6.20] - 2026-10-09
+
+- Added managed detached worktrees: `/worktree create/list/status/diff/open/apply/remove` and six builtin tools, with real CLI/TUI conversation roots and independent sessions/LSP.
+- Added core mixed leases for independent worktree files and shared Git metadata, durable Home registry/use heartbeats, crash reconciliation without mutation replay and commit retention before safe removal.
+- Apply transfers supported final UTF-8 files from immutable base through ordinary EditingService, approvals, conflicts/stale checks and rollback; source, target HEAD/index and unrelated edits remain intact.
+- Added actual OpenTUI compact/approval captures, real Git/LSP integrations and installed/compiled smoke on all supported CI platforms. No development branches, subagents, automatic merge/discard or `/help` restoration.
+
 ## [0.6.19] - 2026-10-09
 
 - `/btw <вопрос>` получает отдельный ответ выбранной модели параллельно основной задаче. Плавающее окно «Побочный вопрос» можно скрыть через Esc и открыть через F6/запись в чате; отдельное действие останавливает только побочный ответ. Доступны копирование, новый вопрос, самостоятельный черновик и компактная раскладка до 24×8; approval основного агента получает приоритет ввода.

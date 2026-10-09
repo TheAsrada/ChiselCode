@@ -40,6 +40,7 @@ try {
         "dist/command-smoke",
         "dist/lsp-smoke",
         "dist/side-smoke",
+        "dist/worktree-smoke",
       ],
     }),
   );
@@ -77,6 +78,16 @@ try {
     "tests/fixtures/tui-side-query.ts",
     "--outdir",
     join(packageRoot, "dist/side-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-worktrees.ts",
+    "--outdir",
+    join(packageRoot, "dist/worktree-smoke"),
     "--target",
     "bun",
     "--external",
@@ -135,6 +146,25 @@ try {
     "Installed builtin /btw CLI and parallel floating TUI scenario passed.\n",
   );
   process.stdout.write("Installed linked TUI command scenario passed.\n");
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "worktree-smoke/tui-worktrees.js"),
+      ])
+    ).includes("Worktree TUI: real detached"),
+  );
+  assert.ok(
+    (
+      await run(process.execPath, [
+        "tests/fixtures/worktree-cli.ts",
+        process.execPath,
+        join(distribution, "cli.js"),
+      ])
+    ).includes("Worktree CLI:"),
+  );
+  process.stdout.write(
+    "Installed production worktree CLI/TUI with real Git/LSP passed.\n",
+  );
   const lspMarker =
     "LSP Settings: Auto, custom setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
   assert.ok(
@@ -184,6 +214,23 @@ try {
   ]);
   assert.ok((await run(lspBinary, [])).includes(lspMarker));
   process.stdout.write("Compiled LSP Settings/real-server scenario passed.\n");
+  const worktreeBinary = join(
+    staging,
+    process.platform === "win32" ? "worktree-tui.exe" : "worktree-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-worktrees.ts",
+    "--compile",
+    "--outfile",
+    worktreeBinary,
+  ]);
+  assert.ok(
+    (await run(worktreeBinary, [])).includes("Worktree TUI: real detached"),
+  );
+  process.stdout.write(
+    "Compiled production worktree TUI with real Git/LSP passed.\n",
+  );
 } finally {
   await rm(staging, { recursive: true, force: true });
 }

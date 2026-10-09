@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { promisify } from "node:util";
+import { gitCommand, gitLine } from "../git/driver.js";
 
-const exec = promisify(execFile);
 const MAX_FILES = 200;
 
 export interface GitChangedFile {
@@ -21,24 +19,14 @@ export interface GitWorkingState {
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await exec(
-    "git",
-    [
-      "--no-optional-locks",
-      "-c",
-      "core.fsmonitor=false",
-      "-C",
-      cwd,
-      ...(args[0] === "diff"
-        ? ["diff", "--no-ext-diff", "--no-textconv", ...args.slice(1)]
-        : args),
-    ],
-    {
-      maxBuffer: 16 * 1024 * 1024,
-      encoding: "utf8",
-    },
-  );
-  return stdout;
+  return gitCommand(cwd, [
+    "--no-optional-locks",
+    "-c",
+    "core.fsmonitor=false",
+    ...(args[0] === "diff"
+      ? ["diff", "--no-ext-diff", "--no-textconv", ...args.slice(1)]
+      : args),
+  ]);
 }
 
 /** Porcelain -z does not quote whitespace or Unicode file names. */
@@ -108,7 +96,7 @@ export async function readGitWorkingState(
 ): Promise<GitWorkingState | undefined> {
   let root: string;
   try {
-    root = (await git(projectPath, "rev-parse", "--show-toplevel")).trim();
+    root = gitLine(await git(projectPath, "rev-parse", "--show-toplevel"));
   } catch {
     return undefined;
   }

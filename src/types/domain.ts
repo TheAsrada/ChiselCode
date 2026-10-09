@@ -235,6 +235,8 @@ export interface UndoEntry {
 }
 
 export interface Session {
+  /** Presentation only; never a worktree access/ownership capability. */
+  worktree?: { id: string; label: string; base: string; origin: string };
   /** Separate expense ownership. Side records never enter provider history or compaction. */
   mainSpend?: import("../models/contracts.js").ModelSpend;
   sideQueries?: import("../models/contracts.js").SideQueryRecord[];
