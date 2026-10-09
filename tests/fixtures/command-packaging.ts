@@ -9,6 +9,7 @@ const root = resolve(import.meta.dir, "../..");
 const staging = await mkdtemp(join(tmpdir(), "chisel-command-package-"));
 const packageRoot = join(staging, "package");
 const installed = join(staging, "installed");
+const sideMarker = "Side query: real TUI";
 const marker =
   "Command contributions: TUI dispatch, tools, queue, cancellation, checkpoints and artifacts verified";
 async function run(file: string, args: string[], cwd = root) {
@@ -34,7 +35,12 @@ try {
       name: "chiselcode-command-smoke",
       private: true,
       scripts: {},
-      files: [...manifest.files, "dist/command-smoke", "dist/lsp-smoke"],
+      files: [
+        ...manifest.files,
+        "dist/command-smoke",
+        "dist/lsp-smoke",
+        "dist/side-smoke",
+      ],
     }),
   );
   for (const file of ["README.md", "LICENSE"])
@@ -61,6 +67,16 @@ try {
     "tests/fixtures/tui-lsp-settings.ts",
     "--outdir",
     join(packageRoot, "dist/lsp-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-side-query.ts",
+    "--outdir",
+    join(packageRoot, "dist/side-smoke"),
     "--target",
     "bun",
     "--external",
@@ -99,6 +115,25 @@ try {
       ])
     ).includes(marker),
   );
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "side-smoke/tui-side-query.js"),
+      ])
+    ).includes(sideMarker),
+  );
+  assert.ok(
+    (
+      await run(process.execPath, [
+        "tests/fixtures/side-query-cli.ts",
+        process.execPath,
+        join(distribution, "cli.js"),
+      ])
+    ).includes("Side query CLI:"),
+  );
+  process.stdout.write(
+    "Installed builtin /btw CLI and parallel floating TUI scenario passed.\n",
+  );
   process.stdout.write("Installed linked TUI command scenario passed.\n");
   const lspMarker =
     "LSP Settings: Auto, custom setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
@@ -123,6 +158,19 @@ try {
   ]);
   assert.ok((await run(binary, [])).includes(marker));
   process.stdout.write("Compiled linked TUI command scenario passed.\n");
+  const sideBinary = join(
+    staging,
+    process.platform === "win32" ? "side-tui.exe" : "side-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-side-query.ts",
+    "--compile",
+    "--outfile",
+    sideBinary,
+  ]);
+  assert.ok((await run(sideBinary, [])).includes(sideMarker));
+  process.stdout.write("Compiled builtin /btw floating TUI scenario passed.\n");
   const lspBinary = join(
     staging,
     process.platform === "win32" ? "lsp-tui.exe" : "lsp-tui",

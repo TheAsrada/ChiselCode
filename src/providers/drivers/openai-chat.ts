@@ -91,9 +91,16 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
     try {
       return await this.client.chat.completions.create(params, {
         signal: request.signal,
+        ...(request.transport
+          ? {
+              maxRetries: request.transport.maxRetries,
+              timeout: request.transport.timeoutMs,
+            }
+          : {}),
       });
     } catch (error) {
       if (
+        request.transport?.compatibilityRetries !== false &&
         includeUsage &&
         error instanceof OpenAI.APIError &&
         error.status === 400 &&
@@ -103,6 +110,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         return this.createCompletionStream(request, useLegacyMaxTokens, false);
       }
       if (
+        request.transport?.compatibilityRetries !== false &&
         !useLegacyMaxTokens &&
         request.maxTokens !== undefined &&
         this.options.tokenLimitFallback &&
@@ -143,6 +151,17 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         }
         const choice = chunk.choices[0];
         if (!choice) continue;
+        if (
+          request.purpose === "extension_request" &&
+          terminated &&
+          (choice.finish_reason ||
+            choice.delta.content ||
+            choice.delta.tool_calls?.length)
+        )
+          throw new ProviderError(
+            "transport",
+            "Provider emitted data after its terminal message.",
+          );
         if (choice.finish_reason) terminated = true;
         if (choice.delta.refusal) {
           text += choice.delta.refusal;
@@ -234,6 +253,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         message: { role: "assistant", content },
         stopReason: finishReason,
         usage,
+        usageObserved: observedUsage !== undefined,
       };
     } catch (error) {
       const failure = normalizeProviderError(error, request.signal);
@@ -241,6 +261,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         type: "error",
         message: formatOpenAIError(error),
         code: failure.code,
+        status: failure.status,
         usage: observedUsage,
       };
     }

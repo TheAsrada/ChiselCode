@@ -35,3 +35,5 @@ ChiselCode — терминальный помощник для работы с 
 - [Участие в проекте](../CONTRIBUTING.md), [сообщение об уязвимости](../SECURITY.md), [история изменений](../CHANGELOG.md).
 
 Рекомендуемый маршрут: **установка → быстрый старт → интерактивный режим**. Справку по CLI и конфигурации можно читать по мере необходимости.
+
+P1.4: [побочные вопросы /btw и плавающее окно](interactive.md#побочный-вопрос-btw), [model port / ownership / persistence](architecture.md#model-port-и-побочные-вопросы-p14), [проверки и actual OpenTUI captures](development.md#p14-внутренние-model-requests).

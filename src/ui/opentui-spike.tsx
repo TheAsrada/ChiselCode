@@ -1,4 +1,5 @@
 /** @jsxImportSource @opentui/react */
+
 import type {
   BoxRenderable,
   ClipboardService,
@@ -59,6 +60,7 @@ import {
   OpenTuiSettings,
   type OpenTuiSettingsActions,
 } from "./opentui-settings.js";
+import { OpenTuiSideQuery } from "./opentui-side-query.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
 import {
   FormattedMessage,
@@ -67,6 +69,7 @@ import {
   terminalSafeText,
 } from "./opentui-transcript.js";
 import { OpenTuiUpdate, updateNotice } from "./opentui-update.js";
+import { capturedInputOwner, useOverlayInputOwner } from "./overlay-input.js";
 import {
   parseSidebarMode,
   type SidebarMode,
@@ -173,6 +176,7 @@ export function OpenTuiSpike(
 function OpenTuiScreen({
   onExit,
   onCancel,
+  onSideCancel,
   controller,
   workspace,
   classic = false,
@@ -205,13 +209,14 @@ function OpenTuiScreen({
 }: {
   onExit: () => void;
   onCancel?: () => void;
+  onSideCancel?: () => void;
   controller?: TuiController;
   workspace?: TuiWorkspace;
   classic?: boolean;
   initialMode?: SidebarMode;
   onModeChange?: (mode: SidebarMode) => void;
   approvalResolver?: TuiApprovalResolver;
-  onSubmit?: (prompt: string) => Promise<void>;
+  onSubmit?: (prompt: string, origin?: TuiController) => Promise<void>;
   sessionPicker?: OpenTuiSessionsActions;
   settingsActions?: OpenTuiSettingsActions;
   getSettingsActions?: () => OpenTuiSettingsActions;
@@ -295,6 +300,34 @@ function OpenTuiScreen({
       },
   );
   useEffect(() => controller?.subscribe(setView), [controller]);
+  const otherOverlay = !!(
+    pickerOpen ||
+    settingsOpen ||
+    skillsOpen ||
+    mcpActions ||
+    modelsActions ||
+    permissionsOpen ||
+    updateOpen
+  );
+  const sideActive = !!(
+    controller &&
+    view.sideView?.visible &&
+    !approval &&
+    !otherOverlay
+  );
+  const sideOwner = `side:${controller?.conversationId}:${controller?.currentGeneration}`;
+  const inputOwner = approval
+    ? "approval"
+    : otherOverlay
+      ? "dialog"
+      : sideActive
+        ? sideOwner
+        : "main";
+  useOverlayInputOwner(inputOwner);
+  useEffect(() => {
+    if (otherOverlay) controller?.hideSide();
+  }, [otherOverlay, controller]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload the shared command projection.
   useEffect(() => {
     let active = true;
@@ -384,6 +417,11 @@ function OpenTuiScreen({
   const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
     "editor",
   );
+  useLayoutEffect(() => {
+    if (sideActive) editor.current?.blur();
+    else if (!approval && !otherOverlay && focus === "editor")
+      editor.current?.focus();
+  }, [sideActive, approval, otherOverlay, focus]);
   const home = !!workspace && !workspace.activeKey;
   const tabRows = workspace?.tabs.length ? 3 : 0;
   useEffect(() => {
@@ -693,6 +731,7 @@ function OpenTuiScreen({
   };
 
   useClipboardComposer(() => {
+    if (sideActive) return null;
     if (
       approval ||
       pickerOpen ||
@@ -714,6 +753,14 @@ function OpenTuiScreen({
     if (key.ctrl && key.name === "c" && !key.shift) {
       key.preventDefault();
       onCancel?.();
+      key.stopPropagation();
+      return;
+    }
+    if (capturedInputOwner(key) !== inputOwner) return;
+    if (sideActive) return;
+    if (key.name === "f6" && !approval && !otherOverlay) {
+      key.preventDefault();
+      controller?.openSide();
       return;
     }
     // A pending approval belongs to its tab; users can visit another tab first.
@@ -1183,7 +1230,8 @@ function OpenTuiScreen({
           !modelsActions &&
           !permissionsOpen &&
           !updateOpen &&
-          !approval
+          !approval &&
+          !sideActive
         }
         hasDraft={!!draft.trim()}
         busy={view.busy}
@@ -1194,7 +1242,9 @@ function OpenTuiScreen({
         runningMode={view.runningMode}
         approvalMode={view.approvalMode}
         runningApprovalMode={view.runningApprovalMode}
-        onToggleMode={toggleAgentMode}
+        onToggleMode={() => {
+          if (!sideActive && !approval && !otherOverlay) toggleAgentMode();
+        }}
         onPermissionsSelect={openPermissions}
         onModelSelect={getModelsActions ? openModels : undefined}
         onSubmit={() => submit()}
@@ -1211,7 +1261,8 @@ function OpenTuiScreen({
             !modelsActions &&
             !permissionsOpen &&
             !updateOpen &&
-            !approval
+            !approval &&
+            !sideActive
           }
           initialValue={draft}
           backgroundColor={palette.surface}
@@ -1309,6 +1360,7 @@ function OpenTuiScreen({
                     scrollbarOptions={{ visible: false }}
                   >
                     <OpenTuiTranscript
+                      onOpenSide={(id) => controller?.openSide(id)}
                       entries={view.transcript}
                       contentWidth={composerWidth - 2}
                       expandedIds={expandedDiffIds}
@@ -1394,6 +1446,7 @@ function OpenTuiScreen({
                 >
                   {controller ? (
                     <OpenTuiTranscript
+                      onOpenSide={(id) => controller?.openSide(id)}
                       entries={
                         classic
                           ? expanded
@@ -1481,7 +1534,9 @@ function OpenTuiScreen({
               state={view}
               width={contextOnly ? Math.min(width, 40) : 40}
               height={height - tabRows}
-              focused={focus === "sidebar"}
+              focused={
+                focus === "sidebar" && !sideActive && !approval && !otherOverlay
+              }
               palette={palette}
             />
           </box>
@@ -1602,6 +1657,19 @@ function OpenTuiScreen({
                   )
               : undefined
           }
+        />
+      )}
+      {sideActive && controller && (
+        <OpenTuiSideQuery
+          controller={controller}
+          view={view}
+          width={width}
+          height={height}
+          palette={palette}
+          onStop={() => onSideCancel?.()}
+          onSubmit={(question) => {
+            void onSubmit?.(`/btw ${question}`, controller);
+          }}
         />
       )}
     </box>

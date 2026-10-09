@@ -1,4 +1,8 @@
 import type { RequestContext } from "../context/types.js";
+import type {
+  ModelRequestPort,
+  ModelRequestResult,
+} from "../models/contracts.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { NetworkRequest } from "../security/network-policy.js";
@@ -123,6 +127,7 @@ export interface ExtensionCommandDescriptor {
   readonly description: string;
   readonly usage?: string;
   readonly source: ExtensionCommandIdentity;
+  readonly executionPolicy?: "foreground" | "side_query";
 }
 export interface ExtensionCommandInvocation {
   readonly workspaceRoot: string;
@@ -131,20 +136,46 @@ export interface ExtensionCommandInvocation {
   readonly mode: AgentMode;
   readonly approvalMode: ApprovalMode;
   readonly signal: AbortSignal;
+  readonly model: ModelRequestPort;
   readonly tools: {
     execute(name: string, input: JsonObject): Promise<ToolExecutionResult>;
   };
 }
-export interface ExtensionCommandContribution<T = unknown> {
+export interface SideQueryCommandInvocation {
+  readonly workspaceRoot: string;
+  readonly sessionId: string;
+  readonly conversationId: string;
+  readonly generation: number;
+  readonly invocationId: string;
+  readonly mode: AgentMode;
+  readonly approvalMode: ApprovalMode;
+  readonly signal: AbortSignal;
+  readonly model: ModelRequestPort;
+}
+interface ExtensionCommandMetadata<T> {
   name: string;
   description: string;
   usage?: string;
   parse(args: string): T;
-  execute(
-    context: ExtensionCommandInvocation,
-    input: T,
-  ): ToolExecutionResult | Promise<ToolExecutionResult>;
 }
+export type ExtensionCommandContribution<T = unknown> =
+  ExtensionCommandMetadata<T> &
+    (
+      | {
+          executionPolicy?: "foreground";
+          execute(
+            context: ExtensionCommandInvocation,
+            input: T,
+          ): ToolExecutionResult | Promise<ToolExecutionResult>;
+        }
+      | {
+          executionPolicy: "side_query";
+          execute(
+            context: SideQueryCommandInvocation,
+            input: T,
+          ): ModelRequestResult | Promise<ModelRequestResult>;
+        }
+    );
 export interface ChiselExtension {
   readonly id: string;
   activate(context: ExtensionContext): void | Promise<void>;

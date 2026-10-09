@@ -1,4 +1,5 @@
 import { cancelled } from "../runtime/errors.js";
+import { btwExtension } from "./builtins/btw.js";
 import { createLspExtension } from "./builtins/lsp.js";
 import { projectExtension } from "./builtins/project.js";
 import type { ChiselExtension, ContextCollectionPort } from "./contracts.js";
@@ -24,7 +25,12 @@ export function defaultExtensions(
   custom: readonly ChiselExtension[] = [],
   options: { configPath?: string } = {},
 ): readonly ChiselExtension[] {
-  return [projectExtension, createLspExtension(options), ...custom];
+  return [
+    projectExtension,
+    createLspExtension(options),
+    btwExtension,
+    ...custom,
+  ];
 }
 
 export async function withOwnedExtensionHost<T>(

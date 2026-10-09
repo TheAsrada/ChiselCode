@@ -6,6 +6,13 @@
 
 ## [Не выпущено]
 
+## [0.6.19] - 2026-10-09
+
+- `/btw <вопрос>` получает отдельный ответ выбранной модели параллельно основной задаче. Плавающее окно «Побочный вопрос» можно скрыть через Esc и открыть через F6/запись в чате; отдельное действие останавливает только побочный ответ. Доступны копирование, новый вопрос, самостоятельный черновик и компактная раскладка до 24×8; approval основного агента получает приоритет ввода.
+- Linked extensions получили invocation-bound model port и явный execution policy `side_query`. Core фиксирует контекст/profile/model при отправке, ограничивает бюджет, deadline и retries; tools в побочном completion недоступны. Потоки, отмена, очередь и основной model history изолированы.
+- Побочные ответы/partial/status/usage сохраняются вместе с Session и открываются после resume без автоматического повторения. Main checkpoints и side patches объединяются под существующим lock; расходы пересчитываются по operationId без удвоения. Неизвестные usage/cost и неподтверждённое сохранение обозначаются честно. Сохраняются последние 50 завершённых текстовых ответов с aggregate расходов старых operations.
+- Добавлены реальные TUI/CLI/protocol, concurrency, redaction, persistence и installed/compiled проверки; P1.3 LSP и Settings сохраняют общий runtime. `/help` не возвращён.
+
 ## [0.6.18] - 2026-10-08
 
 - Многоязычный LSP Auto определяет Python, Go, Rust, C/C++, C#, Java, Kotlin, PHP, Ruby, Swift, Lua, Dart, HTML/CSS/SCSS/Less, JSON/YAML, Bash и Dockerfile. Расширяемый reviewed каталог лениво готовит закреплённые серверы/SDK вне проекта без ручных путей; для Ruby и Swift нужен установленный SDK, Kotlin пока ограничен standalone файлами. Нет скрытой установки dependencies проекта.

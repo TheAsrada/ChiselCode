@@ -1,5 +1,11 @@
 /** Internal linked-code API. This is not a public SDK or a user plugin loader. */
 
+export type {
+  ModelRequestEvent,
+  ModelRequestInput,
+  ModelRequestPort,
+  ModelRequestResult,
+} from "../models/contracts.js";
 export { defineTool } from "../tools/handler.js";
 export { defaultExtensions } from "./composition.js";
 export type {
@@ -12,6 +18,7 @@ export type {
   ExtensionCommandInvocation,
   ExtensionContext,
   ExtensionToolContribution,
+  SideQueryCommandInvocation,
   ToolGuardSnapshot,
 } from "./contracts.js";
 export { ExtensionHost, type WorkspaceExtensionScope } from "./host.js";

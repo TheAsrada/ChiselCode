@@ -1,3 +1,4 @@
+import type { CapturedCommandModel } from "../app/model-command.js";
 import type { PreparedExtensionCommand } from "../app/run-command.js";
 import type { RunOptions } from "../app/run-prompt.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
@@ -19,6 +20,7 @@ export interface QueuedTabPrompt {
 export interface QueuedTabCommand extends Omit<QueuedTabPrompt, "kind"> {
   kind: "command";
   prepared: PreparedExtensionCommand;
+  capturedModel?: CapturedCommandModel;
   scope: WorkspaceExtensionScope;
   /** Optional Settings waiter; the operation still belongs to this conversation. */
   onResult?(result: ToolExecutionResult): void;
@@ -27,6 +29,20 @@ export type QueuedTabOperation = QueuedTabPrompt | QueuedTabCommand;
 
 /** Execution belongs to the conversation, even while its screen is unmounted. */
 export class TuiTabExecution {
+  readonly sideRuns = new Map<
+    string,
+    { abort: AbortController; promise: Promise<void> }
+  >();
+  get foregroundBusy(): boolean {
+    return (
+      !!this.activeRun ||
+      this.pendingOperations.length > 0 ||
+      this.pendingSubmissions.size > 0
+    );
+  }
+  cancelSides(): void {
+    for (const run of this.sideRuns.values()) run.abort.abort();
+  }
   activeRun?: Promise<void>;
   abort?: AbortController;
   readonly pendingOperations: QueuedTabOperation[] = [];
@@ -45,7 +61,8 @@ export class TuiTabExecution {
     return (
       !!this.activeRun ||
       this.pendingOperations.length > 0 ||
-      this.pendingSubmissions.size > 0
+      this.pendingSubmissions.size > 0 ||
+      this.sideRuns.size > 0
     );
   }
 
@@ -65,6 +82,7 @@ export class TuiTabExecution {
   }
 
   dispose(): void {
+    this.cancelSides();
     this.cancel();
     this.approvalResolver.dispose();
   }

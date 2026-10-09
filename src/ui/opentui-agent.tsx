@@ -1,10 +1,16 @@
 /** @jsxImportSource @opentui/react */
 
+import { randomUUID } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import React from "react";
+import {
+  type CapturedCommandModel,
+  runSideQueryCommand,
+} from "../app/model-command.js";
+import { captureModelConfiguration } from "../app/model-runtime.js";
 import { runExtensionCommand } from "../app/run-command.js";
 import {
   checkProviderConnection,
@@ -29,13 +35,21 @@ import {
   withOwnedExtensionHost,
 } from "../extensions/composition.js";
 import type { ChiselExtension } from "../extensions/contracts.js";
-import type { ExtensionHost } from "../extensions/host.js";
-import { safeDiagnostic } from "../extensions/lifecycle.js";
+import {
+  canonicalWorkspaceRoot,
+  type ExtensionHost,
+} from "../extensions/host.js";
+import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
 import { lspServiceToken } from "../lsp/service.js";
 import { LspSettingsStore } from "../lsp/settings.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
 import { McpConfigStore } from "../mcp/storage.js";
+import {
+  isModelRequestActive,
+  type SideQueryRecord,
+} from "../models/contracts.js";
+import { ModelRequestService } from "../models/service.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import { selectProfile } from "../providers/profiles.js";
 import {
@@ -47,7 +61,7 @@ import {
   resolveApprovalMode,
 } from "../security/approval-mode.js";
 import { projectSessionStore } from "../sessions/project-store.js";
-import { shortSessionId } from "../sessions/store.js";
+import { createSession, shortSessionId } from "../sessions/store.js";
 import {
   buildActiveSkillsPrompt,
   expandSkill,
@@ -111,11 +125,14 @@ async function runApplication(
   rendererFactory: typeof createCliRenderer,
 ): Promise<void> {
   let activeOptions = { ...options, resume: undefined };
-  const config = await loadGlobalConfig(options.configPath);
+  let config = await loadGlobalConfig(options.configPath);
   let bypassAvailable = config.permissions?.allowBypassPermissions === true;
   let webConfigLive = resolveWebConfig(config.web);
   const webSettingsStore = new WebSettingsStore(options.configPath);
-  const projectConfig = await loadProjectConfig(options.cwd ?? process.cwd());
+  const initialRoot = await canonicalWorkspaceRoot(
+    options.cwd ?? process.cwd(),
+  );
+  const projectConfig = await loadProjectConfig(initialRoot);
   const initialApprovalMode = resolveApprovalMode({
     ...options,
     saved: initialSession?.approvalMode,
@@ -123,11 +140,22 @@ async function runApplication(
     allowBypassPermissions: bypassAvailable,
   });
   const workspace = new TuiWorkspace(
-    options.cwd ?? process.cwd(),
+    initialRoot,
     options.mode ?? DEFAULT_AGENT_MODE,
     initialApprovalMode,
   );
-  if (initialSession) workspace.openSession(initialSession);
+  if (initialSession) {
+    if (
+      initialSession.sideQueries?.some((record) =>
+        isModelRequestActive(record.status),
+      )
+    ) {
+      initialSession = await (
+        await projectSessionStore(initialSession.projectPath)
+      ).interruptSideQueries(initialSession.id);
+    }
+    workspace.openSession(initialSession);
+  }
   workspace.controller.setApprovalMode(initialApprovalMode);
   if (options.mode) workspace.controller.setAgentMode(options.mode);
   const currentController = () => workspace.controller;
@@ -145,6 +173,8 @@ async function runApplication(
     return controller;
   };
   const catalog = await getProviderCatalog();
+  const modelService = new ModelRequestService();
+  let sideOperations = 0;
   const homeModel = settingsDraft(config, catalog.registry, activeOptions);
   workspace.home.setActiveModel(
     homeModel.provider,
@@ -209,12 +239,15 @@ async function runApplication(
     const key = JSON.stringify(selection);
     let request = capabilityRequests.get(key);
     if (!request) {
-      request = getModelCapabilities({
-        provider: selection.provider,
-        profileId: selection.profileId,
-        model: selection.model,
-        baseUrl: selection.baseUrl,
-      });
+      request = getModelCapabilities(
+        {
+          provider: selection.provider,
+          profileId: selection.profileId,
+          model: selection.model,
+          baseUrl: selection.baseUrl,
+        },
+        { configPath: options.configPath },
+      );
       capabilityRequests.set(key, request);
     }
     void request.then((capabilities) => {
@@ -339,7 +372,9 @@ async function runApplication(
     projectSessionStore(currentController().snapshot.projectPath);
   const resume = async (ref: string): Promise<void> => {
     const store = await sessionStore();
-    const session = await store.load((await store.resolve(ref)).id);
+    const session = await store.interruptSideQueries(
+      (await store.resolve(ref)).id,
+    );
     const project = await loadProjectConfig(session.projectPath);
     session.approvalMode = resolveApprovalMode({
       saved: session.approvalMode,
@@ -507,6 +542,7 @@ async function runApplication(
         const outcome = await saveProviderSettings(values, catalog.registry, {
           configPath: options.configPath,
         });
+        config = await loadGlobalConfig(options.configPath);
         defaultModel = values.model;
         const profile =
           values.profileId ?? `${values.provider.replaceAll("/", "-")}-default`;
@@ -531,11 +567,15 @@ async function runApplication(
         return outcome;
       },
       check: async (values) => {
-        const result = await checkProviderConnection(values);
+        const result = await checkProviderConnection(values, {
+          configPath: options.configPath,
+        });
         return `${result.ok ? OK_MARK : FAIL_MARK} ${result.message}`;
       },
       models: async (values) => {
-        const result = await listProviderModels(values);
+        const result = await listProviderModels(values, {
+          configPath: options.configPath,
+        });
         return result.ok
           ? {
               ok: true,
@@ -601,7 +641,9 @@ async function runApplication(
         if (!cacheHit && request !== undefined) modelRequests.set(key, request);
         const result = cacheHit
           ? cached.result
-          : await listProviderModels(selection);
+          : await listProviderModels(selection, {
+              configPath: options.configPath,
+            });
         if (result.ok) {
           if (
             !cacheHit &&
@@ -754,6 +796,22 @@ async function runApplication(
       const originGeneration = controller.currentGeneration;
       const originRoot = controller.snapshot.projectPath;
       const priorHomeOperationTarget = homeOperationTarget;
+      const acceptedAt = Date.now();
+      const conversationCapture = controller.conversation.capture();
+      let capturedModel:
+        | ReturnType<typeof captureModelConfiguration>
+        | undefined;
+      try {
+        capturedModel = captureModelConfiguration(
+          config,
+          catalog.registry,
+          { ...options, ...turnModelOptions },
+          undefined,
+          controller.snapshot.modelCapabilities,
+        );
+      } catch {
+        /* Only a model consumer reports missing configuration. */
+      }
       input = input.trim();
       const parsed = splitSlashCommand(input);
       if (abort.signal.aborted) return;
@@ -904,7 +962,9 @@ async function runApplication(
         // A late home submission owns a new conversation, not the screen selected in the meantime.
         if (selectedTab) workspace.select(selectedTab);
         controller.setSessionTitle(
-          clipText(input.split("\n", 1)[0] ?? input, 120),
+          prepared?.command.executionPolicy === "side_query"
+            ? "Побочный вопрос"
+            : clipText(input.split("\n", 1)[0] ?? input, 120),
         );
         homeOperationTarget = {
           generation: originGeneration,
@@ -918,6 +978,151 @@ async function runApplication(
           names: new Set(selectedSkills),
         });
       }
+      if (
+        prepared?.command.executionPolicy === "side_query" &&
+        snapshot?.scope
+      ) {
+        if (!capturedModel) {
+          controller.setSideNotice(
+            "Настройте выбранный сервис и модель для побочного вопроса.",
+          );
+          controller.openSide();
+          return;
+        }
+        const execution = workspace.execution(controller);
+        if (execution.sideRuns.size || sideOperations >= 4) {
+          controller.setSideNotice(
+            execution.sideRuns.size
+              ? "Побочный вопрос уже выполняется. Остановите ответ или дождитесь завершения."
+              : "Достигнут лимит побочных запросов приложения.",
+          );
+          controller.setSideDraft(parsed?.args ?? input);
+          return;
+        }
+        const selectedModel = capturedModel;
+        const selectedCommand = prepared;
+        const operationId = randomUUID();
+        const generation = controller.currentGeneration;
+        const sideAbort = new AbortController();
+        const deadline = AbortSignal.timeout(
+          Math.max(1, acceptedAt + 120_000 - Date.now()),
+        );
+        const signal = AbortSignal.any([
+          abort.signal,
+          controller.ownerSignal,
+          sideAbort.signal,
+          deadline,
+        ]);
+        controller.setSideNotice();
+        controller.setSidePending(true);
+        controller.openSide(operationId);
+        sideOperations++;
+        const scope = snapshot.scope;
+        const assertAvailable = () => {
+          if (!controller.isCurrent(generation) || signal.aborted)
+            throw new Error("Side operation is closed.");
+        };
+        let latest: Readonly<SideQueryRecord> | undefined;
+        let renderTimer: ReturnType<typeof setTimeout> | undefined;
+        const flush = () => {
+          if (renderTimer) clearTimeout(renderTimer);
+          renderTimer = undefined;
+          if (latest && controller.isCurrent(generation))
+            controller.receiveSide(latest);
+        };
+        const captured: CapturedCommandModel = {
+          model: capturedModel,
+          capture: conversationCapture,
+          acceptedAt,
+          conversationId: controller.conversationId,
+          generation,
+          invocationId: operationId,
+          assertAvailable,
+          onRecord: (record) => {
+            if (!controller.isCurrent(generation)) return;
+            latest = record;
+            if (
+              !isModelRequestActive(record.status) ||
+              !controller.snapshot.sideView?.visible
+            )
+              flush();
+            else renderTimer ??= setTimeout(flush, 40);
+          },
+        };
+        const allocatedSession = controller.conversation.allocate(async () => {
+          assertAvailable();
+          const store = await projectSessionStore(scope.workspaceRoot);
+          assertAvailable();
+          const session = createSession(
+            scope.workspaceRoot,
+            selectedModel.definition.id,
+            selectedModel.model,
+          );
+          session.profileId = selectedModel.profileId;
+          session.mode = turnMode;
+          session.approvalMode = turnApprovalMode;
+          await store.save(session);
+          if (controller.isCurrent(generation))
+            controller.setSessionId(session.id);
+          return session;
+        });
+        const work = Promise.resolve().then(async () => {
+          try {
+            assertAvailable();
+            const pendingSession = allocatedSession;
+            const sessionId = pendingSession
+              ? await abortable(() => pendingSession, signal)
+              : controller.snapshot.sessionId;
+            assertAvailable();
+            const result = await runSideQueryCommand(
+              selectedCommand,
+              scope,
+              {
+                ...options,
+                ...turnModelOptions,
+                cwd: originRoot,
+                resume: sessionId,
+                mode: turnMode,
+                approvalMode: turnApprovalMode,
+              },
+              captured,
+              modelService,
+              signal,
+            );
+            if (!controller.isCurrent(generation)) return;
+            if (result.result.error && !latest)
+              controller.setSideNotice(result.result.error.message);
+            controller.setSessionId(result.sessionId);
+            const store = await projectSessionStore(scope.workspaceRoot);
+            const saved = await store.load(result.sessionId);
+            if (controller.isCurrent(generation) && saved) {
+              controller.setSessionUsage(saved);
+              if (!execution.activeRun) controller.conversation.restore(saved);
+            }
+          } catch {
+            if (controller.isCurrent(generation))
+              controller.setSideNotice(
+                signal.aborted
+                  ? deadline.aborted
+                    ? "Превышено время ожидания побочного ответа."
+                    : "Побочный ответ остановлен."
+                  : "Не удалось получить побочный ответ. Проверьте выбранный сервис и доступность модели.",
+              );
+          } finally {
+            flush();
+            execution.sideRuns.delete(operationId);
+            sideOperations--;
+            if (controller.isCurrent(generation))
+              controller.setSidePending(false);
+          }
+        });
+        execution.sideRuns.set(operationId, {
+          abort: sideAbort,
+          promise: work,
+        });
+        await work;
+        return;
+      }
       const item: QueuedTabOperation =
         prepared && snapshot?.scope
           ? {
@@ -925,6 +1130,19 @@ async function runApplication(
               onResult: onCommandResult,
               input,
               prepared,
+              capturedModel: capturedModel
+                ? {
+                    model: capturedModel,
+                    capture: conversationCapture,
+                    acceptedAt,
+                    conversationId: controller.conversationId,
+                    generation: controller.currentGeneration,
+                    assertAvailable: () => {
+                      if (!controller.isCurrent(item.generation))
+                        throw new Error("Command owner is closed.");
+                    },
+                  }
+                : undefined,
               scope: snapshot.scope,
               root: originRoot,
               mode: turnMode,
@@ -983,6 +1201,7 @@ async function runApplication(
     const turnAbort = new AbortController();
     execution.abort = turnAbort;
     const signal = AbortSignal.any([abort.signal, turnAbort.signal]);
+    controller.conversation.begin(item.kind === "prompt" ? input : undefined);
     controller.startRequest();
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
@@ -994,6 +1213,13 @@ async function runApplication(
         "failed";
       let elapsedMs: number | undefined;
       try {
+        const pendingSession = controller.conversation.pendingSession();
+        // A first foreground prompt allocates its own session via onConversation;
+        // only wait here when a side operation already owns the allocation.
+        if (controller.snapshot.sidePending && pendingSession)
+          controller.setSessionId(
+            await abortable(() => pendingSession, signal),
+          );
         if (item.kind === "command") {
           const snapshot = await commandActions.load(item.root, signal);
           const descriptor = resolveSlashCommand(snapshot.projection, input);
@@ -1034,6 +1260,12 @@ async function runApplication(
             },
             execution.approvalResolver,
             {
+              onConversation: (source) => {
+                if (controller.isCurrent(requestGeneration)) {
+                  controller.conversation.bind(source);
+                  controller.setSessionId(source.sessionId);
+                }
+              },
               onEvent: (event) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
@@ -1058,6 +1290,7 @@ async function runApplication(
               },
             },
             signal,
+            { service: modelService, captured: item.capturedModel },
           );
           item.onResult?.(outcome.result);
           item.onResult = undefined;
@@ -1098,6 +1331,7 @@ async function runApplication(
           ),
           expanded,
         );
+        controller.conversation.begin(prompt);
         let hasText = false;
         const { result } = await runPrompt(
           prompt,
@@ -1116,6 +1350,12 @@ async function runApplication(
           },
           execution.approvalResolver,
           {
+            onConversation: (source) => {
+              if (controller.isCurrent(requestGeneration)) {
+                controller.conversation.bind(source);
+                controller.setSessionId(source.sessionId);
+              }
+            },
             onEvent: (event) => {
               if (!controller.isCurrent(requestGeneration) || signal.aborted)
                 return;
@@ -1233,6 +1473,8 @@ async function runApplication(
           });
           item.onResult = undefined;
         }
+        if (controller.isCurrent(requestGeneration))
+          controller.conversation.complete();
         execution.activeRun = undefined;
         execution.abort = undefined;
         execution.approvalResolver.cancel();
@@ -1270,6 +1512,8 @@ async function runApplication(
       React.createElement(OpenTuiSpike, {
         onExit: shutdown,
         onCancel: cancel,
+        onSideCancel: () =>
+          workspace.execution(currentController()).cancelSides(),
         workspace,
         classic,
         sessionPicker,
@@ -1372,6 +1616,7 @@ async function runApplication(
         cleanupErrors.push(error);
       }
     };
+    await cleanup(() => modelService.dispose());
     await cleanup(() => root.unmount());
     await cleanup(() => updater.dispose());
     for (const controller of mcpProjects.values()) {

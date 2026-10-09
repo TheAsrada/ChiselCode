@@ -6,6 +6,15 @@ import type { RegisteredExtensionCommand } from "../extensions/commands.js";
 import type { ExtensionCommandInvocation } from "../extensions/contracts.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { frozenClone, operationSignal } from "../extensions/lifecycle.js";
+import { captureConversation } from "../models/context.js";
+import type {
+  ModelRequestPort,
+  ModelRequestResult,
+} from "../models/contracts.js";
+import {
+  type ModelInvocation,
+  ModelRequestService,
+} from "../models/service.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import { builtinDefinitions } from "../providers/definitions/index.js";
 import { resolveProfileModel, selectProfile } from "../providers/profiles.js";
@@ -23,6 +32,11 @@ import { createSession, sessionTitleForPrompt } from "../sessions/store.js";
 import { invocableSkills, loadSkills } from "../skills/skills.js";
 import { failure, normalizeResult } from "../tools/result.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
+import {
+  type CapturedCommandModel,
+  commandModelInvocation,
+} from "./model-command.js";
+import { captureModelConfiguration } from "./model-runtime.js";
 import type { RunEventHandlers, RunOptions } from "./run-prompt.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
 
@@ -39,8 +53,15 @@ export async function runExtensionCommand(
   resolver: ApprovalResolver,
   handlers: RunEventHandlers = {},
   operation?: AbortSignal,
+  modelOptions: {
+    captured?: CapturedCommandModel;
+    service?: ModelRequestService;
+  } = {},
 ): Promise<{ session: Session; result: ToolExecutionResult }> {
   scope.assertUsable();
+  if (prepared.command.executionPolicy !== "foreground")
+    throw new Error("Side command requires the side-query dispatch lane.");
+  const acceptedAt = Date.now();
   const signal = operationSignal(scope.signal, operation);
   cancelled(signal);
   const root = scope.workspaceRoot;
@@ -133,6 +154,58 @@ export async function runExtensionCommand(
   let blocked: ToolExecutionResult | undefined;
   const normalizedArtifacts = new Map<string, string>();
   let finished = false;
+  let callbackClosed = false;
+  const modelService = modelOptions.service ?? new ModelRequestService();
+  const conversationCapture =
+    modelOptions.captured?.capture ?? captureConversation(session);
+  let modelInvocation: ModelInvocation | undefined;
+  const modelRequests = new Set<Promise<ModelRequestResult>>();
+  const model: ModelRequestPort = Object.freeze({
+    request: (
+      input: Parameters<ModelRequestPort["request"]>[0],
+      observer?: Parameters<ModelRequestPort["request"]>[1],
+    ) => {
+      if (finished || callbackClosed)
+        return Promise.reject(
+          new RuntimeError("CANCELLED", "Model invocation is closed."),
+        );
+      const work = (async () => {
+        if (!modelInvocation) {
+          const { registry } = await getProviderCatalog();
+          if (finished || signal.aborted)
+            throw new RuntimeError("CANCELLED", "Model invocation is closed.");
+          modelInvocation ??= commandModelInvocation({
+            service: modelService,
+            scope,
+            session,
+            store,
+            prepared,
+            signal,
+            redactor,
+            captured: modelOptions.captured
+              ? { ...modelOptions.captured, invocationId }
+              : {
+                  model: captureModelConfiguration(
+                    global,
+                    registry,
+                    options,
+                    session,
+                  ),
+                  capture: conversationCapture,
+                  acceptedAt,
+                  conversationId: session.id,
+                  generation: 0,
+                  invocationId,
+                },
+          });
+        }
+        return modelInvocation.port.request(input, observer);
+      })();
+      modelRequests.add(work);
+      void work.finally(() => modelRequests.delete(work)).catch(() => {});
+      return work;
+    },
+  });
   const invocation: ExtensionCommandInvocation = Object.freeze({
     workspaceRoot: root,
     sessionId: session.id,
@@ -140,12 +213,13 @@ export async function runExtensionCommand(
     mode,
     approvalMode,
     signal,
+    model,
     tools: Object.freeze({
       execute: (
         name: string,
         input: import("../types/domain.js").JsonObject,
       ) => {
-        if (finished)
+        if (finished || callbackClosed)
           return Promise.resolve(
             failure(
               new RuntimeError("CANCELLED", "Command invocation is closed."),
@@ -186,6 +260,12 @@ export async function runExtensionCommand(
   let result: ToolExecutionResult;
   try {
     await tools.saveCheckpoint();
+    handlers.onConversation?.(
+      Object.freeze({
+        sessionId: session.id,
+        capture: () => captureConversation(session),
+      }),
+    );
     await bus.emit({ type: "checkpoint_saved" });
     cancelled(signal);
     const current = scope.commands.get(prepared.command.name);
@@ -198,15 +278,23 @@ export async function runExtensionCommand(
       invocableSkills(loadSkills(root)),
       scope.commands.descriptors(),
     );
-    result = await prepared.command.execute(invocation, prepared.input);
+    const callbackResult = await prepared.command.execute(
+      invocation,
+      prepared.input,
+    );
     // Validate the existing result DTO, preserving pending/error/artifact semantics.
     result = ToolResultSchema.extend({
       rawOutput: z.string().optional(),
       details: z.record(z.string(), z.json()).optional(),
-    }).parse(result);
+    }).parse(callbackResult);
   } catch (error) {
     result = failure(error);
   } finally {
+    callbackClosed = true;
+    // Already started requests remain owned even if the callback did not await.
+    await Promise.allSettled([...modelRequests]);
+    await modelInvocation?.close();
+    if (!modelOptions.service) await modelService.dispose();
     finished = true;
     // A callback cannot relinquish conversation ownership with core tools still in flight.
     await Promise.allSettled([...outstanding]);

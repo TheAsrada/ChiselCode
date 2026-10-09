@@ -21,16 +21,24 @@ import { getProviderCatalog } from "../providers/catalog.js";
 import type { ProviderProfile } from "../providers/contracts.js";
 import { resolveEndpoint } from "../providers/endpoint.js";
 import { catalogModelLimits } from "../providers/model-metadata.js";
-import { resolveProfileModel, selectProfile } from "../providers/profiles.js";
 import {
   checkAdapterHealth,
   resolveProviderRuntime,
 } from "../providers/runtime.js";
+import { SecretRedactor } from "../security/redaction.js";
 import type { GlobalConfig } from "../types/domain.js";
+import {
+  captureModelConfiguration,
+  resolveCapturedModelRuntime,
+} from "./model-runtime.js";
 
 export { MissingApiKeyError } from "../providers/runtime.js";
 
 import type { McpConnectionManager } from "../mcp/manager.js";
+import {
+  type ConversationSource,
+  captureConversation,
+} from "../models/context.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { type RuntimeEvent, RuntimeEventBus } from "../runtime/events.js";
@@ -54,6 +62,8 @@ import type { WebConfig } from "../web/schema.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
 
 export interface RunEventHandlers {
+  /** Core-only live snapshot bridge; never passed to an extension callback. */
+  onConversation?(source: ConversationSource): void;
   onEvent?(event: RuntimeEvent): void | Promise<void>;
   onText?(text: string): void;
   onThinking?(text: string): void;
@@ -128,13 +138,14 @@ const CONNECTION_CHECK_TIMEOUT_MS = 25_000;
 /** Read model limits through the configured connection, without a generation request. */
 export async function getModelCapabilities(
   input: ConnectionCheckInput,
+  options?: { configPath?: string },
 ): Promise<ModelCapabilities> {
   const fallback: ModelCapabilities = {
     tokenCounting: "local_estimate",
     ...catalogModelLimits(input.provider, input.model ?? ""),
   };
   try {
-    const runtime = await resolveConnectionRuntime(input);
+    const runtime = await resolveConnectionRuntime(input, options?.configPath);
     return (
       (await runtime.adapter.getCapabilities?.(input.model ?? "")) ?? fallback
     );
@@ -392,22 +403,17 @@ async function runPromptInWorkspace(
     : undefined;
   if (previous && !options.provider && !options.profile)
     registry.require(previous.providerId);
-  const selected = selectProfile(
+  const capturedModel = captureModelConfiguration(
     global,
-    options.profile || options.provider
-      ? { profile: options.profile, provider: options.provider }
-      : previous
-        ? {
-            profile:
-              previous.profileId ??
-              `${previous.providerId.replaceAll("/", "-")}-default`,
-          }
-        : {},
+    registry,
+    options,
+    previous,
   );
-  const model =
-    previous && !options.model && !options.provider && !options.profile
-      ? previous.model
-      : resolveProfileModel(selected.profile, registry, options.model);
+  const selected = {
+    profile: capturedModel.profile,
+    profileId: capturedModel.profileId,
+  };
+  const model = capturedModel.model;
   const session =
     previous ?? createSession(projectRoot, selected.profile.providerId, model);
   const mode = options.mode ?? session.mode ?? DEFAULT_AGENT_MODE;
@@ -430,21 +436,32 @@ async function runPromptInWorkspace(
   session.model = model;
   session.providerId = selected.profile.providerId;
   session.profileId = selected.profileId;
-  if (
-    session.messages.length === 0 &&
-    session.titleSource !== "user" &&
-    prompt.trim()
-  ) {
-    session.title = sessionTitleForPrompt(prompt);
-    session.titleSource = "auto";
-  }
+  // Persist allocation without copying the submitted question into a title before
+  // credential redaction is available.
+  await sessionStore.save(session);
+  const initialMessages = session.messages.length;
+  events.onConversation?.(
+    Object.freeze({
+      sessionId: session.id,
+      capture: () => {
+        const accepted = session.messages
+          .slice(initialMessages)
+          .some(
+            (message) =>
+              message.role === "user" &&
+              message.content.some((block) => block.type === "text"),
+          );
+        return captureConversation(session, accepted ? undefined : prompt);
+      },
+    }),
+  );
 
-  const { adapter: provider, definition } = await resolveProviderRuntime({
-    ...selected,
-    registry,
+  const modelRedactor = new SecretRedactor();
+  const { adapter: provider, definition } = await resolveCapturedModelRuntime(
+    capturedModel,
     drivers,
-    baseUrl: options.baseUrl,
-  });
+    modelRedactor,
+  );
   const renderer = new OneShotRenderer({ json: Boolean(options.json) });
   const onText = events.onText ?? ((text: string) => renderer.text(text));
   const onThinking = events.onThinking ?? (() => renderer.thinking());
@@ -461,6 +478,7 @@ async function runPromptInWorkspace(
       renderer.toolResult(name, result));
   const eventBus = new RuntimeEventBus(session.id);
   const tools = await createSessionToolRuntime({
+    sanitizeExtra: (value) => modelRedactor.value(value),
     root: projectRoot,
     session,
     store: sessionStore,
@@ -475,6 +493,15 @@ async function runPromptInWorkspace(
     signal,
   });
   const { sanitize, saveCheckpoint, skills } = tools;
+  if (
+    !session.messages.length &&
+    session.titleSource !== "user" &&
+    prompt.trim()
+  ) {
+    session.title = sessionTitleForPrompt(sanitize(prompt));
+    session.titleSource = "auto";
+  }
+
   const detachEvents = eventBus.subscribe(async (event) => {
     await events.onEvent?.(event);
     if (
@@ -536,6 +563,7 @@ async function runPromptInWorkspace(
       sanitize(system),
       eventBus,
     );
+
     result = await runtime.run(session, sanitize(prompt), {
       mode,
       approvalMode,

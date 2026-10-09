@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { stdin as nodeStdin, stdout as nodeStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
+import { runSlashCommand } from "./app/run-slash-command.js";
 import { registerMcpCommands } from "./commands/mcp.js";
 import {
   hasApiKey,
@@ -109,6 +110,16 @@ program
       return;
     }
 
+    const commandResult = await runSlashCommand(
+      prompt,
+      options,
+      nonInteractiveResolver,
+    );
+    if (commandResult) {
+      process.exitCode = commandResult.exitCode;
+      await pauseBeforeExit(raw);
+      return;
+    }
     const { exitCode } = await runPrompt(
       prompt,
       options,

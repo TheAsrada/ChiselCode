@@ -89,6 +89,14 @@ export function ContextSidebar({
           Расход сессии: {totalTokens.toLocaleString("ru-RU")}
         </text>
       )}
+      {state.sideSpend && (
+        <text fg={quiet}>
+          {safeLine(
+            `Побочные: ${state.sideSpend.usage.inputTokens + state.sideSpend.usage.outputTokens} ток.${state.sideSpend.unknownUsage ? " · часть неизвестна" : ""}`,
+            width - 2,
+          )}
+        </text>
+      )}
       {usage &&
         usage.totalCost !== undefined &&
         Number.isFinite(usage.totalCost) &&

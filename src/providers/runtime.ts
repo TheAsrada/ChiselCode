@@ -2,7 +2,11 @@ import { CredentialStore } from "../security/credentials.js";
 import type { ProviderAdapter } from "../types/domain.js";
 import { type CredentialsReader, resolveCredential } from "./auth.js";
 import { getProviderCatalog } from "./catalog.js";
-import type { ProviderHealthResult, ProviderProfile } from "./contracts.js";
+import type {
+  ProviderDefinition,
+  ProviderHealthResult,
+  ProviderProfile,
+} from "./contracts.js";
 import { builtinDefinitions } from "./definitions/index.js";
 import { createDriverRegistry, type DriverRegistry } from "./drivers/index.js";
 import { resolveEndpoint } from "./endpoint.js";
@@ -26,6 +30,8 @@ export class MissingApiKeyError extends ProviderError {
 }
 export async function resolveProviderRuntime(input: {
   profile: ProviderProfile;
+  /** A core submit capture, so later catalog refresh cannot redirect this request. */
+  definition?: ProviderDefinition;
   profileId?: string;
   registry?: ProviderRegistry;
   drivers?: DriverRegistry;
@@ -34,13 +40,16 @@ export async function resolveProviderRuntime(input: {
   baseUrl?: string;
   environment?: Record<string, string | undefined>;
 }) {
-  const catalog = input.registry ? undefined : await getProviderCatalog();
+  const catalog =
+    input.registry || (input.definition && input.drivers)
+      ? undefined
+      : await getProviderCatalog();
   const drivers = input.drivers ?? catalog?.drivers ?? createDriverRegistry();
   const registry =
     input.registry ??
     catalog?.registry ??
     createBuiltinProviderRegistry(drivers);
-  const definition = registry.get(input.profile.providerId);
+  const definition = input.definition ?? registry.get(input.profile.providerId);
   if (!definition)
     throw new ProviderError(
       "unavailable",

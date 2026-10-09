@@ -176,6 +176,73 @@ export const SessionUsageSchema = z.object({
   cacheReadTokens: z.number().nonnegative().optional(),
   cacheCreationTokens: z.number().nonnegative().optional(),
 });
+export const ModelSpendSchema = z.object({
+  usage: SessionUsageSchema,
+  knownCost: z.number().finite().nonnegative(),
+  unknownCost: z.boolean(),
+  unknownUsage: z.boolean(),
+});
+export const SideQueryRecordSchema = z.object({
+  operationId: SessionIdSchema,
+  owner: z.object({
+    extensionId: z.string().min(1).max(128),
+    conversationId: z.string().min(1),
+    sessionId: SessionIdSchema,
+    workspaceRoot: z.string(),
+    generation: z.number().int().nonnegative(),
+  }),
+  command: z.string().min(1).max(64),
+  question: z
+    .string()
+    .refine((text) => Buffer.byteLength(text, "utf8") <= 8192),
+  providerId: z.string().min(1),
+  profileId: z.string().min(1),
+  model: z.string(),
+  status: z.enum([
+    "accepted",
+    "preparing",
+    "receiving",
+    "completed",
+    "failed",
+    "cancelled",
+    "timed_out",
+    "truncated",
+    "interrupted",
+  ]),
+  text: z.string().refine((text) => Buffer.byteLength(text, "utf8") <= 65536),
+  error: z
+    .object({ code: z.string().max(100), message: z.string().max(1000) })
+    .optional(),
+  usage: SessionUsageSchema.optional(),
+  usageSource: z.enum(["observed", "partial", "unknown"]),
+  cost: z.object({
+    usd: z.number().finite().nonnegative().optional(),
+    source: z.enum(["provider", "estimated", "unknown"]),
+  }),
+  knownCost: z.number().finite().nonnegative(),
+  context: z.object({
+    capturedAt: SessionTimestampSchema,
+    sourceMessageCount: z.number().int().nonnegative(),
+    summaryId: z.string().optional(),
+    includedMessageRanges: z.array(
+      z.object({
+        from: z.number().int().nonnegative(),
+        to: z.number().int().nonnegative(),
+      }),
+    ),
+    sources: z.array(z.string()),
+    truncated: z.boolean(),
+    estimatedTokens: z.number().int().nonnegative(),
+    accounting: z.enum(["estimated", "count_tokens"]),
+  }),
+  attempts: z.number().int().min(0).max(3),
+  acceptedAt: SessionTimestampSchema,
+  updatedAt: SessionTimestampSchema,
+  finishedAt: SessionTimestampSchema.optional(),
+  afterMessage: z.number().int().nonnegative(),
+  revision: z.number().int().nonnegative(),
+  persistenceError: z.string().max(1000).optional(),
+});
 const contentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
   z.object({
@@ -192,6 +259,9 @@ const contentSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export const SessionV3Schema = z.looseObject({
+  mainSpend: ModelSpendSchema.optional(),
+  sideQueries: z.array(SideQueryRecordSchema).optional(),
+  sideQuerySpend: z.record(SessionIdSchema, ModelSpendSchema).optional(),
   mode: z.enum(AGENT_MODES).default(DEFAULT_AGENT_MODE),
   approvalMode: z
     .enum(APPROVAL_MODE_INPUTS)

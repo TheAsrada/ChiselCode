@@ -459,3 +459,80 @@ test("pure feedback creates no fake tool events and unknown tools remain control
   ]);
   expect((await unknown.run()).result.errorCode).toBe("INVALID_TOOL_INPUT");
 });
+
+test("foreground command model port uses real driver without main history/events and seals a retained port", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "fixture-foreground-model-key";
+  let requests = 0;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      requests++;
+      const body = (await request.json()) as {
+        tools?: unknown[];
+        model: string;
+      };
+      expect(body.tools ?? []).toEqual([]);
+      expect(body.model).toBe("foreground-captured");
+      return new Response(
+        `data: ${JSON.stringify({ id: "fore", choices: [{ index: 0, delta: { content: "A deterministic separate answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 14, completion_tokens: 3 } })}\n\ndata: [DONE]\n\n`,
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    },
+  });
+  let retained: ExtensionCommandInvocation["model"] | undefined;
+  try {
+    await writeFile(
+      join(directory, "config.json"),
+      JSON.stringify({
+        schemaVersion: 2,
+        profiles: {
+          fixture: {
+            providerId: "openai-compatible",
+            defaultModel: "foreground-captured",
+            baseUrl: `http://127.0.0.1:${server.port}/v1`,
+          },
+        },
+        defaultProfileId: "fixture",
+        web: { enabled: false },
+      }),
+    );
+    const f = await fixture([
+      action(async (context) => {
+        retained = context.model;
+        const answer = await context.model.request({
+          text: "Answer without tools",
+          context: "none",
+        });
+        return {
+          output: answer.text,
+          isError: answer.status !== "completed",
+          errorCode: answer.error?.code,
+        };
+      }),
+    ]);
+    const outcome = await f.run();
+    expect(outcome.result.output).toBe("A deterministic separate answer");
+    expect(requests).toBe(1);
+    expect(outcome.session.messages).toEqual([]);
+    expect(outcome.session.sideQueries?.[0]?.owner.extensionId).toBe("fixture");
+    expect(outcome.session.totalTokens.inputTokens).toBe(14);
+    expect(
+      f.events.some(
+        (event) =>
+          event.type === "provider_turn_completed" ||
+          event.type === "tool_started",
+      ),
+    ).toBe(false);
+    if (!retained) throw new Error("Model port absent");
+    await expect(
+      retained.request({ text: "late", context: "none" }),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(requests).toBe(1);
+  } finally {
+    server.stop(true);
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});

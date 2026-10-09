@@ -148,6 +148,11 @@ test("command snapshots bind methods and outlive mutations of registration metad
     approvalMode: "default" as const,
     signal: new AbortController().signal,
     tools: { execute: async () => ({ output: "Unused" }) },
+    model: {
+      request: async () => {
+        throw new Error("Unused");
+      },
+    },
   };
   expect(await stored.execute(invocation, "captured")).toEqual({
     output: "captured",
@@ -178,6 +183,8 @@ test("invalid names, metadata, callbacks and forged ownership never publish regi
     { override: true },
     { privileged: true },
     { ui: {} },
+    { executionPolicy: "background" },
+    { executionPolicy: null },
   ];
   const workspace = await root();
   for (const patch of invalid) {
@@ -349,4 +356,58 @@ test("fresh invocable skill conflicts reject the extension layer atomically with
   expect(
     resolveSlashCommand(restored.projection, "/inspect")?.source.type,
   ).toBe("extension");
+});
+
+test("side execution policy is immutable across projection and rejects a tool-bearing invocation", async () => {
+  const contribution = {
+    name: "aside",
+    description: "Ask a separate question",
+    executionPolicy: "side_query" as const,
+    parse: (text: string) => text,
+    execute: async (
+      context: import("../../src/extensions/contracts.js").SideQueryCommandInvocation,
+      text: string,
+    ) => context.model.request({ text, context: "none" }),
+  };
+  const scope = await host([
+    {
+      id: "side-owner",
+      activate(ctx) {
+        ctx.commands.register(contribution);
+      },
+    },
+  ]).open(await root());
+  Object.assign(contribution, {
+    executionPolicy: "foreground",
+    execute: () => {
+      throw new Error("replaced callback");
+    },
+  });
+  const stored = scope.commands.get("aside");
+  expect(stored.executionPolicy).toBe("side_query");
+  expect(
+    resolveSlashCommand(
+      composeCommandProjection([], scope.commands.descriptors()),
+      "/aside",
+    )?.executionPolicy,
+  ).toBe("side_query");
+  const context = {
+    workspaceRoot: scope.workspaceRoot,
+    sessionId: "session",
+    conversationId: "conversation",
+    invocationId: "invocation",
+    generation: 0,
+    mode: "plan" as const,
+    approvalMode: "default" as const,
+    signal: new AbortController().signal,
+    model: {
+      request: async () => {
+        throw new Error("network must not start");
+      },
+    },
+    tools: { execute: async () => ({ output: "must not be exposed" }) },
+  };
+  await expect(stored.execute(context, "question")).rejects.toMatchObject({
+    extensionId: "side-owner",
+  });
 });

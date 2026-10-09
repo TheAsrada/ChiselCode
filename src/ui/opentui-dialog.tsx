@@ -82,8 +82,9 @@ export function OpenTuiDialog({
       }}
       onMouseUp={(event) => {
         if (event.button !== 0) return;
-        if (dismiss.current && !renderer.getSelection()?.getSelectedText())
-          onClose();
+        const accepted = dismiss.current;
+        dismiss.current = false;
+        if (accepted && !renderer.getSelection()?.getSelectedText()) onClose();
       }}
     >
       {shadow && (
@@ -115,6 +116,11 @@ export function OpenTuiDialog({
         paddingBottom={roomy ? 1 : 0}
         flexDirection="column"
         overflow="hidden"
+        onMouseDown={(event) => {
+          if (event.button !== 0) return;
+          dismiss.current = false;
+          event.stopPropagation();
+        }}
         onMouseUp={(event) => event.stopPropagation()}
       >
         {children}

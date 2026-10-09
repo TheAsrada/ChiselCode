@@ -11,6 +11,16 @@ import {
 } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
+import {
+  ensureMainSpend,
+  recomputeSessionSpend,
+  spendForRecord,
+} from "../models/accounting.js";
+import {
+  isModelRequestActive,
+  MODEL_REQUEST_LIMITS,
+  type SideQueryRecord,
+} from "../models/contracts.js";
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
@@ -26,6 +36,7 @@ import { initializeSessionState } from "./migrations.js";
 import {
   SessionIdSchema as idSchema,
   SessionV3Schema as persistedSessionSchema,
+  SideQueryRecordSchema,
   SessionTimestampSchema as timestamp,
   SessionUsageSchema as usageSchema,
 } from "./schema.js";
@@ -267,13 +278,38 @@ export class ProjectSessionStore {
     if (!session.titleSource) session.titleSource = "auto";
     await mkdir(this.directory, { recursive: true });
     const { projectPath: _projectPath, ...fields } = session;
-    const persisted = persistedSessionSchema.parse({
+    let persisted = persistedSessionSchema.parse({
       ...migrateSessionRecord(fields),
       schemaVersion: 3,
       title: session.title || "Без названия",
     });
     await this.list();
     await withLock(this.indexPath, async () => {
+      let prior: z.infer<typeof persistedSessionSchema> | undefined;
+      try {
+        prior = persistedSessionSchema.parse(
+          migrateSessionRecord(await readJson(this.file(session.id))),
+        );
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+      }
+      // This writer owns main state only. Side metadata is read *inside* the lock,
+      // so a checkpoint captured before a side completion cannot erase it.
+      ensureMainSpend(session);
+      const merged = withSessionCompatibility({
+        ...persisted,
+        projectPath: session.projectPath,
+        mainSpend: structuredClone(session.mainSpend),
+        sideQueries: prior?.sideQueries ?? persisted.sideQueries,
+        sideQuerySpend: prior?.sideQuerySpend ?? persisted.sideQuerySpend,
+      });
+      recomputeSessionSpend(merged);
+      merged.updatedAt = new Date().toISOString();
+      const { projectPath: _mergedPath, ...mergedFields } = merged;
+      persisted = persistedSessionSchema.parse({
+        ...mergedFields,
+        schemaVersion: 3,
+      });
       await atomicJson(this.file(session.id), persisted);
       let index: z.infer<typeof indexSchema>;
       try {
@@ -282,11 +318,98 @@ export class ProjectSessionStore {
         index = { schemaVersion: 2, sessions: [] };
       }
       index.sessions = [
-        toSummary(session),
+        toSummary(merged),
         ...index.sessions.filter((entry) => entry.id !== session.id),
       ];
       await atomicJson(this.indexPath, index);
+      session.sideQueries = structuredClone(merged.sideQueries);
+      session.sideQuerySpend = structuredClone(merged.sideQuerySpend);
+      session.totalTokens = { ...merged.totalTokens };
+      session.totalCost = merged.totalCost;
+      session.costEstimate = merged.costEstimate;
     });
+  }
+  /** The side writer owns one record/accounting entry, never messages/runtime/preferences. */
+  async patchSideQuery(id: string, update: SideQueryRecord): Promise<Session> {
+    const record = SideQueryRecordSchema.parse(update);
+    if (record.owner.sessionId !== assertSessionId(id))
+      throw new Error("Side request belongs to a different session.");
+    await this.list();
+    return withLock(this.indexPath, async () => {
+      const session = await this.load(id);
+      ensureMainSpend(session);
+      const records = session.sideQueries ?? [];
+      const prior = records.find(
+        (item) => item.operationId === record.operationId,
+      );
+      if (prior && prior.revision >= record.revision) return session;
+      if (
+        prior &&
+        (prior.owner.extensionId !== record.owner.extensionId ||
+          prior.owner.generation !== record.owner.generation)
+      )
+        throw new Error("Side request owner changed.");
+      session.sideQueries = records.filter(
+        (item) => item.operationId !== record.operationId,
+      );
+      session.sideQueries.push(record);
+      const terminal = session.sideQueries.filter(
+        (item) => !isModelRequestActive(item.status),
+      );
+      const retained = new Set(
+        terminal
+          .slice(-MODEL_REQUEST_LIMITS.retainedRecords)
+          .map((item) => item.operationId),
+      );
+      session.sideQueries = session.sideQueries.filter(
+        (item) =>
+          isModelRequestActive(item.status) || retained.has(item.operationId),
+      );
+      // Small per-operation expense entries outlive retained text. Assignment,
+      // rather than addition, makes duplicate terminal checkpoints idempotent.
+      session.sideQuerySpend ??= {};
+      session.sideQuerySpend[record.operationId] = spendForRecord(record);
+      recomputeSessionSpend(session);
+      session.updatedAt = new Date().toISOString();
+      await this.writePatchedSession(session);
+      return session;
+    });
+  }
+  /** Called at an owner resume boundary, never by ordinary checkpoint/load. */
+  async interruptSideQueries(id: string): Promise<Session> {
+    await this.list();
+    return withLock(this.indexPath, async () => {
+      const session = await this.load(id);
+      let changed = false;
+      for (const record of session.sideQueries ?? []) {
+        if (!isModelRequestActive(record.status)) continue;
+        changed = true;
+        record.status = "interrupted";
+        record.error = {
+          code: "MODEL_REQUEST_INTERRUPTED",
+          message:
+            "Побочный запрос прерван при завершении приложения; автоматически не повторяется.",
+        };
+        record.updatedAt = record.finishedAt = new Date().toISOString();
+        record.revision++;
+      }
+      if (changed) await this.writePatchedSession(session);
+      return session;
+    });
+  }
+  private async writePatchedSession(session: Session): Promise<void> {
+    const { projectPath: _projectPath, ...fields } = session;
+    const persisted = persistedSessionSchema.parse({
+      ...fields,
+      schemaVersion: 3,
+    });
+    await atomicJson(this.file(session.id), persisted);
+    const index = indexSchema.parse(await readJson(this.indexPath));
+    index.sessions = [
+      toSummary(session),
+      ...index.sessions.filter((entry) => entry.id !== session.id),
+    ];
+    await atomicJson(this.indexPath, index);
   }
   async load(id: string): Promise<Session> {
     const raw = await readJson(this.file(id));

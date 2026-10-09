@@ -202,6 +202,34 @@ export class TerminalClipboardController {
     });
   }
 
+  async copyText(text: string): Promise<boolean> {
+    const abort = new AbortController();
+    this.writes.add(abort);
+    try {
+      if (!this.attached) return false;
+      const result = await this.service().writeText(text, {
+        destination: "best-available",
+        signal: abort.signal,
+      });
+      if (!this.attached || abort.signal.aborted) return false;
+      const copied = result.host.status === "written";
+      this.notice(
+        copied
+          ? "Скопировано"
+          : result.terminal.status === "attempted"
+            ? "Текст передан терминалу; проверьте буфер обмена."
+            : "Не удалось скопировать. Текст можно выделить вручную.",
+      );
+      return copied;
+    } catch {
+      if (this.attached)
+        this.notice("Не удалось скопировать. Текст можно выделить вручную.");
+      return false;
+    } finally {
+      this.writes.delete(abort);
+    }
+  }
+
   async paste(target?: EditBufferRenderable | null): Promise<void> {
     if (!this.attached) return;
     const editor =

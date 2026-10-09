@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BUILTIN_COMMAND_NAMES } from "../commands/slash.js";
+import type { ModelRequestResult } from "../models/contracts.js";
 import { cancelled } from "../runtime/errors.js";
 import type { ToolExecutionResult } from "../types/domain.js";
 import type {
@@ -7,6 +8,7 @@ import type {
   ExtensionCommandContribution,
   ExtensionCommandDescriptor,
   ExtensionCommandInvocation,
+  SideQueryCommandInvocation,
 } from "./contracts.js";
 import { ExtensionLifecycleError, frozenClone } from "./lifecycle.js";
 
@@ -26,6 +28,7 @@ const registration = z
     name: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
     description: plainText(COMMAND_DESCRIPTION_LIMIT),
     usage: plainText(COMMAND_USAGE_LIMIT).optional(),
+    executionPolicy: z.enum(["foreground", "side_query"]).default("foreground"),
     parse: z.custom<(...args: never[]) => unknown>(
       (value) => typeof value === "function",
     ),
@@ -36,11 +39,12 @@ const registration = z
   .strict();
 
 export interface RegisteredExtensionCommand extends ExtensionCommandDescriptor {
+  readonly executionPolicy: "foreground" | "side_query";
   parse(args: string): unknown;
   execute(
-    context: ExtensionCommandInvocation,
+    context: ExtensionCommandInvocation | SideQueryCommandInvocation,
     input: unknown,
-  ): Promise<ToolExecutionResult>;
+  ): Promise<ToolExecutionResult | ModelRequestResult>;
 }
 
 /** Staged workspace ownership only; the composed slash projection resolves names. */
@@ -76,7 +80,15 @@ export class ExtensionCommandContributions {
           extensionId,
         );
       const parse = command.parse.bind(command);
-      const execute = command.execute.bind(command);
+      // The discriminator selects which restricted context core supplies. Callable
+      // references and policy are captured together, never read from caller again.
+      const execute = command.execute.bind(command) as (
+        context: ExtensionCommandInvocation | SideQueryCommandInvocation,
+        input: T,
+      ) =>
+        | ToolExecutionResult
+        | ModelRequestResult
+        | Promise<ToolExecutionResult | ModelRequestResult>;
       const available = () => {
         cancelled(this.lifetime);
         this.available();
@@ -85,6 +97,7 @@ export class ExtensionCommandContributions {
         ...frozenClone({
           name: metadata.name,
           description: metadata.description,
+          executionPolicy: metadata.executionPolicy,
           ...(metadata.usage ? { usage: metadata.usage } : {}),
           source: {
             type: "extension" as const,
@@ -97,11 +110,16 @@ export class ExtensionCommandContributions {
           return parse(args);
         },
         execute: async (
-          context: ExtensionCommandInvocation,
+          context: ExtensionCommandInvocation | SideQueryCommandInvocation,
           input: unknown,
         ) => {
           available();
           cancelled(context.signal);
+          if (metadata.executionPolicy === "side_query" && "tools" in context)
+            throw new ExtensionLifecycleError(
+              "Side command received an invalid execution context.",
+              extensionId,
+            );
           // Cooperative cancellation: wait for callbacks/tools to settle before releasing ownership.
           const result = await execute(context, input as T);
           cancelled(context.signal);
@@ -143,8 +161,9 @@ export class ExtensionCommandContributions {
   descriptors(): readonly ExtensionCommandDescriptor[] {
     this.available();
     return Object.freeze(
-      [...this.commands.values()].map(({ name, description, usage, source }) =>
-        Object.freeze({ name, description, usage, source }),
+      [...this.commands.values()].map(
+        ({ name, description, usage, source, executionPolicy }) =>
+          Object.freeze({ name, description, usage, source, executionPolicy }),
       ),
     );
   }

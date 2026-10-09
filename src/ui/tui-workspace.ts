@@ -46,12 +46,18 @@ export class TuiWorkspace {
   }
 
   cancelAll(): void {
-    for (const execution of this.executions.values()) execution.cancel();
+    for (const execution of this.executions.values()) {
+      execution.cancel();
+      execution.cancelSides();
+    }
   }
 
   async waitForRuns(): Promise<void> {
     await Promise.allSettled(
-      [...this.executions.values()].map((execution) => execution.activeRun),
+      [...this.executions.values()].flatMap((execution) => [
+        execution.activeRun,
+        ...[...execution.sideRuns.values()].map((run) => run.promise),
+      ]),
     );
   }
 
@@ -139,6 +145,7 @@ export class TuiWorkspace {
 
   select(key?: string): void {
     if (key && !this.tabs.some((tab) => tab.key === key)) return;
+    if (this.activeKey !== key) this.controller.hideSide();
     this.activeKey = key;
     this.notify();
   }

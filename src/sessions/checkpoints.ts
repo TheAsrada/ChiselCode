@@ -1,4 +1,9 @@
 import { observedContextSnapshot } from "../core/context-usage.js";
+import {
+  addTokenUsage,
+  ensureMainSpend,
+  recomputeSessionSpend,
+} from "../models/accounting.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
 import type { Session, TokenUsage } from "../types/domain.js";
 import { estimateCost } from "./store.js";
@@ -64,28 +69,15 @@ export function attachSessionRecorder(
   });
 }
 function addUsage(session: Session, usage: TokenUsage) {
-  const hadPriorUsage =
-    session.totalTokens.inputTokens + session.totalTokens.outputTokens > 0 ||
-    session.messages.filter((message) => message.role === "assistant").length >
-      1;
-  session.totalTokens.inputTokens += usage.inputTokens;
-  session.totalTokens.outputTokens += usage.outputTokens;
-  session.totalTokens.cacheReadTokens =
-    (session.totalTokens.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0);
-  session.totalTokens.cacheCreationTokens =
-    (session.totalTokens.cacheCreationTokens ?? 0) +
-    (usage.cacheCreationTokens ?? 0);
+  const main = ensureMainSpend(session);
+  addTokenUsage(main.usage, usage);
   const estimate = estimateCost(
     session.providerId,
     session.model,
     usage.inputTokens,
     usage.outputTokens,
   );
-  if (estimate.usd !== undefined) session.totalCost += estimate.usd;
-  const previousUnknown =
-    session.costEstimate?.source === "unknown" && hadPriorUsage;
-  session.costEstimate =
-    estimate.source === "unknown" || previousUnknown
-      ? { source: "unknown" }
-      : { usd: session.totalCost, source: "estimated" };
+  if (estimate.usd !== undefined) main.knownCost += estimate.usd;
+  main.unknownCost ||= estimate.source === "unknown";
+  recomputeSessionSpend(session);
 }

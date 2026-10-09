@@ -90,7 +90,15 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
               }
             : {}),
         },
-        { signal: request.signal },
+        {
+          signal: request.signal,
+          ...(request.transport
+            ? {
+                maxRetries: request.transport.maxRetries,
+                timeout: request.transport.timeoutMs,
+              }
+            : {}),
+        },
       );
 
       const blocks = new Map<
@@ -99,10 +107,22 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
       >();
       let stopReason: string | undefined;
       let terminated = false;
+      let started = false;
       for await (const event of stream) {
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
+        if (request.purpose === "extension_request" && terminated)
+          throw new ProviderError(
+            "transport",
+            "Provider emitted data after its terminal message.",
+          );
         if (event.type === "message_start") {
+          if (request.purpose === "extension_request" && started)
+            throw new ProviderError(
+              "transport",
+              "Provider emitted multiple messages.",
+            );
+          started = true;
           if (event.message.role !== "assistant")
             throw new ProviderError(
               "transport",
@@ -222,6 +242,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         message: { role: "assistant", content: normalized },
         stopReason: stopReason ?? "unknown",
         usage: normalizeAnthropicUsage(usage),
+        usageObserved: true,
       };
     } catch (error) {
       const failure = normalizeProviderError(error, request.signal);
@@ -229,6 +250,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         type: "error",
         message: formatAnthropicError(error),
         code: failure.code,
+        status: failure.status,
         usage: usage ? normalizeAnthropicUsage(usage) : undefined,
       };
     }

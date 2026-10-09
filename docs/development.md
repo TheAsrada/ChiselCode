@@ -58,7 +58,7 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 Контракт services/context/guards/tools/commands и рабочий пример — в [архитектуре](architecture.md#границы-расширений). `ctx.tools.register(defineTool(...))` и `ctx.commands.register({ name, description, usage, parse, execute })` работают только во время activation. Для tools core присваивает `ext:<extensionId>:<localName>` и source. Slash head имеет отдельную identity `{ type: "extension", extensionId, name }`, без wire namespace. Built-in/skill/extension name conflicts отклоняются явно. Contributions исполняются общим executor с Plan/permissions/EditingService/artifacts. Регистрации автоматически принадлежат workspace; вручную добавлять их в `ctx.add` не нужно. `ctx.add` применяется к ресурсам/service cleanup. Prompt/command tool binding временный, borrowed workspace переживает операции.
 
-Production composition включает `defaultExtensions([], { configPath })` с manifest и LSP consumers; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. P1.3 добавляет настоящие status/restart contributions builtin.lsp; пользовательский loader по-прежнему отсутствует.
+Production composition включает `defaultExtensions([], { configPath })` с manifest, LSP и /btw consumers; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. P1.3 добавляет настоящие status/restart contributions builtin.lsp; пользовательский loader по-прежнему отсутствует.
 
 Acceptance tests используют реальные host/catalog/executor/policy/coordinator/storage и deterministic providers. Packaging harness поднимает локальный тестовый model endpoint, отправляет обычный Plan prompt и проверяет цикл model → manifest → model → checkpoint; production test flags/autoload fixtures отсутствуют:
 
@@ -156,3 +156,45 @@ Settings visual review: реальные OpenTUI frames при 120×40, 100×30,
 CI job `Real Auto LSP` выполняет `bun tests/fixtures/multi-lsp-probe.ts python go rust cpp csharp java kotlin php ruby lua dart html css json yaml bash docker` на Linux/macOS/Windows; macOS также проверяет настоящий SourceKit-LSP из Xcode. Ruby 3.4.11 SDK устанавливается только test setup. Probe требует настоящий initialize и symbols; проверяет diagnostics для заданных errors и definitions у поддерживающих их backends, затем закрывает service. Kotlin diagnostics без evidence остаются unavailable, а не фиктивным success. Для локальной проверки конкретного backend передайте его fixture name. Standard preparation не читает latest metadata: все используемые package bytes закреплены locks/integrity.
 
 Во время первоначальной загрузки crates/VFS rust-analyzer может отклонить read request при замене snapshot. Native harness допускает не более двух повторов такого чтения с паузой 250 ms. Он сохраняет проверки настоящих diagnostics/symbols/definitions; повторные ошибки завершают job failure. Cancellation, unsupported capabilities, malformed reports и другие ошибки не получают этот retry. Runtime tool failure остаётся настоящим terminal result; harness не меняет production execution, не перезапускает сервер и не повторяет mutations.
+
+## P1.4: внутренние model requests
+
+Пример linked contribution (registration только в activation):
+
+```ts
+ctx.commands.register({
+  name: "explain",
+  description: "Отдельный текстовый вопрос",
+  usage: "/explain <вопрос>",
+  executionPolicy: "side_query",
+  parse(args) {
+    const question = args.trim();
+    if (!question) throw new Error("Нужен вопрос");
+    return question;
+  },
+  execute(invocation, question) {
+    return invocation.model.request({
+      text: question,
+      context: "conversation",
+      limits: { outputTokens: 512 },
+    });
+  },
+});
+```
+
+Core выдаёт readonly identity/signal/model port без tools, credentials/SDK, Session и renderer. Observer получает только sanitized typed text/status/terminal events с core owner; он не перенаправляет вывод. Права tools не появляются из model request. Foreground contribution без `executionPolicy` продолжает идти через conversation queue и может использовать lazy model port наряду с tools port; чистые local callbacks не требуют модели. API linked/internal, внешний SDK/loader и UI slots здесь не появляются.
+
+Проверки P1.4 используют настоящее приложение, builtin consumer, оба HTTP protocol drivers, session storage и OpenTUI renderer. Main endpoint barrier и approval остаются активными, пока /btw завершается; hide/reopen/resume не делают requests. Offline tests проверяют actual HTTP attempts (SDK retry layer выключен), no-auth custom definitions, protocol/partial/auth failures, limits, late usage, split credentials, concurrent checkpoint merge и interrupted retention.
+
+```sh
+bun test tests/unit/model-requests.test.ts tests/unit/side-query-storage.test.ts
+bun test tests/unit/opentui-side-query.test.tsx tests/integration/side-query-tui.test.ts tests/integration/side-query-cli.test.ts
+CHISEL_CAPTURE_DIR=/absolute/captures bun tests/fixtures/tui-side-query.ts
+CHISEL_CAPTURE_DIR=/absolute/captures bun test tests/unit/opentui-side-query.test.tsx
+bun tests/fixtures/side-query-cli.ts bun ./dist/cli.js
+bun tests/fixtures/command-packaging.ts
+```
+
+Capture variables относятся только к test fixtures, не к production flags/autoload. Captures — реальные `captureCharFrame` и `captureSpans` с RGBA/геометрией, размеры 120×40, 100×30, 80×24, 60×20, 40×12, 24×8; dark/Paper, Unicode/ASCII, receiving/completed/error/draft/focused/hidden/approval. Packaging harness запускает default builtin /btw view в installed staging package и compiled runtime; обычные npm/compiled CLI smoke используют тот же command dispatch без source imports/fixtures внутри production. CI matrix сохраняет Windows/macOS/Linux и real pinned LSP regressions.
+
+UI reuse: shared OpenTuiDialog/DialogAction/Palette, native textarea, FormattedMessage и TerminalScrollbox; explicit keyboard-owner capture перед global listeners дополнен focus props. Installed OpenTUI 0.5.12 `KeyHandler.emitWithPriority`, `preventDefault/stopPropagation` и `prependListener` проверены напрямую. Ориентиры: [official interaction/focus](https://opentui.com/docs/core-concepts/interaction/), [layout](https://opentui.com/docs/core-concepts/layout/); яркие debug colors/отдельная дизайн-система не переносились.

@@ -12,6 +12,10 @@ export class SecretRedactor {
     this.values.add(JSON.stringify(value).slice(1, -1));
     this.values.add(Buffer.from(value).toString("base64"));
   }
+  /** Core stream framing only; never exposed through an extension context. */
+  knownValues(): readonly string[] {
+    return [...this.values];
+  }
   text(value: string): string {
     let text = value;
     for (const secret of [...this.values].sort((a, b) => b.length - a.length))

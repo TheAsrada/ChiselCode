@@ -1,5 +1,18 @@
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { ConversationSourceBridge } from "../app/conversation-source.js";
 import type { ContextCompactionRecord } from "../context/types.js";
+import {
+  aggregateSpend,
+  recomputeSessionSpend,
+  sideSpend,
+  spendForRecord,
+} from "../models/accounting.js";
+import {
+  isModelRequestActive,
+  type ModelSpend,
+  type SideQueryRecord,
+} from "../models/contracts.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { catalogModelLimits } from "../providers/model-metadata.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
@@ -19,6 +32,7 @@ import { createEditorState } from "./editor.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
 import type { ModelSelection } from "./opentui-models.js";
 import { requestCompletion } from "./request-timing.js";
+import { sideStatus } from "./side-query-state.js";
 import type { TranscriptTone, TuiTranscript } from "./tui-contract.js";
 
 export interface TranscriptEntry {
@@ -26,9 +40,20 @@ export interface TranscriptEntry {
   text: string;
   tone: TranscriptTone;
   fileDiff?: FileDiff;
+  sideOperationId?: string;
 }
 
 export interface TuiViewState {
+  sideQueries?: readonly SideQueryRecord[];
+  sidePending?: boolean;
+  sideNotice?: string;
+  sideView?: {
+    visible: boolean;
+    selected?: string;
+    draft: string;
+    editing: boolean;
+  };
+  sideSpend?: ModelSpend;
   agentMode: AgentMode;
   runningMode?: AgentMode;
   approvalMode: ApprovalMode;
@@ -62,6 +87,19 @@ export interface TuiViewState {
 
 /** The agent writes to this boundary; either terminal renderer may subscribe. */
 export class TuiController implements TuiTranscript {
+  readonly conversationId = randomUUID();
+  readonly conversation = new ConversationSourceBridge();
+  private lifetime = new AbortController();
+  private usageSession?: Session;
+  get ownerSignal(): AbortSignal {
+    return this.lifetime.signal;
+  }
+  readonly sidePresentation = {
+    scroll: new Map<string, number>(),
+    unread: new Set<string>(),
+    draftCursor: 0,
+    draftSelection: undefined as { start: number; end: number } | undefined,
+  };
   readonly presentation = {
     history: createEditorState(),
     windowEnd: undefined as number | undefined,
@@ -289,6 +327,27 @@ export class TuiController implements TuiTranscript {
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
       return;
     if (this.state.sessionId && this.state.sessionId !== session.id) return;
+    session = structuredClone(session);
+    const merged = new Map(
+      (session.sideQueries ?? []).map((record) => [record.operationId, record]),
+    );
+    for (const record of this.state.sideQueries ?? []) {
+      const prior = merged.get(record.operationId);
+      if (
+        !prior ||
+        prior.revision < record.revision ||
+        (prior.revision === record.revision &&
+          isModelRequestActive(prior.status))
+      )
+        merged.set(record.operationId, structuredClone(record));
+    }
+    session.sideQueries = [...merged.values()];
+    session.sideQuerySpend = { ...session.sideQuerySpend };
+    for (const record of session.sideQueries)
+      session.sideQuerySpend[record.operationId] = spendForRecord(record);
+    recomputeSessionSpend(session);
+    this.usageSession = session;
+    this.restoreSideRecords(session.sideQueries);
     for (const record of session.context?.compactions ?? [])
       this.compactionNotices.add(record.id);
     const selected = this.state.modelSelection ?? {
@@ -311,6 +370,7 @@ export class TuiController implements TuiTranscript {
         (!requestSelection || this.matchesSelection(requestSelection))
           ? session.contextSnapshot
           : this.state.contextSnapshot,
+      sideSpend: sideSpend(session),
       usage: {
         provider: selected.provider,
         profileId: selected.profileId,
@@ -406,6 +466,12 @@ export class TuiController implements TuiTranscript {
       Partial<Pick<Session, "title" | "mode" | "approvalMode">>,
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
+    this.lifetime.abort();
+    this.lifetime = new AbortController();
+    this.conversation.dispose();
+    this.usageSession = undefined;
+    this.sidePresentation.scroll.clear();
+    this.sidePresentation.unread.clear();
     this.generation++;
     this.compactionNotices.clear();
     this.presentation.windowEnd = undefined;
@@ -429,9 +495,162 @@ export class TuiController implements TuiTranscript {
       draft: "",
       focus: "composer",
     };
+    if (session && "messages" in session)
+      this.conversation.restore(session as Session);
     this.renderer?.clear();
     this.notify();
     this.refreshGitChanges();
+  }
+
+  setSidePending(pending: boolean): void {
+    this.update({ sidePending: pending });
+  }
+  setSideNotice(notice?: string): void {
+    this.update({ sideNotice: notice });
+  }
+  setSideDraft(draft: string): void {
+    this.update({
+      sideView: {
+        visible: this.state.sideView?.visible ?? true,
+        selected: this.state.sideView?.selected,
+        editing: true,
+        draft,
+      },
+    });
+  }
+  openSide(requestedOperationId?: string): void {
+    const operationId =
+      requestedOperationId ??
+      this.state.sideView?.selected ??
+      this.state.sideQueries?.at(-1)?.operationId;
+    this.sidePresentation.unread.delete(operationId ?? "");
+    this.update({
+      sideView: {
+        visible: true,
+        selected: operationId,
+        draft: this.state.sideView?.draft ?? "",
+        editing:
+          requestedOperationId === undefined &&
+          this.state.sideView?.selected === operationId
+            ? (this.state.sideView?.editing ??
+              (!operationId && !this.state.sidePending))
+            : !operationId && !this.state.sidePending,
+      },
+    });
+  }
+  hideSide(): void {
+    if (this.state.sideView)
+      this.update({ sideView: { ...this.state.sideView, visible: false } });
+  }
+  newSideQuestion(): void {
+    this.update({
+      sideView: {
+        visible: true,
+        selected: this.state.sideView?.selected,
+        draft: this.state.sideView?.draft ?? "",
+        editing: true,
+      },
+    });
+  }
+  readSideAnswer(): void {
+    if (this.state.sideView)
+      this.update({ sideView: { ...this.state.sideView, editing: false } });
+  }
+  receiveSide(record: Readonly<SideQueryRecord>): void {
+    if (
+      record.owner.conversationId !== this.conversationId ||
+      record.owner.generation !== this.generation
+    )
+      return;
+    const previous = this.state.sideQueries?.find(
+      (item) => item.operationId === record.operationId,
+    );
+    if (
+      previous &&
+      (previous.revision > record.revision ||
+        (!isModelRequestActive(previous.status) &&
+          isModelRequestActive(record.status)))
+    )
+      return;
+    const records = [
+      ...(this.state.sideQueries ?? []).filter(
+        (item) => item.operationId !== record.operationId,
+      ),
+      structuredClone(record),
+    ];
+    if (!this.state.sideView?.visible)
+      this.sidePresentation.unread.add(record.operationId);
+    if (
+      previous &&
+      !this.state.sideView?.visible &&
+      previous.status === record.status &&
+      isModelRequestActive(record.status)
+    ) {
+      this.state = { ...this.state, sideQueries: records };
+      return;
+    }
+    this.update({
+      sideQueries: records,
+      sideView: this.state.sideView
+        ? {
+            ...this.state.sideView,
+            selected: this.state.sidePending
+              ? record.operationId
+              : this.state.sideView.selected,
+          }
+        : undefined,
+    });
+    this.restoreSideRecords(records);
+    if (this.usageSession) {
+      this.usageSession.sideQueries = records;
+      this.usageSession.sideQuerySpend ??= {};
+      this.usageSession.sideQuerySpend[record.operationId] =
+        spendForRecord(record);
+      recomputeSessionSpend(this.usageSession);
+      this.update({
+        sideSpend: aggregateSpend(
+          Object.values(this.usageSession.sideQuerySpend),
+        ),
+        usage: this.state.usage
+          ? {
+              ...this.state.usage,
+              totalTokens: { ...this.usageSession.totalTokens },
+              totalCost:
+                this.usageSession.costEstimate?.source === "unknown"
+                  ? undefined
+                  : this.usageSession.totalCost,
+            }
+          : undefined,
+      });
+    }
+  }
+  private restoreSideRecords(records: readonly SideQueryRecord[]): void {
+    let transcript = this.state.transcript;
+    for (const record of records) {
+      const text = `Побочный вопрос · ${sideStatus[record.status]}${this.sidePresentation.unread.has(record.operationId) ? " · новое" : ""} · ${record.question.replace(/\s+/g, " ").slice(0, 70)}`;
+      const old = transcript.find(
+        (entry) => entry.sideOperationId === record.operationId,
+      );
+      if (old)
+        transcript = transcript.map((entry) =>
+          entry === old ? { ...entry, text } : entry,
+        );
+      else
+        transcript = [
+          ...transcript,
+          {
+            id: this.serial++,
+            text,
+            tone: "info",
+            sideOperationId: record.operationId,
+          },
+        ];
+    }
+    this.update({
+      transcript,
+      sideQueries: [...records],
+      sideSpend: aggregateSpend(records.map(spendForRecord)),
+    });
   }
 
   /** A token for asynchronous sidebar reads; stale results must be discarded. */
@@ -443,6 +662,8 @@ export class TuiController implements TuiTranscript {
   }
 
   dispose(): void {
+    this.lifetime.abort();
+    this.conversation.dispose();
     this.generation++;
     this.gitSource.dispose();
     this.renderer = undefined;

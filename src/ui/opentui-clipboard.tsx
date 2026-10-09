@@ -80,3 +80,7 @@ export function useClipboardComposer(
     [controller],
   );
 }
+
+export function useClipboardActions() {
+  return useContext(ClipboardContext);
+}

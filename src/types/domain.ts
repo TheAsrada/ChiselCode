@@ -141,7 +141,13 @@ export interface ProviderRequest {
   maxTokens?: number;
   signal?: AbortSignal;
   /** Internal auxiliary request; adapters may avoid expensive reasoning. */
-  purpose?: "context_summary";
+  purpose?: "context_summary" | "extension_request";
+  /** Core-owned per-request transport policy; absent preserves foreground SDK defaults. */
+  transport?: {
+    maxRetries: number;
+    timeoutMs: number;
+    compatibilityRetries?: boolean;
+  };
 }
 
 export type StreamEvent =
@@ -153,12 +159,14 @@ export type StreamEvent =
       message: ChatMessage;
       stopReason: string;
       usage: TokenUsage;
+      usageObserved?: boolean;
     }
   | {
       type: "error";
       message: string;
       code?: ProviderErrorCode;
       usage?: TokenUsage;
+      status?: number;
     };
 
 export interface ProviderAdapter {
@@ -227,6 +235,10 @@ export interface UndoEntry {
 }
 
 export interface Session {
+  /** Separate expense ownership. Side records never enter provider history or compaction. */
+  mainSpend?: import("../models/contracts.js").ModelSpend;
+  sideQueries?: import("../models/contracts.js").SideQueryRecord[];
+  sideQuerySpend?: Record<string, import("../models/contracts.js").ModelSpend>;
   id: string;
   projectPath: string;
   messages: ChatMessage[];

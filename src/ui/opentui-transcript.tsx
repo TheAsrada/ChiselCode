@@ -5,7 +5,7 @@ import { diffViewForWidth } from "./file-diff-preview.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { FormattedMessage } from "./opentui-message.js";
-import { terminalSafeText } from "./terminal-text.js";
+import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import type { TranscriptEntry } from "./tui-controller.js";
 
 export { terminalSafeText } from "./terminal-text.js";
@@ -29,6 +29,7 @@ export { diffViewForWidth };
 
 export function OpenTuiTranscript({
   entries,
+  onOpenSide,
   contentWidth,
   expandedId,
   expandedIds,
@@ -37,6 +38,7 @@ export function OpenTuiTranscript({
   palette = THEMES.obsidian,
 }: {
   entries: readonly TranscriptEntry[];
+  onOpenSide?(operationId: string): void;
   contentWidth: number;
   expandedId?: number;
   expandedIds?: ReadonlySet<number>;
@@ -60,6 +62,34 @@ export function OpenTuiTranscript({
         </text>
       )}
       {visible.entries.map((entry) => {
+        const sideId = entry.sideOperationId;
+        if (sideId)
+          return (
+            <box key={entry.id} flexDirection="row" width="100%">
+              <text
+                fg={palette.muted}
+                height={1}
+                width={Math.max(1, contentWidth - (contentWidth < 40 ? 0 : 15))}
+              >
+                {terminalLine(
+                  entry.text,
+                  Math.max(1, contentWidth - (contentWidth < 40 ? 0 : 15)),
+                )}
+              </text>
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: F6 is the keyboard opening alternative. */}
+              <text
+                id={`side-open-${entry.id}`}
+                fg={palette.accent}
+                onMouseUp={(event) => {
+                  event.stopPropagation();
+                  onOpenSide?.(sideId);
+                }}
+              >
+                {" "}
+                Открыть · F6
+              </text>
+            </box>
+          );
         const diff = entry.fileDiff;
         if (!diff && entry.tone === "context")
           return (
