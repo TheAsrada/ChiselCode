@@ -203,11 +203,17 @@ export async function gitIdentity(
         ),
       ),
     );
-  const [workingRoot, gitDir, commonDir] = await Promise.all([
+  // A failed probe must still await its siblings: their cwd handles otherwise
+  // outlive the caller and block workspace cleanup on Windows.
+  const fields = await Promise.allSettled([
     field("--show-toplevel"),
     field("--git-dir"),
     field("--git-common-dir"),
   ]);
+  const [workingRoot, gitDir, commonDir] = fields.map((result) => {
+    if (result.status === "rejected") throw result.reason;
+    return result.value;
+  }) as [string, string, string];
   return Object.freeze({ root: workingRoot, gitDir, commonDir });
 }
 export const commonGitResource = (identity: GitIdentity): string =>

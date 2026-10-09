@@ -13,11 +13,12 @@ import { EditingService } from "../../src/tools/editing/service.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 
 // Test-only process barrier: production has no crash flags or fixture loader.
-const [root, action, id, marker] = process.argv.slice(2);
-if (!root || !action || !marker)
+const [requestedRoot, action, id, marker] = process.argv.slice(2);
+if (!requestedRoot || !action || !marker)
   throw new Error("Expected root/action/id/marker");
 const host = new ExtensionHost(defaultExtensions());
-const scope = await host.open(root);
+const scope = await host.open(requestedRoot);
+const root = scope.workspaceRoot;
 const session = createSession(root, "openai", "fixture");
 const store = await projectSessionStore(root);
 const pause = async () => {

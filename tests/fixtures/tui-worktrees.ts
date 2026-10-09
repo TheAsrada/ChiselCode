@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
+import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 import {
@@ -350,11 +351,14 @@ try {
     assert.equal(list.length, 1);
     const session = await store.load(list[0]?.id as string);
     sessions.push(session.id);
-    assert.equal(session.projectPath, tree.path);
+    const canonicalRoot = await canonicalWorkspaceRoot(tree.path);
+    assert.equal(session.projectPath, canonicalRoot);
     assert.equal(session.worktree?.id, tree.id);
     assert.ok(
       Object.keys(session.runtime?.workspaceObservations ?? {}).every((path) =>
-        path.startsWith(tree.path),
+        (process.platform === "win32" ? path.toLowerCase() : path).startsWith(
+          canonicalRoot,
+        ),
       ),
     );
     assert.ok(

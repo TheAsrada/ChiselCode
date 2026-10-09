@@ -273,14 +273,18 @@ async function runApplication(
   const closingScopes = new Set<Promise<void>>();
   const closingRoots = new Set<string>();
   const releaseUnusedScopes = () => {
-    const roots = new Set([
-      workspace.home.snapshot.projectPath,
-      ...workspace.tabs.map((tab) => tab.controller.snapshot.projectPath),
-      ...openingRoots,
-    ]);
+    const rootKey = (value: string) =>
+      process.platform === "win32" ? resolve(value).toLowerCase() : value;
+    const roots = new Set(
+      [
+        workspace.home.snapshot.projectPath,
+        ...workspace.tabs.map((tab) => tab.controller.snapshot.projectPath),
+        ...openingRoots,
+      ].map(rootKey),
+    );
     for (const scope of extensionHost.readyScopes()) {
       if (
-        roots.has(scope.workspaceRoot) ||
+        roots.has(rootKey(scope.workspaceRoot)) ||
         closingRoots.has(scope.workspaceRoot)
       )
         continue;
@@ -1303,7 +1307,9 @@ async function runApplication(
                 try {
                   // Activation obtains the durable use lease before allocating
                   // a tab/session; it also gives this root independent LSP state.
-                  await extensionHost.open(descriptor.path);
+                  const worktreeScope = await extensionHost.open(
+                    descriptor.path,
+                  );
                   if (
                     !controller.isCurrent(requestGeneration) ||
                     signal.aborted
@@ -1311,7 +1317,7 @@ async function runApplication(
                     throw new Error("Worktree opening cancelled.");
                   const selected = controller.snapshot.modelSelection;
                   const session = createSession(
-                    descriptor.path,
+                    worktreeScope.workspaceRoot,
                     selected?.provider ??
                       homeModel.provider ??
                       catalog.registry.list()[0]?.id ??
@@ -1331,9 +1337,9 @@ async function runApplication(
                   session.approvalMode = turnApprovalMode;
                   if (selected?.profileId)
                     session.profileId = selected.profileId;
-                  await (await projectSessionStore(descriptor.path)).save(
-                    session,
-                  );
+                  await (
+                    await projectSessionStore(worktreeScope.workspaceRoot)
+                  ).save(session);
                   if (
                     !controller.isCurrent(requestGeneration) ||
                     signal.aborted

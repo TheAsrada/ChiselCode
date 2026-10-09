@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   symlink,
   utimes,
@@ -70,7 +71,9 @@ async function git(root: string, ...args: string[]) {
   ).stdout;
 }
 async function fixture(custom: readonly ChiselExtension[] = []) {
-  const directory = await mkdtemp(join(tmpdir(), "chisel-worktrees-"));
+  const directory = await realpath(
+    await mkdtemp(join(tmpdir(), "chisel-worktrees-")),
+  );
   for (const key of Object.keys(original))
     process.env[key] = join(directory, "home");
   const root = join(directory, "project with пробел");
