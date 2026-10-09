@@ -23,10 +23,10 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи разбор �
 
 Расположение данных — в [конфигурации](configuration.md); технические детали diff — в [file-edit-ux.md](file-edit-ux.md).
 
-## Технический формат v3
+## Побочные ответы и рабочие копии
 
-Сессия также сохраняет workflow `mode` и порядок подтверждений `approvalMode`; runtime хранит отдельные снимки выполняющегося запроса. Вкладки и очередь сохраняют собственные значения. Metadata меняется под общим lock без перезаписи истории. Для legacy approvalMode default разрешается из конфигурации проекта. Подробнее: [разрешения](permissions.md).
+Сохранённые побочные ответы отображаются отдельными записями. Их можно открыть после возвращения к разговору; они не добавляются в основную историю для модели и не отправляются повторно. Незавершённый при аварийном выходе запрос помечается как прерванный. [Срок хранения текстов и ограничения](side-questions.md#сохранённые-ответы).
 
-Project session сохраняет schemaVersion=3, providerId (open string), profileId и model. Полный transcript, runtime/context, summary/checkpoint, undo и structured UI diffs сохраняются. v2 с provider мигрирует в памяти в providerId и `${provider}-default` (namespace slash заменяется дефисом в legacy profile ID). Файл не переписывается при чтении. Следующий checkpoint/save/rename атомарно сохраняет v3. Отдельный session backup автоматически не создаётся; config backup описан в migration notes.
+Разговор в рабочей копии относится к её папке и хранится отдельно от исходного проекта. Закрытие вкладки не удаляет папку или изменения. Для возвращения используйте `/worktree list` и `/worktree open <ID>`. [Управление копиями](worktrees.md).
 
-Unknown/removed provider не мешает чтению history и summary. Запрос блокируется controlled provider unavailable; выберите доступный profile явно. Missing profile также требует явного выбора. Session index schemaVersion=2 — rebuildable cache: старый/повреждённый index восстанавливается из session files без перезаписи самих sessions. Старый project registry schemaVersion=1 не меняется. Non-persisted compatibility alias provider сохраняется для старых callers; durable identity не зависит от enum.
+Старые форматы разговоров читаются автоматически. Историю можно открыть, даже если прежний провайдер больше недоступен; для нового запроса выберите доступный профиль и модель. [Технический формат и совместимость](architecture.md#формат-сессий-и-совместимость).

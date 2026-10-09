@@ -8,10 +8,10 @@
 
 ## [0.6.20] - 2026-10-09
 
-- Added managed detached worktrees: `/worktree create/list/status/diff/open/apply/remove` and six builtin tools, with real CLI/TUI conversation roots and independent sessions/LSP.
-- Added core mixed leases for independent worktree files and shared Git metadata, durable Home registry/use heartbeats, crash reconciliation without mutation replay and commit retention before safe removal.
-- Apply transfers supported final UTF-8 files from immutable base through ordinary EditingService, approvals, conflicts/stale checks and rollback; source, target HEAD/index and unrelated edits remain intact.
-- Added actual OpenTUI compact/approval captures, real Git/LSP integrations and installed/compiled smoke on all supported CI platforms. No development branches, subagents, automatic merge/discard or `/help` restoration.
+- Изолированные рабочие копии для независимых задач: `/worktree create/list/status/diff/open/apply/remove`. Копия открывается в отдельной вкладке со своими файлами, разговором и анализом кода; создание не добавляет новую ветку Git.
+- Результат можно просмотреть и явно перенести в исходный проект с обычным подтверждением. Поддерживаются текстовые файлы UTF-8; конфликт или изменение файлов после просмотра останавливает перенос. Ветка, HEAD, индекс Git и посторонние правки исходного проекта сохраняются.
+- Закрытие вкладки и перезапуск приложения сохраняют рабочие копии. Удаление блокируется для занятых или изменённых папок, включая новые и игнорируемые файлы. Новые коммиты сохраняются во внутренней ссылке до безопасного удаления.
+- Добавлены проверки на настоящих Git-репозиториях, интеграция с LSP и кадры OpenTUI, включая маленькие терминалы. Установленные пакеты и compiled-сборки проверены в CI на Windows, macOS и Linux.
 
 ## [0.6.19] - 2026-10-09
 

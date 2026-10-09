@@ -94,11 +94,13 @@ bun build tests/fixtures/tui-command-contributions.ts --compile --outfile ./dist
 
 Изменение только документации не требует нового тега или публикации новой версии приложения.
 
+Заметки к релизу и секцию версии в `CHANGELOG.md` пишите по-русски. Сохраняйте технические имена команд и API; описывайте изменения для пользователя, а сведения о реализации и доказательства проверок выносите в материалы для участников.
+
 ## Изменения документации
 
-Держите полные инструкции в `docs`, а корневой README — короткой входной страницей. Пишите по-русски, используйте относительные ссылки и проверяйте названия команд по исходникам. Не представляйте планы как уже реализованные функции и не обещайте проверок, которые не запускались. Разовые отчёты об аудите, исследованиях и выполненной работе оставляйте в сообщении или описании изменения; в `docs` нужны инструкции, которые пригодятся при использовании и разработке проекта.
+Держите полные инструкции в `docs`, а корневой README — короткой входной страницей. Пишите по-русски, используйте относительные ссылки и проверяйте названия команд по исходникам. Пользовательская справка объясняет действия и ограничения; внутренние API описываются в архитектуре и руководстве разработчика. Отчёты о реализации, результаты проверок и кадры интерфейса размещайте отдельно в `docs/contributors/reports`, указывая коммит и версию. В пользовательском оглавлении используйте названия возможностей, а не номера этапов или формулировки отчёта. Не представляйте планы как уже реализованные функции и не обещайте проверок, которые не запускались.
 
-Перед PR: [руководство участника](../CONTRIBUTING.md). Для ориентации в исходниках: [архитектура](architecture.md).
+По поручению владельца работайте прямо в main без новых веток, worktrees для разработки и PR. Общие правила участия: [руководство участника](../CONTRIBUTING.md). Для ориентации в исходниках: [архитектура](architecture.md).
 
 ## Agent evaluation
 
@@ -157,9 +159,9 @@ CI job `Real Auto LSP` выполняет `bun tests/fixtures/multi-lsp-probe.ts
 
 Во время первоначальной загрузки crates/VFS rust-analyzer может отклонить read request при замене snapshot. Native harness допускает не более двух повторов такого чтения с паузой 250 ms. Он сохраняет проверки настоящих diagnostics/symbols/definitions; повторные ошибки завершают job failure. Cancellation, unsupported capabilities, malformed reports и другие ошибки не получают этот retry. Runtime tool failure остаётся настоящим terminal result; harness не меняет production execution, не перезапускает сервер и не повторяет mutations.
 
-## P1.4: внутренние model requests
+## Внутренний API запросов модели
 
-Пример linked contribution (registration только в activation):
+Пример программно подключённой команды; регистрация разрешена только во время activation:
 
 ```ts
 ctx.commands.register({
@@ -182,29 +184,29 @@ ctx.commands.register({
 });
 ```
 
-Core выдаёт readonly identity/signal/model port без tools, credentials/SDK, Session и renderer. Observer получает только sanitized typed text/status/terminal events с core owner; он не перенаправляет вывод. Права tools не появляются из model request. Foreground contribution без `executionPolicy` продолжает идти через conversation queue и может использовать lazy model port наряду с tools port; чистые local callbacks не требуют модели. API linked/internal, внешний SDK/loader и UI slots здесь не появляются.
+Core выдаёт неизменяемые identity/signal и порт model без tools, ключей, SDK, Session и renderer. Наблюдатель получает только очищенные типизированные события текста, статуса и завершения с владельцем, заданным core; перенаправить вывод нельзя. Запрос модели не выдаёт права на инструменты. Команда без `executionPolicy` продолжает идти через очередь разговора и может использовать ленивый порт model вместе с tools; локальные callbacks не требуют модели. API внутренний, для программно подключённого кода: внешнего SDK, загрузчика или UI-слотов нет.
 
-Проверки P1.4 используют настоящее приложение, builtin consumer, оба HTTP protocol drivers, session storage и OpenTUI renderer. Main endpoint barrier и approval остаются активными, пока /btw завершается; hide/reopen/resume не делают requests. Offline tests проверяют actual HTTP attempts (SDK retry layer выключен), no-auth custom definitions, protocol/partial/auth failures, limits, late usage, split credentials, concurrent checkpoint merge и interrupted retention.
+### Воспроизведение проверок
 
 ```sh
 bun test tests/unit/model-requests.test.ts tests/unit/side-query-storage.test.ts
 bun test tests/unit/opentui-side-query.test.tsx tests/integration/side-query-tui.test.ts tests/integration/side-query-cli.test.ts
-CHISEL_CAPTURE_DIR=/absolute/captures bun tests/fixtures/tui-side-query.ts
-CHISEL_CAPTURE_DIR=/absolute/captures bun test tests/unit/opentui-side-query.test.tsx
 bun tests/fixtures/side-query-cli.ts bun ./dist/cli.js
 bun tests/fixtures/command-packaging.ts
 ```
 
-Capture variables относятся только к test fixtures, не к production flags/autoload. Captures — реальные `captureCharFrame` и `captureSpans` с RGBA/геометрией, размеры 120×40, 100×30, 80×24, 60×20, 40×12, 24×8; dark/Paper, Unicode/ASCII, receiving/completed/error/draft/focused/hidden/approval. Packaging harness запускает default builtin /btw view в installed staging package и compiled runtime; обычные npm/compiled CLI smoke используют тот же command dispatch без source imports/fixtures внутри production. CI matrix сохраняет Windows/macOS/Linux и real pinned LSP regressions.
+Используются штатное приложение, встроенная команда, HTTP-драйверы и хранилище сессий; локальные endpoints изолируют платную модель. Результаты конкретного выпуска, сценарии и команды получения кадров находятся в [отчёте о побочных вопросах](contributors/reports/model-requests.md). Внутренние контракты и бюджеты описаны в [архитектуре](architecture.md#запросы-модели-и-побочные-вопросы).
 
-UI reuse: shared OpenTuiDialog/DialogAction/Palette, native textarea, FormattedMessage и TerminalScrollbox; explicit keyboard-owner capture перед global listeners дополнен focus props. Installed OpenTUI 0.5.12 `KeyHandler.emitWithPriority`, `preventDefault/stopPropagation` и `prependListener` проверены напрямую. Ориентиры: [official interaction/focus](https://opentui.com/docs/core-concepts/interaction/), [layout](https://opentui.com/docs/core-concepts/layout/); яркие debug colors/отдельная дизайн-система не переносились.
+## Рабочие копии: разработка и проверки
 
-## P2.1: WorktreeService
+Работайте непосредственно в main. Управляемые detached worktrees — функция приложения; интеграционные тесты создают Git-репозитории только во временных каталогах, вне checkout ChiselCode.
 
-Разработка и commits выполняются прямо в main. Managed detached trees — production feature; реальные integration fixtures создаются только во временных repositories, не в checkout ChiselCode.
+```sh
+bun test tests/integration/worktrees-runtime.test.ts tests/integration/worktrees-tui.test.ts
+bun tests/fixtures/worktree-cli.ts bun src/cli.ts
+bun tests/fixtures/command-packaging.ts
+```
 
-`bun test tests/integration/worktrees-runtime.test.ts tests/integration/worktrees-tui.test.ts` проверяет настоящий Git, core tools/policy/EditingService/checkpoints, параллельность, rollback и SIGKILL/reconciliation. `tests/fixtures/worktree-crash.ts` — test-only barrier; после подтверждённого child exit тест продвигает timestamp abandoned fixture lock, не удаляя production trees и не replay-уя mutations. `bun tests/fixtures/worktree-cli.ts bun src/cli.ts` вызывает обычный CLI; замените executable/prefix для npm package или compiled binary. `command-packaging.ts` также запускает default production TUI из установленного package и test-only compiled harness с реальным TypeScript backend. CI делает это на Windows/macOS/Linux, сохраняя LSP и /btw checks.
+Для установленного пакета или скомпилированного бинарника замените executable/prefix в тестовом запуске CLI. Git, файлы, EditingService и executor в этих сценариях настоящие; модель изолирована локальным endpoint. Результаты, барьеры аварийных проверок, пределы и команды получения кадров находятся в [отчёте о рабочих копиях](contributors/reports/worktrees.md).
 
-Для actual captures задайте `CHISEL_CAPTURE_DIR`, опционально `CHISEL_TEST_THEME=paper`, `CHISEL_TEST_UNICODE=1`, и запустите `bun tests/fixtures/tui-worktrees.ts`. Harness использует штатный application submit/default composition/approvals, captureCharFrame и цветные captureSpans. Ни fixture loader, ни скрытые smoke flags не входят в production CLI.
-
-Внутренний API для P2.2: scope получает service token, invocation получает readonly identity/signal и узкие tools/open ports. Core владеет repository identity, managed path, base, mutation grant, leases, registry, prepare/execute, rollback и retained refs. Новый child owner ID пока не реализует subagent loop/budgets/jobs. Внешнего SDK/loader или произвольного subprocess/Session/controller port нет. [Отчёт и кадры P2.1](p2.1-implementation.md).
+Внутренний service token предоставляет порт, привязанный к root; invocation получает identity/signal и узкие порты tools/open. Core определяет идентичность репозитория, управляемый путь, base, разрешение изменения, блокировки, реестр, prepare/execute, откат и удержанные ссылки. Подробности — [контракт сервиса](architecture.md#сервис-рабочих-копий). Дочерний цикл агента, его бюджеты и задания, внешний SDK и загрузчик пока не реализованы.

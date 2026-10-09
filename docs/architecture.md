@@ -355,7 +355,7 @@ LSP panel показывает Auto / Своя настройка / Выключ
 
 Это internal trusted in-process subsystem: readonly API и policy path не изолируют произвольный JS или language server. P1.3 не добавляет внешний loader/SDK, настройку Extensions, sandbox, LSP mutations или full-project diagnostics coverage. `/help` остаётся удалённой пользовательской командой; LSP команды видны через обычный autocomplete/projection.
 
-### Model port и побочные вопросы (P1.4)
+### Запросы модели и побочные вопросы
 
 `builtin.btw` входит в явный `defaultExtensions([], { configPath })`. `/btw <вопрос>` — command contribution с immutable `executionPolicy: "side_query"`; default policy остаётся `foreground`. Lane определяется metadata contribution, а не именем в renderer. `ExtensionHost([])` остаётся пустым, /help не возвращён.
 
@@ -373,7 +373,7 @@ Session schemaVersion остаётся 3: optional typed `sideQueries`, `sideQue
 
 TUI foreground queue и side operations принадлежат conversation, но имеют разные abort/owner resources. Side finally не трогает activeRun, approval resolver или очередь. Shutdown fences/aborts/awaits оба пути до host cleanup. Отдельное floating view — core presentation, не extension UI slots. Trusted in-process JS не sandbox; cancellation provider/callback cooperative, API не обещает принудительное завершение произвольного JS.
 
-## WorktreeService (P2.1)
+## Сервис рабочих копий
 
 `builtin.worktrees` подключён в явную default composition; пустой `ExtensionHost([])` остаётся пустым. Factory владеет application/repository bookkeeping; workspace service token даёт captured-root port. Registry identity — canonical `git-common-dir`; workspace — working root + worktree-specific git-dir, полученные через Git и realpath, включая linked `.git` file и вызов из subdirectory.
 
@@ -384,3 +384,11 @@ Global/per-repository registry использует version checks, atomic fsync
 Default worktree registration идёт перед LSP: reverse scope cleanup сначала останавливает процессы, потом освобождает use lease. Origin и все открытые tabs удерживают свои scopes; последний ушедший root закрывает LSP/scope, сохраняя disk tree. `run-command` выдаёт foreground invocation только narrow `worktrees.open(ID)`; verified descriptor передаётся core application action, удерживая admission lease до открытия scope/tab. Side-query context `/btw` этого port не получает. Session.worktree — optional presentation metadata schema 3, не capability.
 
 Apply использует existing EditingService.replaceBatch/commit, реальные fresh-read observations, staged writes, validation перед каждым write и concurrent-safe rollback. Другого patch engine/executor/history store нет. Git driver использует executable+argv, minimal environment без Git routing variables, bounded binary output, deadlines/tree termination; hooks, fsmonitor, external diff/textconv и auto-maintenance отключены. Доступ к Home не расширяет WorkspacePolicy: только issued capability конкретного owned tree/origin. Подробные пределы и recovery: [Worktrees](worktrees.md).
+
+## Формат сессий и совместимость
+
+Сессия сохраняет режим работы `mode` и порядок подтверждений `approvalMode`; runtime хранит отдельные снимки выполняющегося запроса. Вкладки и очередь сохраняют собственные значения. Метаданные меняются под общей блокировкой без перезаписи истории. Для старой сессии без approvalMode значение по умолчанию определяется конфигурацией проекта. Подробнее: [разрешения](permissions.md).
+
+Сессия проекта сохраняет schemaVersion=3, providerId (произвольная строка), profileId и model. Сохраняются полная переписка, runtime/context, summary/checkpoint, undo и структурированные diff интерфейса. Формат v2 с provider мигрирует в памяти в providerId и `${provider}-default`; slash пространства имён заменяется дефисом в старом ID профиля. При чтении файл не переписывается. Следующие checkpoint/save/rename атомарно сохраняют v3. Отдельная резервная копия сессии автоматически не создаётся; резервная копия конфигурации описана в [переносе настроек](provider-migration.md).
+
+Неизвестный или удалённый провайдер не мешает чтению истории и summary. Новый запрос получает контролируемую ошибку недоступности; нужен явный выбор доступного профиля. Отсутствующий профиль также требует выбора. Индекс сессий schemaVersion=2 — восстанавливаемый кэш: старый или повреждённый индекс строится из файлов без их перезаписи. Прежний реестр проектов schemaVersion=1 не меняется. Для старых вызовов сохраняется неперсистентный совместимый alias provider; сохранённая идентичность не зависит от enum.
