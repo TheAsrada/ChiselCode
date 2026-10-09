@@ -30,6 +30,7 @@ export { diffViewForWidth };
 export function OpenTuiTranscript({
   entries,
   onOpenSide,
+  focusedSideId,
   contentWidth,
   expandedId,
   expandedIds,
@@ -39,6 +40,7 @@ export function OpenTuiTranscript({
 }: {
   entries: readonly TranscriptEntry[];
   onOpenSide?(operationId: string): void;
+  focusedSideId?: string;
   contentWidth: number;
   expandedId?: number;
   expandedIds?: ReadonlySet<number>;
@@ -65,7 +67,11 @@ export function OpenTuiTranscript({
         const sideId = entry.sideOperationId;
         if (sideId)
           return (
-            <box key={entry.id} flexDirection="row" width="100%">
+            <box
+              key={entry.id}
+              flexDirection={contentWidth < 40 ? "column" : "row"}
+              width="100%"
+            >
               <text
                 fg={palette.muted}
                 height={1}
@@ -76,17 +82,17 @@ export function OpenTuiTranscript({
                   Math.max(1, contentWidth - (contentWidth < 40 ? 0 : 15)),
                 )}
               </text>
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: F6 is the keyboard opening alternative. */}
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: Tab focuses this record; Enter or F6 opens the view. */}
               <text
                 id={`side-open-${entry.id}`}
                 fg={palette.accent}
+                bg={focusedSideId === sideId ? palette.raised : undefined}
                 onMouseUp={(event) => {
                   event.stopPropagation();
                   onOpenSide?.(sideId);
                 }}
               >
-                {" "}
-                Открыть · F6
+                {focusedSideId === sideId ? "> Открыть Enter" : " Открыть · F6"}
               </text>
             </box>
           );

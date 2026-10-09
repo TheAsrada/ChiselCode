@@ -41,8 +41,10 @@ export function OpenTuiSideQuery({
   );
   const editing = view.sideView?.editing ?? !record;
   const draft = view.sideView?.draft ?? "";
-  const pending =
-    view.sidePending || (record && isModelRequestActive(record.status));
+  const running = record
+    ? isModelRequestActive(record.status)
+    : view.sidePending;
+  const pending = view.sidePending || running;
   const layout = dialogLayout(width, height, 20, 76);
   const compact = width < 60 || height < 14;
   const contentWidth = Math.max(1, layout.popupWidth - (layout.tiny ? 2 : 4));
@@ -77,7 +79,7 @@ export function OpenTuiSideQuery({
       label: compact ? "Скрыть" : "Скрыть · Esc",
       run: () => controller.hideSide(),
     },
-    ...(pending
+    ...(running
       ? [
           {
             id: "stop",

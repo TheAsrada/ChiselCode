@@ -417,6 +417,14 @@ function OpenTuiScreen({
   const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
     "editor",
   );
+  const [sideRecordIndex, setSideRecordIndex] = useState<number | undefined>();
+  const sideRecordIds = view.transcript.flatMap((entry) =>
+    entry.sideOperationId ? [entry.sideOperationId] : [],
+  );
+  const focusedSideId =
+    focus === "transcript" && sideRecordIndex !== undefined
+      ? sideRecordIds[Math.min(sideRecordIndex, sideRecordIds.length - 1)]
+      : undefined;
   useLayoutEffect(() => {
     if (sideActive) editor.current?.blur();
     else if (!approval && !otherOverlay && focus === "editor")
@@ -893,6 +901,22 @@ function OpenTuiScreen({
         return;
       }
     }
+    if (focusedSideId && (key.name === "return" || key.name === "enter")) {
+      key.preventDefault();
+      key.stopPropagation();
+      controller?.openSide(focusedSideId);
+      return;
+    }
+    if (focusedSideId && ["up", "down"].includes(key.name)) {
+      key.preventDefault();
+      key.stopPropagation();
+      setSideRecordIndex(
+        (index) =>
+          ((index ?? 0) + (key.name === "up" ? -1 : 1) + sideRecordIds.length) %
+          sideRecordIds.length,
+      );
+      return;
+    }
     if (key.name === "escape") {
       if (contextOnly) setOverlayDismissed(true);
       else if (expanded || expandedDiffIds.size) {
@@ -908,6 +932,22 @@ function OpenTuiScreen({
       changeMode(toggleSidebarMode(mode, width));
     if (key.name === "tab" && !contextOnly) {
       key.preventDefault();
+      if (focus === "transcript" && sideRecordIndex !== undefined) {
+        const index = sideRecordIndex + (key.shift ? -1 : 1);
+        if (index >= 0 && index < sideRecordIds.length)
+          setSideRecordIndex(index);
+        else {
+          setSideRecordIndex(undefined);
+          if (index < 0) {
+            setFocus("editor");
+            controller?.setFocus("composer");
+          }
+        }
+        return;
+      }
+      setSideRecordIndex(
+        focus === "editor" && sideRecordIds.length ? 0 : undefined,
+      );
       const next =
         focus === "editor"
           ? home && view.transcript.length === 0
@@ -1361,6 +1401,7 @@ function OpenTuiScreen({
                   >
                     <OpenTuiTranscript
                       onOpenSide={(id) => controller?.openSide(id)}
+                      focusedSideId={focusedSideId}
                       entries={view.transcript}
                       contentWidth={composerWidth - 2}
                       expandedIds={expandedDiffIds}
@@ -1447,6 +1488,7 @@ function OpenTuiScreen({
                   {controller ? (
                     <OpenTuiTranscript
                       onOpenSide={(id) => controller?.openSide(id)}
+                      focusedSideId={focusedSideId}
                       entries={
                         classic
                           ? expanded

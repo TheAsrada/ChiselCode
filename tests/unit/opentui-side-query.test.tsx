@@ -228,7 +228,14 @@ for (const theme of ["obsidian", "paper"] as const)
         );
         await key(setup, "ESCAPE");
         expect(controller.snapshot.draft).toBe("Основной черновик");
-        await key(setup, "F6");
+        await key(setup, "TAB");
+        expect(setup.captureCharFrame()).toContain("> Открыть");
+        await capture(
+          setup,
+          `${theme}-${unicode ? "unicode" : "ascii"}-focused-record-120x40`,
+        );
+        await key(setup, "RETURN");
+        expect(controller.snapshot.sideView?.visible).toBe(true);
         expect(submitted).toBe(0);
       } finally {
         setup.renderer.destroy();
