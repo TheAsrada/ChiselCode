@@ -4,7 +4,7 @@
 
 ## Статус и база
 
-Реализация P2.2 подготовлена прямо в `main`, без новых веток, worktrees для разработки и PR. Проверенная исходная база — `687fe370729f71f813e1a7144ca78ddd755d2078`, версия 0.6.20. Новая версия — **0.6.21**. Базовая реализация: `cdb7db8b79f6478539640818139a3381520568ef`. Итоговый CI и опубликованный выпуск будут указаны после завершения проверок; локальные результаты не заменяют подтверждение остальных платформ.
+Реализация P2.2 завершена прямо в `main`, без новых веток, worktrees для разработки и PR. Проверенная исходная база — `687fe370729f71f813e1a7144ca78ddd755d2078`, версия 0.6.20. Код выпуска **0.6.21**: `cca379993555b1022b6d300cc17222711a3c7dbe`; базовая реализация — `cdb7db8b79f6478539640818139a3381520568ef`. [Полная матрица CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38121496583) и [Release](https://github.com/TheAsrada/ChiselCode/actions/runs/38122660702) успешны. [Выпуск опубликован](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.21) **11 октября 2026, 07:55:21 UTC**: четыре установщика, без draft/prerelease. Документация `main` уточнена после публикации; исходники runtime соответствуют проверенному тегу.
 
 ## Что изменилось
 
@@ -34,11 +34,15 @@ Task records schema 1 живут в canonical Home; Session/global schema вер
 
 Локальное окружение: Linux x64, Bun **1.4.2**, Node **24.19.0**, OpenTUI **0.5.12**, Git **2.52.0**. Реальные LSP regressions используют внешний typescript-language-server **6.0.1** и TypeScript **6.0.3**, а не dev TypeScript приложения. Отдельно проверяется минимальный Git **2.39.5**.
 
-Локально завершены `bun run typecheck`, `bun test` (**1091 pass, 1 skip, 0 fail; 9657 assertions, 124 файла**), `bun run lint` (exit 0, 47 warnings и 14 infos), `bun run eval --category all` (**14/14** deterministic cases успешны), `bun run build` и `bun run compile`. Единственный skip — существующая проверка native OS clipboard, требующая desktop; untouched baseline имел такой же skip. Untouched baseline: 1069 pass, 1 skip, 0 fail. После правки hook routing targeted native UI regression завершился: **75 pass, 0 fail, 677 assertions**. Captured model race проверяет модель на submit и смену выбора до старта queued child.
+На итоговом runtime локально завершены `bun run typecheck`, `bun test` (**1092 pass, 1 skip, 0 fail; 9662 assertions, 124 файла, 176,88 секунды**), `bun run lint` (exit 0, 47 warnings и 14 infos), `bun run eval --category all` (**14/14** deterministic cases успешны), `bun run build` и `bun run compile`. Единственный skip — существующая проверка native OS clipboard, требующая desktop; untouched baseline имел такой же skip. Untouched baseline: 1069 pass, 1 skip, 0 fail. После правки hook routing targeted native UI regression завершился: **75 pass, 0 fail, 677 assertions**. Captured model race проверяет модель на submit и смену выбора до старта queued child.
 
 `subagents-cli.ts ./dist/chisel` прошёл настоящий loop и сохранение, Plan refusal, unavailable headless approval и запрет unrestricted child resume. `subagents-runtime.ts` отдельно прошёл с Git **2.39.5**. Полный `command-packaging.ts` прошёл установленный bundle и compiled native TUI для commands, LSP Settings/real server, параллельного `/btw`, рабочих копий и помощников. Обычный `chiselcode-0.6.21.tgz` установлен отдельно: production entrypoint прошёл тот же CLI loop. Архив **около 5,64 МБ / 18 файлов**, без test fixtures и smoke bundles.
 
 Проверены относительные ссылки/anchors/images: **37 Markdown документов, 306 локальных ссылок, 6 изображений, 18 anchors**, без ошибок. Неиспользованные desktop/macOS/Windows окружения локально не заявляются проверенными; матрица CI выполняет native tests, установленный package и compiled paths на всех трёх ОС.
+
+Итоговый CI: **6/6 заданий успешны** — quality и реальные Auto LSP на Windows/macOS/Linux. Windows: **1093 pass, 0 fail, 9670 assertions**, включая системный буфер обмена; отдельный настоящий child runtime acceptance через junction и installed/compiled CLI/TUI также успешны. Обе ошибки Windows root identity исправлены в runtime, проверки ownership и permissions сохранены. Минимальный Git **2.39.5** повторно проверен на итоговом коде через symlink и реальные apply/conflict/no-op.
+
+Опубликованный `ChiselCode-Setup-0.6.21-linux-amd64.deb` скачан со страницы релиза и распакован отдельно. Его SHA-256 совпадает с GitHub: `8c5443681b1428956005b18baf15129f0079520a0399ebb4868313ae47507c45`. Готовый `/usr/bin/chisel` показывает **0.6.21** и проходит `subagents-cli.ts`: настоящий model/tool loop, изолированные bytes, durable refs, Plan refusal, approval_unavailable и запрет обычного resume child. Проверка установщиков Windows/macOS локально не заявляется: их сборка и соответствующие compiled runtimes подтверждены CI. Обычный npm-архив проверен установкой; публикация в npm registry этим workflow не выполняется.
 
 Для воспроизведения:
 
