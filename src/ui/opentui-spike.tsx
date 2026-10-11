@@ -1477,18 +1477,6 @@ function OpenTuiScreen({
     focusSidebar();
   };
   const menuActions: SidebarMenuAction[] = [
-    ...(workspace
-      ? [
-          {
-            id: "new",
-            label: "Новая беседа",
-            detail: "Начать новую задачу",
-            shortcut: "Ctrl+Shift+N",
-            group: "БЕСЕДА",
-            run: () => workspace.newDraft(),
-          },
-        ]
-      : []),
     ...(sessionPicker
       ? [
           {

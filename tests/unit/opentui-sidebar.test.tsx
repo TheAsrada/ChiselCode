@@ -274,7 +274,7 @@ test("sidebar drawer anchors to the right, restores scroll and uses the full nar
   }
 });
 
-test("home opens the sidebar with one Ctrl+B and the menu starts a separate conversation", async () => {
+test("home opens the sidebar with one Ctrl+B and menu settings preserve the active conversation", async () => {
   const workspace = new TuiWorkspace(process.cwd());
   let setup!: Setup;
   await act(async () => {
@@ -304,13 +304,17 @@ test("home opens the sidebar with one Ctrl+B and the menu starts a separate conv
     });
     await frame(setup);
     await click(setup, "sidebar-tab-menu");
-    await click(setup, "sidebar-menu-new");
-    expect(workspace.activeKey).toBeUndefined();
-    expect(workspace.controller).not.toBe(origin);
+    expect(
+      setup.renderer.root.findDescendantById("sidebar-menu-new"),
+    ).toBeUndefined();
+    await click(setup, "sidebar-menu-appearance");
+    expect(origin.snapshot.overlay).toBe("settings");
+    await key(setup, "ESCAPE");
+    expect(workspace.controller).toBe(origin);
     expect(origin.snapshot.draft).toBe("Задача в первой вкладке");
     expect(origin.snapshot.busy).toBe(true);
-    expect(setup.renderer.root.findDescendantById("welcome")).toBeDefined();
-    expect(workspace.controller.snapshot.focus).toBe("composer");
+    expect(origin.snapshot.focus).toBe("sidebar");
+    expect(origin.snapshot.agentTree?.view).toBe("menu");
   } finally {
     act(() => setup.renderer.destroy());
     workspace.dispose();
