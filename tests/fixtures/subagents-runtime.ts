@@ -82,6 +82,11 @@ const foregroundHeld = new Promise<void>((resolve) => {
 });
 const completed = new Set<string>();
 const controller = new TuiController(root);
+let stage = "Подготовка HTTP и renderer";
+function phase(value: string) {
+  stage = value;
+  console.error("Этап runtime fixture:", value);
+}
 controller.setDraft("Родительский черновик во время делегирования");
 const ui = await testRender(
   createElement(OpenTuiSpike, { controller, onExit: () => {} }),
@@ -162,6 +167,7 @@ const server = Bun.serve({
       const state = childRoots.get(cwd) ?? { count: 0, task };
       childRoots.set(cwd, state);
       state.count++;
+      console.error("Child HTTP:", childRoots.size, state.count);
       if (state.count === 1)
         return toolResponse([
           {
@@ -193,6 +199,7 @@ const server = Bun.serve({
       );
     }
     parentCalls++;
+    phase(`Parent HTTP ${parentCalls}`);
     if (parentCalls === 1) {
       const name = body.tools?.find((tool) =>
         tool.function.name.includes("submit_coding"),
@@ -254,7 +261,27 @@ await writeFile(
     web: { enabled: false },
   }),
 );
+let watchdog: ReturnType<typeof setTimeout> | undefined;
 try {
+  phase("runPrompt: два coding помощника");
+  watchdog = setTimeout(() => {
+    console.error(
+      "Ожидание runtime fixture:",
+      JSON.stringify({
+        stage,
+        parentCalls,
+        parentHeld,
+        completed: completed.size,
+        childRequests: [...childRoots.values()].map((item) => item.count),
+        children: controller.snapshot().children?.map((item) => ({
+          label: item.label,
+          status: item.status,
+          step: item.step,
+        })),
+      }),
+    );
+  }, 20000);
+  watchdog.unref();
   const { result, exitCode } = await runPrompt(
     "Поручи двум помощникам независимые изменения",
     {
@@ -275,6 +302,11 @@ try {
       onSubagent: (event) => {
         controller.acceptSubagent(event);
         if (event.type === "terminal") {
+          console.error(
+            "Child terminal:",
+            event.child.label,
+            event.child.status,
+          );
           if (event.child.status !== "completed") {
             console.error(
               "Child failure:",
@@ -300,6 +332,8 @@ try {
       },
     },
   );
+  clearTimeout(watchdog);
+  phase("runPrompt завершён; выбор дерева");
   assert.equal(exitCode, 0, JSON.stringify(result));
   await act(async () => {
     controller.setSessionUsage(result.session);
@@ -308,10 +342,12 @@ try {
     ui.mockInput.pressKey("ARROW_DOWN");
   });
   await capture("production-120x40-tree");
+  phase("Дерево снято; открытие details");
   await act(async () => {
     ui.mockInput.pressKey("RETURN");
   });
   await capture("production-120x40-details");
+  phase("Details сняты; проверка файлов и сохранения");
   const records = Object.values(result.session.children ?? {}).map(
     (receipt) => receipt.child,
   );
@@ -387,14 +423,17 @@ try {
     const first = records.find((record) => record.label === "Первая задача")!;
     const second = records.find((record) => record.label === "Вторая задача")!;
     const diff = await action(`diff ${first.worktree!.id}`);
+    phase("Diff готов; apply первой задачи");
     assert.ok(diff.result.output.includes("same.txt"));
     const applied = await action(`apply ${first.worktree!.id}`);
+    phase("Первый apply завершён; проверка конфликта");
     assert.ok(!applied.result.isError, applied.result.output);
     assert.equal(
       await readFile(join(root, "same.txt"), "utf8"),
       "first isolated result\n",
     );
     const conflict = await action(`apply ${second.worktree!.id}`);
+    phase("Конфликт проверен; повторный apply");
     assert.ok(
       conflict.result.isError,
       "Второй результат не должен перезаписывать конфликт",
@@ -404,6 +443,7 @@ try {
       "first isolated result\n",
     );
     const repeated = await action(`apply ${first.worktree!.id}`);
+    phase("Повторный apply завершён; проверка HEAD/index");
     assert.ok(!repeated.result.isError, repeated.result.output);
     assert.equal(await git("rev-parse", "HEAD"), originalHead);
     assert.equal(await git("ls-files", "--stage"), originalIndex);
@@ -428,6 +468,8 @@ try {
     "Subagents runtime: two production model/tool loops, isolated edits, durable records, independent accounting",
   );
 } finally {
+  if (watchdog) clearTimeout(watchdog);
+  phase("Cleanup fixture");
   markChildRequest();
   markParentHeld();
   releaseParent();

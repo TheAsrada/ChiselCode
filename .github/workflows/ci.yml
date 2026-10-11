@@ -62,6 +62,12 @@ jobs:
         run: bun scripts/prepare-lsp-tests.ts
       - name: Type check
         run: bun run typecheck
+      - name: Real child runtime acceptance on Windows
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        env:
+          CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
+        run: bun tests/fixtures/subagents-runtime.ts
       - name: Test
         env:
           CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
