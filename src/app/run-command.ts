@@ -484,6 +484,13 @@ export async function runExtensionCommand(
         tools.context.artifacts,
         config.context?.maxInlineToolResultTokens,
       );
+    if (result.presentation && !result.isError && !result.requiresApproval) {
+      session.chatPresentations ??= [];
+      session.chatPresentations.push({
+        afterMessage: session.messages.length,
+        presentation: result.presentation,
+      });
+    }
     await tools.saveCheckpoint();
     if (subagents && !options.interactive) {
       await subagents.drain(session.id);

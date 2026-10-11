@@ -126,7 +126,10 @@ export class TuiWorkspace {
     return controller;
   }
 
-  openSession(session: Session): TuiController {
+  openSession(
+    session: Session,
+    chat?: import("../types/chat-presentation.js").ChatPresentationPort,
+  ): TuiController {
     if (session.subagent)
       throw new Error(
         "История помощника доступна только в просмотре задачи; обычная вкладка не расширяет его права.",
@@ -143,7 +146,7 @@ export class TuiWorkspace {
     }
     const controller = this.newTab(session.projectPath);
     controller.switchSession(session);
-    replaySessionIntoTranscript(controller, session);
+    replaySessionIntoTranscript(controller, session, chat);
     controller.setSessionUsage(session);
     return controller;
   }

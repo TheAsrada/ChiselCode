@@ -9,6 +9,10 @@ import type { NetworkRequest } from "../security/network-policy.js";
 import type { ToolEffect } from "../tools/effects.js";
 import type { ToolHandler, ToolSource, ToolSpec } from "../tools/types.js";
 import type {
+  ChatPresentation,
+  ChatStyle,
+} from "../types/chat-presentation.js";
+import type {
   FileDiff,
   JsonObject,
   ToolExecutionResult,
@@ -91,6 +95,7 @@ export interface ContextCollectionPort {
 export interface ExtensionContext {
   readonly workspaceRoot: string;
   readonly signal: AbortSignal;
+  readonly chat: { register(view: ExtensionChatView): void };
   readonly tools: {
     register(tool: ExtensionToolContribution): void;
   };
@@ -111,6 +116,10 @@ export interface ExtensionContext {
   };
   add(disposable: Disposable): void;
 }
+export interface ExtensionChatView {
+  id: string;
+  render(data: unknown): ChatPresentation | undefined;
+}
 export type ExtensionToolContribution = {
   spec: Omit<ToolSpec, "source" | "guidance">;
   parse: ToolHandler["parse"];
@@ -126,6 +135,7 @@ export interface ExtensionCommandDescriptor {
   readonly name: string;
   readonly description: string;
   readonly usage?: string;
+  readonly chat?: ChatStyle;
   readonly source: ExtensionCommandIdentity;
   readonly executionPolicy?: "foreground" | "side_query";
   readonly controlActions?: readonly string[];
@@ -169,6 +179,7 @@ interface ExtensionCommandMetadata<T> {
   name: string;
   description: string;
   usage?: string;
+  chat?: ChatStyle;
   parse(args: string): T;
   controlActions?: readonly string[];
   executeControl?(

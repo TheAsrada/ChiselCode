@@ -2,7 +2,9 @@ import { z } from "zod";
 import { BUILTIN_COMMAND_NAMES } from "../commands/slash.js";
 import type { ModelRequestResult } from "../models/contracts.js";
 import { cancelled } from "../runtime/errors.js";
+import { ChatStyleSchema } from "../types/chat-presentation.js";
 import type { ToolExecutionResult } from "../types/domain.js";
+import type { ExtensionChatViews } from "./chat.js";
 import type {
   Disposable,
   ExtensionCommandContribution,
@@ -29,6 +31,7 @@ const registration = z
     name: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
     description: plainText(COMMAND_DESCRIPTION_LIMIT),
     usage: plainText(COMMAND_USAGE_LIMIT).optional(),
+    chat: ChatStyleSchema.optional(),
     executionPolicy: z.enum(["foreground", "side_query"]).default("foreground"),
     controlActions: z
       .array(z.string().regex(/^[a-z_]+$/))
@@ -69,6 +72,7 @@ export class ExtensionCommandContributions {
   constructor(
     private readonly assertAvailable: () => void,
     private readonly lifetime: AbortSignal,
+    private readonly chat?: ExtensionChatViews,
   ) {}
   register<T>(
     extensionId: string,
@@ -122,6 +126,7 @@ export class ExtensionCommandContributions {
             ? { controlActions: metadata.controlActions }
             : {}),
           ...(metadata.usage ? { usage: metadata.usage } : {}),
+          ...(metadata.chat ? { chat: metadata.chat } : {}),
           source: {
             type: "extension" as const,
             extensionId,
@@ -141,7 +146,12 @@ export class ExtensionCommandContributions {
                     "Control received a broad port",
                     extensionId,
                   );
-                return executeControl(context, input as T);
+                const result = await executeControl(context, input as T);
+                cancelled(context.signal);
+                return (
+                  this.chat?.result(extensionId, metadata.chat, result) ??
+                  result
+                );
               },
             }
           : {}),
@@ -163,7 +173,9 @@ export class ExtensionCommandContributions {
           // Cooperative cancellation: wait for callbacks/tools to settle before releasing ownership.
           const result = await execute(context, input as T);
           cancelled(context.signal);
-          return result;
+          return "output" in result
+            ? (this.chat?.result(extensionId, metadata.chat, result) ?? result)
+            : result;
         },
       });
     } catch (cause) {
@@ -209,6 +221,7 @@ export class ExtensionCommandContributions {
           source,
           executionPolicy,
           controlActions,
+          chat,
         }) =>
           Object.freeze({
             name,
@@ -217,6 +230,7 @@ export class ExtensionCommandContributions {
             source,
             executionPolicy,
             controlActions,
+            ...(chat ? { chat } : {}),
           }),
       ),
     );

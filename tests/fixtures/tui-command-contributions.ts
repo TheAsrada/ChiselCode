@@ -123,6 +123,49 @@ const extension: ChiselExtension = {
   id: "fixture.commands",
   async activate(ctx) {
     activations++;
+    ctx.chat.register({
+      id: "report",
+      render: (value) => {
+        const result =
+          value as import("../../src/types/domain.js").ToolExecutionResult;
+        return {
+          cards: [
+            {
+              id: "report",
+              revision: 1,
+              title: "Отчёт расширения",
+              subtitle: "Проверка проекта",
+              description: result.output,
+              status: { label: "Готово", tone: "success" },
+              detail: "Проверка завершена",
+            },
+          ],
+        };
+      },
+    });
+    ctx.tools.register(
+      defineTool(
+        {
+          name: "report",
+          description: "Проверить отображение расширения",
+          chat: { title: "Проверка проекта", view: "report" },
+          effect: "read",
+          permission: "read",
+          parallelSafe: true,
+        },
+        z.object({}).strict(),
+        async () => ({ data: undefined, preview: "Проверка", resources: [] }),
+        async () => ({ output: "Файлы проекта проверены" }),
+      ),
+    );
+    ctx.commands.register({
+      name: "report",
+      description: "Показать карточку расширения",
+      chat: { title: "Проверка проекта", view: "report" },
+      parse: () => undefined,
+      execute: (context) =>
+        context.tools.execute("ext:fixture.commands:report", {}),
+    });
     ctx.add({
       dispose: () => {
         cleanups++;
@@ -392,6 +435,33 @@ try {
   assert.equal(activations, 1);
   assert.equal(cleanups, 0);
   assert.ok(!setup.renderer.root.findDescendantById("welcome"));
+  await send("/report");
+  const reportIdentity = JSON.stringify(["fixture.commands", "report"]);
+  await until(
+    () =>
+      !!setup.renderer.root.findDescendantById(`chat-card-${reportIdentity}`),
+    "Расширение не отобразило собственную карточку",
+  );
+  await idle();
+  assert.ok(setup.captureCharFrame().includes("Отчёт расширения"));
+  assert.ok(setup.captureCharFrame().includes("Файлы проекта проверены"));
+  const reportStore = await projectSessionStore(firstRoot);
+  const reportSummary = (await reportStore.list())[0];
+  assert.ok(reportSummary);
+  const reportSession = await reportStore.load(reportSummary.id);
+  const reportInvocation = Object.values(
+    reportSession.runtime?.invocations ?? {},
+  ).find((item) => item.name === "ext:fixture.commands:report");
+  assert.equal(reportInvocation?.result?.output, "Файлы проекта проверены");
+  assert.equal(
+    reportInvocation?.result?.presentation?.view.cards?.[0]?.title,
+    "Отчёт расширения",
+  );
+  assert.equal(
+    reportSession.chatPresentations?.[0]?.presentation.extensionId,
+    "fixture.commands",
+  );
+  assert.equal(modelCalls, 0);
   await send("/peek bad");
   await until(
     () => setup.captureCharFrame().includes("неверные аргументы"),

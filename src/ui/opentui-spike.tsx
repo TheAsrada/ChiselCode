@@ -1754,6 +1754,9 @@ function OpenTuiScreen({
                   >
                     <OpenTuiTranscript
                       onOpenSide={(id) => controller?.openSide(id)}
+                      onOpenCard={(target) => {
+                        if (target.type === "subagent") openAgent(target.id);
+                      }}
                       focusedSideId={focusedSideId}
                       entries={view.transcript}
                       contentWidth={composerWidth - 2}
@@ -1841,6 +1844,9 @@ function OpenTuiScreen({
                   {controller ? (
                     <OpenTuiTranscript
                       onOpenSide={(id) => controller?.openSide(id)}
+                      onOpenCard={(target) => {
+                        if (target.type === "subagent") openAgent(target.id);
+                      }}
                       focusedSideId={focusedSideId}
                       entries={
                         classic

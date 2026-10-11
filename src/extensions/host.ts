@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { cancelled } from "../runtime/errors.js";
+import { ExtensionChatViews } from "./chat.js";
 import { ExtensionCommandContributions } from "./commands.js";
 import { ContextProviderRegistry } from "./context.js";
 import type {
@@ -35,6 +36,7 @@ export class WorkspaceExtensionScope implements Disposable {
   readonly contextProviders: ContextProviderRegistry;
   readonly tools: ExtensionToolContributions;
   readonly commands: ExtensionCommandContributions;
+  readonly chat: ExtensionChatViews;
   private readonly activations: ActivationResources[] = [];
   private readonly tracked = new Set<Disposable>();
   private disposal?: Promise<void>;
@@ -43,17 +45,21 @@ export class WorkspaceExtensionScope implements Disposable {
     readonly workspaceRoot: string,
     private readonly onClose: () => void = () => {},
   ) {
+    this.chat = new ExtensionChatViews(() => this.assertUsable());
     this.toolGuards = new RuntimeHookPipeline(workspaceRoot, this.signal);
     this.contextProviders = new ContextProviderRegistry(
       workspaceRoot,
       this.signal,
     );
-    this.tools = new ExtensionToolContributions(this.signal, () =>
-      this.assertUsable(),
+    this.tools = new ExtensionToolContributions(
+      this.signal,
+      () => this.assertUsable(),
+      this.chat,
     );
     this.commands = new ExtensionCommandContributions(
       () => this.assertUsable(),
       this.signal,
+      this.chat,
     );
   }
   get signal(): AbortSignal {
@@ -99,6 +105,12 @@ export class WorkspaceExtensionScope implements Disposable {
       const context: ExtensionContext = Object.freeze({
         workspaceRoot: this.workspaceRoot,
         signal: this.signal,
+        chat: Object.freeze({
+          register: (view: import("./contracts.js").ExtensionChatView) => {
+            assertRegistering();
+            track(this.chat.register(definition.id, view));
+          },
+        }),
         commands: Object.freeze({
           register: <T>(
             command: import("./contracts.js").ExtensionCommandContribution<T>,
@@ -178,6 +190,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.contextProviders.seal();
     this.tools.seal();
     this.commands.seal();
+    this.chat.seal();
     this.ready = true;
   }
   abortLifetime(): void {
@@ -212,6 +225,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.contextProviders.dispose();
     this.tools.dispose();
     this.commands.dispose();
+    this.chat.dispose();
     this.abortLifetime();
     return this.disposal;
   }

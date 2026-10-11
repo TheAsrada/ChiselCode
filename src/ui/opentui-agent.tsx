@@ -84,6 +84,11 @@ import { VERSION } from "../version.js";
 import { resolveWebConfig } from "../web/schema.js";
 import { WebSettingsStore } from "../web/settings.js";
 import { themePalette } from "./appearance.js";
+import {
+  appendChatPresentation,
+  extensionCommandLabel,
+  resultChatPresentation,
+} from "./chat-presentation.js";
 import { suggestSimilarCommand } from "./commands.js";
 import type { OpenTuiModelsActions } from "./opentui-models.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
@@ -425,7 +430,8 @@ async function runApplication(
       autoApprove: project.autoApprove,
       allowBypassPermissions: bypassAvailable,
     });
-    const controller = workspace.openSession(session);
+    const scope = await extensionHost.open(session.projectPath);
+    const controller = workspace.openSession(session, scope.chat);
     persistExecutionModes(controller);
     await restoreSubagentControls(controller, session);
     warmModelCapabilities(controller);
@@ -487,6 +493,7 @@ async function runApplication(
         type: "changed",
         ownerId: session.id,
         child,
+        presentation: scope.chat.render(child.extensionId, "task", { child }),
       });
   };
   const sessionPicker: OpenTuiSessionsActions = {
@@ -1044,7 +1051,7 @@ async function runApplication(
           prepared = { command, input: command.parse(parsed?.args ?? "") };
         } catch {
           controller.append(
-            `[extension] /${command.name} · ${command.source.extensionId}: неверные аргументы.${command.usage ? ` Использование: ${safeDiagnostic(command.usage)}` : ""}`,
+            `${extensionCommandLabel(command)}: неверные аргументы.${command.usage ? ` Использование: ${safeDiagnostic(command.usage)}` : ""}`,
             "error",
           );
           return;
@@ -1132,8 +1139,13 @@ async function runApplication(
             },
             selected.input,
           );
-          if (origin.isCurrent(generation))
-            origin.append(result.output, result.isError ? "error" : "info");
+          if (origin.isCurrent(generation)) {
+            const presentation = resultChatPresentation(result);
+            if (presentation && !result.isError && !result.requiresApproval)
+              appendChatPresentation(origin, presentation);
+            else
+              origin.append(result.output, result.isError ? "error" : "info");
+          }
         } catch (error) {
           if (origin.isCurrent(generation))
             origin.append(
@@ -1372,6 +1384,7 @@ async function runApplication(
     controller.setRunningApprovalMode(turnApprovalMode);
     controller.append(`> ${input}`, "user");
     const tools = toolTranscriptHandlers(() => controller);
+    const presentedToolResults = new Set<string>();
     // Install the owner before any provider callback can complete the request.
     const work = Promise.resolve().then(async () => {
       let status: "completed" | "failed" | "cancelled" | "approval_required" =
@@ -1405,7 +1418,7 @@ async function runApplication(
             );
             return;
           }
-          const heading = `[extension] /${item.prepared.command.name} · ${item.prepared.command.source.extensionId}`;
+          const heading = extensionCommandLabel(item.prepared.command);
           controller.append(heading, "tool");
           controller.setToolActivity(heading);
           const outcome = await runExtensionCommand(
@@ -1528,6 +1541,8 @@ async function runApplication(
               onToolResult: (name, result) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
+                if (result.presentation)
+                  presentedToolResults.add(JSON.stringify(result.presentation));
                 tools.onToolResult?.(name, result);
                 if (result.diffs?.length || result.fileDiff)
                   for (const tab of workspace.tabs)
@@ -1550,12 +1565,25 @@ async function runApplication(
           if (!controller.isCurrent(requestGeneration) || signal.aborted)
             return;
           controller.setSessionUsage(outcome.session);
-          controller.append(
-            outcome.result.output,
-            outcome.result.isError || outcome.result.requiresApproval
-              ? "error"
-              : "info",
-          );
+          const presentation = resultChatPresentation(outcome.result);
+          if (
+            presentation &&
+            !outcome.result.isError &&
+            !outcome.result.requiresApproval
+          ) {
+            if (!presentedToolResults.has(JSON.stringify(presentation)))
+              appendChatPresentation(controller, presentation);
+          } else if (
+            !presentation ||
+            outcome.result.isError ||
+            outcome.result.requiresApproval
+          )
+            controller.append(
+              outcome.result.output,
+              outcome.result.isError || outcome.result.requiresApproval
+                ? "error"
+                : "info",
+            );
           return;
         }
         const availableSkills = loadSkills(item.root);
@@ -1723,7 +1751,7 @@ async function runApplication(
         if (!signal.aborted && controller.isCurrent(requestGeneration))
           controller.append(
             item.kind === "command"
-              ? `[extension] /${item.prepared.command.name} · ${item.prepared.command.source.extensionId}: ${safeDiagnostic(error instanceof Error ? error.message : "Command failed.")}`
+              ? `${extensionCommandLabel(item.prepared.command)}: ${safeDiagnostic(error instanceof Error ? error.message : "Command failed.")}`
               : String(error),
             "error",
           );

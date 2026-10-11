@@ -1,6 +1,13 @@
 import type { AgentEventHandlers } from "../core/agent-loop.js";
 import { stripActiveSkillsBlock } from "../skills/skills.js";
+import type { ChatPresentationPort } from "../types/chat-presentation.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
+import {
+  appendChatPresentation,
+  chatCardText,
+  resultChatPresentation,
+  toolChatLabel,
+} from "./chat-presentation.js";
 import { compactionNotice } from "./context-compaction.js";
 import { extensionResultLabel, extensionToolLabel } from "./extension-tool.js";
 import { fileDiffStats, fileDiffTitle } from "./file-diff-model.js";
@@ -22,9 +29,11 @@ export function appendToolResult(
   result: ToolExecutionResult,
 ): void {
   const extension = extensionResultLabel(result);
+  const presentation = resultChatPresentation(result);
   if (result.isError || result.requiresApproval) {
     view.append(`${FAIL_MARK} ${extension ?? name}: ${result.output}`, "error");
   } else if (result.diffs?.length || result.fileDiff) {
+    if (presentation) appendChatPresentation(view, presentation);
     if (extension) view.append(extension, "tool");
     for (const diff of result.diffs ??
       (result.fileDiff ? [result.fileDiff] : []))
@@ -33,6 +42,8 @@ export function appendToolResult(
         "tool",
         diff,
       );
+  } else if (presentation) {
+    appendChatPresentation(view, presentation);
   } else if (fileTools.has(name)) {
     view.append(result.output, "info");
   } else if (extension) {
@@ -58,7 +69,9 @@ export function toolTranscriptHandlers(
   return {
     onToolStart: (name, input, source) => {
       const view = getView();
-      if (extensionToolLabel(source))
+      const label = toolChatLabel(source, input);
+      if (label) view?.setToolActivity(label);
+      else if (extensionToolLabel(source))
         view?.setToolActivity(extensionToolLabel(source));
       else if (source?.type === "mcp")
         view?.setToolActivity(
@@ -88,11 +101,29 @@ const REPLAY_MESSAGE_LIMIT = 30;
 export function replaySessionIntoTranscript(
   view: TuiTranscript,
   session: Session,
+  chat?: ChatPresentationPort,
 ): void {
   const entries: Parameters<NonNullable<TuiTranscript["replace"]>>[0] = [];
   const collector: TuiTranscript = {
     append: (text, tone, fileDiff) => {
       entries.push({ text, tone, fileDiff });
+    },
+    upsertCard: (extensionId, card) => {
+      const index = entries.findIndex(
+        (entry) =>
+          entry.chatCard?.extensionId === extensionId &&
+          entry.chatCard.card.id === card.id,
+      );
+      const prior = entries[index];
+      if (prior?.chatCard && prior.chatCard.card.revision >= card.revision)
+        return;
+      const entry = {
+        text: chatCardText(card),
+        tone: "tool" as const,
+        chatCard: structuredClone({ extensionId, card }),
+      };
+      if (index >= 0) entries[index] = entry;
+      else entries.push(entry);
     },
     appendToLast: () => {},
     setToolActivity: () => {},
@@ -114,13 +145,28 @@ export function replaySessionIntoTranscript(
       ),
     ),
   );
+  const children = Object.values(session.children ?? {});
+  const childrenByInvocation = new Map(
+    children.map((receipt) => [receipt.child.invocationId, receipt]),
+  );
   const timings = new Map<number, NonNullable<Session["requestTimings"]>>();
   for (const timing of session.requestTimings ?? []) {
     const group = timings.get(timing.afterMessage) ?? [];
     group.push(timing);
     timings.set(timing.afterMessage, group);
   }
+  const presentations = new Map<
+    number,
+    NonNullable<Session["chatPresentations"]>
+  >();
+  for (const record of session.chatPresentations ?? []) {
+    const group = presentations.get(record.afterMessage) ?? [];
+    group.push(record);
+    presentations.set(record.afterMessage, group);
+  }
   const appendTimings = (afterMessage: number) => {
+    for (const record of presentations.get(afterMessage) ?? [])
+      appendChatPresentation(target, record.presentation);
     for (const record of compactions.get(afterMessage) ?? [])
       target.append(compactionNotice(record), "context");
     for (const timing of timings.get(afterMessage) ?? [])
@@ -150,7 +196,28 @@ export function replaySessionIntoTranscript(
         if (text)
           target.append(text, message.role === "user" ? "user" : "assistant");
       } else if (block.type === "tool_use") {
-        const source = session.runtime?.invocations[block.id]?.toolSource;
+        const legacy = /^ext:(.+):([^:]+)$/.exec(block.name);
+        const source =
+          session.runtime?.invocations[block.id]?.toolSource ??
+          (legacy
+            ? {
+                type: "extension" as const,
+                extensionId: legacy[1] ?? "",
+                originalName: legacy[2] ?? "",
+              }
+            : undefined);
+        const child = childrenByInvocation.get(block.id);
+        const presentation =
+          child?.presentation ??
+          (child
+            ? chat?.render(child.child.extensionId, "task", {
+                child: child.child,
+              })
+            : undefined);
+        if (presentation) {
+          appendChatPresentation(target, presentation);
+          continue;
+        }
         if (
           source?.type === "mcp" ||
           source?.type === "web" ||
@@ -163,11 +230,32 @@ export function replaySessionIntoTranscript(
             "tool",
           );
       } else {
-        appendToolResult(target, names.get(block.toolUseId) ?? "tool", {
+        const name = names.get(block.toolUseId) ?? "tool";
+        const saved = session.runtime?.invocations[block.toolUseId];
+        const legacy = /^ext:(.+):([^:]+)$/.exec(name);
+        const source =
+          saved?.toolSource ??
+          (legacy
+            ? {
+                type: "extension" as const,
+                extensionId: legacy[1] ?? "",
+                originalName: legacy[2] ?? "",
+              }
+            : undefined);
+        const result = {
           output: block.content,
           isError: block.isError,
           details:
-            session.runtime?.invocations[block.toolUseId]?.result?.details,
+            saved?.result?.details ??
+            (source?.type === "extension"
+              ? {
+                  extension: {
+                    id: source.extensionId,
+                    tool: source.originalName,
+                    ...(source.chat ? { chat: source.chat } : {}),
+                  },
+                }
+              : undefined),
           artifact:
             session.runtime?.invocations[block.toolUseId]?.result?.artifact,
           fileDiff: session.fileDiffs?.[block.toolUseId],
@@ -180,10 +268,29 @@ export function replaySessionIntoTranscript(
                   key.startsWith(`${block.toolUseId}:`),
               )
               .map(([, diff]) => diff),
+        };
+        const presentation =
+          saved?.result?.presentation ??
+          (source?.type === "extension"
+            ? chat?.render(
+                source.extensionId,
+                source.chat?.view ?? source.originalName,
+                result,
+              )
+            : undefined);
+        appendToolResult(target, name, {
+          ...result,
+          ...(presentation ? { presentation } : {}),
         });
       }
     }
     appendTimings(start + index + 1);
+  }
+  for (const receipt of children) {
+    const presentation =
+      receipt.presentation ??
+      chat?.render(receipt.child.extensionId, "task", { child: receipt.child });
+    if (presentation) appendChatPresentation(target, presentation);
   }
   view.replace?.(entries);
 }

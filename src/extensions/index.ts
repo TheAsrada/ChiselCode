@@ -7,11 +7,17 @@ export type {
   ModelRequestResult,
 } from "../models/contracts.js";
 export { defineTool } from "../tools/handler.js";
+export type {
+  ChatCard,
+  ChatPresentation,
+  ChatStyle,
+} from "../types/chat-presentation.js";
 export { defaultExtensions } from "./composition.js";
 export type {
   ChiselExtension,
   ContextProviderSnapshot,
   Disposable,
+  ExtensionChatView,
   ExtensionCommandContribution,
   ExtensionCommandDescriptor,
   ExtensionCommandIdentity,

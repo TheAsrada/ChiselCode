@@ -1,8 +1,12 @@
 import type { ToolSource } from "../tools/types.js";
+import { ChatStyleSchema } from "../types/chat-presentation.js";
 import type { ToolExecutionResult } from "../types/domain.js";
+import { toolChatLabel } from "./chat-presentation.js";
 import { terminalSafeText } from "./terminal-text.js";
 
 export function extensionToolLabel(source?: ToolSource): string | undefined {
+  const label = toolChatLabel(source);
+  if (label) return label;
   return source?.type === "extension"
     ? `[extension] ${terminalSafeText(source.extensionId)} · ${terminalSafeText(source.originalName)}`
     : undefined;
@@ -24,5 +28,8 @@ export function extensionResultLabel(
     type: "extension",
     extensionId: source.id,
     originalName: source.tool,
+    ...("chat" in source && ChatStyleSchema.safeParse(source.chat).success
+      ? { chat: ChatStyleSchema.parse(source.chat) }
+      : {}),
   });
 }

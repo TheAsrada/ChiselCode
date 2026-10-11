@@ -3,6 +3,7 @@ import type {
   ApprovalRequest,
   ApprovalResolver,
 } from "../security/approval.js";
+import type { ChatCard, OwnedChatCard } from "../types/chat-presentation.js";
 import type { FileDiff } from "../types/domain.js";
 
 export interface TuiApprovalResolver extends ApprovalResolver {
@@ -33,6 +34,7 @@ export interface TuiTranscriptLine {
 }
 export interface TuiTranscript {
   append(line: string, tone?: TranscriptTone, fileDiff?: FileDiff): void;
+  upsertCard?(extensionId: string, card: ChatCard): void;
   setToolActivity(text?: string): void;
   appendToLast(text: string): void;
   replace?(
@@ -40,6 +42,7 @@ export interface TuiTranscript {
       text: string;
       tone?: TranscriptTone;
       fileDiff?: FileDiff;
+      chatCard?: OwnedChatCard;
     }>,
   ): void;
   clear(): void;

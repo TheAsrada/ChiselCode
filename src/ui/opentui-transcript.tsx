@@ -1,7 +1,9 @@
 /** @jsxImportSource @opentui/react */
 import React from "react";
+import type { ChatCard as CardData } from "../types/chat-presentation.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { diffViewForWidth } from "./file-diff-preview.js";
+import { ChatCard } from "./opentui-chat-card.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { FormattedMessage } from "./opentui-message.js";
@@ -30,6 +32,7 @@ export { diffViewForWidth };
 export function OpenTuiTranscript({
   entries,
   onOpenSide,
+  onOpenCard,
   focusedSideId,
   contentWidth,
   expandedId,
@@ -40,6 +43,7 @@ export function OpenTuiTranscript({
 }: {
   entries: readonly TranscriptEntry[];
   onOpenSide?(operationId: string): void;
+  onOpenCard?(target: NonNullable<CardData["target"]>): void;
   focusedSideId?: string;
   contentWidth: number;
   expandedId?: number;
@@ -64,6 +68,17 @@ export function OpenTuiTranscript({
         </text>
       )}
       {visible.entries.map((entry) => {
+        if (entry.chatCard)
+          return (
+            <ChatCard
+              key={entry.id}
+              card={entry.chatCard.card}
+              extensionId={entry.chatCard.extensionId}
+              width={contentWidth}
+              palette={palette}
+              onOpen={onOpenCard}
+            />
+          );
         const sideId = entry.sideOperationId;
         if (sideId)
           return (

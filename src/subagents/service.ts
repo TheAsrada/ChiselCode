@@ -708,10 +708,17 @@ export class SubagentService {
   ): void {
     if (owner.closed) return;
     try {
+      const child = subagentDescriptor(record);
+      const presentation = owner.binding.scope.chat.render(
+        record.extensionId,
+        "task",
+        { child },
+      );
       owner.binding.onEvent?.({
         type,
         ownerId: owner.binding.session.id,
-        child: subagentDescriptor(record),
+        child,
+        ...(presentation ? { presentation } : {}),
       });
     } catch {
       /* Presentation is not a checkpoint owner. */
@@ -720,9 +727,19 @@ export class SubagentService {
   private async persist(owner: Owner, record: SubagentRecord): Promise<void> {
     await this.storage.save(record);
     const descriptor = subagentDescriptor(record);
+    const presentation = owner.binding.scope.chat.render(
+      record.extensionId,
+      "task",
+      { child: descriptor },
+    );
     const live = await owner.binding.store.patchChild(
       owner.binding.session.id,
-      { revision: record.revision, child: descriptor, spend: record.spend },
+      {
+        revision: record.revision,
+        child: descriptor,
+        spend: record.spend,
+        ...(presentation ? { presentation } : {}),
+      },
     );
     owner.binding.session.children = live.children;
     owner.binding.session.totalTokens = live.totalTokens;

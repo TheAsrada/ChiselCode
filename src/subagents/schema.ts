@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
+import { OwnedChatPresentationSchema } from "../types/chat-presentation.js";
 import { SUBAGENT_STATES } from "./contracts.js";
 
 const text = (bytes: number) =>
@@ -106,6 +107,7 @@ export const SubagentDescriptorSchema = z.object({
   persistenceError: text(2048).optional(),
 });
 export const ChildReceiptSchema = z.object({
+  presentation: OwnedChatPresentationSchema.optional(),
   revision: z.number().int().nonnegative(),
   child: SubagentDescriptorSchema,
   spend: ModelSpendSchema,

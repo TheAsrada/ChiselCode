@@ -4,6 +4,7 @@ import type { RuntimeEventBus } from "../runtime/events.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { SandboxExecutor } from "../security/sandbox.js";
 import type { WorkspacePolicy } from "../security/workspace-policy.js";
+import type { ChatStyle } from "../types/chat-presentation.js";
 import type {
   JsonObject,
   Session,
@@ -15,6 +16,7 @@ import type { ToolEffect } from "./effects.js";
 export interface ToolSpec extends Omit<ToolDefinition, "requiresApproval"> {
   effect: ToolEffect;
   source?: ToolSource;
+  chat?: ChatStyle;
   pinned?: boolean;
   /** Trusted native guidance, composed only for tools actually selected for a turn. */
   guidance?: string;
@@ -31,7 +33,12 @@ export type ToolSource =
   | { type: "web"; operation: "search" | "fetch" }
   | { type: "local" }
   | { type: "skill" }
-  | { type: "extension"; extensionId: string; originalName: string }
+  | {
+      type: "extension";
+      extensionId: string;
+      originalName: string;
+      chat?: ChatStyle;
+    }
   | {
       type: "mcp";
       serverId: string;

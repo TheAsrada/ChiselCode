@@ -598,7 +598,11 @@ function attributed(
         ...result,
         details: {
           ...result.details,
-          extension: { id: source.extensionId, tool: source.originalName },
+          extension: {
+            id: source.extensionId,
+            tool: source.originalName,
+            ...(source.chat ? { chat: source.chat } : {}),
+          },
         },
       }
     : result;

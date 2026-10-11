@@ -26,7 +26,7 @@ import type {
   SubagentDescriptor,
   SubagentEvent,
 } from "../subagents/contracts.js";
-import { subagentStatusTitle } from "../subagents/service.js";
+import type { ChatCard, OwnedChatCard } from "../types/chat-presentation.js";
 import type {
   AgentResult,
   ContextSnapshot,
@@ -34,6 +34,7 @@ import type {
   Session,
   TokenUsage,
 } from "../types/domain.js";
+import { appendChatPresentation, chatCardText } from "./chat-presentation.js";
 import { compactionNotice } from "./context-compaction.js";
 import { createEditorState } from "./editor.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
@@ -48,6 +49,7 @@ export interface TranscriptEntry {
   tone: TranscriptTone;
   fileDiff?: FileDiff;
   sideOperationId?: string;
+  chatCard?: OwnedChatCard;
 }
 
 export interface TuiViewState {
@@ -181,11 +183,14 @@ export class TuiController implements TuiTranscript {
   bind(renderer?: TuiTranscript, replay = true): void {
     this.renderer = renderer;
     if (renderer && replay && this.state.transcript.length > 0) {
-      const entries = this.state.transcript.map(({ text, tone, fileDiff }) => ({
-        text,
-        tone,
-        fileDiff,
-      }));
+      const entries = this.state.transcript.map(
+        ({ text, tone, fileDiff, chatCard }) => ({
+          text,
+          tone,
+          fileDiff,
+          chatCard,
+        }),
+      );
       if (renderer.replace) renderer.replace(entries);
       else {
         renderer.clear();
@@ -216,6 +221,33 @@ export class TuiController implements TuiTranscript {
     this.update({
       transcript: [...this.state.transcript, { id: this.serial++, text, tone }],
     });
+  }
+
+  /** Progress updates the original task card without committing the main stream. */
+  upsertCard(extensionId: string, card: ChatCard): void {
+    if (this.ownerSignal.aborted) return;
+    const index = this.state.transcript.findIndex(
+      (entry) =>
+        entry.chatCard?.extensionId === extensionId &&
+        entry.chatCard.card.id === card.id,
+    );
+    const prior = this.state.transcript[index];
+    if (prior?.chatCard && prior.chatCard.card.revision >= card.revision)
+      return;
+    const chatCard = structuredClone({ extensionId, card });
+    const entry: TranscriptEntry = {
+      id: prior?.id ?? this.serial++,
+      text: chatCardText(chatCard.card),
+      tone: "tool",
+      chatCard,
+    };
+    const transcript = [...this.state.transcript];
+    if (index >= 0) transcript[index] = entry;
+    else transcript.push(entry);
+    this.update({ transcript });
+    if (this.renderer?.upsertCard)
+      this.renderer.upsertCard(extensionId, chatCard.card);
+    else if (!prior) this.renderer?.append(entry.text, entry.tone);
   }
 
   appendToLast(text: string): void {
@@ -264,6 +296,7 @@ export class TuiController implements TuiTranscript {
       text: string;
       tone?: TranscriptTone;
       fileDiff?: FileDiff;
+      chatCard?: OwnedChatCard;
     }>,
   ): void {
     this.update({
@@ -392,6 +425,9 @@ export class TuiController implements TuiTranscript {
           revision: child.revision,
           child: structuredClone(child),
           spend: structuredClone(child.spend),
+          ...(prior?.revision === child.revision && prior.presentation
+            ? { presentation: structuredClone(prior.presentation) }
+            : {}),
         };
     }
     session.sideQuerySpend = { ...session.sideQuerySpend };
@@ -603,6 +639,9 @@ export class TuiController implements TuiTranscript {
         revision: event.child.revision,
         child: structuredClone(event.child),
         spend: structuredClone(event.child.spend),
+        ...(event.presentation
+          ? { presentation: structuredClone(event.presentation) }
+          : {}),
       };
       recomputeSessionSpend(this.usageSession);
       if (this.state.usage)
@@ -617,16 +656,11 @@ export class TuiController implements TuiTranscript {
           },
         });
     }
-    if (event.type === "accepted")
-      this.appendNotice(
-        `Поручение «${event.child.label}» принято · ${event.child.mode === "coding" ? "Рабочая копия" : "Чтение"}. Смотрите панель «Агенты».`,
-        "info",
-      );
-    if (event.type === "terminal")
-      this.appendNotice(
-        `Помощник «${event.child.label}» · ${subagentStatusTitle(event.child.status)}. Итог доступен в панели «Агенты».`,
-        event.child.status === "completed" ? "success" : "warn",
-      );
+    if (
+      event.presentation &&
+      event.presentation.extensionId === event.child.extensionId
+    )
+      appendChatPresentation(this, event.presentation);
   }
   setAgentSidebar(
     view: "agents" | "context" | "menu",

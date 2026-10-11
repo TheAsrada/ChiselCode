@@ -152,11 +152,13 @@ export interface SubagentPort {
   cancel(id: string): Promise<Readonly<SubagentDescriptor>>;
 }
 export interface SubagentEvent {
+  presentation?: import("../types/chat-presentation.js").OwnedChatPresentation;
   type: "accepted" | "changed" | "terminal";
   ownerId: string;
   child: Readonly<SubagentDescriptor>;
 }
 export interface ChildReceipt {
+  presentation?: import("../types/chat-presentation.js").OwnedChatPresentation;
   revision: number;
   child: SubagentDescriptor;
   spend: ModelSpend;

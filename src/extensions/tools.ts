@@ -10,6 +10,8 @@ import type {
   ToolProvider,
   ToolSpec,
 } from "../tools/types.js";
+import { ChatStyleSchema } from "../types/chat-presentation.js";
+import type { ExtensionChatViews } from "./chat.js";
 import type { Disposable, ExtensionToolContribution } from "./contracts.js";
 import type { WorkspaceExtensionScope } from "./host.js";
 import {
@@ -19,6 +21,7 @@ import {
 } from "./lifecycle.js";
 
 const metadata = z.object({
+  chat: ChatStyleSchema.optional(),
   name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
   description: z.string().trim().min(1),
   effect: z.enum(TOOL_EFFECTS),
@@ -41,6 +44,7 @@ export class ExtensionToolContributions implements ToolProvider {
   constructor(
     private readonly lifetime: AbortSignal,
     private readonly assertAvailable: () => void,
+    private readonly chat?: ExtensionChatViews,
   ) {}
   register(extensionId: string, tool: ExtensionToolContribution): Disposable {
     if (this.sealed || this.closed)
@@ -109,7 +113,12 @@ export class ExtensionToolContributions implements ToolProvider {
           ...spec,
           name,
           inputSchema: schema,
-          source: { type: "extension", extensionId, originalName: spec.name },
+          source: {
+            type: "extension",
+            extensionId,
+            originalName: spec.name,
+            ...(spec.chat ? { chat: spec.chat } : {}),
+          },
         }) as ToolSpec,
         lifetimeSignal: this.lifetime,
         parse: (input) => {
@@ -133,7 +142,7 @@ export class ExtensionToolContributions implements ToolProvider {
           // Cooperative cancellation only: never release a mutation lease before it settles.
           const result = await execute(invocation, plan);
           cancelled(invocation.signal);
-          return result;
+          return this.chat?.result(extensionId, spec.chat, result) ?? result;
         },
       } satisfies ToolHandler);
     } catch (cause) {

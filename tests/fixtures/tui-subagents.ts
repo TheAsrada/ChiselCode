@@ -455,6 +455,24 @@ try {
   await key("ESCAPE");
   await key("ARROW_DOWN");
   await capture("ordinary-tui-120x40-tree");
+  for (const receipt of Object.values(parent.children ?? {})) {
+    const identity = JSON.stringify([
+      receipt.child.extensionId,
+      receipt.child.id,
+    ]);
+    assert.ok(
+      ui.renderer.root.findDescendantById(`chat-card-${identity}`),
+      `Нет карточки задачи ${receipt.child.label}`,
+    );
+    assert.ok(
+      receipt.presentation?.view.cards?.some(
+        (card) => card.id === receipt.child.id,
+      ),
+      "Последнее состояние карточки не сохранено",
+    );
+  }
+  assert.ok(!ui.captureCharFrame().includes("[extension] builtin.subagents"));
+  await capture("ordinary-tui-120x40-chat-cards");
   // The installed and compiled application must route sidebar actions through its real dialogs.
   await key("1");
   await key("END");
@@ -538,6 +556,17 @@ try {
       ui.captureCharFrame().includes("Первая задача"),
     "Saved owner не восстановлен",
   );
+  for (const receipt of Object.values(parent.children ?? {})) {
+    const identity = JSON.stringify([
+      receipt.child.extensionId,
+      receipt.child.id,
+    ]);
+    assert.ok(
+      ui.renderer.root.findDescendantById(`chat-card-${identity}`),
+      "Resume не восстановил карточку задачи",
+    );
+  }
+  await capture("ordinary-tui-120x40-resumed-chat-cards");
   await key("F7");
   await key("ARROW_DOWN");
   await key("RETURN");

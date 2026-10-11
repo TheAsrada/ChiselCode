@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
 import { ChildReceiptSchema } from "../subagents/schema.js";
+import {
+  ChatStyleSchema,
+  OwnedChatPresentationSchema,
+} from "../types/chat-presentation.js";
 
 export { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
 
@@ -34,6 +38,7 @@ const FileDiffSchema = z.object({
   deletions: z.number(),
 });
 export const ToolResultSchema = z.object({
+  presentation: OwnedChatPresentationSchema.optional(),
   references: z
     .array(
       z.object({
@@ -88,6 +93,7 @@ export const SessionRuntimeSchema = z.object({
             type: z.literal("extension"),
             extensionId: z.string(),
             originalName: z.string(),
+            chat: ChatStyleSchema.optional(),
           }),
           z.object({
             type: z.literal("web"),
@@ -296,6 +302,14 @@ export const SessionV3Schema = z.looseObject({
       content: z.array(contentSchema),
     }),
   ),
+  chatPresentations: z
+    .array(
+      z.object({
+        afterMessage: z.number().int().nonnegative(),
+        presentation: OwnedChatPresentationSchema,
+      }),
+    )
+    .optional(),
   requestTimings: z
     .array(
       z.object({

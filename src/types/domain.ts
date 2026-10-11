@@ -282,6 +282,10 @@ export interface Session {
   fileDiffs?: Record<string, FileDiff>;
   /** UI-only request durations, placed after this many messages during replay. */
   requestTimings?: RequestTiming[];
+  chatPresentations?: Array<{
+    afterMessage: number;
+    presentation: import("./chat-presentation.js").OwnedChatPresentation;
+  }>;
 }
 
 export interface RequestTiming {
@@ -299,6 +303,7 @@ export interface FileDiff {
 }
 
 export interface ToolExecutionResult {
+  presentation?: import("./chat-presentation.js").OwnedChatPresentation;
   /** Observed references for replay and compaction; external material remains untrusted. */
   references?: Array<{
     uri: string;

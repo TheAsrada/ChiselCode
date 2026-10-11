@@ -5,6 +5,11 @@ import type { SubagentService } from "../../subagents/service.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ChiselExtension } from "../contracts.js";
 import { createServiceToken } from "../services.js";
+import {
+  subagentActionTitle,
+  subagentTaskView,
+  subagentToolView,
+} from "./subagent-presentation.js";
 
 /** Core lookup only. Commands receive the invocation-bound port instead. */
 export const subagentServiceToken = createServiceToken<SubagentService>(
@@ -79,6 +84,32 @@ export function createSubagentExtension(
   return {
     id: "builtin.subagents",
     activate(ctx) {
+      ctx.chat.register({ id: "task", render: subagentTaskView });
+      ctx.chat.register({
+        id: "agent",
+        render: (value) => {
+          const action =
+            value && typeof value === "object" && "details" in value
+              ? (value as import("../../types/domain.js").ToolExecutionResult)
+                  .details?.subagentAction
+              : undefined;
+          return subagentToolView(
+            typeof action === "string" &&
+              [
+                "list",
+                "status",
+                "wait",
+                "result",
+                "cancel",
+                "submit_readonly",
+                "submit_coding",
+              ].includes(action)
+              ? (action as import("./subagent-presentation.js").SubagentAction)
+              : "list",
+            value,
+          );
+        },
+      });
       ctx.services.provide(subagentServiceToken, service);
       ctx.add({ dispose: () => service.closeRoot(ctx.workspaceRoot) });
       for (const action of [
@@ -90,6 +121,10 @@ export function createSubagentExtension(
         "result",
         "cancel",
       ] as const) {
+        ctx.chat.register({
+          id: action,
+          render: (value) => subagentToolView(action, value),
+        });
         const schema = action.startsWith("submit_")
           ? submit
           : action === "list"
@@ -106,6 +141,13 @@ export function createSubagentExtension(
           defineTool(
             {
               name: action,
+              chat: {
+                title: subagentActionTitle(action),
+                view: action,
+                ...(action.startsWith("submit_")
+                  ? { inputField: "label" }
+                  : {}),
+              },
               description:
                 action === "submit_readonly"
                   ? "Поручить независимый анализ помощнику без права изменений. Возвращает принятую задачу, не завершение. Укажите конкретную цель и ожидаемый результат. Получите результат через wait/result перед утверждением успеха."
@@ -133,6 +175,7 @@ export function createSubagentExtension(
       }
       ctx.commands.register({
         name: "agent",
+        chat: { title: "Субагенты · /agent", view: "agent" },
         description:
           "Помощники: чтение или работа в отдельной копии, список, результат и остановка",
         usage:
@@ -155,17 +198,25 @@ export function createSubagentExtension(
                       : undefined;
           if (output === undefined)
             throw new Error("Control action cannot start a task");
-          return { output: JSON.stringify(output) };
+          return {
+            output: JSON.stringify(output),
+            details: { subagents: output, subagentAction: input.action },
+          };
         },
-        execute: (context, input) =>
-          context.tools.execute(
+        execute: async (context, input) => {
+          const result = await context.tools.execute(
             `ext:builtin.subagents:${input.action}`,
             Object.fromEntries(
               Object.entries(input).filter(
                 ([key, value]) => key !== "action" && value !== undefined,
               ),
             ) as import("../../types/domain.js").JsonObject,
-          ),
+          );
+          return {
+            ...result,
+            details: { ...result.details, subagentAction: input.action },
+          };
+        },
       });
     },
   };
