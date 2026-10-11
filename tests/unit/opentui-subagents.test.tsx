@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/react */
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { testRender } from "@opentui/react/test-utils";
@@ -320,5 +320,42 @@ test("maximum retained tree remains navigable in a 24×8 terminal", async () => 
     expect(controller.snapshot.agentTree?.selected).toBe(children[31]?.id);
   } finally {
     setup.renderer.destroy();
+  }
+});
+
+test("visible child time rows share one clock and release it on unmount", async () => {
+  const { SubagentElapsed } = await import("../../src/ui/subagent-elapsed.js");
+  const { THEMES } = await import("../../src/ui/appearance.js");
+  const intervals = spyOn(globalThis, "setInterval");
+  const clears = spyOn(globalThis, "clearInterval");
+  const record = childFixture();
+  const setup = await testRender(
+    <box flexDirection="column">
+      <SubagentElapsed record={record} palette={THEMES.paper} />
+      <SubagentElapsed
+        record={{ ...record, id: crypto.randomUUID() }}
+        palette={THEMES.paper}
+      />
+    </box>,
+    { width: 40, height: 12 },
+  );
+  try {
+    await frame(setup);
+    expect(setup.captureCharFrame()).toContain("Время:");
+    const clocks = intervals.mock.calls
+      .map((call, index) => ({
+        call,
+        result: intervals.mock.results[index]?.value,
+      }))
+      .filter((item) => item.call[1] === 1000);
+    expect(clocks).toHaveLength(1);
+    await act(async () => setup.renderer.destroy());
+    expect(
+      clears.mock.calls.some((call) => call[0] === clocks[0]?.result),
+    ).toBe(true);
+  } finally {
+    intervals.mockRestore();
+    clears.mockRestore();
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
   }
 });

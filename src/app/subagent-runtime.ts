@@ -15,6 +15,7 @@ import {
   defaultExtensions,
 } from "../extensions/composition.js";
 import {
+  canonicalWorkspaceRoot,
   ExtensionHost,
   type WorkspaceExtensionScope,
 } from "../extensions/host.js";
@@ -183,7 +184,18 @@ async function createCodingRoot(
   if (outcome.isError)
     throw new RuntimeError("WORKTREE_UNAVAILABLE", outcome.output);
   const descriptor = JSON.parse(outcome.output) as WorktreeDescriptor;
-  if (!descriptor.id || !descriptor.base || descriptor.origin !== owner.root)
+  if (!descriptor.id || !descriptor.base || !descriptor.origin)
+    throw new RuntimeError(
+      "WORKTREE_RECOVERY_REQUIRED",
+      "Git не подтвердил исходный проект созданной копии.",
+    );
+  const origin = await canonicalWorkspaceRoot(descriptor.origin);
+  const expected = await canonicalWorkspaceRoot(owner.root);
+  const equalOrigin =
+    process.platform === "win32"
+      ? origin.toLowerCase() === expected.toLowerCase()
+      : origin === expected;
+  if (!equalOrigin)
     throw new RuntimeError(
       "WORKTREE_RECOVERY_REQUIRED",
       "Созданная копия не соответствует исходному проекту.",
@@ -234,7 +246,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       );
       scope = await host.open(descriptor.path);
     }
-    const root = record.root ?? owner.root;
+    const root = scope.workspaceRoot;
     record.root = root;
     const [rawConfig, global, projectInstructions] = await Promise.all([
       loadProjectConfig(root),

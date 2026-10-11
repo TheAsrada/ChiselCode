@@ -309,7 +309,20 @@ async function until(
     });
     if (await predicate()) return;
   }
-  throw new Error(label + "\n" + ui.captureCharFrame());
+  const store = await projectSessionStore(root);
+  const owner = (await store.list()).find((item) => !item.subagentOwnerId);
+  const records = owner
+    ? Object.values((await store.load(owner.id)).children ?? {}).map(
+        (item) => ({
+          label: item.child.label,
+          status: item.child.status,
+          error: item.child.error,
+        }),
+      )
+    : [];
+  throw new Error(
+    label + "\n" + JSON.stringify(records) + "\n" + ui.captureCharFrame(),
+  );
 }
 async function key(name: string, ctrl = false) {
   await act(async () => {

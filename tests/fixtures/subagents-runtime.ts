@@ -261,6 +261,19 @@ try {
       onSubagent: (event) => {
         controller.acceptSubagent(event);
         if (event.type === "terminal") {
+          if (event.child.status !== "completed") {
+            console.error(
+              "Child failure:",
+              JSON.stringify({
+                label: event.child.label,
+                status: event.child.status,
+                error: event.child.error,
+                cleanup: event.child.cleanup,
+              }),
+            );
+            releaseParent();
+            return;
+          }
           assert.ok(
             parentHeld,
             "Foreground must be running when child finishes",

@@ -9,6 +9,7 @@ import { useClipboardActions } from "./opentui-clipboard.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FormattedMessage } from "./opentui-message.js";
 import { capturedInputOwner } from "./overlay-input.js";
+import { SubagentElapsed } from "./subagent-elapsed.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
@@ -77,6 +78,17 @@ export function OpenTuiAgentDetails({
             label: tiny ? "Копия" : "Копировать",
             run: () => {
               void clipboard?.copyText(record.text);
+            },
+          },
+        ]
+      : []),
+    ...(record?.worktree
+      ? [
+          {
+            label: tiny ? "Путь" : "Копировать путь",
+            run: () => {
+              const path = record.worktree?.path;
+              if (path) void clipboard?.copyText(path);
             },
           },
         ]
@@ -211,7 +223,7 @@ export function OpenTuiAgentDetails({
             id={`agent-section-${item}`}
             label={
               tiny
-                ? (["Ход", "Diff", "Итог"][index] ?? item)
+                ? (["Ход", "Правки", "Итог"][index] ?? item)
                 : (["Ход работы", "Изменения", "Итог"][index] ?? item)
             }
             palette={palette}
@@ -316,6 +328,7 @@ export function OpenTuiAgentDetails({
               palette={palette}
               width={contentWidth}
             />
+            {!tiny && <SubagentElapsed record={record} palette={palette} />}
             <text
               fg={palette.muted}
             >{`Расход: ${record.spend.usage.inputTokens + record.spend.usage.outputTokens} токенов${record.spend.unknownUsage ? " · часть неизвестна" : ""}. ${record.spend.unknownCost ? "Стоимость неизвестна или известна частично" : `~$${record.spend.knownCost.toFixed(4)}`}`}</text>
@@ -337,10 +350,11 @@ export function OpenTuiAgentDetails({
               инструмента.
             </text>
             {record.worktree && (
-              <text
-                fg={palette.muted}
-                selectable
-              >{`Копия: ${record.worktree.label}\n${record.worktree.path}\nBase: ${record.worktree.base}`}</text>
+              <text fg={palette.muted} selectable>
+                {tiny
+                  ? `Копия: ${record.worktree.label}`
+                  : `Копия: ${record.worktree.label}\n${record.worktree.path}\nBase: ${record.worktree.base}`}
+              </text>
             )}
             {!record.cleanup.quiescent && (
               <text fg={palette.yellow}>

@@ -4,7 +4,7 @@
 
 ## Статус и база
 
-Реализация P2.2 подготовлена прямо в `main`, без новых веток, worktrees для разработки и PR. Проверенная исходная база — `687fe370729f71f813e1a7144ca78ddd755d2078`, версия 0.6.20. Новая версия — **0.6.21**. Коммит, итоговый CI и опубликованный выпуск будут указаны после завершения проверок; локальные результаты не заменяют подтверждение остальных платформ.
+Реализация P2.2 подготовлена прямо в `main`, без новых веток, worktrees для разработки и PR. Проверенная исходная база — `687fe370729f71f813e1a7144ca78ddd755d2078`, версия 0.6.20. Новая версия — **0.6.21**. Базовая реализация: `cdb7db8b79f6478539640818139a3381520568ef`. Итоговый CI и опубликованный выпуск будут указаны после завершения проверок; локальные результаты не заменяют подтверждение остальных платформ.
 
 ## Что изменилось
 
@@ -57,6 +57,12 @@ CHISEL_CAPTURE_DIR=/absolute/captures bun tests/fixtures/tui-subagents.ts
 ```
 
 Внешние модели и платные API для проверки не требуются. Budget tests используют настоящие OpenAI и Anthropic drivers/HTTP attempts: 429×2 → success даёт три обращения; missing terminal и partial error не повторяются. Redaction проверяется через границы text deltas. Fault runner используется только для lifecycle races, не вместо acceptance tool loops.
+
+## Первый межплатформенный прогон
+
+[CI базовой реализации](https://github.com/TheAsrada/ChiselCode/actions/runs/37978060819) подтвердил quality/installed/compiled проверки Linux и macOS и настоящие Auto LSP на всех трёх ОС. Windows quality обнаружил ошибку новой реализации: WorktreeService возвращает исходный путь с фактическим регистром, тогда как ExtensionHost хранит Windows canonical root в нижнем регистре. Прямое сравнение отклоняло законную рабочую копию до model loop. Runtime теперь сравнивает canonical paths и использует root своего workspace scope для child Session/tools/LSP. Это наша ошибка, не pre-existing failure. Fixtures теперь печатают безопасные child errors и освобождают endpoint barrier при failure, чтобы причина не пряталась за timeout.
+
+Визуальное дополнение: время задачи обновляет один shared clock только в строках времени, без повторного рендера Markdown; последний unmount освобождает таймер. Отдельное «Копировать путь» сохраняет полный путь, а compact result не заполнен сырым OID. Дополнительный native test проверяет общий таймер и cleanup; targeted suite **13 pass, 0 fail**.
 
 ## Кадры настоящего OpenTUI
 

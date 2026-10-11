@@ -7,6 +7,7 @@ import { subagentStatusTitle } from "../subagents/service.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { capturedInputOwner } from "./overlay-input.js";
+import { SubagentElapsed } from "./subagent-elapsed.js";
 import {
   TerminalScrollbox,
   useTerminalDecoration,
@@ -349,6 +350,9 @@ export function AgentsSidebar({
               width,
             )}
           </text>
+        )}
+        {!tiny && selected && footerHeight >= 6 && (
+          <SubagentElapsed record={selected} palette={palette} />
         )}
         <text fg={palette.accent} height={1}>
           {terminalLine(
