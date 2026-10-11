@@ -605,6 +605,7 @@ try {
   await frame();
   await idle();
   await send("/feedback ordinary");
+  await until(() => feedbacks === 1, "Feedback callback did not finish");
   await idle();
   assert.equal(feedbacks, 1);
   assert.equal(modelCalls, 1);

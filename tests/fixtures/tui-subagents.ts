@@ -455,6 +455,36 @@ try {
   await key("ESCAPE");
   await key("ARROW_DOWN");
   await capture("ordinary-tui-120x40-tree");
+  // The installed and compiled application must route sidebar actions through its real dialogs.
+  await key("1");
+  await key("END");
+  await key("2");
+  await key("1");
+  await frame();
+  const lastMenuItem = ui.renderer.root.findDescendantById("sidebar-menu-mcp");
+  const menu = ui.renderer.root.findDescendantById("sidebar-menu");
+  assert.ok(lastMenuItem && menu, "Нет списка MCP в меню");
+  assert.ok(
+    lastMenuItem.y >= menu.y && lastMenuItem.y < menu.y + menu.height,
+    `Прокрутка меню не восстановлена ${JSON.stringify({ item: { y: lastMenuItem.y, h: lastMenuItem.height }, menu: { y: menu.y, h: menu.height } })}`,
+  );
+  await key("HOME");
+  await capture("ordinary-tui-120x40-menu");
+  const appearance = ui.renderer.root.findDescendantById(
+    "sidebar-menu-appearance",
+  );
+  assert.ok(appearance, "В меню нет внешнего вида");
+  await act(async () => {
+    await ui.mockMouse.click(appearance.x + 1, appearance.y);
+  });
+  await until(
+    () => !!ui.renderer.root.findDescendantById("settings-popup"),
+    "Меню не открыло настройки",
+  );
+  await key("ESCAPE");
+  await key("2");
+  await capture("ordinary-tui-120x40-context");
+  await key("3");
   assert.ok(ui.captureCharFrame().includes("Первая задача"));
   await key("RETURN");
   await until(

@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/react */
-import type { ScrollBoxRenderable } from "@opentui/core";
+import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { subagentActive } from "../subagents/contracts.js";
@@ -22,6 +22,7 @@ export function AgentsSidebar({
   height,
   palette,
   focused,
+  embedded = false,
   onFocus,
   onBack,
   onContext,
@@ -34,6 +35,7 @@ export function AgentsSidebar({
   height: number;
   palette: Palette;
   focused: boolean;
+  embedded?: boolean;
   onFocus(): void;
   onBack(): void;
   onContext(): void;
@@ -53,13 +55,15 @@ export function AgentsSidebar({
   const visible = collapsed ? [] : children;
   const keys = [undefined, ...visible.map((child) => child.id)];
   const index = Math.max(0, keys.indexOf(state.agentTree?.selected));
-  const rowHeight = tiny ? 1 : 3;
+  const rowHeight = tiny ? 1 : 4;
+  const rootHeight = tiny ? 1 : 2;
+  const headerHeight = embedded ? 0 : 1;
   const footerHeight = tiny
     ? 1
     : selected
       ? Math.min(6, Math.max(2, Math.floor(height / 4)))
       : 2;
-  const bodyHeight = Math.max(1, height - 1 - footerHeight);
+  const bodyHeight = Math.max(1, height - headerHeight - footerHeight);
   const running = children.filter((child) =>
     subagentActive(child.status),
   ).length;
@@ -78,13 +82,13 @@ export function AgentsSidebar({
   useLayoutEffect(() => {
     const scroll = body.current;
     if (!scroll) return;
-    const y = index === 0 ? 0 : 1 + (index - 1) * rowHeight;
-    const bottom = y + (index === 0 ? 1 : rowHeight);
+    const y = index === 0 ? 0 : rootHeight + (index - 1) * rowHeight;
+    const bottom = y + (index === 0 ? rootHeight : rowHeight);
     if (y < scroll.scrollTop) scroll.scrollTo(y);
     else if (bottom > scroll.scrollTop + bodyHeight)
       scroll.scrollTo(bottom - bodyHeight);
     controller.agentPresentation.treeScroll = scroll.scrollTop;
-  }, [index, bodyHeight, rowHeight, controller]);
+  }, [index, bodyHeight, rowHeight, rootHeight, controller]);
   useKeyboard((key) => {
     if (
       !focused ||
@@ -195,33 +199,37 @@ export function AgentsSidebar({
       flexDirection="column"
       backgroundColor={palette.surface}
     >
-      <box height={1} flexShrink={0} flexDirection="row">
-        <text fg={palette.accent} width={Math.max(1, width - 12)}>
-          {terminalLine(
-            `Агенты ${running}${approvals ? ` ?${approvals}` : ""}${focused ? " >" : ""}`,
-            width - 12,
-          )}
-        </text>
-        <DialogAction
-          id="agents-context"
-          label="Контекст C"
-          palette={palette}
-          onSelect={onContext}
-        />
-      </box>
+      {!embedded && (
+        <box height={1} flexShrink={0} flexDirection="row">
+          <text fg={palette.accent} width={Math.max(1, width - 12)}>
+            {terminalLine(
+              `Агенты ${running}${approvals ? ` ?${approvals}` : ""}${focused ? " >" : ""}`,
+              width - 12,
+            )}
+          </text>
+          <DialogAction
+            id="agents-context"
+            label="Контекст C"
+            palette={palette}
+            onSelect={onContext}
+          />
+        </box>
+      )}
       <TerminalScrollbox
         id="agents-tree"
         ref={body}
         height={bodyHeight}
         flexShrink={0}
         focused={false}
+        paddingLeft={1}
+        paddingRight={1}
         onMouseDown={onFocus}
         viewportCulling
       >
         {/* biome-ignore lint/a11y/noStaticElementInteractions: Keyboard tree navigation is handled by the active input owner. */}
         <box
           id="agent-root"
-          height={1}
+          height={rootHeight}
           flexDirection="row"
           backgroundColor={!selected ? palette.raised : palette.surface}
           onMouseDown={(event) => {
@@ -245,9 +253,13 @@ export function AgentsSidebar({
               onFocus();
             }}
           />
-          <text fg={palette.text} selectable={false}>
+          <text
+            fg={!selected ? palette.accent : palette.text}
+            attributes={TextAttributes.BOLD}
+            selectable={false}
+          >
             {terminalLine(
-              `Основной агент · ${state.busy ? "Работает" : "Готов к задаче"}`,
+              `Основной агент · ${state.busy ? "Работает" : "Готов"}`,
               width - 3,
             )}
           </text>
@@ -271,7 +283,7 @@ export function AgentsSidebar({
               height={rowHeight}
               flexShrink={0}
               flexDirection="column"
-              backgroundColor={chosen ? palette.raised : palette.surface}
+              backgroundColor={chosen ? palette.raised : palette.bg}
               onMouseDown={(event) => {
                 if (event.button === 0) pressed.current = child.id;
               }}
@@ -288,6 +300,8 @@ export function AgentsSidebar({
             >
               <text
                 fg={chosen ? palette.accent : palette.text}
+                attributes={TextAttributes.BOLD}
+                height={1}
                 selectable={false}
               >
                 {terminalLine(
@@ -296,7 +310,7 @@ export function AgentsSidebar({
                 )}
               </text>
               {!tiny && (
-                <text fg={color(child.status)} selectable={false}>
+                <text height={1} fg={color(child.status)} selectable={false}>
                   {terminalLine(
                     `    ${subagentStatusTitle(child.status)} · ${child.mode === "coding" ? "Рабочая копия" : "Чтение"}`,
                     width,
@@ -304,7 +318,7 @@ export function AgentsSidebar({
                 </text>
               )}
               {!tiny && (
-                <text fg={palette.muted} selectable={false}>
+                <text height={1} fg={palette.muted} selectable={false}>
                   {terminalLine(`    ${child.step}`, width)}
                 </text>
               )}
@@ -312,9 +326,23 @@ export function AgentsSidebar({
           );
         })}
         {!children.length && (
-          <text fg={palette.muted}>
-            Помощники появятся, когда агент делегирует задачу.
-          </text>
+          <box
+            flexShrink={0}
+            flexDirection="column"
+            padding={tiny ? 0 : 1}
+            marginTop={tiny ? 0 : 1}
+            backgroundColor={palette.bg}
+          >
+            <text fg={palette.text} attributes={TextAttributes.BOLD}>
+              Пока нет помощников
+            </text>
+            {!tiny && (
+              <text fg={palette.muted}>
+                Когда агент делегирует задачу, здесь появятся её шаги и
+                результат.
+              </text>
+            )}
+          </box>
         )}
       </TerminalScrollbox>
       <box
@@ -322,6 +350,8 @@ export function AgentsSidebar({
         flexShrink={0}
         flexDirection="column"
         backgroundColor={palette.raised}
+        paddingLeft={tiny ? 0 : 1}
+        paddingRight={tiny ? 0 : 1}
       >
         {!tiny && selected && (
           <text fg={palette.text} height={1}>
@@ -354,20 +384,46 @@ export function AgentsSidebar({
         {!tiny && selected && footerHeight >= 6 && (
           <SubagentElapsed record={selected} palette={palette} />
         )}
-        <text fg={palette.accent} height={1}>
-          {terminalLine(
-            tiny
-              ? action
+        {tiny ? (
+          <text
+            fg={palette.accent}
+            height={1}
+            content={terminalLine(
+              action
                 ? `[${[selected ? "Обзор" : "Чат", ...(selected && subagentActive(selected.status) ? ["Стоп"] : []), "Контекст", "Назад"][action - 1]}] Enter Esc`
                 : selected
                   ? subagentActive(selected.status)
                     ? "Enter обзор S стоп Esc"
                     : "Enter обзор Esc назад"
-                  : "Enter чат Esc назад"
-              : `${action ? `[${[selected ? "Открыть" : "Основной чат", ...(selected && subagentActive(selected.status) ? ["Остановить"] : []), "Контекст", "Назад"][action - 1]}] ` : ""}Enter ${selected ? "открыть" : "основной чат"}${selected && subagentActive(selected.status) ? " · S остановить" : ""} · Esc назад`,
-            width,
-          )}
-        </text>
+                  : "Enter чат Esc назад",
+              width,
+            )}
+          />
+        ) : (
+          <box height={1} flexDirection="row" gap={1}>
+            <DialogAction
+              id="agents-open"
+              label={selected ? "Открыть" : "Основной чат"}
+              palette={palette}
+              active={action === 1}
+              onSelect={actions[0] ?? onBack}
+            />
+            {selected && subagentActive(selected.status) && (
+              <DialogAction
+                id="agents-stop"
+                label="Стоп S"
+                palette={palette}
+                active={action === 2}
+                onSelect={() => onStop(selected.id)}
+              />
+            )}
+            {action > (selected && subagentActive(selected.status) ? 2 : 1) && (
+              <text fg={palette.accent}>
+                {action === actions.length ? "Назад Enter" : "Контекст Enter"}
+              </text>
+            )}
+          </box>
+        )}
         {!tiny && footerHeight >= 5 && (
           <text fg={palette.muted} height={1}>
             ↑↓ выбор · ←→ дерево · Tab действия

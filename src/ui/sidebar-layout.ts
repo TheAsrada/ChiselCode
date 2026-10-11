@@ -34,10 +34,9 @@ export function sidebarLayout(
 export function toggleSidebarMode(
   mode: SidebarMode,
   width: number,
+  visible = sidebarLayout(width, mode).placement !== "hidden",
 ): SidebarMode {
-  if (mode === "show") return "hide";
-  if (mode === "hide") return "show";
-  return sidebarLayout(width, mode).placement === "inline" ? "hide" : "show";
+  return visible ? "hide" : "show";
 }
 
 export function parseSidebarMode(argument: string): SidebarMode | undefined {

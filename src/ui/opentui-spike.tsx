@@ -79,6 +79,12 @@ import {
   sidebarLayout,
   toggleSidebarMode,
 } from "./sidebar-layout.js";
+import { SidebarMenu, type SidebarMenuAction } from "./sidebar-menu.js";
+import {
+  SidebarPanel,
+  type SidebarTab,
+  sidebarChrome,
+} from "./sidebar-panel.js";
 import { skillCommandDraft, skillEditDraft } from "./skill-draft.js";
 import {
   TerminalScrollbox,
@@ -329,16 +335,19 @@ function OpenTuiScreen({
     !approval &&
     !otherOverlay
   );
-  const agentsFocused = !!(
-    controller &&
-    view.agentTree?.view === "agents" &&
+  const sidebarTab = view.agentTree?.view ?? "context";
+  const sidebarFocused = !!(
     focus === "sidebar" &&
     !approval &&
     !otherOverlay &&
     !sideActive &&
     !agentActive
   );
-  const agentsOwner = `agents:${controller?.conversationId}:${controller?.currentGeneration}`;
+  const agentsFocused = sidebarFocused && sidebarTab === "agents";
+  const sidebarOwner =
+    sidebarTab === "agents"
+      ? `agents:${controller?.conversationId}:${controller?.currentGeneration}`
+      : `sidebar:${controller?.conversationId}:${controller?.currentGeneration}`;
   const sideOwner = `side:${controller?.conversationId}:${controller?.currentGeneration}`;
   const inputOwner = approval
     ? "approval"
@@ -348,8 +357,8 @@ function OpenTuiScreen({
         ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
         : sideActive
           ? sideOwner
-          : agentsFocused
-            ? agentsOwner
+          : sidebarFocused
+            ? sidebarOwner
             : "main";
   useOverlayInputOwner(inputOwner);
   const cancelApprovalChild = approval?.owner?.childId
@@ -493,8 +502,15 @@ function OpenTuiScreen({
     overlayDismissed,
   );
   const showSidebar = layout.placement !== "hidden";
-  const contextOnly =
-    layout.placement === "overlay" || layout.placement === "fullscreen";
+  const contextOnly = layout.placement === "fullscreen";
+  const sidebarDrawer = layout.placement === "overlay";
+  const panelHeight = Math.max(1, height - tabRows);
+  const panelWidth = layout.sidebarWidth;
+  const chrome = sidebarChrome(panelHeight);
+  const panelBodyHeight = Math.max(
+    1,
+    panelHeight - chrome.header - chrome.footer,
+  );
   const textWidth = layout.feedWidth;
   const composerWidth = home
     ? Math.max(1, Math.min(86, textWidth - 4))
@@ -673,7 +689,7 @@ function OpenTuiScreen({
     ) {
       if (focus === "editor") editor.current?.focus();
       else if (focus === "transcript") transcript.current?.focus();
-      else sidebar.current?.focus();
+      else if (sidebarTab !== "context") sidebar.current?.focus();
     }
   }, [
     approval,
@@ -685,6 +701,7 @@ function OpenTuiScreen({
     permissionsOpen,
     updateOpen,
     contextOnly,
+    sidebarTab,
     focus,
   ]);
   useEffect(() => {
@@ -790,7 +807,7 @@ function OpenTuiScreen({
   };
 
   useClipboardComposer(() => {
-    if (sideActive || agentActive || agentsFocused) return null;
+    if (sideActive || agentActive || sidebarFocused) return null;
     if (
       approval ||
       pickerOpen ||
@@ -812,7 +829,7 @@ function OpenTuiScreen({
     if (capturedInputOwner(key) !== inputOwner) return;
     if (key.ctrl && key.name === "c" && !key.shift) {
       key.preventDefault();
-      if (agentActive || agentsFocused || approval?.owner?.childId) {
+      if (agentActive || sidebarFocused || approval?.owner?.childId) {
         key.stopPropagation();
         return;
       }
@@ -821,7 +838,7 @@ function OpenTuiScreen({
       return;
     }
     // Core tab navigation captures the origin before a viewer can consume Tab/arrows.
-    if (workspace && (agentActive || agentsFocused)) {
+    if (workspace && (agentActive || sidebarFocused)) {
       if (key.ctrl && key.name === "tab") {
         key.preventDefault();
         key.stopPropagation();
@@ -839,13 +856,26 @@ function OpenTuiScreen({
       }
     }
     if (agentActive) return;
-    if (agentsFocused) {
+    if (sidebarFocused) {
       if (key.ctrl && key.name === "b") {
         key.preventDefault();
-        changeMode(toggleSidebarMode(mode, width));
-        controller?.setAgentSidebar("agents", false);
+        key.stopPropagation();
+        changeMode("hide");
+        controller?.setAgentSidebar(sidebarTab, false);
         setFocus("editor");
         controller?.setFocus("composer");
+      } else if (key.ctrl && (key.name === "t" || key.name === ",")) {
+        key.preventDefault();
+        key.stopPropagation();
+        openSettings(key.name === "t" ? "appearance" : "connection");
+      } else if (key.ctrl && key.name === "n" && key.shift && workspace) {
+        key.preventDefault();
+        key.stopPropagation();
+        workspace.newDraft();
+      } else if (key.name === "tab" && sidebarTab !== "agents") {
+        key.preventDefault();
+        key.stopPropagation();
+        backFromSidebar();
       }
       return;
     }
@@ -1016,7 +1046,7 @@ function OpenTuiScreen({
       return;
     }
     if (key.name === "escape") {
-      if (contextOnly) setOverlayDismissed(true);
+      if (contextOnly || sidebarDrawer) setOverlayDismissed(true);
       else if (expanded || expandedDiffIds.size) {
         setExpanded(false);
         setExpandedDiffIds(new Set());
@@ -1026,8 +1056,11 @@ function OpenTuiScreen({
       } else if (workspace && !home) workspace.select();
       return;
     }
-    if (key.ctrl && key.name === "b")
-      changeMode(toggleSidebarMode(mode, width));
+    if (key.ctrl && key.name === "b") {
+      const next = toggleSidebarMode(mode, width, showSidebar);
+      changeMode(next);
+      if (next === "show" && width < 120) focusSidebar();
+    }
     if (key.name === "tab" && !contextOnly) {
       key.preventDefault();
       if (focus === "transcript" && sideRecordIndex !== undefined) {
@@ -1196,7 +1229,9 @@ function OpenTuiScreen({
     }
     if (parsed?.name === "/sidebar") {
       const arg = parsed.args;
-      const next = arg ? parseSidebarMode(arg) : toggleSidebarMode(mode, width);
+      const next = arg
+        ? parseSidebarMode(arg)
+        : toggleSidebarMode(mode, width, showSidebar);
       if (next) changeMode(next);
       clearInput();
       return;
@@ -1411,18 +1446,134 @@ function OpenTuiScreen({
         {settingsDialog}
       </box>
     );
-  const backFromAgents = () => {
-    controller?.setAgentSidebar(view.agentTree?.view ?? "agents", false);
+  const backFromSidebar = () => {
+    controller?.setAgentSidebar(sidebarTab, false);
     setOverlayDismissed(true);
     setFocus("editor");
     controller?.setFocus("composer");
   };
-  const openAgents = () => {
-    controller?.setAgentSidebar("agents", true);
-    setOverlayDismissed(false);
+  const focusSidebar = () => {
+    editor.current?.blur();
     setFocus("sidebar");
     controller?.setFocus("sidebar");
   };
+  const selectSidebar = (tab: SidebarTab) => {
+    if (controller)
+      controller.setAgentSidebar(tab, view.agentTree?.temporary ?? false);
+    else
+      setView((current) => ({
+        ...current,
+        agentTree: {
+          view: tab,
+          manual: true,
+          collapsed: false,
+          temporary: false,
+        },
+      }));
+  };
+  const openAgents = () => {
+    controller?.setAgentSidebar("agents", true);
+    setOverlayDismissed(false);
+    focusSidebar();
+  };
+  const menuActions: SidebarMenuAction[] = [
+    ...(workspace
+      ? [
+          {
+            id: "new",
+            label: "Новая беседа",
+            detail: "Начать новую задачу",
+            shortcut: "Ctrl+Shift+N",
+            group: "БЕСЕДА",
+            run: () => workspace.newDraft(),
+          },
+        ]
+      : []),
+    ...(sessionPicker
+      ? [
+          {
+            id: "sessions",
+            label: "История бесед",
+            detail: "Открыть сохранённую сессию",
+            shortcut: "/sessions",
+            group: "БЕСЕДА",
+            run: () => submit("/sessions"),
+          },
+        ]
+      : []),
+    ...(getModelsActions
+      ? [
+          {
+            id: "models",
+            label: "Модель",
+            detail: "Провайдер и модель для задачи",
+            shortcut: "/model",
+            group: "БЕСЕДА",
+            run: openModels,
+          },
+        ]
+      : []),
+    {
+      id: "project",
+      label: "Обзор проекта",
+      detail: "Контекст, ветка и изменения Git",
+      shortcut: "2",
+      group: "ПРОЕКТ",
+      run: () => selectSidebar("context"),
+    },
+    {
+      id: "appearance",
+      label: "Внешний вид",
+      detail: "Тема и оформление терминала",
+      shortcut: "Ctrl+T",
+      group: "НАСТРОЙКИ",
+      run: () => openSettings("appearance"),
+    },
+    {
+      id: "permissions",
+      label: "Разрешения",
+      detail: "Режим доступа к инструментам",
+      shortcut: "/permissions",
+      group: "НАСТРОЙКИ",
+      run: openPermissions,
+    },
+    ...(settingsActions || getSettingsActions
+      ? [
+          {
+            id: "connection",
+            label: "Подключение",
+            detail: "Профили, ключи и провайдеры",
+            shortcut: "/settings",
+            group: "НАСТРОЙКИ",
+            run: () => openSettings("connection"),
+          },
+        ]
+      : []),
+    ...(skillsActions
+      ? [
+          {
+            id: "skills",
+            label: "Навыки",
+            detail: "Инструкции и команды навыков",
+            shortcut: "/skills",
+            group: "РАСШИРЕНИЯ",
+            run: () => submit("/skills"),
+          },
+        ]
+      : []),
+    ...(getMcpActions
+      ? [
+          {
+            id: "mcp",
+            label: "MCP-серверы",
+            detail: "Подключённые инструменты",
+            shortcut: "/mcp",
+            group: "РАСШИРЕНИЯ",
+            run: () => submit("/mcp"),
+          },
+        ]
+      : []),
+  ];
   const activeChildren = (view.children ?? []).filter((child) =>
     [
       "queued",
@@ -1780,61 +1931,83 @@ function OpenTuiScreen({
         {showSidebar && (
           <box
             ref={sidebar}
-            width={contextOnly ? width : 41}
-            height={height - tabRows}
+            width={contextOnly ? panelWidth : panelWidth + 1}
+            height={panelHeight}
+            position={sidebarDrawer ? "absolute" : "relative"}
+            right={sidebarDrawer ? 0 : undefined}
+            top={sidebarDrawer ? 0 : undefined}
             flexDirection="row"
             focusable
           >
-            {!contextOnly && <box width={1} backgroundColor={palette.border} />}
-            {controller && view.agentTree?.view === "agents" ? (
-              <AgentsSidebar
-                controller={controller}
-                state={view}
-                width={contextOnly ? Math.min(width, 40) : 40}
-                height={height - tabRows}
-                palette={palette}
-                focused={agentsFocused}
-                onFocus={() => {
-                  setFocus("sidebar");
-                  controller.setFocus("sidebar");
-                }}
-                onBack={backFromAgents}
-                onContext={() =>
-                  controller.setAgentSidebar(
-                    "context",
-                    view.agentTree?.temporary ?? false,
-                  )
-                }
-                onOpen={openAgent}
-                onStop={stopAgent}
-              />
-            ) : (
+            {!contextOnly && (
               <box
-                flexDirection="column"
-                width={contextOnly ? Math.min(width, 40) : 40}
-              >
-                {controller && (
-                  <DialogAction
-                    id="context-to-agents"
-                    label={`Агенты ${activeChildren}${childApproval ? " · нужно разрешение" : ""} F7`}
-                    palette={palette}
-                    onSelect={openAgents}
-                  />
-                )}
-                <ContextSidebar
-                  state={view}
-                  width={contextOnly ? Math.min(width, 40) : 40}
-                  height={height - tabRows - (controller ? 1 : 0)}
-                  focused={
-                    focus === "sidebar" &&
-                    !sideActive &&
-                    !approval &&
-                    !otherOverlay
-                  }
-                  palette={palette}
-                />
-              </box>
+                width={1}
+                backgroundColor={
+                  sidebarFocused ? palette.accent : palette.border
+                }
+              />
             )}
+            <SidebarPanel
+              tab={sidebarTab}
+              width={panelWidth}
+              height={panelHeight}
+              palette={palette}
+              focused={sidebarFocused}
+              owner={sidebarOwner}
+              running={activeChildren}
+              approvals={
+                (view.children ?? []).filter(
+                  (child) => child.status === "awaiting_approval",
+                ).length
+              }
+              busy={view.busy || activeChildren > 0}
+              onFocus={focusSidebar}
+              onSelect={selectSidebar}
+              onBack={backFromSidebar}
+              onHide={() => {
+                changeMode("hide");
+                backFromSidebar();
+              }}
+            >
+              {sidebarTab === "menu" ? (
+                <SidebarMenu
+                  key={controller?.conversationId}
+                  actions={menuActions}
+                  controller={controller}
+                  width={panelWidth}
+                  height={panelBodyHeight}
+                  palette={palette}
+                  focused={sidebarFocused}
+                  owner={sidebarOwner}
+                  onFocus={focusSidebar}
+                />
+              ) : controller && sidebarTab === "agents" ? (
+                <AgentsSidebar
+                  embedded
+                  controller={controller}
+                  state={view}
+                  width={panelWidth}
+                  height={panelBodyHeight}
+                  palette={palette}
+                  focused={agentsFocused}
+                  onFocus={focusSidebar}
+                  onBack={backFromSidebar}
+                  onContext={() => selectSidebar("context")}
+                  onOpen={openAgent}
+                  onStop={stopAgent}
+                />
+              ) : (
+                <ContextSidebar
+                  key={controller?.conversationId}
+                  state={view}
+                  width={panelWidth}
+                  height={panelBodyHeight}
+                  focused={sidebarFocused}
+                  palette={palette}
+                  presentation={controller?.sidebarPresentation}
+                />
+              )}
+            </SidebarPanel>
           </box>
         )}
       </box>

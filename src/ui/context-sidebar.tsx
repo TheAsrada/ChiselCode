@@ -1,14 +1,17 @@
 /** @jsxImportSource @opentui/react */
-import { basename } from "node:path";
-import React from "react";
+import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
+import { useLayoutEffect, useRef } from "react";
 import { contextProgress } from "../core/context-usage.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { SidebarSection } from "./sidebar-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
-import type { TuiViewState } from "./tui-controller.js";
+import type { TuiController, TuiViewState } from "./tui-controller.js";
 
-function safeLine(value: string, limit = 35): string {
-  return terminalLine(value, limit);
+function leaf(path: string): string {
+  return (
+    path.replaceAll("\\", "/").replace(/\/$/, "").split("/").at(-1) || path
+  );
 }
 
 export function ContextSidebar({
@@ -17,15 +20,35 @@ export function ContextSidebar({
   height = 24,
   focused = false,
   palette = THEMES.obsidian,
+  presentation,
 }: {
   state: TuiViewState;
   width?: number;
   height?: number;
   focused?: boolean;
   palette?: Palette;
+  presentation?: TuiController["sidebarPresentation"];
 }) {
-  const quiet = palette.muted;
-  const title = palette.accent;
+  const scroll = useRef<ScrollBoxRenderable>(null);
+  const remembered = useRef(presentation?.scroll.get("context"));
+  const restore = () => {
+    if (
+      remembered.current === undefined ||
+      !scroll.current ||
+      scroll.current.viewport.height === 0
+    )
+      return;
+    scroll.current.scrollTo(remembered.current);
+    remembered.current = undefined;
+  };
+  useLayoutEffect(() => {
+    const body = scroll.current;
+    if (!body || !presentation) return;
+    body.scrollTo(presentation.scroll.get("context") ?? 0);
+    return () => {
+      presentation.scroll.set("context", body.scrollTop);
+    };
+  }, [presentation]);
   const usage = state.usage;
   const snapshot = state.contextSnapshot ?? usage?.contextSnapshot;
   const preferMetadata =
@@ -40,131 +63,231 @@ export function ContextSidebar({
   const progress = contextProgress(
     snapshot ? { ...snapshot, contextWindow: window } : undefined,
   );
-  const selection = state.modelSelection;
-  const barWidth = Math.max(4, Math.min(20, width - 12));
+  const inner = Math.max(1, width - 4);
+  const cardWidth = Math.max(1, width - 2);
+  const barWidth = Math.max(1, inner - 1);
   const filled =
     (progress.barPercent ?? 0) > 0
       ? Math.max(1, Math.round(((progress.barPercent ?? 0) / 100) * barWidth))
       : 0;
+  const pressure =
+    (progress.barPercent ?? 0) >= 90
+      ? palette.red
+      : (progress.barPercent ?? 0) >= 70
+        ? palette.yellow
+        : palette.accent;
+  const selection = state.modelSelection;
   const files = state.gitChanges?.files ?? [];
   const totalTokens = usage
     ? usage.totalTokens.inputTokens + usage.totalTokens.outputTokens
     : 0;
-  const maxFiles = Math.max(0, Math.min(8, height - 15));
   return (
-    <box
+    <TerminalScrollbox
+      id="context-sidebar"
+      ref={scroll}
       width={width}
       height={height}
-      flexDirection="column"
       paddingLeft={1}
       paddingRight={1}
       backgroundColor={palette.surface}
+      focused={focused}
+      viewportCulling
+      renderBefore={restore}
     >
-      <TerminalScrollbox
-        flexGrow={1}
-        minHeight={0}
-        focused={focused}
-        viewportCulling
+      <SidebarSection
+        title="МОДЕЛЬ"
+        width={cardWidth}
+        palette={palette}
+        trailing={state.agentMode === "plan" ? "Plan" : "Build"}
       >
-        <text fg={title}>{focused ? "> Контекст" : "Контекст"}</text>
-        <text fg={palette.text}>
-          {safeLine(selection?.model ?? usage?.model ?? "-", width - 2)}
-        </text>
-        <text fg={quiet}>
-          {safeLine(
-            `${selection?.provider ?? usage?.provider ?? "-"}${selection?.profileId ? ` / ${selection.profileId}` : ""}`,
-            width - 2,
+        <text
+          height={1}
+          fg={palette.text}
+          attributes={TextAttributes.BOLD}
+          content={terminalLine(
+            selection?.model ?? usage?.model ?? "Модель не выбрана",
+            inner,
           )}
-        </text>
-        <text fg={quiet}>
-          {window
-            ? `Окно: ${window.toLocaleString("ru-RU")}${windowSource === "catalog" ? " (каталог)" : windowSource === "config" ? " (настройки)" : ""}`
-            : "Размер окна неизвестен"}
-        </text>
-        <text fg={quiet}>{snapshot ? progress.label : "Заполнение: —"}</text>
+        />
+        <text
+          height={1}
+          fg={palette.muted}
+          content={terminalLine(
+            selection?.provider ?? usage?.provider ?? "Провайдер не выбран",
+            inner,
+          )}
+        />
+        {selection?.profileId && (
+          <text
+            height={1}
+            fg={palette.muted}
+            content={terminalLine(`Профиль: ${selection.profileId}`, inner)}
+          />
+        )}
+      </SidebarSection>
+      <SidebarSection
+        title="ОКНО КОНТЕКСТА"
+        width={cardWidth}
+        palette={palette}
+      >
+        <text
+          height={1}
+          fg={pressure}
+          attributes={TextAttributes.BOLD}
+          content={terminalLine(
+            snapshot ? progress.label : "Заполнение: —",
+            inner,
+          )}
+        />
         {progress.barPercent !== undefined && (
-          <text fg={title}>
-            <span bg={title}>{" ".repeat(filled)}</span>
+          <text height={1} selectable={false}>
+            <span bg={pressure}>{" ".repeat(filled)}</span>
             <span bg={palette.border}>{" ".repeat(barWidth - filled)}</span>
           </text>
         )}
-        {snapshot?.status === "estimated" && (
-          <text fg={quiet}>~ приблизительная оценка</text>
-        )}
-        {usage && (
-          <text fg={quiet}>
-            Расход сессии: {totalTokens.toLocaleString("ru-RU")}
-          </text>
-        )}
-        {state.childSpend && (
-          <text fg={quiet}>
-            {safeLine(
-              `Помощники: ${state.childSpend.usage.inputTokens + state.childSpend.usage.outputTokens} ток.${state.childSpend.unknownUsage ? " · часть неизвестна" : ""}`,
-              width - 2,
-            )}
-          </text>
-        )}
-        {state.sideSpend && (
-          <text fg={quiet}>
-            {safeLine(
-              `Побочные: ${state.sideSpend.usage.inputTokens + state.sideSpend.usage.outputTokens} ток.${state.sideSpend.unknownUsage ? " · часть неизвестна" : ""}`,
-              width - 2,
-            )}
-          </text>
-        )}
-        {usage &&
-          usage.totalCost !== undefined &&
-          Number.isFinite(usage.totalCost) &&
-          usage.totalCost > 0 && (
-            <text fg={quiet}>${usage.totalCost.toFixed(4)}</text>
+        <text
+          height={1}
+          fg={palette.muted}
+          content={terminalLine(
+            window
+              ? `Окно: ${window.toLocaleString("ru-RU")}${windowSource === "catalog" ? " (каталог)" : windowSource === "config" ? " (настройки)" : ""}`
+              : "Размер окна неизвестен",
+            inner,
           )}
-        <text fg={title}>Проект</text>
-        {state.worktree && (
-          <text fg={palette.text}>
-            {safeLine(`Копия: ${state.worktree.label}`, width - 2)}
+        />
+        {snapshot?.status === "estimated" && (
+          <text height={1} fg={palette.muted}>
+            ~ приблизительная оценка
           </text>
         )}
-        {state.worktree && (
-          <text fg={quiet}>
-            {safeLine(`ID: ${state.worktree.id}`, width - 2)}
-          </text>
-        )}
-        <text fg={quiet}>{safeLine(state.projectPath)}</text>
-        <text fg={quiet}>
-          {state.gitChanges
-            ? safeLine(
-                state.gitChanges.branch === "HEAD"
-                  ? "Detached HEAD"
-                  : state.gitChanges.branch,
-              )
-            : "Без репозитория"}
-        </text>
-        {state.gitChanges && (
-          <React.Fragment>
-            <text fg={title}>Изменения | {state.gitChanges.totalFiles}</text>
-            {files.length === 0 && <text fg={quiet}>Нет изменений</text>}
-            {files.slice(0, maxFiles).map((file) => (
-              <text key={file.path} fg={quiet}>
-                {safeLine(basename(file.path), 25)} +{file.additions} -
-                {file.deletions}
-              </text>
-            ))}
-            {state.gitChanges.totalFiles > maxFiles && (
-              <text fg={quiet}>
-                ...ещё {state.gitChanges.totalFiles - maxFiles}
+      </SidebarSection>
+      {(usage || state.childSpend || state.sideSpend) && (
+        <SidebarSection
+          title="Расход сессии:"
+          width={cardWidth}
+          palette={palette}
+          trailing={totalTokens.toLocaleString("ru-RU")}
+        >
+          {usage && (
+            <text
+              height={1}
+              fg={palette.muted}
+              content={terminalLine(
+                `Вход ${usage.totalTokens.inputTokens.toLocaleString("ru-RU")} · выход ${usage.totalTokens.outputTokens.toLocaleString("ru-RU")}`,
+                inner,
+              )}
+            />
+          )}
+          {state.childSpend && (
+            <text
+              height={1}
+              fg={palette.muted}
+              content={terminalLine(
+                `Помощники: ${(state.childSpend.usage.inputTokens + state.childSpend.usage.outputTokens).toLocaleString("ru-RU")} ток.`,
+                inner,
+              )}
+            />
+          )}
+          {state.sideSpend && (
+            <text
+              height={1}
+              fg={palette.muted}
+              content={terminalLine(
+                `Побочные: ${(state.sideSpend.usage.inputTokens + state.sideSpend.usage.outputTokens).toLocaleString("ru-RU")} ток.`,
+                inner,
+              )}
+            />
+          )}
+          {(state.childSpend?.unknownUsage ||
+            state.sideSpend?.unknownUsage) && (
+            <text height={1} fg={palette.yellow}>
+              Часть расхода неизвестна
+            </text>
+          )}
+          {usage?.totalCost !== undefined &&
+            Number.isFinite(usage.totalCost) &&
+            usage.totalCost > 0 && (
+              <text height={1} fg={palette.text}>
+                ${usage.totalCost.toFixed(4)}
               </text>
             )}
-          </React.Fragment>
+        </SidebarSection>
+      )}
+      <SidebarSection title="ПРОЕКТ" width={cardWidth} palette={palette}>
+        <text
+          height={1}
+          fg={palette.text}
+          attributes={TextAttributes.BOLD}
+          content={terminalLine(leaf(state.projectPath), inner)}
+        />
+        <text
+          height={1}
+          fg={palette.muted}
+          content={terminalLine(state.projectPath, inner)}
+        />
+        <text
+          height={1}
+          fg={state.gitChanges ? palette.accent : palette.muted}
+          content={terminalLine(
+            state.gitChanges
+              ? state.gitChanges.branch === "HEAD"
+                ? "Detached HEAD"
+                : state.gitChanges.branch
+              : "Без репозитория",
+            inner,
+          )}
+        />
+        {state.worktree && (
+          <text
+            height={1}
+            fg={palette.muted}
+            content={terminalLine(`Копия: ${state.worktree.label}`, inner)}
+          />
         )}
-        {(state.toolActivity || state.overlay) && (
-          <React.Fragment>
-            <text fg={title}>Активность</text>
-            <text fg={palette.yellow}>
-              {safeLine(state.overlay ?? state.toolActivity ?? "")}
+      </SidebarSection>
+      {state.gitChanges && (
+        <SidebarSection
+          title="ИЗМЕНЕНИЯ"
+          width={cardWidth}
+          palette={palette}
+          trailing={`${state.gitChanges.totalFiles}`}
+        >
+          {files.length === 0 && (
+            <text height={1} fg={palette.muted}>
+              Рабочее дерево чистое
             </text>
-          </React.Fragment>
-        )}
-      </TerminalScrollbox>
-    </box>
+          )}
+          {files.slice(0, 8).map((file) => (
+            <text key={file.path} height={1} fg={palette.text}>
+              {terminalLine(
+                leaf(file.path),
+                Math.max(
+                  1,
+                  inner - ` +${file.additions} -${file.deletions}`.length,
+                ),
+              )}
+              <span fg={palette.green}> +{file.additions}</span>
+              <span fg={palette.red}> -{file.deletions}</span>
+            </text>
+          ))}
+          {state.gitChanges.totalFiles > 8 && (
+            <text height={1} fg={palette.muted}>
+              …ещё {state.gitChanges.totalFiles - 8}
+            </text>
+          )}
+        </SidebarSection>
+      )}
+      {(state.toolActivity || state.overlay) && (
+        <SidebarSection title="АКТИВНОСТЬ" width={cardWidth} palette={palette}>
+          <text
+            fg={palette.yellow}
+            content={terminalLine(
+              state.overlay ?? state.toolActivity ?? "",
+              inner,
+            )}
+          />
+        </SidebarSection>
+      )}
+    </TerminalScrollbox>
   );
 }

@@ -54,7 +54,7 @@ export interface TuiViewState {
   children?: readonly SubagentDescriptor[];
   childSpend?: ModelSpend;
   agentTree?: {
-    view: "agents" | "context";
+    view: "agents" | "context" | "menu";
     manual: boolean;
     selected?: string;
     collapsed: boolean;
@@ -118,6 +118,10 @@ export class TuiController implements TuiTranscript {
     scroll: new Map<string, number>(),
     treeScroll: 0,
     returnFocus: "composer" as TuiViewState["focus"],
+  };
+  readonly sidebarPresentation = {
+    menuIndex: 0,
+    scroll: new Map<string, number>(),
   };
   readonly conversationId = randomUUID();
   readonly conversation = new ConversationSourceBridge();
@@ -527,6 +531,8 @@ export class TuiController implements TuiTranscript {
     this.sidePresentation.unread.clear();
     this.subagentControls = undefined;
     this.agentPresentation.scroll.clear();
+    this.sidebarPresentation.scroll.clear();
+    this.sidebarPresentation.menuIndex = 0;
     this.generation++;
     this.compactionNotices.clear();
     this.presentation.windowEnd = undefined;
@@ -622,7 +628,10 @@ export class TuiController implements TuiTranscript {
         event.child.status === "completed" ? "success" : "warn",
       );
   }
-  setAgentSidebar(view: "agents" | "context", temporary = false): void {
+  setAgentSidebar(
+    view: "agents" | "context" | "menu",
+    temporary = false,
+  ): void {
     this.update({
       agentTree: {
         ...(this.state.agentTree ?? {
