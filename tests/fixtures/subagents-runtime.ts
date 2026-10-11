@@ -273,7 +273,7 @@ try {
         parentHeld,
         completed: completed.size,
         childRequests: [...childRoots.values()].map((item) => item.count),
-      children: controller.snapshot.children?.map((item) => ({
+        children: controller.snapshot.children?.map((item) => ({
           label: item.label,
           status: item.status,
           step: item.step,
@@ -295,7 +295,21 @@ try {
     {
       onText: (text) => controller.appendToLast(text),
       onToolStart: () => {},
-      onToolResult: () => {},
+      onToolResult: (name, outcome) => {
+        console.error(
+          "Parent tool:",
+          name,
+          JSON.stringify({
+            isError: outcome.isError,
+            output: outcome.output.slice(0, 2048),
+          }),
+        );
+        if (outcome.isError) {
+          markChildRequest();
+          markParentHeld();
+          releaseParent();
+        }
+      },
       onConversation: (source) => controller.setSessionId(source.sessionId),
       onSubagentControls: (controls) =>
         controller.setSubagentControls(controls),
