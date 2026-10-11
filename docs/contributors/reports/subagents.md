@@ -64,6 +64,10 @@ CHISEL_CAPTURE_DIR=/absolute/captures bun tests/fixtures/tui-subagents.ts
 
 Визуальное дополнение: время задачи обновляет один shared clock только в строках времени, без повторного рендера Markdown; последний unmount освобождает таймер. Отдельное «Копировать путь» сохраняет полный путь, а compact result не заполнен сырым OID. Дополнительный native test проверяет общий таймер и cleanup; targeted suite **13 pass, 0 fail**.
 
+[Следующий CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38119648133) подтвердил настоящий TUI двух помощников на Windows и остальные проверки Linux/macOS/LSP. Отдельный runtime fixture обнаружил гонку самого теста: assertion в observer предполагал, что основной HTTP-запрос успеет начаться раньше завершения помощника; ошибки observer закономерно изолируются core. Fixture теперь связывает child HTTP и удержанный foreground явными событиями, проверяя независимость scheduler без зависимости от скорости диска. Общий timeout сценария с тремя apply увеличен до 45 секунд; строгие assertions реальных файлов, расходов, HEAD/index, конфликтов и двух model/tool loops сохранены. Targeted integration: **2 pass, 0 fail**.
+
+После перезапуска cloud-среды временные LSP dependencies отсутствовали: неподготовленный прогон дал шесть setup failures, без silent skip. Повтор после `bun scripts/prepare-lsp-tests.ts`: **1092 pass, 1 skip, 0 fail; 9662 assertions, 124 файла, 155,01 секунды**. Повторные eval (14/14), build/compile, полный installed/compiled packaging и обычный npm archive прошли на версии `bfed467`.
+
 ## Кадры настоящего OpenTUI
 
 PNG ниже растеризованы из `captureSpans` с фактическими цветами и геометрией; рядом сохранены `captureCharFrame` TXT и raw JSON. Это native renderer, не browser/imagegen mockup. Визуально проверены широкая/маленькая панели, темы Obsidian, Paper, Graphite, Ember, ASCII/Unicode, selected/focused row, queued/approval/failed/interrupted и partial states.

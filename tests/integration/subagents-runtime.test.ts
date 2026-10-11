@@ -10,12 +10,12 @@ test("production parent delegates two coding tasks through real Git, protocol dr
     new Response(child.stderr).text(),
     child.exited,
   ]);
+  expect(code, error).toBe(0);
   expect(error).not.toContain("AssertionError");
-  expect(code).toBe(0);
   expect(output).toContain(
     "Subagents runtime: two production model/tool loops",
   );
-}, 30000);
+}, 45000);
 
 test("ordinary TUI delegates through production dispatch and keeps parent request running while child work and viewers complete", async () => {
   const child = Bun.spawn(

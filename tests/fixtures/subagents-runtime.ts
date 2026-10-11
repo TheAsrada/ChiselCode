@@ -72,6 +72,14 @@ let parentHeld = false;
 const parentBarrier = new Promise<void>((resolve) => {
   releaseParent = resolve;
 });
+let markChildRequest = () => {};
+const childRequest = new Promise<void>((resolve) => {
+  markChildRequest = resolve;
+});
+let markParentHeld = () => {};
+const foregroundHeld = new Promise<void>((resolve) => {
+  markParentHeld = resolve;
+});
 const completed = new Set<string>();
 const controller = new TuiController(root);
 controller.setDraft("Родительский черновик во время делегирования");
@@ -134,6 +142,10 @@ const server = Bun.serve({
     requests.push(body);
     const system = String(body.messages[0]?.content);
     if (system.includes("Поручение выполняется отдельным помощником.")) {
+      // The child may reach HTTP before the parent's durable checkpoint finishes.
+      // Hold on explicit events, not an assumption about relative disk/network speed.
+      markChildRequest();
+      await foregroundHeld;
       assert.ok(
         (body.max_completion_tokens ?? body.max_tokens ?? Infinity) <= 2048,
       );
@@ -211,7 +223,9 @@ const server = Bun.serve({
       body.messages.filter((message) => message.role === "tool").length,
       2,
     );
+    await childRequest;
     parentHeld = true;
+    markParentHeld();
     await parentBarrier;
     assert.equal(
       completed.size,
@@ -271,6 +285,8 @@ try {
                 cleanup: event.child.cleanup,
               }),
             );
+            markChildRequest();
+            markParentHeld();
             releaseParent();
             return;
           }
@@ -412,6 +428,8 @@ try {
     "Subagents runtime: two production model/tool loops, isolated edits, durable records, independent accounting",
   );
 } finally {
+  markChildRequest();
+  markParentHeld();
   releaseParent();
   server.stop(true);
   await act(async () => ui.renderer.destroy());
