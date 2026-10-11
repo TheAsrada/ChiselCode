@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 import { expect, test } from "bun:test";
 import { TextTableRenderable } from "@opentui/core";
+import { useTerminalDimensions } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, useState } from "react";
 import { THEMES } from "../../src/ui/appearance.js";
@@ -170,6 +171,7 @@ for (const width of [16, 40, 80, 120]) {
 test("streaming reuses the table and final cells survive a narrow resize", async () => {
   let update!: (content: string) => void;
   function Harness() {
+    const { width } = useTerminalDimensions();
     const [content, setContent] = useState(
       "| Имя | Описание |\n| --- | --- |\n| Alpha | Начало |",
     );
@@ -178,6 +180,7 @@ test("streaming reuses the table and final cells survive a narrow resize", async
       <FormattedMessage
         id="answer"
         content={content}
+        width={width}
         streaming
         palette={THEMES.obsidian}
       />

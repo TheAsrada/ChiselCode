@@ -179,6 +179,75 @@ async function waitDiagnostics(
   );
 }
 
+for (const scenario of [
+  "auto",
+  "generic",
+  "off",
+  "untrusted",
+  "unconfigured",
+] as const)
+  test(`/lsp-status returns JSON-safe details without starting a server: ${scenario}`, async () => {
+    const f = await fixture("auto");
+    if (scenario !== "auto")
+      await f.settings.saveGlobal({
+        mode: scenario === "off" ? "off" : "custom",
+        servers:
+          scenario === "generic" || scenario === "untrusted"
+            ? {
+                notes: {
+                  enabled: true,
+                  backend: "generic",
+                  command: process.execPath,
+                  args: [],
+                  languageIds: ["notes"],
+                  extensions: [".notes"],
+                  trustedWorkspaces: scenario === "generic" ? [f.root] : [],
+                },
+              }
+            : {},
+      });
+    const command = f.scope.commands.get("lsp-status");
+    const outcome = await runExtensionCommand(
+      { command, input: command.parse("") },
+      f.scope,
+      {
+        cwd: f.root,
+        configPath: f.configPath,
+        mode: "plan",
+        interactive: true,
+      },
+      {
+        requestApproval: async () => {
+          throw new Error("Status must never request process approval.");
+        },
+      },
+    );
+    expect(outcome.result.isError).not.toBe(true);
+    const status = JSON.parse(outcome.result.output);
+    expect(outcome.result.details?.lsp).toEqual(status);
+    expect(status.state).toBe(
+      scenario === "off"
+        ? "disabled"
+        : scenario === "untrusted"
+          ? "untrusted"
+          : scenario === "unconfigured"
+            ? "unavailable"
+            : "stopped",
+    );
+    if (scenario === "generic") {
+      expect(status.versions.server).toBe("custom");
+      expect(status.versions).not.toHaveProperty("typescript");
+    }
+    expect((await f.service.status()).generation).toBe(0);
+    const store = await projectSessionStore(f.root);
+    const saved = await store.load(outcome.session.id);
+    const record = Object.values(saved.runtime?.invocations ?? {}).find(
+      (item) => item.name === "ext:builtin.lsp:status",
+    );
+    expect(record?.result?.details?.lsp).toEqual(status);
+    expect(saved.messages).toHaveLength(0);
+  });
+
 for (const backend of ["auto", "custom"] as const)
   test(`${backend}: real TypeScript tools initialise lazily, navigate, observe actual bytes, edit, clear errors and persist source`, async () => {
     const f = await fixture(backend);

@@ -22,10 +22,11 @@ const readPort = (context: ToolContext) => ({
   observe: (path: string, bytes: Buffer) =>
     context.editing.observe(path, bytes),
 });
-const output = (value: unknown) => ({
-  output: JSON.stringify(value, null, 2),
-  details: { lsp: value },
-});
+const output = (value: unknown) => {
+  const text = JSON.stringify(value, null, 2);
+  // Optional backend fields must have the same JSON representation in both DTOs.
+  return { output: text, details: { lsp: JSON.parse(text) } };
+};
 const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** Config is captured by composition, never added to the general ExtensionContext. */

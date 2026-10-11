@@ -6,7 +6,7 @@ import {
   type TextChunk,
   TextTableRenderable,
 } from "@opentui/core";
-import { extend, useTerminalDimensions } from "@opentui/react";
+import { extend } from "@opentui/react";
 import { lexer, type Token, type Tokens } from "marked";
 import type React from "react";
 import { useMemo } from "react";
@@ -165,12 +165,11 @@ export function FormattedMessage({
 }: {
   content: string;
   palette: Palette;
-  width?: number;
+  width: number;
   id?: string;
   streaming?: boolean;
 }) {
-  const terminal = useTerminalDimensions();
-  const available = Math.max(1, (width ?? terminal.width) - 1);
+  const available = Math.max(1, width - 1);
   const { borderChars } = useTerminalDecoration();
   const colors = useMemo(
     () =>
