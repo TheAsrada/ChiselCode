@@ -1,7 +1,12 @@
 // Deterministic protocol/race peer only. Acceptance uses the real installed server.
 
 import { spawn } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -232,15 +237,21 @@ async function receive(message) {
       : "locations" in settings
         ? settings.locations
         : [{ uri: params.textDocument.uri, range }];
-    return setTimeout(
-      () =>
-        send(
-          settings.requestError
-            ? { id, error: { code: -32000, message: "token=internal-secret" } }
-            : { id, result },
-        ),
-      settings.requestDelay ?? 0,
-    );
+    const respond = () => {
+      if (
+        settings.holdRequests &&
+        !existsSync(join(root, "peer-release-requests"))
+      ) {
+        setTimeout(respond, 10);
+        return;
+      }
+      send(
+        settings.requestError
+          ? { id, error: { code: -32000, message: "token=internal-secret" } }
+          : { id, result },
+      );
+    };
+    return setTimeout(respond, settings.requestDelay ?? 0);
   }
   if (id !== undefined && method)
     send({ id, error: { code: -32601, message: "Unknown fixture method" } });

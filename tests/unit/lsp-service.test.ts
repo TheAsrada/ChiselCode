@@ -380,16 +380,20 @@ test("unsupported features, wrong encoding, server errors and changed documents 
       failed.port,
     ),
   ).rejects.toMatchObject({ code: "LSP_PROTOCOL_ERROR" });
-  const slow = await fixture({ requestDelay: 80 });
+  const slow = await fixture({ holdRequests: true });
   await slow.service.ensureStarted();
-  const pending = slow.service.definition(
-    "main.ts",
-    { line: 0, character: 0 },
-    slow.port,
+  const pending = slow.service
+    .definition("main.ts", { line: 0, character: 0 }, slow.port)
+    .catch((error: unknown) => error);
+  // Receipt proves the server has the original bytes; hold its response until
+  // the write completes so slow filesystem work cannot invert the race.
+  await poll(
+    () => slow.log(),
+    (log) => log.some((item) => item.method === "textDocument/definition"),
   );
-  await Bun.sleep(35);
   await writeFile(join(slow.root, "main.ts"), "changed\n");
-  await expect(pending).rejects.toMatchObject({ code: "STALE_FILE_REVISION" });
+  await writeFile(join(slow.root, "peer-release-requests"), "");
+  expect(await pending).toMatchObject({ code: "STALE_FILE_REVISION" });
 }, 15_000);
 
 test("Full sync sends replacement bytes; project changes invalidate previously confirmed context", async () => {
