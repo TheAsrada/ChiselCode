@@ -415,7 +415,7 @@ async function runPromptInWorkspace(
   extensionScope: WorkspaceExtensionScope,
 ): Promise<{ result: AgentResult; exitCode: number }> {
   const startedAt = performance.now();
-  const projectRoot = options.cwd ?? process.cwd();
+  const projectRoot = extensionScope.workspaceRoot;
   const sessionStore = await projectSessionStore(projectRoot);
   const config = await loadProjectConfig(projectRoot);
   const global = await loadGlobalConfig(options.configPath);

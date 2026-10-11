@@ -5,6 +5,7 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,6 +26,12 @@ const directory = await realpath(
 );
 const root = join(directory, "проект с пробелом");
 await mkdir(root);
+const rootAlias = join(directory, "alias проекта");
+await symlink(
+  root,
+  rootAlias,
+  process.platform === "win32" ? "junction" : "dir",
+);
 for (const name of [
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
@@ -285,7 +292,7 @@ try {
   const { result, exitCode } = await runPrompt(
     "Поручи двум помощникам независимые изменения",
     {
-      cwd: root,
+      cwd: rootAlias,
       configPath,
       allow:
         "ext:builtin.subagents:submit_coding,ext:builtin.subagents:prepare_worktree,edit_file",
@@ -301,7 +308,9 @@ try {
           name,
           JSON.stringify({
             isError: outcome.isError,
-            output: outcome.output.slice(0, 2048),
+            output: outcome.isError
+              ? outcome.output.slice(0, 2048)
+              : "Поручение принято",
           }),
         );
         if (outcome.isError) {
