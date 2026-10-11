@@ -273,7 +273,7 @@ try {
         parentHeld,
         completed: completed.size,
         childRequests: [...childRoots.values()].map((item) => item.count),
-        children: controller.snapshot().children?.map((item) => ({
+      children: controller.snapshot.children?.map((item) => ({
           label: item.label,
           status: item.status,
           step: item.step,
