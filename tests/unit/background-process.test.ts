@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { BackgroundTaskSchema } from "../../src/background/contracts.js";
 import { ProcessLog } from "../../src/background/log.js";
 import { BackgroundTaskStore } from "../../src/background/storage.js";
 import { ManagedProcess } from "../../src/processes/managed.js";
@@ -221,6 +222,98 @@ test("durable execution adoption prevents a second registry instance from enteri
     { resource: root, mode: "read" },
   ]);
   await after.release();
+});
+
+test("promotion removes only an acknowledged snapshot while live revisions advance", async () => {
+  const { root } = await fixture("");
+  let blocked = false;
+  let entered!: () => void;
+  let release!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  class Store extends BackgroundTaskStore {
+    override async directory() {
+      return root;
+    }
+    override async list(ownerId: string) {
+      const saved = await super.list(ownerId);
+      if (blocked) {
+        entered();
+        await barrier;
+      }
+      return saved;
+    }
+  }
+  const store = new Store();
+  const ownerId = crypto.randomUUID();
+  const stamp = new Date().toISOString();
+  const record = BackgroundTaskSchema.parse({
+    schemaVersion: 1,
+    id: crypto.randomUUID(),
+    operationKey: "promotion-once",
+    ordinal: 1,
+    rootOwnerId: ownerId,
+    sessionId: ownerId,
+    conversationId: "fixture",
+    generation: 0,
+    invocationId: "one",
+    turnId: "one",
+    ownerLabel: "Основной агент",
+    origin: root,
+    workspace: root,
+    workspaceLabel: "Проект",
+    label: "Проверка",
+    commandPreview: "echo fixture",
+    replayable: true,
+    kind: "batch",
+    foreground: true,
+    state: "running",
+    revision: 1,
+    acceptedAt: stamp,
+    updatedAt: stamp,
+    deadline: stamp,
+    readiness: "unknown",
+    tail: [],
+    outputBytes: 0,
+    outputLimit: 4096,
+    outputGeneration: crypto.randomUUID(),
+    cleanup: { confirmed: false },
+    resources: [],
+    process: {
+      instance: crypto.randomUUID(),
+      applicationPid: process.pid,
+      host: "fixture",
+      token: crypto.randomUUID(),
+    },
+  });
+  await store.saveForeground(record);
+  record.foreground = false;
+  record.revision = 2;
+  await store.save(record);
+  await expect(
+    store.removePromotedForeground({ ...record, revision: 3 }),
+  ).rejects.toMatchObject({ code: "BACKGROUND_STORAGE_FAILURE" });
+  await expect(
+    store.removePromotedForeground({
+      ...record,
+      process: { ...record.process!, token: crypto.randomUUID() },
+    }),
+  ).rejects.toMatchObject({ code: "BACKGROUND_STORAGE_FAILURE" });
+  expect(await store.listForeground(ownerId)).toHaveLength(1);
+  blocked = true;
+  const removal = store.removePromotedForeground(record);
+  await reached;
+  record.revision++;
+  record.tail = ["Следующая ещё не сохранённая строка"];
+  release();
+  await removal;
+  expect(await store.listForeground(ownerId)).toHaveLength(0);
+  blocked = false;
+  expect((await store.list(ownerId))[0]?.revision).toBe(2);
 });
 
 test("workspace resource identity follows a real symlink or Windows junction", async () => {

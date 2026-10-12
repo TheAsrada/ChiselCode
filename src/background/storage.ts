@@ -308,14 +308,18 @@ export class BackgroundTaskStore {
     );
   }
   async removePromotedForeground(record: BackgroundTaskRecord): Promise<void> {
-    const saved = (await this.list(record.rootOwnerId)).find(
-      (item) => item.id === record.id,
+    // Verify the acknowledged handoff, not a live output revision that may
+    // change during this read. Identity and durable revision guards remain.
+    const proof = BackgroundTaskSchema.parse(record);
+    const saved = (await this.list(proof.rootOwnerId)).find(
+      (item) => item.id === proof.id,
     );
     if (
+      proof.foreground ||
       !saved ||
       saved.foreground ||
-      saved.process?.token !== record.process?.token ||
-      saved.revision < record.revision
+      saved.process?.token !== proof.process?.token ||
+      saved.revision < proof.revision
     )
       throw new RuntimeError(
         "BACKGROUND_STORAGE_FAILURE",
@@ -324,7 +328,7 @@ export class BackgroundTaskStore {
     await rm(
       join(
         await this.directory(),
-        `${z.uuid().parse(record.id)}.foreground.json`,
+        `${z.uuid().parse(proof.id)}.foreground.json`,
       ),
       { force: true },
     );

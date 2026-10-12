@@ -53,6 +53,7 @@ import {
   type BackgroundState,
   type BackgroundTask,
   type BackgroundTaskRecord,
+  BackgroundTaskSchema,
   backgroundActive,
 } from "./contracts.js";
 import { type ShellData, type ShellInput, ShellInputSchema } from "./input.js";
@@ -1142,7 +1143,7 @@ export class BackgroundTaskService {
       item.owner,
       item.record,
       item.record.foreground ? "foreground" : "changed",
-    );
+    ).then(() => {});
     try {
       await item.writes;
     } catch {
@@ -1168,7 +1169,7 @@ export class BackgroundTaskService {
     owner: Owner,
     record: BackgroundTaskRecord,
     type: BackgroundEvent["type"],
-  ): Promise<void> {
+  ): Promise<number> {
     record.revision++;
     if (type === "terminal") record.terminalRevision = record.revision;
     record.updatedAt = new Date().toISOString();
@@ -1178,23 +1179,26 @@ export class BackgroundTaskService {
       { task: this.descriptor(record) },
     );
     if (presentation) record.presentation = presentation;
-    if (record.foreground) await this.storage.saveForeground(record);
-    else await this.storage.save(record);
-    if (!record.foreground) {
-      const prior = owner.binding.session.backgroundTasks?.[record.id];
+    // Persist and announce one immutable revision. Output may advance the live
+    // record while disk/checkpoint writes await; it cannot change this receipt.
+    const snapshot = BackgroundTaskSchema.parse(record);
+    if (snapshot.foreground) await this.storage.saveForeground(snapshot);
+    else await this.storage.save(snapshot);
+    if (!snapshot.foreground) {
+      const prior = owner.binding.session.backgroundTasks?.[snapshot.id];
       const receipt = {
-        id: record.id,
-        revision: record.revision,
-        label: record.label,
-        kind: record.kind,
-        state: record.state,
-        ...(record.childId ? { childId: record.childId } : {}),
+        id: snapshot.id,
+        revision: snapshot.revision,
+        label: snapshot.label,
+        kind: snapshot.kind,
+        state: snapshot.state,
+        ...(snapshot.childId ? { childId: snapshot.childId } : {}),
         afterMessage:
           prior?.afterMessage ?? owner.binding.session.messages.length,
         ...(presentation ? { presentation } : {}),
       };
       const saved = await owner.binding.store.patchBackground(
-        record.rootOwnerId,
+        snapshot.rootOwnerId,
         receipt,
       );
       owner.binding.session.backgroundTasks = saved.backgroundTasks;
@@ -1203,8 +1207,8 @@ export class BackgroundTaskService {
       try {
         owner.binding.onEvent?.({
           type,
-          ownerId: record.rootOwnerId,
-          task: this.descriptor(record),
+          ownerId: snapshot.rootOwnerId,
+          task: this.descriptor(snapshot),
           ...(presentation ? { presentation } : {}),
         });
       } catch {
@@ -1216,6 +1220,7 @@ export class BackgroundTaskService {
       } catch {
         /* Closed observer. */
       }
+    return snapshot.revision;
   }
   private async finish(
     item: Active,
@@ -1537,6 +1542,8 @@ export class BackgroundTaskService {
             label: record.label,
             state: "running",
           });
+          // Drain the last foreground checkpoint before switching its writer.
+          await item.writes;
           if (item.finished) {
             if (record.cleanup.confirmed) await item.lease.release();
             return;
@@ -1547,8 +1554,11 @@ export class BackgroundTaskService {
           record.outputLimit = this.config(item.binding).outputBytes;
           item.log!.narrowLimit(record.outputLimit);
           await this.storage.lease(record);
-          await this.persist(owner, record, "changed");
-          await this.storage.removePromotedForeground(record);
+          const promotedRevision = await this.persist(owner, record, "changed");
+          await this.storage.removePromotedForeground({
+            ...record,
+            revision: promotedRevision,
+          });
           promotion.finish(this.acceptance(record));
         } catch (error) {
           if (!item.lease) throw error;

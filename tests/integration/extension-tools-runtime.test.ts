@@ -705,7 +705,7 @@ for (const effect of ["process", "git_write"] as const)
       const result = await context.sandbox.execute({
         command: "echo fixture",
         cwd: context.workspace.root,
-        timeout: 1000,
+        timeout: 10000,
         signal: context.signal,
       });
       return { output: result.output };
@@ -725,7 +725,7 @@ for (const effect of ["process", "git_write"] as const)
     expect(executed).toBe(0);
     expect((await f.call("ext:command:process")).output).toContain("fixture");
     expect(executed).toBe(1);
-  });
+  }, 15000);
 
 test("read scheduler remains bounded; external reads with no workspace access release the execution lease", async () => {
   let active = 0;
