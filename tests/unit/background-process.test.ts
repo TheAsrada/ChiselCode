@@ -20,7 +20,7 @@ afterEach(async () => {
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
 });
-async function fixture(source: string) {
+async function fixture(source: string, executable = process.execPath) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "chisel-background-process-")),
   );
@@ -29,7 +29,7 @@ async function fixture(source: string) {
   await writeFile(file, source);
   return {
     root,
-    command: `${JSON.stringify(process.execPath)} ${JSON.stringify(file)}`,
+    command: `${JSON.stringify(executable)} ${JSON.stringify(file)}`,
   };
 }
 test("managed backend reports real exit and never gives the shell interactive stdin", async () => {
@@ -57,6 +57,7 @@ test("managed backend reports real exit and never gives the shell interactive st
 test("the supervisor retains inherited output after its leader exits", async () => {
   const { root, command } = await fixture(
     "const {spawn}=require('node:child_process');spawn(process.execPath,['-e',\"console.log('потомок начал');setTimeout(()=>console.log('потомок завершён'),500)\"],{stdio:['ignore','inherit','inherit']});process.exit(0);",
+    "node",
   );
   let output = "";
   const process = new ManagedProcess({

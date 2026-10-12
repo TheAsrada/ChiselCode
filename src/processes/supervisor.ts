@@ -52,6 +52,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
     zombie: boolean;
     start: string;
     name?: string;
+    executable?: string;
   };
   async function census(): Promise<Row[]> {
     const windows = process.platform === "win32";
@@ -61,7 +62,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
           "-NoProfile",
           "-NonInteractive",
           "-Command",
-          "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate,Name | ConvertTo-Json -Compress",
+          "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate,Name,ExecutablePath | ConvertTo-Json -Compress",
         ]
       : ["-axo", "pid=,ppid=,pgid=,stat=,lstart="];
     let probe: ReturnType<typeof execFile>;
@@ -83,6 +84,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
             ParentProcessId: number;
             CreationDate: string;
             Name: string;
+            ExecutablePath?: string;
           }) => ({
             pid: row.ProcessId,
             parent: row.ParentProcessId,
@@ -90,6 +92,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
             zombie: false,
             start: String(row.CreationDate),
             name: row.Name,
+            executable: row.ExecutablePath,
           }),
         )
       : output
@@ -117,8 +120,21 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
         }
       if (!changed) break;
     }
+    const consoleHost =
+      `${process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows"}\\System32\\conhost.exe`.toLowerCase();
     return rows.filter(
-      (row) => row.pid !== process.pid && !probes.has(row.pid) && !row.zombie,
+      (row) =>
+        row.pid !== process.pid &&
+        !probes.has(row.pid) &&
+        !row.zombie &&
+        // Bun's supervisor can own its own hidden Windows console. It remains
+        // alive until the supervisor exits, and is not a user-command writer.
+        // Do not ignore similarly named user programs or command descendants.
+        !(
+          windows &&
+          row.parent === process.pid &&
+          row.executable?.toLowerCase() === consoleHost
+        ),
     );
   }
   const finish = async (cleanup: boolean) => {
