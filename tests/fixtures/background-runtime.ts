@@ -101,9 +101,11 @@ const tools = await createSessionToolRuntime({
 const command = (file: string) =>
   `${quoteShellArg(process.execPath)} ${quoteShellArg(join(root, file))}`;
 try {
+  const batchRelease = join(root, "batch-release.txt");
+  await writeFile(batchRelease, "");
   await writeFile(
     join(root, "batch.cjs"),
-    "console.log('старт');setTimeout(()=>{console.log('реальный итог');process.exitCode=7},120);",
+    "const fs=require('node:fs');const finish=()=>{if(fs.readFileSync('batch-release.txt','utf8')==='go'){watcher.close();console.log('реальный итог');process.exitCode=7}};const watcher=fs.watch('batch-release.txt',finish);console.log('старт');finish();",
   );
   const call = {
     id: "batch-once",
@@ -129,6 +131,9 @@ try {
     "Ресурс занят фоновой задачей",
   );
   assert.equal(busy.presentation?.view.cards?.[0]?.actions?.length, 3);
+  // Release the real process only after checking its lifetime resource fence.
+  // A fast runner must not finish the batch before the accepted-state assertion.
+  await writeFile(batchRelease, "go");
   const [result] = await controls.port.wait([id], 10000);
   assert.equal(result!.state, "failed");
   assert.equal(result!.exitCode, 7);
