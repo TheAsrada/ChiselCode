@@ -58,8 +58,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24.19.0"
-      - name: Prepare pinned external LSP test dependencies
-        run: bun scripts/prepare-lsp-tests.ts
       - name: Type check
         run: bun run typecheck
       - name: Real background owner crash and recovery on Windows
@@ -68,6 +66,8 @@ jobs:
         run: bun tests/fixtures/background-crash.ts
       - name: Real host shell, Unicode and exit codes
         run: bun test tests/unit/shell-runtime.test.ts tests/unit/background-process.test.ts
+      - name: Prepare pinned external LSP test dependencies
+        run: bun scripts/prepare-lsp-tests.ts
       - name: Real child runtime acceptance on Windows
         if: runner.os == 'Windows'
         timeout-minutes: 2
