@@ -38,6 +38,7 @@ jobs:
   quality:
     name: Quality (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -65,6 +66,7 @@ jobs:
         timeout-minutes: 2
         run: bun tests/fixtures/background-crash.ts
       - name: Real host shell, Unicode and exit codes
+        timeout-minutes: 3
         run: bun test tests/unit/shell-runtime.test.ts tests/unit/background-process.test.ts
       - name: Prepare pinned external LSP test dependencies
         run: bun scripts/prepare-lsp-tests.ts

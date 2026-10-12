@@ -303,7 +303,10 @@ async function until(
   predicate: () => boolean | Promise<boolean>,
   label: string,
 ) {
-  for (let i = 0; i < 1500; i++) {
+  // Installed Windows fixtures also await durable shared-store and use-lease
+  // cleanup. Keep a wall-clock bound, not a render-iteration throughput bound.
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
     await act(async () => {
       await Bun.sleep(10);
       await ui.renderOnce();
@@ -318,6 +321,8 @@ async function until(
           label: item.child.label,
           status: item.child.status,
           error: item.child.error,
+          cleanup: item.child.cleanup,
+          persistenceError: item.child.persistenceError,
         }),
       )
     : [];
