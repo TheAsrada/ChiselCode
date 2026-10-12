@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProcessLog } from "../../src/background/log.js";
@@ -14,7 +21,9 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 async function fixture(source: string) {
-  const root = await mkdtemp(join(tmpdir(), "chisel-background-process-"));
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "chisel-background-process-")),
+  );
   roots.push(root);
   const file = join(root, "command.cjs");
   await writeFile(file, source);

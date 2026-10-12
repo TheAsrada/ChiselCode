@@ -47,7 +47,10 @@ export class HostSandboxExecutor implements SandboxExecutor {
     if (outcome.reason === "cancelled")
       throw new RuntimeError("CANCELLED", "Команда отменена.");
     if (outcome.reason === "timed_out")
-      throw new RuntimeError("TOOL_TIMEOUT", "Время команды истекло.");
+      throw new RuntimeError("TOOL_TIMEOUT", "Время команды истекло.", {
+        cleanupPhase: handle.cleanupPhase,
+        cleanupDetail: handle.cleanupDetail,
+      });
     if (outcome.reason === "output_limit")
       throw new RuntimeError(
         "TOOL_EXECUTION_FAILURE",

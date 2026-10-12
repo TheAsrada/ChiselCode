@@ -51,6 +51,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
     group: number;
     zombie: boolean;
     start: string;
+    name?: string;
   };
   async function census(): Promise<Row[]> {
     const windows = process.platform === "win32";
@@ -60,7 +61,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
           "-NoProfile",
           "-NonInteractive",
           "-Command",
-          "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate | ConvertTo-Json -Compress",
+          "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate,Name | ConvertTo-Json -Compress",
         ]
       : ["-axo", "pid=,ppid=,pgid=,stat=,lstart="];
     let probe: ReturnType<typeof execFile>;
@@ -81,12 +82,14 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
             ProcessId: number;
             ParentProcessId: number;
             CreationDate: string;
+            Name: string;
           }) => ({
             pid: row.ProcessId,
             parent: row.ParentProcessId,
             group: 0,
             zombie: false,
             start: String(row.CreationDate),
+            name: row.Name,
           }),
         )
       : output
@@ -121,6 +124,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
   const finish = async (cleanup: boolean) => {
     if (finished) return;
     finished = true;
+    send({ type: "cleanup_phase", phase: "flush" });
     clearInterval(clock);
     input.close();
     send({
@@ -179,6 +183,15 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
           descendants.has(row.pid) ||
           (process.platform !== "win32" && row.group === process.pid),
       );
+      if (exited)
+        send({
+          type: "cleanup_phase",
+          phase: stdoutDone && stderrDone ? "tree" : "pipes",
+          detail: live
+            .slice(0, 12)
+            .map((row) => row.name ?? "process")
+            .join(", "),
+        });
       if (
         process.platform !== "win32" &&
         live.some((row) => row.group !== process.pid) &&
@@ -209,9 +222,15 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
             );
           });
       }
-    } catch {
+    } catch (error) {
       // A failed census is not evidence that writers disappeared. Retry until
       // the parent's bounded cleanup deadline, then retain a recovery fence.
+      send({
+        type: "cleanup_phase",
+        phase: "census_error",
+        detail:
+          error instanceof Error ? error.message.slice(0, 200) : "unknown",
+      });
     } finally {
       sampling = false;
     }

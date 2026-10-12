@@ -27,6 +27,8 @@ export class ManagedProcess {
   readonly done: Promise<ManagedOutcome>;
   readonly ready: Promise<void>;
   pid?: number;
+  cleanupPhase = "process";
+  cleanupDetail = "";
   private readonly child;
   private outcome?: ManagedOutcome;
   private reason?: ManagedOutcome["reason"];
@@ -113,6 +115,10 @@ export class ManagedProcess {
             this.leaderExited = true;
             this.leaderCode = message.exitCode ?? null;
             this.leaderSignal = message.signal ?? null;
+          } else if (message.type === "cleanup_phase") {
+            this.cleanupPhase = String(message.phase);
+            if (message.detail)
+              this.cleanupDetail = String(message.detail).slice(0, 1000);
           } else if (message.type === "ownership_unknown") this.escaped = true;
           else if (message.type === "done")
             this.outcome = {
