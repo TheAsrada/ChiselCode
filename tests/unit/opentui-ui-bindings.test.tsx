@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testRender } from "@opentui/react/test-utils";
@@ -92,6 +92,26 @@ test("native owner switches and twenty view cycles fence late data and keep shar
       });
     }
   }
+  async function capture(name: string) {
+    const folder = process.env.CHISEL_UI_OWNER_CAPTURES;
+    if (!folder) return;
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, `${name}.txt`), setup.captureCharFrame());
+    const spans = setup.captureSpans();
+    await writeFile(
+      join(folder, `${name}.json`),
+      JSON.stringify({
+        ...spans,
+        lines: spans.lines.map((line) => ({
+          spans: line.spans.map((span) => ({
+            ...span,
+            fg: span.fg.toInts(),
+            bg: span.bg.toInts(),
+          })),
+        })),
+      }),
+    );
+  }
   try {
     await until(
       () =>
@@ -103,6 +123,7 @@ test("native owner switches and twenty view cycles fence late data and keep shar
     );
     const keyboard = setup.renderer.keyInput.listenerCount("keypress");
     const resize = setup.renderer.listenerCount("resize");
+    await capture("first-owner-120x40");
     for (let index = 0; index < 20; ++index) {
       await act(async () => {
         await first.uiBinding?.open("fixture.interface/report");
@@ -152,6 +173,7 @@ test("native owner switches and twenty view cycles fence late data and keep shar
     expect(first.snapshot.draft).toBe("Черновик первого");
     expect(second.snapshot.draft).toBe("Черновик второго");
     expect(other.snapshot.draft).toBe("Черновик другого проекта");
+    await capture("other-owner-120x40");
   } finally {
     act(() => setup.renderer.destroy());
     workspace.dispose();

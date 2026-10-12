@@ -28,7 +28,7 @@ Core tests проверяют namespaces, seal/late/duplicate/rollback, owner ca
 
 ## Кадры и воспроизведение
 
-Сохранены **80 native capture triplets** в `docs/assets/ui-contributions`: пять размеров 160×50 / 120×40 / 80×24 / 40×12 / 24×8, четыре темы и Unicode/ASCII. Дополнительные кадры показывают context/menu, approval, unavailable и status overflow. Генерация — actual `captureCharFrame` / `captureSpans`, PNG renderer `scripts/render-terminal-captures.py`; browser/imagegen макеты не используются.
+Сохранены **91 native capture triplets** в `docs/assets/ui-contributions`: 80 кадров пяти размеров 160×50 / 120×40 / 80×24 / 40×12 / 24×8 в четырёх темах и Unicode/ASCII, два кадра смены owner и девять кадров настоящего background процесса. Дополнительные кадры показывают context/menu, approval, unavailable и status overflow. Генерация — actual `captureCharFrame` / `captureSpans`, PNG renderer `scripts/render-terminal-captures.py`; browser/imagegen макеты не используются.
 
 Вручную просмотрены PNG каждого размера:
 
@@ -40,11 +40,16 @@ Core tests проверяют namespaces, seal/late/duplicate/rollback, owner ca
 
 На всех размерах title/list и «Назад» доступны; маленькая поверхность сокращает второстепенные сведения. Native owner-switch test выполняет 20 open/close/switch cycles двух бесед одного root и другого root, проверяет late page cancellation, сохранение drafts и отсутствие роста keyboard/resize/service subscribers.
 
+Также вручную просмотрены [другой root с сохранённым черновиком](../../assets/ui-contributions/owner-switch/other-owner-120x40.png), [native окно настоящего процесса](../../assets/ui-contributions/background-production/graphite-unicode-ordinary-tui-120x40-background-popup.png) и [его компактный вариант 24×8](../../assets/ui-contributions/background-production/graphite-unicode-ordinary-tui-24x8-background-popup.png). Process fixture проверяет живой вывод, paused follow, selected stop и возврат к работающему основному чату.
+
 ```sh
 bun test tests/unit/extension-ui.test.ts tests/integration/ui-tools-runtime.test.ts
 bun tests/fixtures/tui-ui-contributions.ts
 bun test tests/integration/lsp-runtime.test.ts -t 'registered passive LSP'
 bun tests/fixtures/command-packaging.ts
+# Дополнительные реальные кадры; JSON затем преобразуется штатным PNG renderer.
+CHISEL_UI_OWNER_CAPTURES=docs/assets/ui-contributions/owner-switch bun test tests/unit/opentui-ui-bindings.test.tsx
+CHISEL_CAPTURE_DIR=docs/assets/ui-contributions/background-production CHISEL_CAPTURE_THEME=graphite CHISEL_CAPTURE_UNICODE=1 bun tests/fixtures/tui-background.ts
 ```
 
 Package harness успешно выполнил ту же linked fixture с ordinary modules в установленном npm и compiled executable. Сохранены installed/compiled smokes /btw, worktrees, LSP, subagents и настоящих Background Tasks процессов. Headless CLI не подписывается на UI providers. Финальные checks/source commit/CI/release availability заполняются по фактическим результатам, а не плану.

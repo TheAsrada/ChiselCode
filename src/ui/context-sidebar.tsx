@@ -330,7 +330,7 @@ export function ContextSidebar({
             ))}
             <DialogAction
               label={
-                item.snapshot.state === "unavailable"
+                item.snapshot.state === "unavailable" && !item.snapshot.action
                   ? "Повторить получение"
                   : "Открыть подробности"
               }

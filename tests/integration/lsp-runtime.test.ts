@@ -222,6 +222,13 @@ test("registered passive LSP views read a cached real analysis and mark workspac
     expect(f.service.uiStatus().staleDocuments).toBe(1);
     expect((await ui.page("builtin.lsp/analysis")).state).toBe("stale");
     expect(f.service.uiStatus().diagnostics).toHaveLength(0);
+    // A real configuration read failure is distinct from never-checked files.
+    await writeFile(f.configPath, "{");
+    await f.service.refreshConfiguration();
+    const unavailable = await ui.page("builtin.lsp/analysis");
+    expect(unavailable.state).toBe("unavailable");
+    expect(unavailable.summary).toContain("Анализ недоступен");
+    expect(unavailable.actions).toHaveLength(0);
   } finally {
     ui.dispose();
     listener.dispose();

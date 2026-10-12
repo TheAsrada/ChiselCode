@@ -4,13 +4,15 @@ import type { ExtensionContext } from "../contracts.js";
 import type { UiRow, UiSnapshot } from "../ui-types.js";
 
 function state(value: LspUiStatus): UiSnapshot["state"] {
-  return value.state === "error" || value.state === "unavailable"
-    ? "error"
-    : value.staleDocuments || value.requiresRestart
-      ? "stale"
-      : !value.checkedDocuments
-        ? "empty"
-        : "ready";
+  return value.state === "unavailable" || value.state === "disposed"
+    ? "unavailable"
+    : value.state === "error"
+      ? "error"
+      : value.staleDocuments || value.requiresRestart
+        ? "stale"
+        : !value.checkedDocuments
+          ? "empty"
+          : "ready";
 }
 function label(value: LspUiStatus): string {
   const mode = {
@@ -19,7 +21,7 @@ function label(value: LspUiStatus): string {
     off: "Off",
     unknown: "неизвестно",
   }[value.mode];
-  return `LSP ${mode} · ${value.state === "error" ? "ошибка" : value.staleDocuments ? "устарел" : !value.checkedDocuments ? "нет проверок" : value.diagnosticCount ? `${value.diagnosticCount} замечаний` : value.observedDocuments ? "наблюдается" : "проверено"}`;
+  return `LSP ${mode} · ${value.state === "unavailable" ? "недоступен" : value.state === "disposed" ? "закрыт" : value.state === "untrusted" ? "нужно доверие" : value.state === "error" ? "ошибка" : value.staleDocuments ? "устарел" : !value.checkedDocuments ? "нет проверок" : value.diagnosticCount ? `${value.diagnosticCount} замечаний` : value.observedDocuments ? "наблюдается" : "проверено"}`;
 }
 function diagnostics(value: LspUiStatus): UiRow[] {
   const duplicates = new Map<string, number>();
@@ -72,21 +74,27 @@ export function registerLspUi(
         state: state(value),
         label: label(value),
         count: value.diagnosticCount,
-        tone:
-          state(value) === "error"
-            ? "error"
-            : state(value) === "stale"
-              ? "warning"
-              : "muted",
-        detail: value.requiresRestart
-          ? "Нужен явный перезапуск"
-          : value.staleDocuments
-            ? "Данные устарели; дождитесь штатной проверки"
-            : !value.checkedDocuments
-              ? "Файлы ещё не проверены"
-              : value.observedDocuments
-                ? "Наблюдаемые диагностики не доказывают актуальное отсутствие ошибок"
-                : `Проверено файлов: ${value.checkedDocuments}`,
+        tone: ["error", "unavailable"].includes(state(value))
+          ? "error"
+          : state(value) === "stale"
+            ? "warning"
+            : "muted",
+        detail:
+          state(value) === "unavailable"
+            ? "Анализ недоступен; откройте сведения и проверьте настройку"
+            : state(value) === "error"
+              ? "Ошибка анализа; откройте сведения для явного восстановления"
+              : value.state === "untrusted"
+                ? "Нужно доверие к настройке анализа кода"
+                : value.requiresRestart
+                  ? "Нужен явный перезапуск"
+                  : value.staleDocuments
+                    ? "Данные устарели; дождитесь штатной проверки"
+                    : !value.checkedDocuments
+                      ? "Файлы ещё не проверены"
+                      : value.observedDocuments
+                        ? "Наблюдаемые диагностики не доказывают актуальное отсутствие ошибок"
+                        : `Проверено файлов: ${value.checkedDocuments}`,
         rows: diagnostics(value).slice(0, 8),
         action: { id: "open" },
       };
