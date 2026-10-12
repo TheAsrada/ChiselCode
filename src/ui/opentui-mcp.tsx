@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/react */
-import { useKeyboard } from "@opentui/react";
+
 import { useEffect, useRef, useState } from "react";
 import { displayMcpCommand, parseMcpCommand } from "../mcp/command.js";
 import type { McpConnectionState } from "../mcp/connection.js";
@@ -27,6 +27,7 @@ import {
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import {
   TerminalScrollbox,
   useTerminalDecoration,
@@ -762,7 +763,7 @@ export function OpenTuiMcp({
         });
       });
   };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (key.ctrl && key.name === "c") {
       lifetime.current.abort?.abort();
       return;

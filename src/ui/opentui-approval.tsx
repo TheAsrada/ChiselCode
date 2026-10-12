@@ -1,7 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
 import { useRef } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
 import { type Palette, THEMES } from "./appearance.js";
@@ -9,6 +8,7 @@ import { extensionToolLabel } from "./extension-tool.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { terminalSafeText } from "./opentui-transcript.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 
@@ -55,7 +55,7 @@ export function OpenTuiApproval({
     maxHeight,
   );
   const preview = useRef<ScrollBoxRenderable>(null);
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     const box = preview.current;
     if (!box) return;
     if (key.name === "up" || key.name === "down")

@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
+
 import type { TextareaRenderable } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import {
   effectiveLspMode,
@@ -17,6 +17,7 @@ import type { LspSettingsActions, LspSettingsState } from "../lsp/settings.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
 export interface SettingsPanelControl {
@@ -793,7 +794,7 @@ export function OpenTuiLspSettings({
               },
             },
           ];
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (
       !active ||
       !focused ||

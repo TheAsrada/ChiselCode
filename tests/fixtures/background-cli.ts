@@ -82,6 +82,23 @@ export async function smokeBackgroundCli(command: string, prefix: string[]) {
     );
     assert.notEqual(denied.exitCode, 0);
     assert.equal(await readFile(join(root, "launches.txt"), "utf8"), "one\n");
+    if (process.platform === "win32") {
+      // Ordinary installed/compiled backend, including native CMD's code page.
+      const native = await invoke("/tasks start echo Русский CMD & exit /b 3");
+      const nativeTask = json(native.stdout).details?.backgroundTasks?.[0];
+      assert.equal(
+        nativeTask?.exitCode,
+        3,
+        `${native.stdout}\n${native.stderr}`,
+      );
+      assert.equal(nativeTask.cleanup.confirmed, true);
+      const nativeOutput = await invoke(`/tasks output ${nativeTask.id}`, [
+        "--resume",
+        nativeTask.rootOwnerId,
+      ]);
+      assert.match(json(nativeOutput.stdout).output, /Русский CMD/);
+      assert.ok(!json(nativeOutput.stdout).output.includes("\uFFFD"));
+    }
     console.log(
       "Background Tasks CLI: real packaged process, exit 7, retained output, history without model/replay and Plan refusal",
     );

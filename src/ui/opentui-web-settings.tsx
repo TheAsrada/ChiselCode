@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
+
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import type { WebConfig } from "../web/schema.js";
 import { effectiveSearchBackend } from "../web/search.js";
@@ -10,6 +10,7 @@ import { DialogAction } from "./opentui-dialog.js";
 import type { SettingsPanelControl } from "./opentui-lsp-settings.js";
 import { SettingsSecretInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import {
   TerminalScrollbox,
   useTerminalDecoration,
@@ -157,7 +158,7 @@ export function OpenTuiWebSettings({
         return false;
       },
     };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (!active) return;
     if ((key.ctrl && key.name === "c") || key.name === "tab") return;
     if (key.name === "escape") {

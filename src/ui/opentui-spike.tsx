@@ -6,7 +6,7 @@ import type {
   ScrollBoxRenderable,
   TextareaRenderable,
 } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import { useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { backgroundActive } from "../background/contracts.js";
 import {
@@ -75,7 +75,11 @@ import {
   terminalSafeText,
 } from "./opentui-transcript.js";
 import { OpenTuiUpdate, updateNotice } from "./opentui-update.js";
-import { capturedInputOwner, useOverlayInputOwner } from "./overlay-input.js";
+import {
+  capturedInputOwner,
+  useOverlayInputOwner,
+  useUiKeyboard,
+} from "./overlay-input.js";
 import {
   parseSidebarMode,
   type SidebarMode,
@@ -876,7 +880,7 @@ function OpenTuiScreen({
     return editor.current;
   });
 
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== inputOwner) return;
     if (key.ctrl && key.name === "c" && !key.shift) {
       key.preventDefault();

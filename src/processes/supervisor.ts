@@ -1,6 +1,8 @@
+import type { ShellRuntime } from "./shell.js";
+
 /** Self-contained helper, serialized into the ordinary Bun/compiled runtime.
  * No project imports, configuration, model calls or user stdin are available. */
-export async function processSupervisor(): Promise<void> {
+export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
   const { spawn, execFile } = await import("node:child_process");
   const { createWriteStream } = await import("node:fs");
   const { createInterface } = await import("node:readline");
@@ -253,13 +255,27 @@ export async function processSupervisor(): Promise<void> {
         return;
       const env = { ...process.env };
       delete env.BUN_BE_BUN;
-      shell = spawn(message.command, {
-        cwd: message.cwd,
-        shell: true,
-        windowsHide: true,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      const windows = runtime.kind === "cmd";
+      if (windows) {
+        // CMD diagnostics and Python's redirected streams must agree with the
+        // UTF-8 capture pipeline. Explicit caller overrides remain possible.
+        env.PYTHONIOENCODING ??= "utf-8";
+        env.PYTHONUTF8 ??= "1";
+      }
+      shell = spawn(
+        runtime.executable,
+        windows
+          ? ["/d", "/s", "/c", `"chcp 65001 >nul & ${message.command}"`]
+          : ["-c", message.command],
+        {
+          cwd: message.cwd,
+          shell: false,
+          windowsVerbatimArguments: windows,
+          windowsHide: true,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
       shell.on("spawn", () => {
         if (!orphanTracking) send({ type: "ownership_unknown" });
         send({ type: "ready", pid: shell?.pid, supervisorPid: process.pid });

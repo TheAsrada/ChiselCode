@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { TextareaRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
@@ -487,6 +488,22 @@ try {
     `Прокрутка меню не восстановлена ${JSON.stringify({ item: { y: lastMenuItem.y, h: lastMenuItem.height }, menu: { y: menu.y, h: menu.height } })}`,
   );
   await key("HOME");
+  const menuEditor = ui.renderer.root.findDescendantById(
+    "prompt-editor",
+  ) as TextareaRenderable;
+  assert.ok(menuEditor, "Нет редактора сообщения");
+  const menuDraft = menuEditor.plainText;
+  await key("RETURN");
+  assert.ok(
+    ui.captureCharFrame().includes("> Меню"),
+    "Enter изменил фокус меню",
+  );
+  assert.equal(
+    ui.renderer.root.findDescendantById("background-tasks-popup"),
+    undefined,
+    "Enter открыл окно из меню",
+  );
+  assert.equal(menuEditor.plainText, menuDraft, "Enter изменил черновик чата");
   await capture("ordinary-tui-120x40-menu");
   const appearance = ui.renderer.root.findDescendantById(
     "sidebar-menu-appearance",

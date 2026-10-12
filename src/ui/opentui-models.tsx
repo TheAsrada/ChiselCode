@@ -1,10 +1,11 @@
 /** @jsxImportSource @opentui/react */
-import { useKeyboard } from "@opentui/react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProviderId } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import {
   filterModelOptions,
   type ModelListResult,
@@ -241,7 +242,7 @@ export function OpenTuiModels({
   const close = () => {
     if (!life.current.saving) onClose();
   };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;
     if (name === "escape") {

@@ -1,13 +1,13 @@
 /** @jsxImportSource @opentui/react */
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useRenderer } from "@opentui/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { backgroundActive } from "../background/contracts.js";
 import { backgroundStateLabels } from "../background/presentation.js";
 import type { Palette } from "./appearance.js";
 import { useClipboardActions } from "./opentui-clipboard.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
-import { capturedInputOwner } from "./overlay-input.js";
+import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import {
   terminalLine,
@@ -140,7 +140,7 @@ export function OpenTuiBackgroundDetails({
       controller.backgroundPresentation.scroll.set(anchor, scroll.scrollTop);
     };
   }, [anchor, viewer.page, section, viewer.follow, controller]);
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== owner) return;
     if (key.ctrl && key.name === "c") {
       key.preventDefault();

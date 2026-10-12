@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/react */
-import { useKeyboard } from "@opentui/react";
+
 import { useRef, useState } from "react";
 import {
   APPROVAL_MODE_DESCRIPTIONS,
@@ -9,6 +9,7 @@ import {
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 
 const summaries: Record<ApprovalMode, string> = {
@@ -45,7 +46,7 @@ export function OpenTuiPermissions({
     const next = modes[index];
     if (next) onSelect(next);
   };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (key.ctrl && key.name === "c") return;
     if (key.name === "escape") {
       key.preventDefault();

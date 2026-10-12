@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/react */
-import { useKeyboard } from "@opentui/react";
+
 import { useMemo, useState } from "react";
 import type { Skill } from "../skills/skills.js";
 import { type Palette, THEMES } from "./appearance.js";
@@ -9,6 +9,7 @@ import {
   OpenTuiDialog,
 } from "./opentui-dialog.js";
 import { terminalSafeText } from "./opentui-transcript.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import {
   TerminalScrollbox,
   useTerminalDecoration,
@@ -107,7 +108,7 @@ export function OpenTuiSkills({
       });
     else if (current.userInvocable !== false) run(() => onChoose(current));
   };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;
     if (name === "escape") {

@@ -9,3 +9,4 @@ docs/assets/btw/*.txt whitespace=-blank-at-eol
 docs/assets/worktrees/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/subagents/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/background-tasks/*.txt whitespace=-blank-at-eol,-blank-at-eof
+docs/assets/sidebar/*.txt whitespace=-blank-at-eol,-blank-at-eof

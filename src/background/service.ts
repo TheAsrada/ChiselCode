@@ -11,6 +11,7 @@ import {
   localGitResource,
 } from "../git/driver.js";
 import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
+import { shellFailureHint } from "../processes/shell.js";
 import { cancelled, RuntimeError, runtimeError } from "../runtime/errors.js";
 import type { RuntimeEvent } from "../runtime/events.js";
 import { PermissionPolicy } from "../security/permission-policy.js";
@@ -1413,10 +1414,19 @@ export class BackgroundTaskService {
           throw new RuntimeError("CANCELLED", "Команда остановлена.");
         if (record.state === "timed_out")
           throw new RuntimeError("TOOL_TIMEOUT", "Время команды истекло.");
-        const output = `Command exited ${record.exitCode ?? 1}.\n${item.foregroundOutput ?? record.tail.join("\n")}`;
+        const rawOutput = `Command exited ${record.exitCode ?? 1}.\n${item.foregroundOutput ?? record.tail.join("\n")}`;
+        const hint =
+          record.exitCode !== 0
+            ? shellFailureHint(
+                plan.data.command,
+                rawOutput,
+                item.process!.shell,
+              )
+            : undefined;
+        const output = `${rawOutput}${hint ? `\n${hint}` : ""}`;
         return {
           output,
-          rawOutput: output,
+          rawOutput,
           isError: record.state !== "completed",
           ...(record.state !== "completed"
             ? { errorCode: "TOOL_EXECUTION_FAILURE" }

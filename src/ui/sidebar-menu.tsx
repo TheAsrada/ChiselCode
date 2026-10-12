@@ -1,9 +1,9 @@
 /** @jsxImportSource @opentui/react */
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
+
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Palette } from "./appearance.js";
-import { capturedInputOwner } from "./overlay-input.js";
+import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiController } from "./tui-controller.js";
@@ -73,7 +73,7 @@ export function SidebarMenu({
     if (!body) return;
     if (selectedId) body.scrollChildIntoView(`sidebar-menu-${selectedId}`);
   }, [selectedId, compact, height]);
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (
       !focused ||
       capturedInputOwner(key) !== owner ||
@@ -98,7 +98,8 @@ export function SidebarMenu({
     } else if (key.name === "return" || key.name === "enter") {
       key.preventDefault();
       key.stopPropagation();
-      actions[selected]?.run();
+      // Enter is reserved for the composer. A focused menu consumes it without
+      // opening a dialog or leaking the same event into message submission.
     }
   });
   return (
@@ -127,7 +128,7 @@ export function SidebarMenu({
               {action.group}
             </text>
           )}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: Arrow keys select and Enter invokes the same action. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: Arrow keys select; existing command shortcuts open the same dialogs. */}
           <box
             id={`sidebar-menu-${action.id}`}
             height={compact ? 1 : 3}

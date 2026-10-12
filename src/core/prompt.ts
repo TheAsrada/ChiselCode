@@ -25,6 +25,7 @@ export interface DynamicContext {
   os: string;
   cwd: string;
   date: string;
+  shell?: string;
   gitBranch?: string;
   gitStatus?: string;
 }
@@ -38,6 +39,7 @@ export function buildSystemPrompt(
     `Operating system: ${context.os}`,
     `Working directory: ${context.cwd}`,
     `Date: ${context.date}`,
+    context.shell ? `Среда run_shell: ${context.shell}` : undefined,
     context.gitBranch ? `Git branch: ${context.gitBranch}` : undefined,
     context.gitStatus ? `Git status: ${context.gitStatus}` : undefined,
   ]

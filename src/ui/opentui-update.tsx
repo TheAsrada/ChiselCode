@@ -1,8 +1,9 @@
 /** @jsxImportSource @opentui/react */
-import { useKeyboard } from "@opentui/react";
+
 import { useEffect, useState } from "react";
 import type { Palette } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import type { UpdateController, UpdateState } from "./update-controller.js";
@@ -75,7 +76,7 @@ export function OpenTuiUpdate({
     else if (canDownload) void updater.prepare();
     else void updater.check(true);
   };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (key.ctrl && key.name === "c") return;
     key.preventDefault();
     if (key.name === "escape") return close();

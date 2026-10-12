@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useRenderer } from "@opentui/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { subagentActive } from "../subagents/contracts.js";
 import { subagentStatusTitle } from "../subagents/service.js";
@@ -8,7 +8,7 @@ import type { Palette } from "./appearance.js";
 import { useClipboardActions } from "./opentui-clipboard.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FormattedMessage } from "./opentui-message.js";
-import { capturedInputOwner } from "./overlay-input.js";
+import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { SubagentElapsed } from "./subagent-elapsed.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
@@ -118,7 +118,7 @@ export function OpenTuiAgentDetails({
     controller.setAgentView({ section: next, notice: undefined });
     if (record && next !== "result") onLoad(record.id, next);
   };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (
       !controller.isCurrent(origin.current) ||
       (capturedInputOwner(key) && capturedInputOwner(key) !== owner)

@@ -1,5 +1,6 @@
 import { attestNativeShell } from "../../background/capability.js";
 import { type ShellData, ShellInputSchema } from "../../background/input.js";
+import { shellFailureHint, shellGuidance } from "../../processes/shell.js";
 import { RuntimeError } from "../../runtime/errors.js";
 import { defineTool } from "../handler.js";
 export function shellHandler() {
@@ -7,8 +8,7 @@ export function shellHandler() {
     defineTool(
       {
         name: "run_shell",
-        description:
-          "Выполнить noninteractive команду с разрешением shell. background возвращает ID фоновой задачи; это не результат команды. Host execution не является OS sandbox.",
+        description: `Выполнить noninteractive команду с разрешением shell. background возвращает ID фоновой задачи; это не результат команды. Host execution не является OS sandbox. ${shellGuidance()}`,
         effect: "process",
         permission: "shell",
         parallelSafe: false,
@@ -56,10 +56,14 @@ export function shellHandler() {
           .slice(0, 30)
           .join("\n")
           .slice(0, 6000);
+        const hint =
+          result.exitCode !== 0
+            ? shellFailureHint(plan.data.command, result.output)
+            : undefined;
         return {
           output:
             result.exitCode !== 0
-              ? `Команда завершилась с кодом ${result.exitCode}.\n${errors || result.output.slice(-4000)}`
+              ? `Команда завершилась с кодом ${result.exitCode}.\n${errors || result.output.slice(-4000)}${hint ? `\n${hint}` : ""}`
               : result.output,
           rawOutput: result.output,
           isError: result.exitCode !== 0,

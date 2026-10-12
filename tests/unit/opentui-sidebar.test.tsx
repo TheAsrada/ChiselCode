@@ -123,6 +123,7 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
   test(`sidebar tabs, real menu actions and focus preserve a streaming conversation in ${theme}`, async () => {
     const { controller, child } = scenario();
     let cancellations = 0;
+    const submissions: string[] = [];
     let setup!: Setup;
     await act(async () => {
       setup = await testRender(
@@ -130,7 +131,9 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
           controller={controller}
           initialTheme={theme}
           onExit={() => {}}
-          onSubmit={async () => {}}
+          onSubmit={async (text) => {
+            submissions.push(text);
+          }}
           onCancel={() => cancellations++}
         />,
         { width: 160, height: 36, exitOnCtrlC: false },
@@ -162,6 +165,11 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
       await key(setup, "ARROW_DOWN");
       await key(setup, "ARROW_DOWN");
       await key(setup, "RETURN");
+      expect(controller.snapshot.overlay).toBeUndefined();
+      expect(controller.snapshot.focus).toBe("sidebar");
+      expect(submissions).toHaveLength(0);
+      expect(controller.snapshot.draft).toBe("Черновик следующего сообщения");
+      await click(setup, "sidebar-menu-appearance");
       expect(controller.snapshot.overlay).toBe("settings");
       expect(
         setup.renderer.root.findDescendantById("settings-popup"),
@@ -196,6 +204,8 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
       await key(setup, "1");
       expect(controller.snapshot.draft).toBe("Черновик следующего сообщения1");
       expect(controller.snapshot.agentTree?.view).toBe("context");
+      await key(setup, "RETURN");
+      expect(submissions).toEqual(["Черновик следующего сообщения1"]);
     } finally {
       act(() => setup.renderer.destroy());
       controller.dispose();

@@ -198,6 +198,8 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
         expect(cancellations).toBe(0);
         if (theme === "obsidian" && unicode) {
           const listeners = setup.renderer.listenerCount("resize");
+          const keys = setup.renderer.keyInput.listenerCount("keypress");
+          expect(keys).toBeLessThanOrEqual(6);
           for (let cycle = 0; cycle < 12; cycle++) {
             await act(async () => controller.hideBackgroundPanel());
             await frame();
@@ -205,6 +207,7 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
             await frame();
           }
           expect(setup.renderer.listenerCount("resize")).toBe(listeners);
+          expect(setup.renderer.keyInput.listenerCount("keypress")).toBe(keys);
         }
         await press("ESCAPE");
         expect(controller.snapshot.backgroundPanel).toBe(false);

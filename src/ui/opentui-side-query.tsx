@@ -1,14 +1,14 @@
 /** @jsxImportSource @opentui/react */
 
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useRenderer } from "@opentui/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { isModelRequestActive } from "../models/contracts.js";
 import type { Palette } from "./appearance.js";
 import { useClipboardActions } from "./opentui-clipboard.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FormattedMessage } from "./opentui-message.js";
-import { capturedInputOwner } from "./overlay-input.js";
+import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { sideStatus } from "./side-query-state.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
@@ -169,7 +169,7 @@ export function OpenTuiSideQuery({
       body.current?.scrollTo(Number.MAX_SAFE_INTEGER);
     else if (record?.text) setNewText(true);
   }, [record?.text, width, height, renderer]);
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (!controller.isCurrent(origin.current)) return;
     if (capturedInputOwner(key) && capturedInputOwner(key) !== sideOwner)
       return;

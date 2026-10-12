@@ -1,6 +1,5 @@
 /** @jsxImportSource @opentui/react */
 
-import { useKeyboard } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BackgroundSettingsActions } from "../background/settings.js";
 import { ProfileIdSchema } from "../config/schema.js";
@@ -32,6 +31,7 @@ import {
 import { OpenTuiSubagentSettings } from "./opentui-subagent-settings.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import {
   SETTINGS_SECTIONS,
   type SettingsRoute,
@@ -816,7 +816,7 @@ export function OpenTuiSettings({
     if (item.section.id === "tools.mcp" || item.section.id === "tools.skills")
       (onOpenIntegration ?? actions?.openIntegration)?.(item.section.id);
   };
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (!active) return;
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;

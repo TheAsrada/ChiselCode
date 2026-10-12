@@ -1,12 +1,13 @@
 /** @jsxImportSource @opentui/react */
 
-import { useKeyboard, usePaste } from "@opentui/react";
+import { usePaste } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import { filterSessions } from "./session-filter.js";
 import { clipText, terminalLine } from "./terminal-text.js";
 
@@ -106,7 +107,7 @@ export function OpenTuiSessions({
       });
   };
 
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (busy) return;
     const name = key.name.toLowerCase();
     if (mode === "delete") {

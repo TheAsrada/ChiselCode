@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import { execa } from "execa";
 import { RuntimeError } from "../runtime/errors.js";
+import { hostShell } from "./shell.js";
 import { processSupervisor } from "./supervisor.js";
 
 export type ProcessStream = "stdout" | "stderr";
@@ -19,6 +20,7 @@ export interface ProcessCapture {
 
 /** A live private instance, never reconstructed from a DTO/PID or exported to extensions. */
 export class ManagedProcess {
+  readonly shell = hostShell();
   readonly instance = randomUUID();
   readonly acceptedAt = Date.now();
   readonly deadline: number;
@@ -58,7 +60,10 @@ export class ManagedProcess {
     // executes no CLI/application/model entrypoint, including in compiled builds.
     const child = execa(
       process.execPath,
-      ["-e", `(${processSupervisor.toString()})()`],
+      [
+        "-e",
+        `(${processSupervisor.toString()})(${JSON.stringify(this.shell)})`,
+      ],
       {
         cwd: input.cwd,
         env: { BUN_BE_BUN: "1" },

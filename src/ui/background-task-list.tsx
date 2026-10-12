@@ -1,12 +1,12 @@
 /** @jsxImportSource @opentui/react */
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useRenderer } from "@opentui/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { backgroundActive } from "../background/contracts.js";
 import { backgroundStateLabels } from "../background/presentation.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import { capturedInputOwner } from "./overlay-input.js";
+import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { elapsedSeconds } from "./request-timing.js";
 import { useElapsedClock } from "./subagent-elapsed.js";
 import {
@@ -110,7 +110,7 @@ export function BackgroundTaskList({
     }
   }, [index, list.selected, tasks[0]?.id, rows, rowHeight, controller, start]);
   const owner = `background:${controller.conversationId}:${controller.currentGeneration}`;
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (!focused || capturedInputOwner(key) !== owner) return;
     if (key.ctrl && key.name === "c") {
       key.preventDefault();

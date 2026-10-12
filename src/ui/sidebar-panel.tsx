@@ -1,10 +1,10 @@
 /** @jsxImportSource @opentui/react */
 import { TextAttributes } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
+
 import { type ReactNode, useRef, useState } from "react";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import { capturedInputOwner } from "./overlay-input.js";
+import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { useTerminalDecoration } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 
@@ -55,7 +55,7 @@ export function SidebarPanel({
   const pressed = useRef<SidebarTab | undefined>(undefined);
   const chrome = sidebarChrome(height);
   const tabWidth = Math.max(1, Math.floor((width - (width >= 30 ? 2 : 0)) / 3));
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (!focused || capturedInputOwner(key) !== owner) return;
     if (key.name === "f7" && tab !== "agents") {
       key.preventDefault();

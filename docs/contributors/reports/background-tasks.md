@@ -4,11 +4,21 @@
 
 ## Статус
 
-Изменения сделаны прямо в `main`, без новой ветки, development worktree, PR, push или релиза. Исходная база: `926d67e`, package 0.6.22, OpenTUI 0.5.12. Новая функция не входит в опубликованный v0.6.22. Изменение UI по поручению владельца: кнопка в «Меню» открывает отдельное нативное окно; исходные три вкладки боковой панели сохранены.
+Изменения сделаны прямо в `main`, без новой ветки, development worktree или PR. Исходная база: `926d67e`, package 0.6.22, OpenTUI 0.5.12. Подготовлена версия 0.6.23; в опубликованный v0.6.22 функция не входит. Изменение UI по поручению владельца: кнопка в «Меню» открывает отдельное нативное окно; исходные три вкладки боковой панели сохранены.
 
-Локальный коммит реализации и кадров: `bee0c8e2b4f1513ce5379050caa6ff3094aaadde` — «feat: добавить фоновые команды и нативное окно задач». Этот SHA не опубликован; запись точного результата внесена отдельным документационным коммитом без переписывания истории.
+Исходный коммит реализации и кадров: `bee0c8e2b4f1513ce5379050caa6ff3094aaadde` — «feat: добавить фоновые команды и нативное окно задач». Исправления shell, маршрутизации ввода и подготовка 0.6.23 добавлены следующими коммитами без переписывания истории. Публикация версии и итог текущего удалённого CI пока не подтверждены.
 
 Этот отчёт отделяет локальные результаты от межплатформенного acceptance. Roadmap не помечен completed/released: Windows/macOS и удалённый CI текущего изменения не запускались. Новые production process/junction/installed/compiled проверки добавлены в существующую матрицу трёх ОС.
+
+## Shell и ввод в 0.6.23
+
+На снимках Windows CMD исполнял строки, рассчитанные на другую оболочку: отсутствующий `tail` завершал pipeline с ошибкой, а `; echo ...; git status` становились аргументами `findstr`. Модель раньше получала только `win32`, без фактического диалекта. Теперь main и child prompt, а также описание `run_shell` сообщают CMD/`/bin/sh`, правила кавычек/разделителей и доступные файловые инструменты. Команда не переводится автоматически в другой язык и не повторяется после ошибки. Ненулевые коды настоящих tests, `AssertionError` и `ModuleNotFoundError` остаются ошибками проекта, а не успешным выполнением shell.
+
+Общий `ManagedProcess` фиксирует shell profile до spawn; Windows CMD запускается с отключённым AutoRun и code page 65001, Python получает UTF-8 defaults. Native CMD/Python Unicode, stderr и exit codes проверяются на Windows runner, в том числе через ordinary installed/compiled CLI. Программы, явно выбравшие другую кодировку, не объявляются автоматически перекодированными.
+
+Enter в сфокусированном «Меню» поглощается без открытия пункта и отправки черновика; мышь и прежние команды/shortcuts остаются. После Esc Enter отправляет сообщение. UI использует одну общую `keypress`-подписку на renderer; порядок callbacks, captured owner и `stopPropagation` сохранены, новая поверхность не получает событие, которое её открыло. Повторные открытия проверяют число keyboard/resize listeners, production TUI и installed/compiled сценарий проверяют настоящий native editor.
+
+[Кадр меню Obsidian](../../assets/sidebar/obsidian-menu.png) · [Graphite](../../assets/sidebar/graphite-menu.png) · [Ember](../../assets/sidebar/ember-menu.png) · [Paper](../../assets/sidebar/paper-menu.png). Рядом с каждым PNG сохранены TXT/JSON фактического renderer.
 
 ## Реальные сценарии
 
@@ -26,17 +36,17 @@
 | Проверка | Фактический результат |
 | --- | --- |
 | `bun run typecheck` | Успешно |
-| `bun test` | 1133 passed, 1 skipped, 0 failed; 130 файлов, 10298 assertions |
+| `bun test` для 0.6.23 | 1136 passed, 3 skipped, 0 failed; 131 файл, 10337 assertions |
 | Финальные process/background/child/worktree/UI regressions | 35 passed, 415 assertions; настоящие процессы, Git, stores, persistence fault и recovery |
 | Нативные состояния / список / listeners | 8 passed, 233 assertions; максимум 64 смонтированных task rows, resize listeners не растут после 12 повторных открытий |
 | Production TUI captures | 8 успешных прогонов: четыре темы × Unicode/ASCII; отдельно настоящий mouse promotion |
-| `bun run lint` | Без ошибок; 165 warnings, 14 infos |
+| `bun run lint` | Без ошибок; 166 warnings, 14 infos |
 | `bun run eval --category all` | 14 из 14 сценариев успешно |
 | `bun run build`, `bun run compile` | Успешно |
 | `command-packaging.ts` | Успешно: installed npm, compiled native TUI, прежние LSP/worktrees/subagents/`/btw` |
 | Bundle и compiled `background-cli.ts` | Успешно: exit 7, retained output/resume, отсутствие replay/model, Plan refusal, сохранение пробелов команды |
 
-Пропущен существующий тест обмена Unicode через системный clipboard: среда не предоставляет desktop clipboard. После полного набора отдельно проверены два последних исправления: остановка при ошибке сохранения сразу после spawn и сохранение пробелов в `/tasks start`. Предупреждения React `act` относятся к тестовым потоковым кадрам; `MaxListenersExceededWarning` в финальных процессных/TUI прогонах не обнаружен. Lint сохраняет предупреждения `noNonNullAssertion` и существующие диагностические замечания; это не проверка с нулём warnings.
+В локальном Linux пропущен существующий тест обмена Unicode через системный clipboard и две настоящие CMD/Python проверки, предназначенные для Windows runner. Полный набор включает остановку при ошибке сохранения сразу после spawn, сохранение пробелов в `/tasks start`, подсказки диалекта, отсутствие Enter activation в меню и общий keyboard dispatcher. Последующий ordinary production TUI и installed/compiled прогон прошли; после объединения keyboard subscriptions `MaxListenersExceededWarning` в финальном ordinary TUI не обнаружен. Предупреждения React `act` относятся к тестовым потоковым кадрам. Lint сохраняет предупреждения `noNonNullAssertion` и существующие диагностические замечания; это не проверка с нулём warnings.
 
 Intentional daemon escape и ограничения ОС не объявляются универсально очищенными; unknown сохраняет recovery block. Linux использует process group и subreaper; для macOS/Windows требуется удалённая проверка обычных descendants, быстрого выхода leader и packaged helper. CPU/RAM quotas, PTY/stdin, daemon/reconnect, auto restart и HTTP readiness probe не реализованы. Локальный Linux не заменяет проверки Windows/macOS. Recovery metadata не является доказательством отсутствия descendants и не разрешает kill восстановленного PID. После crash или неизвестного escape без подтверждения исходного backend автоматического снятия fencing и универсальной кнопки освобождения нет.
 
@@ -69,4 +79,4 @@ CHISEL_BACKGROUND_STATE_CAPTURES=/absolute/captures bun test tests/unit/opentui-
 python3 scripts/render-terminal-captures.py /absolute/captures
 ```
 
-Тематическая справка и архитектура возвращаются к оглавлению; interactive/configuration/permissions/sessions/worktrees/subagents/CLI содержат короткие ссылки на workflow и ограничения. Новая функция описана как unreleased, существующие release availability не переписаны.
+Тематическая справка и архитектура возвращаются к оглавлению; interactive/configuration/permissions/sessions/worktrees/subagents/CLI содержат короткие ссылки на workflow и ограничения. Пользовательская справка указывает 0.6.23 и страницу выпуска; фактический результат публикации фиксируется отдельно в статусе отчёта.

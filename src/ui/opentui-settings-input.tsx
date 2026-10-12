@@ -1,8 +1,10 @@
 /** @jsxImportSource @opentui/react */
+
 import type { InputRenderable } from "@opentui/core";
-import { useKeyboard, usePaste } from "@opentui/react";
+import { usePaste } from "@opentui/react";
 import { useLayoutEffect, useRef } from "react";
 import type { Palette } from "./appearance.js";
+import { useUiKeyboard } from "./overlay-input.js";
 import { clipText } from "./terminal-text.js";
 
 export const cleanSettingsInput = (value: string) =>
@@ -79,7 +81,7 @@ export function SettingsSecretInput({
     event.preventDefault();
     insert(new TextDecoder().decode(event.bytes));
   });
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (!active) return;
     if (key.ctrl && key.name === "c") return;
     const chars = [...secret.current];

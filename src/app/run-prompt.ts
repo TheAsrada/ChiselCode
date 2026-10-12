@@ -15,6 +15,7 @@ import {
 } from "../extensions/composition.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { ExtensionLifecycleError } from "../extensions/lifecycle.js";
+import { shellGuidance } from "../processes/shell.js";
 import { resolveCredential } from "../providers/auth.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
@@ -762,6 +763,7 @@ export async function collectDynamicContext(
   ]);
   return {
     os: `${process.platform} ${process.arch}`,
+    shell: shellGuidance(),
     cwd,
     date: new Date().toISOString(),
     gitBranch: gitBranch || undefined,

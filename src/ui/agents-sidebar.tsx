@@ -1,12 +1,12 @@
 /** @jsxImportSource @opentui/react */
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
+
 import { useLayoutEffect, useRef, useState } from "react";
 import { subagentActive } from "../subagents/contracts.js";
 import { subagentStatusTitle } from "../subagents/service.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import { capturedInputOwner } from "./overlay-input.js";
+import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { SubagentElapsed } from "./subagent-elapsed.js";
 import {
   TerminalScrollbox,
@@ -89,7 +89,7 @@ export function AgentsSidebar({
       scroll.scrollTo(bottom - bodyHeight);
     controller.agentPresentation.treeScroll = scroll.scrollTop;
   }, [index, bodyHeight, rowHeight, rootHeight, controller]);
-  useKeyboard((key) => {
+  useUiKeyboard((key) => {
     if (
       !focused ||
       (capturedInputOwner(key) && capturedInputOwner(key) !== owner)

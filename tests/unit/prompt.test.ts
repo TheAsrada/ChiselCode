@@ -1,8 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { buildSystemPrompt } from "../../src/core/prompt.js";
+import { hostShell, shellGuidance } from "../../src/processes/shell.js";
 import type { Skill } from "../../src/skills/skills.js";
 
 describe("prompt composition", () => {
+  test("main and child prompt identify CMD and do not infer PowerShell from Windows", () => {
+    const prompt = buildSystemPrompt("", {
+      os: "win32 x64",
+      cwd: "C:\\Проект",
+      date: "2026-10-12",
+      shell: shellGuidance(hostShell("win32", {})),
+    });
+    expect(prompt).toContain("Windows CMD (cmd.exe)");
+    expect(prompt).toContain("; не является разделителем");
+    expect(prompt).toContain("tail/head/grep/sed/cat");
+    expect(prompt).toContain("PowerShell запускай явно");
+  });
   test("keeps base, project, then dynamic context ordering", () => {
     const prompt = buildSystemPrompt("PROJECT_RULE", {
       os: "test",
