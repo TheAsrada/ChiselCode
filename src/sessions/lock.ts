@@ -8,7 +8,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const STALE_MS = 30_000;
 // Wait long enough for a newly abandoned lock to expire in the same request.
@@ -70,7 +70,47 @@ async function removeStaleLock(lock: string): Promise<void> {
   });
 }
 
+const localQueues = new Map<string, Promise<void>>();
+
+/** Same-process writers use FIFO before contending for the durable OS-visible lock. */
 export async function withLock<T>(
+  path: string,
+  action: (assertOwned: () => Promise<void>) => Promise<T>,
+): Promise<T> {
+  const canonical = resolve(path);
+  const key =
+    process.platform === "win32" ? canonical.toLowerCase() : canonical;
+  const previous = localQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((done) => {
+    release = done;
+  });
+  const queue = previous.then(() => current);
+  localQueues.set(key, queue);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      previous,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Хранилище занято: ${path}`)),
+          WAIT_MS,
+        );
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    return await withFileLock(path, action);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    release();
+    // A timed-out waiter must keep its predecessor in the queue until it leaves.
+    void queue.then(() => {
+      if (localQueues.get(key) === queue) localQueues.delete(key);
+    });
+  }
+}
+
+async function withFileLock<T>(
   path: string,
   action: (assertOwned: () => Promise<void>) => Promise<T>,
 ): Promise<T> {
@@ -107,16 +147,10 @@ export async function withLock<T>(
     });
   }, HEARTBEAT_MS);
   timer.unref();
-  try {
-    return await action(async () => {
-      if ((await readFile(owner, "utf8").catch(() => "")) !== token)
-        throw new Error(
-          "Storage lease ownership changed; retry with a fresh operation.",
-        );
-    });
-  } finally {
+  const releaseOwned = async () => {
     clearInterval(timer);
     await heartbeat;
+    const releaseDeadline = Date.now() + WAIT_MS;
     while (
       !(await withCleanupGuard(lock, async () => {
         if ((await readFile(owner, "utf8").catch(() => "")) !== token) return;
@@ -125,7 +159,19 @@ export async function withLock<T>(
         await rm(retired, { recursive: true, force: true });
       }))
     ) {
+      if (Date.now() >= releaseDeadline)
+        throw new Error(`Не удалось освободить lock хранилища: ${path}`);
       await pause(30);
     }
+  };
+  try {
+    return await action(async () => {
+      if ((await readFile(owner, "utf8").catch(() => "")) !== token)
+        throw new Error(
+          "Storage lease ownership changed; retry with a fresh operation.",
+        );
+    });
+  } finally {
+    await releaseOwned();
   }
 }

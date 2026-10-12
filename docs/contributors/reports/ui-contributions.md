@@ -28,6 +28,8 @@ Core tests проверяют namespaces, seal/late/duplicate/rollback, owner ca
 
 Последующие installed/compiled Windows проверки выявили terminal child status до подтверждения cleanup. Runtime теперь публикует terminal outcome после освобождения ресурсов, показывает этап завершения, сохраняет recovery fence при ошибке освобождения копии и не заменяет failed cleanup обычной отменой. Реальные native/compiled child scenarios и fault regression прошли локально; Windows compiled cancellation smoke выполняется перед полным CI. Ожидания CI ограничены: Quality — 35 минут, shell и ранний compiled child smoke — по 3 минуты.
 
+Поздний compiled Windows сценарий дополнительно локализовал ожидание checkpoint после отмены. Checkpoint одной Session сериализован; same-process storage writers используют FIFO перед прежним cross-process file lock. Release wait ограничен, проверка owner token и recoverable guard сохранены. Реальные файловые проверки подтверждают FIFO, отсутствие потерянных записей и ожидание lock отдельным Bun процессом.
+
 ## Кадры и воспроизведение
 
 Сохранены **91 native capture triplets** в `docs/assets/ui-contributions`: 80 кадров пяти размеров 160×50 / 120×40 / 80×24 / 40×12 / 24×8 в четырёх темах и Unicode/ASCII, два кадра смены owner и девять кадров настоящего background процесса. Дополнительные кадры показывают context/menu, approval, unavailable и status overflow. Генерация — actual `captureCharFrame` / `captureSpans`, PNG renderer `scripts/render-terminal-captures.py`; browser/imagegen макеты не используются.

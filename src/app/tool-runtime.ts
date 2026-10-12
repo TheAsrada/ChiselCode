@@ -79,7 +79,7 @@ export async function createSessionToolRuntime(input: {
     return input.sanitizeExtra?.(clean) ?? clean;
   };
   events.sanitize = sanitize;
-  const saveCheckpoint = () => {
+  const persistCheckpoint = () => {
     session.messages = sanitize(session.messages);
     if (session.title) session.title = sanitize(session.title);
     if (session.context?.activeCheckpoint)
@@ -95,6 +95,12 @@ export async function createSessionToolRuntime(input: {
         record.approvalPreview = sanitize(record.approvalPreview);
     }
     return store.save(session);
+  };
+  let checkpointWrites = Promise.resolve();
+  const saveCheckpoint = () => {
+    const write = checkpointWrites.catch(() => {}).then(persistCheckpoint);
+    checkpointWrites = write;
+    return write;
   };
   let mcpBinding: McpRuntimeBinding | undefined;
   let extensionBinding:

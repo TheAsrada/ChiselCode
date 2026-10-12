@@ -475,7 +475,9 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
     const checkpoint = async () => {
       session.mainSpend = structuredClone(record.spend);
       recomputeSessionSpend(session);
+      if (signal.aborted) record.step = "Сохраняет историю беседы";
       await tools!.saveCheckpoint();
+      if (signal.aborted) record.step = "Сохраняет состояние помощника";
       await input.checkpoint();
     };
     const result = await runtime.run(session, makeHandoff(), {
