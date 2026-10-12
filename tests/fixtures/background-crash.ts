@@ -65,6 +65,7 @@ async function removeAfterCrashCleanup(
           console.error(
             "Crash cleanup diagnostics:",
             JSON.stringify({
+              tracked: owned,
               remaining: observed.filter((row) =>
                 owned.some(
                   (item) => item.pid === row.pid && item.start === row.start,

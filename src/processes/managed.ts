@@ -73,7 +73,10 @@ export class ManagedProcess {
         stdio: ["pipe", "pipe", "pipe", "pipe"],
         buffer: false,
         reject: false,
-        detached: process.platform !== "win32",
+        // Windows must not destroy the supervisor with the application's
+        // process job before it can stop the .NET-spawned command tree.
+        // The live native owner handle still bounds its lifetime after crash.
+        detached: true,
         windowsHide: true,
       },
     );
