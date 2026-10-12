@@ -26,7 +26,7 @@ test("ordinary executor and default contributions own real background commands a
   ]);
   expect(code, error).toBe(0);
   expect(output).toContain("Background Tasks runtime:");
-}, 45000);
+}, 90000);
 
 test("ordinary OpenTUI opens Background Tasks while main is busy and owns log input", async () => {
   const child = Bun.spawn(

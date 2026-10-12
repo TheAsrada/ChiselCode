@@ -13,6 +13,28 @@ import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { quoteShellArg } from "../helpers/shell.js";
 
+async function removeAfterCrashCleanup(directory: string): Promise<void> {
+  const cleanupDeadline = Date.now() + 12000;
+  for (;;) {
+    try {
+      await rm(directory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      // Bun on Windows does not consistently apply node:fs rm maxRetries.
+      // Retry the actual locked-directory operation within a fixed bound.
+      if (
+        process.platform !== "win32" ||
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        !["EBUSY", "ENOTEMPTY", "EPERM"].includes(String(error.code)) ||
+        Date.now() >= cleanupDeadline
+      )
+        throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 if (process.argv[2] === "--child") {
   const root = process.argv[3]!;
   const host = new ExtensionHost(defaultExtensions());
@@ -197,11 +219,6 @@ if (process.argv[2] === "--child") {
     // Application exit precedes the supervisor's bounded descendant cleanup.
     // Windows keeps a live command's cwd locked. Await its release through the
     // filesystem operation, without killing a restored PID or ignoring EBUSY.
-    await rm(directory, {
-      recursive: true,
-      force: true,
-      maxRetries: 15,
-      retryDelay: 100,
-    });
+    await removeAfterCrashCleanup(directory);
   }
 }

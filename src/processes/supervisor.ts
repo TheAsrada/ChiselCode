@@ -314,7 +314,9 @@ export async function processSupervisor(
         shell ||
         message.type !== "start" ||
         typeof message.command !== "string" ||
-        typeof message.cwd !== "string"
+        typeof message.cwd !== "string" ||
+        !Number.isSafeInteger(message.ownerPid) ||
+        message.ownerPid <= 0
       )
         return;
       const env = { ...process.env };
@@ -328,6 +330,7 @@ export async function processSupervisor(
         env.CHISEL_SHELL_COMMAND = message.command;
         env.CHISEL_SHELL_EXECUTABLE = runtime.executable;
         env.CHISEL_SHELL_CWD = message.cwd;
+        env.CHISEL_SHELL_OWNER_PID = String(message.ownerPid);
       }
       shell = spawn(
         windows ? "powershell.exe" : runtime.executable,
@@ -387,6 +390,10 @@ export async function processSupervisor(
               } else if (frame.type === "eof") {
                 commandEof = true;
                 void sample();
+              } else if (frame.type === "owner_gone") {
+                // A native owner handle observes crash even if an inherited
+                // Windows pipe remains open. Stop only this live owned tree.
+                input.close();
               } else if (frame.type === "error") {
                 escaped = true;
                 send({ type: "error", message: frame.message });

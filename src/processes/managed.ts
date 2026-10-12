@@ -87,7 +87,7 @@ export class ManagedProcess {
       Math.max(1, input.deadline - Date.now()),
     );
     this.child.stdin!.write(
-      `${JSON.stringify({ type: "start", command: input.command, cwd: input.cwd })}\n`,
+      `${JSON.stringify({ type: "start", command: input.command, cwd: input.cwd, ownerPid: process.pid })}\n`,
     );
     const capture = async (stream: ProcessStream, readable: Readable) => {
       try {

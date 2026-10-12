@@ -10,9 +10,11 @@ $OutputEncoding = $utf8
 $command = [Environment]::GetEnvironmentVariable('CHISEL_SHELL_COMMAND')
 $executable = [Environment]::GetEnvironmentVariable('CHISEL_SHELL_EXECUTABLE')
 $cwd = [Environment]::GetEnvironmentVariable('CHISEL_SHELL_CWD')
+$ownerPid = [int][Environment]::GetEnvironmentVariable('CHISEL_SHELL_OWNER_PID')
 [Environment]::SetEnvironmentVariable('CHISEL_SHELL_COMMAND', $null)
 [Environment]::SetEnvironmentVariable('CHISEL_SHELL_EXECUTABLE', $null)
 [Environment]::SetEnvironmentVariable('CHISEL_SHELL_CWD', $null)
+[Environment]::SetEnvironmentVariable('CHISEL_SHELL_OWNER_PID', $null)
 function Send-Frame($frame) {
   [Console]::Out.WriteLine(($frame | ConvertTo-Json -Compress))
   [Console]::Out.Flush()
@@ -30,6 +32,11 @@ $info.RedirectStandardError = $true
 $child = New-Object System.Diagnostics.Process
 $child.StartInfo = $info
 try {
+  # Acquire the live application handle before starting any user process.
+  # This is never a persisted PID and cannot authorize killing that owner.
+  $owner = [System.Diagnostics.Process]::GetProcessById($ownerPid)
+  $null = $owner.Handle
+  if ($owner.HasExited) { throw 'Владелец команды уже завершился.' }
   if (-not $child.Start()) { throw 'Не удалось запустить CMD.' }
   $null = $child.Handle
   $child.StandardInput.Close()
@@ -39,9 +46,14 @@ try {
   $outOpen = $true
   $errOpen = $true
   $exitSent = $false
+  $ownerGoneSent = $false
   $outRead = $child.StandardOutput.BaseStream.ReadAsync($outBuffer, 0, $outBuffer.Length)
   $errRead = $child.StandardError.BaseStream.ReadAsync($errBuffer, 0, $errBuffer.Length)
   while ($outOpen -or $errOpen -or -not $exitSent) {
+    if (-not $ownerGoneSent -and $owner.HasExited) {
+      Send-Frame @{type='owner_gone'}
+      $ownerGoneSent = $true
+    }
     if ($outOpen -and $outRead.IsCompleted) {
       $count = $outRead.GetAwaiter().GetResult()
       if ($count -eq 0) { $outOpen = $false }
@@ -72,6 +84,7 @@ try {
   if ([Console]::In.ReadLine() -ne 'finish') { throw 'Передача процессного владения прервана.' }
   $code = $child.ExitCode
   $child.Dispose()
+  $owner.Dispose()
   exit $code
 } catch {
   Send-Frame @{type='error'; message=$_.Exception.Message}
