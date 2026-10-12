@@ -323,6 +323,8 @@ async function until(
           error: item.child.error,
           cleanup: item.child.cleanup,
           persistenceError: item.child.persistenceError,
+          step: item.child.step,
+          finishedAt: item.child.finishedAt,
         }),
       )
     : [];

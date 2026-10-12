@@ -26,6 +26,8 @@ Core tests проверяют namespaces, seal/late/duplicate/rollback, owner ca
 
 Промежуточные CI `38284054866` и `38285918369` выявили преждевременное чтение Session checkpoint в compiled fixture и слишком короткие filesystem budgets Windows fixtures. Проверки теперь ждут настоящий terminal tool result; очистка 64 ignored LSP documents проверяется на последовательных штатных bounded context boundaries. Production budget 250 мс не увеличен, eager UI scan не добавлен. Fixture создания и чтения 500 provider manifests получил 20 секунд вместо общих пяти; проверки полноты и поиска сохранены.
 
+Последующие installed/compiled Windows проверки выявили terminal child status до подтверждения cleanup. Runtime теперь публикует terminal outcome после освобождения ресурсов, показывает этап завершения, сохраняет recovery fence при ошибке освобождения копии и не заменяет failed cleanup обычной отменой. Реальные native/compiled child scenarios и fault regression прошли локально; Windows compiled cancellation smoke выполняется перед полным CI. Ожидания CI ограничены: Quality — 35 минут, shell и ранний compiled child smoke — по 3 минуты.
+
 ## Кадры и воспроизведение
 
 Сохранены **91 native capture triplets** в `docs/assets/ui-contributions`: 80 кадров пяти размеров 160×50 / 120×40 / 80×24 / 40×12 / 24×8 в четырёх темах и Unicode/ASCII, два кадра смены owner и девять кадров настоящего background процесса. Дополнительные кадры показывают context/menu, approval, unavailable и status overflow. Генерация — actual `captureCharFrame` / `captureSpans`, PNG renderer `scripts/render-terminal-captures.py`; browser/imagegen макеты не используются.

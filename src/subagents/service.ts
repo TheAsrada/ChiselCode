@@ -870,6 +870,11 @@ export class SubagentService {
       if (subagentActive(record.status))
         record.status = active.abort.signal.aborted ? "cancelled" : "completed";
     } catch (error) {
+      // A cancellation cannot turn failed cleanup into a safely stopped child.
+      if (record.cleanup.incomplete) {
+        record.status = "failed";
+        return;
+      }
       const reason = active.abort.signal.reason;
       const code =
         reason instanceof RuntimeError

@@ -37,6 +37,7 @@ import {
   effectiveSubagentConfig,
   SUBAGENT_LIMITS,
 } from "../subagents/config.js";
+import type { SubagentStatus } from "../subagents/contracts.js";
 import { ChildToolPolicy } from "../subagents/policy.js";
 import type { ChildRunInput } from "../subagents/service.js";
 import { defineTool } from "../tools/handler.js";
@@ -233,6 +234,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
   let use: import("../extensions/contracts.js").Disposable | undefined;
   let tools: Awaited<ReturnType<typeof createSessionToolRuntime>> | undefined;
   let detach = () => {};
+  let terminalStatus: SubagentStatus | undefined;
   try {
     cancelled(signal);
     if (record.mode === "coding") {
@@ -490,21 +492,21 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       SUBAGENT_LIMITS.resultBytes,
     );
     if (result.status === "approval_required")
-      record.status = "approval_unavailable";
+      terminalStatus = "approval_unavailable";
     else if (result.status === "failed")
-      record.status =
+      terminalStatus =
         result.errorCode === "SUBAGENT_BUDGET_EXHAUSTED"
           ? "budget_exhausted"
           : "failed";
     else if (result.status === "cancelled")
-      record.status =
+      terminalStatus =
         abort.signal.reason instanceof RuntimeError &&
         abort.signal.reason.code === "SUBAGENT_BUDGET_EXHAUSTED"
           ? "budget_exhausted"
           : record.status === "timed_out"
             ? "timed_out"
             : "cancelled";
-    else record.status = "completed";
+    else terminalStatus = "completed";
     if (result.error)
       record.error = {
         code: result.errorCode ?? "SUBAGENT_RUNTIME",
@@ -514,40 +516,54 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       record.artifact = await new ToolResultStore(
         join(sessionsRootDir(), "artifacts", session.id),
       ).put(record.text, "untrusted_external");
+    record.step = "Сохраняет результат";
     await checkpoint();
   } finally {
     const errors: unknown[] = [];
-    for (const cleanup of [
-      async () => {
-        const outcomes = await tools?.backgrounds?.drainChild(record.id);
-        if (outcomes?.length) {
-          record.text = `${record.text}\n\nФоновые команды (фактические результаты):\n${outcomes.map((task) => `${task.label}: ${task.state}${task.exitCode != null ? `, код ${task.exitCode}` : ""}; ID ${task.id}; завершение процессов ${task.cleanup.confirmed ? "подтверждено" : "не подтверждено"}`).join("\n")}`;
-          if (
-            outcomes.some(
-              (task) => task.kind === "batch" && task.state !== "completed",
-            )
-          ) {
-            record.status = "failed";
-            record.error = {
-              code: "BACKGROUND_TASK_FAILED",
-              message:
-                "Фоновая проверка помощника не завершилась успешно; сохранён фактический результат.",
-            };
+    const cleanups: Array<[string, () => unknown | Promise<unknown>]> = [
+      [
+        "Завершает фоновые команды",
+        async () => {
+          const outcomes = await tools?.backgrounds?.drainChild(record.id);
+          if (outcomes?.length) {
+            record.text = `${record.text}\n\nФоновые команды (фактические результаты):\n${outcomes.map((task) => `${task.label}: ${task.state}${task.exitCode != null ? `, код ${task.exitCode}` : ""}; ID ${task.id}; завершение процессов ${task.cleanup.confirmed ? "подтверждено" : "не подтверждено"}`).join("\n")}`;
+            if (
+              outcomes.some(
+                (task) => task.kind === "batch" && task.state !== "completed",
+              )
+            ) {
+              terminalStatus = "failed";
+              record.error = {
+                code: "BACKGROUND_TASK_FAILED",
+                message:
+                  "Фоновая проверка помощника не завершилась успешно; сохранён фактический результат.",
+              };
+            }
           }
-        }
-      },
-      () => detach(),
-      () => tools?.dispose(),
-      () => host?.dispose(),
-    ])
+        },
+      ],
+      ["Отключает события", () => detach()],
+      ["Освобождает инструменты", () => tools?.dispose()],
+      ["Закрывает расширения копии", () => host?.dispose()],
+    ];
+    for (const [step, cleanup] of cleanups)
       try {
+        record.step = step;
         await cleanup();
       } catch (error) {
         errors.push(error);
       }
     if (!errors.length) {
-      await use?.dispose();
+      try {
+        record.step = "Освобождает копию";
+        await use?.dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (!errors.length) {
       record.cleanup = { quiescent: true };
+      if (terminalStatus) record.status = terminalStatus;
     } else {
       record.cleanup = {
         quiescent: false,

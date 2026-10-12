@@ -10,6 +10,7 @@ import { createSubagentExtension } from "../../src/extensions/builtins/subagents
 import { ExtensionHost } from "../../src/extensions/host.js";
 import { attachExtensionTools } from "../../src/extensions/tools.js";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
+import { RuntimeError } from "../../src/runtime/errors.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
@@ -40,6 +41,19 @@ test("core lifecycle: durable FIFO, queued cancel, wait cancellation, duplicate 
         once: true,
       });
     });
+    if (input.record.label === "Третья" && input.abort.signal.aborted) {
+      // Fault barrier: cancellation must preserve an explicitly failed cleanup.
+      input.record.cleanup = {
+        quiescent: false,
+        incomplete: true,
+        recoveryRequired: true,
+      };
+      input.record.error = {
+        code: "SUBAGENT_RUNTIME",
+        message: "Cleanup не подтверждён",
+      };
+      throw new RuntimeError("CANCELLED", "Operation cancelled.");
+    }
     input.record.cleanup = { quiescent: true };
     input.record.status = input.abort.signal.aborted
       ? "cancelled"
@@ -146,6 +160,10 @@ test("core lifecycle: durable FIFO, queued cancel, wait cancellation, duplicate 
     );
     await service.closeOwner(session.id);
     expect(starts[1]?.abort.signal.aborted).toBe(true);
+    expect(starts[1]?.record.status).toBe("failed");
+    const saved = await store.load(session.id);
+    expect(saved.children?.[c.id]?.child.cleanup.recoveryRequired).toBe(true);
+    expect(saved.children?.[c.id]?.child.status).toBe("failed");
     await expect(control.list()).rejects.toThrow("закрыт");
     const child = {
       ...session,

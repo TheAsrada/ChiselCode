@@ -76,6 +76,15 @@ jobs:
         env:
           CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
         run: bun tests/fixtures/subagents-runtime.ts
+      - name: Real compiled child UI cancellation on Windows
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          bun build ./tests/fixtures/tui-subagents.ts --compile --outfile=dist/subagents-ci.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./dist/subagents-ci.exe
       - name: Real Background Tasks processes, descendants and native popup
         timeout-minutes: 3
         env:
