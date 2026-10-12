@@ -13,6 +13,7 @@ import type { Renderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { quoteShellArg } from "../helpers/shell.js";
 
 const directory = await realpath(
   await mkdtemp(join(tmpdir(), "chisel-background-tui-")),
@@ -70,7 +71,7 @@ const server = Bun.serve({
               function: {
                 name: "run_shell",
                 arguments: JSON.stringify({
-                  command: `${JSON.stringify(process.argv[2] ?? process.execPath)} ${JSON.stringify(file)}`,
+                  command: `${quoteShellArg(process.argv[2] ?? process.execPath)} ${quoteShellArg(file)}`,
                   background: process.env.CHISEL_CAPTURE_PROMOTION !== "1",
                   taskKind: "service",
                   label: "Сервер интерфейса · 日本語",

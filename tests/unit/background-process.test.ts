@@ -14,6 +14,7 @@ import { BackgroundTaskStore } from "../../src/background/storage.js";
 import { ManagedProcess } from "../../src/processes/managed.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
 import { WorkspaceCoordinator } from "../../src/tools/workspace-coordinator.js";
+import { quoteShellArg } from "../helpers/shell.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -29,7 +30,7 @@ async function fixture(source: string, executable = process.execPath) {
   await writeFile(file, source);
   return {
     root,
-    command: `${JSON.stringify(executable)} ${JSON.stringify(file)}`,
+    command: `${quoteShellArg(executable)} ${quoteShellArg(file)}`,
   };
 }
 test("managed backend reports real exit and never gives the shell interactive stdin", async () => {
@@ -266,7 +267,7 @@ test.skipIf(process.platform !== "linux")(
       "const {spawn}=require('node:child_process');const fs=require('node:fs');const p=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});fs.writeFileSync('escaped.pid',String(p.pid));p.unref();process.exit(0);",
     );
     const handle = new ManagedProcess({
-      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(file)}`,
+      command: `${quoteShellArg(process.execPath)} ${quoteShellArg(file)}`,
       cwd: root,
       deadline: Date.now() + 10000,
       capture: { async write() {}, async close() {} },

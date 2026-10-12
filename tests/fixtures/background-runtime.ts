@@ -22,6 +22,7 @@ import { RuntimeEventBus } from "../../src/runtime/events.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+import { quoteShellArg } from "../helpers/shell.js";
 
 const directory = await realpath(
   await mkdtemp(join(tmpdir(), "chisel-background-runtime-")),
@@ -98,7 +99,7 @@ const tools = await createSessionToolRuntime({
   },
 });
 const command = (file: string) =>
-  `${JSON.stringify(process.execPath)} ${JSON.stringify(join(root, file))}`;
+  `${quoteShellArg(process.execPath)} ${quoteShellArg(join(root, file))}`;
 try {
   await writeFile(
     join(root, "batch.cjs"),
@@ -250,7 +251,7 @@ try {
       id: "different-repository",
       name: "run_shell",
       input: {
-        command: `${JSON.stringify(process.execPath)} server.cjs`,
+        command: `${quoteShellArg(process.execPath)} server.cjs`,
         background: true,
         taskKind: "service",
         label: "Соседний сервер",
@@ -400,7 +401,7 @@ try {
     id: "isolated-once",
     name: "run_shell",
     input: {
-      command: `${JSON.stringify(process.execPath)} isolated.cjs`,
+      command: `${quoteShellArg(process.execPath)} isolated.cjs`,
       background: true,
       targetWorktreeId: copy.id,
       label: "Проверка в копии",

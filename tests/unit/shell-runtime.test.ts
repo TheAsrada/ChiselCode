@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hostShell, shellFailureHint } from "../../src/processes/shell.js";
 import { HostSandboxExecutor } from "../../src/security/sandbox.js";
+import { quoteShellArg } from "../helpers/shell.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -24,13 +25,14 @@ test("the real default shell preserves a quoted Unicode path, arguments, both st
     script,
     "console.log(process.argv[2]);console.error('Русский stderr');process.exitCode=7;",
   );
+  const argument = 'Аргумент с  пробелами; буквально\\n "кавычки"';
   const result = await new HostSandboxExecutor().execute({
-    command: `"${process.execPath}" "${script}" "Аргумент с  пробелами; буквально"`,
+    command: `${quoteShellArg(process.execPath)} ${quoteShellArg(script)} ${quoteShellArg(argument)}`,
     cwd,
     timeout: 10000,
   });
   expect(result.exitCode).toBe(7);
-  expect(result.output).toContain("Аргумент с  пробелами; буквально");
+  expect(result.output).toContain(argument);
   expect(result.output).toContain("Русский stderr");
   expect(result.output).not.toContain("\uFFFD");
 }, 15000);

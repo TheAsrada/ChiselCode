@@ -20,6 +20,7 @@ import { ExtensionHost } from "../../src/extensions/host.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
+import { quoteShellArg } from "../helpers/shell.js";
 
 const directory = await realpath(
   await mkdtemp(join(tmpdir(), "chisel-subagents-")),
@@ -203,7 +204,7 @@ const server = Bun.serve({
             id: `child-background-${childRoots.size}`,
             name: "run_shell",
             input: {
-              command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify("const fs=require('node:fs');fs.appendFileSync('child-background.txt','once\\n');console.log('child batch READY');setTimeout(()=>console.log('child batch итог'),300)")}`,
+              command: `${quoteShellArg(process.execPath)} -e ${quoteShellArg("const fs=require('node:fs');fs.appendFileSync('child-background.txt','once\\n');console.log('child batch READY');setTimeout(()=>console.log('child batch итог'),300)")}`,
               background: true,
               label: "Проверка помощника",
               outputBytes: 4096,

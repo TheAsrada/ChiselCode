@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
+import { quoteShellArg } from "../helpers/shell.js";
 
 export async function smokeBackgroundCli(command: string, prefix: string[]) {
   const directory = await mkdtemp(join(tmpdir(), "chisel-background-cli-"));
@@ -51,7 +52,7 @@ export async function smokeBackgroundCli(command: string, prefix: string[]) {
     JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
   try {
     const started = await invoke(
-      `/tasks start ${JSON.stringify(process.execPath)} ${JSON.stringify(source)}`,
+      `/tasks start ${quoteShellArg(process.execPath)} ${quoteShellArg(source)}`,
     );
     assert.notEqual(started.exitCode, 0, started.stdout);
     assert.ok(started.stdout.trim(), started.stderr);
@@ -77,7 +78,7 @@ export async function smokeBackgroundCli(command: string, prefix: string[]) {
     assert.equal(JSON.parse(json(status.stdout).output).id, task.id);
     assert.equal(await readFile(join(root, "launches.txt"), "utf8"), "one\n");
     const denied = await invoke(
-      `/tasks start ${JSON.stringify(process.execPath)} ${JSON.stringify(source)}`,
+      `/tasks start ${quoteShellArg(process.execPath)} ${quoteShellArg(source)}`,
       ["--mode", "plan"],
     );
     assert.notEqual(denied.exitCode, 0);

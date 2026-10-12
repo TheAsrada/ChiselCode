@@ -11,6 +11,7 @@ import { ExtensionHost } from "../../src/extensions/host.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
+import { quoteShellArg } from "../helpers/shell.js";
 
 if (process.argv[2] === "--child") {
   const root = process.argv[3]!;
@@ -48,7 +49,7 @@ if (process.argv[2] === "--child") {
     id: "crash-once",
     name: "run_shell",
     input: {
-      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(join(root, "server.cjs"))}`,
+      command: `${quoteShellArg(process.execPath)} ${quoteShellArg(join(root, "server.cjs"))}`,
       background: true,
       taskKind: "service",
       readySignal: "CRASH READY",
