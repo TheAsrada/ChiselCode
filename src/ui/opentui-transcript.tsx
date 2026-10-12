@@ -33,6 +33,7 @@ export function OpenTuiTranscript({
   entries,
   onOpenSide,
   onOpenCard,
+  onCardAction,
   focusedSideId,
   contentWidth,
   expandedId,
@@ -43,6 +44,7 @@ export function OpenTuiTranscript({
 }: {
   entries: readonly TranscriptEntry[];
   onOpenSide?(operationId: string): void;
+  onCardAction?(action: NonNullable<CardData["actions"]>[number]): void;
   onOpenCard?(target: NonNullable<CardData["target"]>): void;
   focusedSideId?: string;
   contentWidth: number;
@@ -77,6 +79,7 @@ export function OpenTuiTranscript({
               width={contentWidth}
               palette={palette}
               onOpen={onOpenCard}
+              onAction={onCardAction}
             />
           );
         const sideId = entry.sideOperationId;

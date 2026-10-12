@@ -2,6 +2,7 @@ export type SettingsRoute =
   | "connection"
   | "appearance"
   | "permissions"
+  | "tools.background"
   | "tools.subagents"
   | "tools.lsp"
   | "tools.mcp"
@@ -62,6 +63,26 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     description: "Доступность режима Bypass; выбор режима остаётся отдельным",
     keywords: ["permissions", "approval", "bypass", "разрешения", "доступ"],
     fields: [],
+  },
+  {
+    id: "tools.background",
+    group: "Инструменты",
+    title: "Фоновые задачи",
+    description: "Локальные команды: время, вывод и хранение",
+    keywords: ["background", "фон", "tasks", "процессы", "сервер", "watcher"],
+    fields: [
+      {
+        id: "enabled",
+        title: "Включение фоновых задач",
+        keywords: ["выключить"],
+      },
+      {
+        id: "limits",
+        title: "Лимиты процессов и вывода",
+        keywords: ["срок", "память", "хранение"],
+      },
+      { id: "project", title: "Настройки проекта", keywords: ["проект"] },
+    ],
   },
   {
     id: "tools.subagents",

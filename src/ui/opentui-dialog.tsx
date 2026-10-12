@@ -146,9 +146,11 @@ export function DialogAction({
   disabled?: boolean;
   id?: string;
 }) {
+  const renderer = useRenderer();
   const pressed = useRef<(() => void) | undefined>(undefined);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Dialog actions have keyboard equivalents.
+    // biome-ignore lint/a11y/useKeyWithMouseEvents: Native OpenTUI box uses captured keyboard ownership and has no DOM blur prop.
     <box
       id={id}
       flexShrink={0}
@@ -166,10 +168,27 @@ export function DialogAction({
           event.button === 0 && !disabled ? onSelect : undefined;
         event.stopPropagation();
       }}
+      onMouseDrag={() => {
+        pressed.current = undefined;
+      }}
+      onMouseOut={() => {
+        pressed.current = undefined;
+      }}
       onMouseUp={(event) => {
         const activate = event.button === 0 ? pressed.current : undefined;
         pressed.current = undefined;
-        if (!activate) return;
+        const area = event.currentTarget;
+        if (
+          !activate ||
+          event.isDragging ||
+          !area ||
+          event.x < area.x ||
+          event.y < area.y ||
+          event.x >= area.x + area.width ||
+          event.y >= area.y + area.height ||
+          renderer.getSelection()?.getSelectedText()
+        )
+          return;
         event.stopPropagation();
         if (!disabled) activate();
       }}

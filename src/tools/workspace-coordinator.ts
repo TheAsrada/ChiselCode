@@ -10,9 +10,26 @@ export interface WorkspaceAccess {
 }
 interface Lease {
   accesses: readonly WorkspaceAccess[];
+  background?: BackgroundResourceOwner;
 }
 interface Waiter extends Lease {
   grant(): void;
+  reject(error: RuntimeError): void;
+}
+export interface BackgroundResourceOwner {
+  taskId: string;
+  ownerId: string;
+  label: string;
+  state: string;
+}
+export interface WorkspaceLease {
+  readonly accesses: readonly WorkspaceAccess[];
+  finish(): void | Promise<void>;
+  transfer(
+    owner: BackgroundResourceOwner,
+  ):
+    | { release(): void | Promise<void> }
+    | Promise<{ release(): void | Promise<void> }>;
 }
 
 /** Process-wide, fair access to overlapping workspaces and tool resources. */
@@ -21,6 +38,28 @@ export class WorkspaceCoordinator {
   private waiting: Waiter[] = [];
   private changes = new Map<string, number>();
   private serial = 0;
+  private released = new Set<() => void>();
+
+  onReleased(listener: () => void): () => void {
+    this.released.add(listener);
+    return () => this.released.delete(listener);
+  }
+  backgroundBlocker(
+    accesses: readonly WorkspaceAccess[],
+  ): (BackgroundResourceOwner & { resource: string }) | undefined {
+    for (const lease of this.active)
+      if (lease.background && conflicts(lease, { accesses }))
+        return {
+          ...lease.background,
+          resource: accesses.find((a) =>
+            lease.accesses.some(
+              (b) =>
+                (a.mode === "write" || b.mode === "write") &&
+                overlaps(a.resource, b.resource),
+            ),
+          )!.resource,
+        };
+  }
 
   async scope(root: string): Promise<string[]> {
     const canonical = await canonicalPath(root);
@@ -82,7 +121,7 @@ export class WorkspaceCoordinator {
       cancelled(signal);
       return await work();
     } finally {
-      release();
+      await release();
     }
   }
 
@@ -90,7 +129,7 @@ export class WorkspaceCoordinator {
     paths: readonly string[],
     mode: AccessMode,
     signal?: AbortSignal,
-  ): Promise<() => void> {
+  ): Promise<() => void | Promise<void>> {
     return this.acquirePlan(
       paths.map((resource) => ({ resource, mode })),
       signal,
@@ -106,13 +145,21 @@ export class WorkspaceCoordinator {
       cancelled(signal);
       return await work();
     } finally {
-      release();
+      await release();
     }
   }
   acquirePlan(
     accesses: readonly WorkspaceAccess[],
     signal?: AbortSignal,
-  ): Promise<() => void> {
+  ): Promise<() => void | Promise<void>> {
+    return this.acquirePlanLease(accesses, signal).then(
+      (lease) => () => lease.finish(),
+    );
+  }
+  acquirePlanLease(
+    accesses: readonly WorkspaceAccess[],
+    signal?: AbortSignal,
+  ): Promise<WorkspaceLease> {
     cancelled(signal);
     return new Promise((resolveLease, reject) => {
       const merged = new Map<string, AccessMode>();
@@ -141,9 +188,38 @@ export class WorkspaceCoordinator {
         grant: () => {
           signal?.removeEventListener("abort", onAbort);
           this.active.add(lease);
-          resolveLease(() => {
-            if (this.active.delete(lease)) this.drain();
+          let transferred = false;
+          const release = () => {
+            if (!this.active.delete(lease)) return;
+            this.drain();
+            for (const listener of this.released)
+              try {
+                listener();
+              } catch {
+                /* Observers cannot retain a released resource. */
+              }
+          };
+          resolveLease({
+            accesses: lease.accesses,
+            finish: () => {
+              if (!transferred) release();
+            },
+            transfer: (owner) => {
+              if (transferred || !this.active.has(lease))
+                throw new RuntimeError(
+                  "PERMISSION_DENIED",
+                  "Доступ уже передан или закрыт.",
+                );
+              transferred = true;
+              lease.background = { ...owner };
+              this.drain();
+              return { release };
+            },
           });
+        },
+        reject: (error) => {
+          signal?.removeEventListener("abort", onAbort);
+          reject(error);
         },
       };
       signal?.addEventListener("abort", onAbort, { once: true });
@@ -155,6 +231,20 @@ export class WorkspaceCoordinator {
   private drain(): void {
     const blocked: Waiter[] = [];
     for (const waiter of this.waiting) {
+      const background = this.backgroundBlocker(waiter.accesses);
+      if (background) {
+        waiter.reject(
+          new RuntimeError(
+            "BACKGROUND_RESOURCE_BUSY",
+            `Ресурс занят фоновой задачей «${background.label}». Остановите её, дождитесь завершения или выберите другую копию.`,
+            {
+              ...background,
+              choices: ["Остановить", "Дождаться", "Выбрать другую копию"],
+            },
+          ),
+        );
+        continue;
+      }
       if (
         [...this.active].some((lease) => conflicts(lease, waiter)) ||
         blocked.some((earlier) => conflicts(earlier, waiter))
@@ -166,6 +256,12 @@ export class WorkspaceCoordinator {
   }
 }
 
+export function accessPlansConflict(
+  left: readonly WorkspaceAccess[],
+  right: readonly WorkspaceAccess[],
+): boolean {
+  return conflicts({ accesses: left }, { accesses: right });
+}
 function conflicts(a: Lease, b: Lease): boolean {
   return a.accesses.some((left) =>
     b.accesses.some(

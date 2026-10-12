@@ -400,3 +400,7 @@ Apply использует existing EditingService.replaceBatch/commit, реал
 ## Помощники
 
 Отдельные AgentRuntime выполняют ограниченные задачи владельца: чтение в origin или реализацию в detached рабочей копии. Core управляет scheduler, captured context, ceiling, approvals и расходами; правое дерево показывает задачи по typed descriptors. Подробности вынесены в [сервис помощников](architecture/subagents.md), действия пользователя — в [руководство](subagents.md).
+
+## Фоновые задачи
+
+Core `BackgroundTaskService` владеет локальными командами между turns; `builtin.background` предоставляет narrow controls и оформление через общий chat API. Foreground/background используют общий managed process backend; одноразовая передача удержанных local/durable ресурсов не освобождает writers до подтверждённого cleanup. UI — кнопка в «Меню» и shared native popup. Контракты handoff, policy, child lifetime, logs и completion описаны отдельно в [архитектуре фоновых задач](architecture/background-tasks.md); workflow — в [справке](background-tasks.md).

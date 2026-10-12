@@ -1,3 +1,4 @@
+import { backgroundServiceToken } from "../extensions/builtins/background.js";
 import { worktreeServiceToken } from "../extensions/builtins/worktrees.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { attachExtensionTools } from "../extensions/tools.js";
@@ -8,6 +9,7 @@ import type { AgentMode } from "../runtime/agent-mode.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
+import { SecretRedactor } from "../security/redaction.js";
 import type { projectSessionStore } from "../sessions/project-store.js";
 import { loadSkills } from "../skills/skills.js";
 import { createLocalToolRuntime } from "../tools/local-runtime.js";
@@ -33,6 +35,15 @@ export async function createSessionToolRuntime(input: {
   sanitizeExtra?: <T>(value: T) => T;
   childPolicy?: import("../subagents/policy.js").ChildToolPolicy;
   approvalOwner?: import("../tools/types.js").ToolContext["approvalOwner"];
+  backgroundOwner?: Partial<
+    import("../background/service.js").BackgroundOwnerBinding
+  >;
+  onBackground?: (
+    event: import("../background/contracts.js").BackgroundEvent,
+  ) => void;
+  onBackgroundControls?: (
+    controls: import("../background/binding.js").BackgroundControls,
+  ) => void;
   subagentTools?: import("../subagents/service.js").SubagentToolBinding;
 }) {
   const {
@@ -60,8 +71,11 @@ export async function createSessionToolRuntime(input: {
           new McpConfigStore(root, { globalPath: options.configPath }),
         ))
       : undefined;
+  const redactor = input.backgroundOwner?.redactor ?? new SecretRedactor();
   const sanitize = <T>(value: T): T => {
-    const clean = web.redactor.value(mcp ? mcp.redactor.value(value) : value);
+    const clean = redactor.value(
+      web.redactor.value(mcp ? mcp.redactor.value(value) : value),
+    );
     return input.sanitizeExtra?.(clean) ?? clean;
   };
   events.sanitize = sanitize;
@@ -138,6 +152,39 @@ export async function createSessionToolRuntime(input: {
       },
       resolver,
     );
+    const backgrounds = scope.services.lookup(backgroundServiceToken);
+    const owner = options.subagentOwner;
+    for (const value of [
+      ...web.redactor.knownValues(),
+      ...(mcp?.redactor.knownValues() ?? []),
+    ])
+      redactor.add(value);
+    const background = backgrounds
+      ? await backgrounds.bind({
+          session,
+          store,
+          root: scope.workspaceRoot,
+          scope,
+          config,
+          global,
+          conversationId:
+            owner?.conversationId ?? session.subagent?.ownerId ?? session.id,
+          generation: input.approvalOwner?.generation ?? owner?.generation ?? 0,
+          signal: owner?.signal ?? signal,
+          assertAvailable:
+            owner?.assertAvailable ?? (() => scope.assertUsable()),
+          configPath: options.configPath,
+          interactive: options.interactive === true,
+          redactor,
+          currentMode: () => session.mode ?? mode,
+          onEvent: input.onBackground,
+          ...input.backgroundOwner,
+        })
+      : undefined;
+    if (backgrounds && !session.subagent)
+      input.onBackgroundControls?.(
+        backgrounds.controls(session.id, owner?.generation ?? 0),
+      );
     const skills = loadSkills(root);
     const tools = createLocalToolRuntime(
       root,
@@ -160,6 +207,7 @@ export async function createSessionToolRuntime(input: {
         executionConstraint: input.childPolicy,
         approvalOwner: input.approvalOwner,
         subagentTools: input.subagentTools,
+        background,
         worktrees: scope.services.lookup(worktreeServiceToken),
       },
     );
@@ -169,6 +217,7 @@ export async function createSessionToolRuntime(input: {
     input.childPolicy?.seal(tools.catalog.handlersSnapshot());
     return {
       ...tools,
+      backgrounds,
       skills,
       sanitize,
       saveCheckpoint,

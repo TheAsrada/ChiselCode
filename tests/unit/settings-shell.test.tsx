@@ -85,7 +85,8 @@ test("catalog search uses only curated metadata and deep links fields in RU/EN",
   expect(searchSettings("mcp")[0]?.section.id).toBe("tools.mcp");
   expect(searchSettings("web")[0]?.section.id).toBe("tools.web");
   expect(searchSettings("private-key-value")).toEqual([]);
-  expect(searchSettings("")).toHaveLength(8);
+  expect(searchSettings("")).toHaveLength(9);
+  expect(searchSettings("фоновые")[0]?.section.id).toBe("tools.background");
   expect(
     searchSettings("fixture", [
       ...SETTINGS_SECTIONS,

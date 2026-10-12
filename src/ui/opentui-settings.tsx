@@ -2,6 +2,7 @@
 
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BackgroundSettingsActions } from "../background/settings.js";
 import { ProfileIdSchema } from "../config/schema.js";
 import type { LspSettingsActions } from "../lsp/settings.js";
 import type {
@@ -18,6 +19,7 @@ import {
   THEMES,
   type ThemeName,
 } from "./appearance.js";
+import { OpenTuiBackgroundSettings } from "./opentui-background-settings.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import {
   OpenTuiLspSettings,
@@ -49,6 +51,7 @@ import { terminalLine } from "./terminal-text.js";
 import { FAIL_MARK } from "./theme.js";
 
 export interface OpenTuiSettingsActions {
+  background?: BackgroundSettingsActions;
   subagents?: SubagentSettingsActions;
   web?: WebSettingsActions;
   lsp?: LspSettingsActions;
@@ -174,6 +177,14 @@ export function OpenTuiSettings({
   );
   const [fieldTarget, setFieldTarget] = useState<string>();
   const [confirmClose, setConfirmClose] = useState(false);
+  const [backgroundDirty, setBackgroundDirty] = useState(false);
+  const backgroundControls = useRef<SettingsPanelControl | undefined>(
+    undefined,
+  );
+  const recordBackgroundDirty = useCallback(
+    (value: boolean) => setBackgroundDirty(value),
+    [],
+  );
   const [subagentDirty, setSubagentDirty] = useState(false);
   const subagentControls = useRef<SettingsPanelControl | undefined>(undefined);
   const recordSubagentDirty = useCallback(
@@ -258,6 +269,7 @@ export function OpenTuiSettings({
     navigationOnly ||
     [
       "tools.subagents",
+      "tools.background",
       "tools.lsp",
       "tools.mcp",
       "tools.skills",
@@ -494,7 +506,8 @@ export function OpenTuiSettings({
       currentTheme !== savedTheme ||
       lspDirty ||
       webDirty ||
-      subagentDirty
+      subagentDirty ||
+      backgroundDirty
     ) {
       setCloseSelection(0);
       setConfirmClose(true);
@@ -781,6 +794,7 @@ export function OpenTuiSettings({
     if (page === "appearance") applyTheme();
     else if (page === "tools.lsp") lspControls.current?.save();
     else if (page === "tools.subagents") subagentControls.current?.save();
+    else if (page === "tools.background") backgroundControls.current?.save();
     else if (page === "web") webControls.current?.save();
     else if (page === "connection") {
       if (field) {
@@ -827,6 +841,7 @@ export function OpenTuiSettings({
           webControls.current?.discard();
           lspControls.current?.discard();
           subagentControls.current?.discard();
+          backgroundControls.current?.discard();
           onThemePreview?.(restore.current.theme);
           onClose();
         }
@@ -886,14 +901,20 @@ export function OpenTuiSettings({
       else saveCurrent();
       return;
     }
-    if (page === "tools.lsp" || page === "tools.subagents") {
+    if (
+      page === "tools.lsp" ||
+      page === "tools.subagents" ||
+      page === "tools.background"
+    ) {
       if (name === "escape") {
         key.preventDefault();
         if (
           !(
-            page === "tools.subagents"
-              ? subagentControls.current
-              : lspControls.current
+            page === "tools.background"
+              ? backgroundControls.current
+              : page === "tools.subagents"
+                ? subagentControls.current
+                : lspControls.current
           )?.back()
         ) {
           if (!split) {
@@ -1138,6 +1159,7 @@ export function OpenTuiSettings({
             height={
               page === "tools.lsp" ||
               page === "tools.subagents" ||
+              page === "tools.background" ||
               page === "web"
                 ? 0
                 : bodyHeight - (page === "appearance" ? 1 : 0)
@@ -1145,6 +1167,7 @@ export function OpenTuiSettings({
             visible={
               page !== "tools.lsp" &&
               page !== "tools.subagents" &&
+              page !== "tools.background" &&
               page !== "web"
             }
             flexShrink={0}
@@ -1583,6 +1606,29 @@ export function OpenTuiSettings({
               />
             </box>
           )}
+          {actions?.background && (
+            <box
+              width="100%"
+              height={page === "tools.background" ? bodyHeight : 0}
+              visible={page === "tools.background" && !navigationOnly}
+            >
+              <OpenTuiBackgroundSettings
+                actions={actions.background}
+                palette={palette}
+                width={innerWidth}
+                height={bodyHeight}
+                active={
+                  active &&
+                  page === "tools.background" &&
+                  !navigationOnly &&
+                  !confirmClose
+                }
+                focused={shellFocus === "content"}
+                controls={backgroundControls}
+                onDirty={recordBackgroundDirty}
+              />
+            </box>
+          )}
           {actions?.subagents && (
             <box
               width="100%"
@@ -1675,6 +1721,7 @@ export function OpenTuiSettings({
               webControls.current?.discard();
               lspControls.current?.discard();
               subagentControls.current?.discard();
+              backgroundControls.current?.discard();
               onThemePreview?.(restore.current.theme);
               onClose();
             }}

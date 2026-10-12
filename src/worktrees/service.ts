@@ -98,6 +98,10 @@ export interface WorktreeDescriptor {
   reason?: string;
 }
 export interface WorktreeWorkspacePort {
+  ownedBackgroundTarget(
+    id: string,
+    ownerId: string,
+  ): Promise<Readonly<WorktreeDescriptor>>;
   access(
     action: WorktreeAction,
     input: WorktreeInput,
@@ -574,6 +578,33 @@ export class WorktreeService {
           lifetime,
           action,
         );
+      },
+      ownedBackgroundTarget: async (id: string, ownerId: string) => {
+        assert();
+        const repo = await this.repository(root, lifetime);
+        return withLock(repo.registry, async () => {
+          const record = this.checkedRecord(
+            repo,
+            await readWorktreeRegistry(repo.registry),
+            id,
+          );
+          if (record.conversationId !== ownerId)
+            fail("PERMISSION_DENIED", "Копия принадлежит другому разговору.");
+          await this.verify(repo, record, lifetime);
+          if (
+            (await this.users(repo, id)).some(
+              (user) =>
+                user.role === "subagent_write" ||
+                user.role === "background_write" ||
+                user.token === "unknown-owner",
+            )
+          )
+            fail(
+              "WORKTREE_IN_USE",
+              "Копию использует задача; выберите свободную копию или дождитесь завершения.",
+            );
+          return Object.freeze(await this.descriptor(repo, record, lifetime));
+        });
       },
       open: async (id: string) => {
         assert();
@@ -1810,13 +1841,19 @@ export class WorktreeService {
           process.platform === "linux" &&
           user.start !== (await processStart(user.pid))
         ) {
-          if (user.role === "subagent_write")
+          if (
+            user.role === "subagent_write" ||
+            user.role === "background_write"
+          )
             result.push({ token: user.token, role: user.role });
           continue;
         }
         result.push({ token: user.token, role: user.role });
       } catch (error) {
-        if (user.role === "subagent_write") {
+        if (
+          user.role === "subagent_write" ||
+          user.role === "background_write"
+        ) {
           result.push({ token: user.token, role: user.role });
           continue;
         }
@@ -1836,19 +1873,21 @@ export class WorktreeService {
     if (
       (await this.users(repo, id)).some(
         (user) =>
-          user.role === "subagent_write" || user.token === "unknown-owner",
+          user.role === "subagent_write" ||
+          user.role === "background_write" ||
+          user.token === "unknown-owner",
       )
     )
       fail(
         "WORKTREE_IN_USE",
-        "Помощник ещё использует копию либо cleanup требует проверки. Остановите задачу и дождитесь завершения перед переносом.",
+        "Копию использует задача либо завершение процессов требует проверки. Остановите задачу и дождитесь завершения перед переносом.",
       );
   }
   /** Cross-process admission and remove share the registry lock. A scope holds
    * this through LSP/process shutdown; inactive tabs remain users. */
   async acquireUse(
     root: string,
-    role: "workspace" | "subagent_write" = "workspace",
+    role: "workspace" | "subagent_write" | "background_write" = "workspace",
   ): Promise<Disposable> {
     const home = await realpath(this.home).catch(() => resolve(this.home));
     if (!within(join(home, "worktrees"), await realpath(root)))
@@ -1908,13 +1947,18 @@ export class WorktreeService {
         if (closed) return;
         closed = true;
         clearInterval(timer);
-        await heartbeat;
-        if (!samePath(await realpath(repo.users), repo.users))
-          fail(
-            "WORKTREE_RECOVERY_REQUIRED",
-            "Use lease storage identity changed; no deletion was authorized.",
-          );
-        await rm(file, { force: true });
+        try {
+          await heartbeat;
+          if (!samePath(await realpath(repo.users), repo.users))
+            fail(
+              "WORKTREE_RECOVERY_REQUIRED",
+              "Use lease storage identity changed; no deletion was authorized.",
+            );
+          await rm(file, { force: true });
+        } catch (error) {
+          closed = false;
+          throw error;
+        }
       },
     };
   }

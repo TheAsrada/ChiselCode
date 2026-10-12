@@ -41,6 +41,7 @@ export function createLocalToolRuntime(
     toolGuards?: ToolGuardPort;
     executionConstraint?: import("./types.js").ToolExecutionConstraint;
     approvalOwner?: import("./types.js").ToolContext["approvalOwner"];
+    background?: import("../background/binding.js").BackgroundToolBinding;
     subagentTools?: import("../subagents/service.js").SubagentToolBinding;
     worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
   } = {},
@@ -61,6 +62,7 @@ export function createLocalToolRuntime(
   ])
     catalog.register(handler);
   const context: ToolContext = {
+    background: options.background,
     executionConstraint: options.executionConstraint,
     approvalOwner: options.approvalOwner,
     subagentTools: options.subagentTools,

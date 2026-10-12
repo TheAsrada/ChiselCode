@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { ProjectBackgroundConfigSchema } from "../background/config.js";
 import { InstructionResolver } from "../context/instructions.js";
 import { ProjectLspConfigSchema } from "../lsp/config.js";
 import { readMcpConfig } from "../mcp/configuration.js";
@@ -16,6 +17,7 @@ import {
 } from "./migrate.js";
 
 const ProjectConfigSchema = z.object({
+  backgroundTasks: ProjectBackgroundConfigSchema.optional(),
   subagents: ProjectSubagentConfigSchema.optional(),
   lsp: ProjectLspConfigSchema.optional(),
   web: ProjectWebConfigSchema.optional(),

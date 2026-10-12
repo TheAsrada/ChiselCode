@@ -22,6 +22,10 @@ export class SecretRedactor {
       text = text.split(secret).join("[секрет скрыт]");
     if (this.sensitiveFields)
       text = text
+        .replace(
+          /(--?(?:api[-_]?key|password|passwd|secret|token|authorization)\s+)("[^"]*"|'[^']*'|[^\s;]+)/gi,
+          "$1[секрет скрыт]",
+        )
         .replace(/\b(Bearer|Basic)\s+[^\s"',;]+/gi, "$1 [секрет скрыт]")
         .replace(
           /((?:api[-_]?key|password|secret|token|authorization)\s*[=:]\s*)([^\s,;"']+)/gi,

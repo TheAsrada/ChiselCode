@@ -1,4 +1,4 @@
-import { execa } from "execa";
+import { ManagedProcess } from "../processes/managed.js";
 import { RuntimeError } from "../runtime/errors.js";
 export interface PreparedCommand {
   command: string;
@@ -14,67 +14,49 @@ export interface ProcessResult {
 export interface SandboxExecutor {
   execute(command: PreparedCommand): Promise<ProcessResult>;
 }
+/** Compatibility wrapper over the same managed process backend. */
 export class HostSandboxExecutor implements SandboxExecutor {
   async execute(command: PreparedCommand): Promise<ProcessResult> {
     if (command.signal?.aborted)
-      throw new RuntimeError("CANCELLED", "Shell command cancelled.");
-    const child = execa(command.command, {
-      cwd: command.cwd,
-      shell: true,
-      reject: false,
-      all: true,
-      detached: process.platform !== "win32",
-      maxBuffer: 32 * 1024 * 1024,
+      throw new RuntimeError("CANCELLED", "Команда отменена.");
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let handle!: ManagedProcess;
+    handle = new ManagedProcess({
+      ...command,
+      deadline: Date.now() + command.timeout,
+      capture: {
+        async write(_stream, data) {
+          bytes += data.byteLength;
+          if (bytes > 32 * 1024 * 1024) {
+            void handle.stop("output_limit");
+            return;
+          }
+          chunks.push(Buffer.from(data));
+        },
+        async close() {},
+      },
     });
-    let timedOut = false;
-    let forceTimer: ReturnType<typeof setTimeout> | undefined;
-    const killTree = (force: boolean) => {
-      if (!child.pid) return;
-      if (process.platform === "win32") {
-        void execa("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-          reject: false,
-        }).catch(() => child.kill());
-      } else {
-        try {
-          process.kill(-child.pid, force ? "SIGKILL" : "SIGTERM");
-        } catch {
-          /* The process group has exited. */
-        }
-      }
+    await handle.ready;
+    const outcome = await handle.done;
+    if (!outcome.cleanup)
+      throw new RuntimeError(
+        "BACKGROUND_RECOVERY_REQUIRED",
+        "Завершение процессов не подтверждено.",
+      );
+    if (outcome.reason === "cancelled")
+      throw new RuntimeError("CANCELLED", "Команда отменена.");
+    if (outcome.reason === "timed_out")
+      throw new RuntimeError("TOOL_TIMEOUT", "Время команды истекло.");
+    if (outcome.reason === "output_limit")
+      throw new RuntimeError(
+        "TOOL_EXECUTION_FAILURE",
+        "Лимит вывода команды превышен.",
+      );
+    return {
+      output: `Command exited ${outcome.exitCode ?? 1}.\n${Buffer.concat(chunks).toString("utf8")}`,
+      exitCode: outcome.exitCode ?? 1,
+      sandboxed: false,
     };
-    const terminate = () => {
-      killTree(false);
-      forceTimer ??= setTimeout(() => killTree(true), 1000);
-    };
-    command.signal?.addEventListener("abort", terminate, { once: true });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, command.timeout);
-    try {
-      const result = await child;
-      if (command.signal?.aborted)
-        throw new RuntimeError("CANCELLED", "Shell command cancelled.");
-      if (timedOut)
-        throw new RuntimeError("TOOL_TIMEOUT", "Shell command timed out.");
-      return {
-        output: `Command exited ${result.exitCode}.\n${result.all ?? ""}`,
-        exitCode: result.exitCode ?? 1,
-        sandboxed: false,
-      };
-    } catch (error) {
-      if (command.signal?.aborted)
-        throw new RuntimeError("CANCELLED", "Shell command cancelled.");
-      if (timedOut)
-        throw new RuntimeError("TOOL_TIMEOUT", "Shell command timed out.");
-      throw error;
-    } finally {
-      clearTimeout(timer);
-      if (forceTimer) {
-        killTree(true);
-        clearTimeout(forceTimer);
-      }
-      command.signal?.removeEventListener("abort", terminate);
-    }
   }
 }

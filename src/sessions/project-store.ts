@@ -12,6 +12,10 @@ import {
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import {
+  type BackgroundReceipt,
+  BackgroundReceiptSchema,
+} from "../background/contracts.js";
+import {
   ensureMainSpend,
   recomputeSessionSpend,
   spendForRecord,
@@ -70,6 +74,7 @@ const summarySchema = z.object({
   model: z.string(),
   gitBranch: z.string().optional(),
   subagentOwnerId: z.uuid().optional(),
+  backgroundOwnerId: z.uuid().optional(),
   messageCount: z.number().int().nonnegative(),
   totalTokens: usageSchema,
   lastUserMessage: z.string().optional(),
@@ -203,6 +208,9 @@ function toSummary(session: Session): SessionSummary {
     model: session.model,
     gitBranch: session.gitBranch,
     ...(session.subagent ? { subagentOwnerId: session.subagent.ownerId } : {}),
+    ...(session.backgroundExecution
+      ? { backgroundOwnerId: session.backgroundExecution.ownerId }
+      : {}),
     messageCount: session.messages.length,
     totalTokens: session.totalTokens,
     lastUserMessage: last
@@ -307,6 +315,7 @@ export class ProjectSessionStore {
         sideQueries: prior?.sideQueries ?? persisted.sideQueries,
         sideQuerySpend: prior?.sideQuerySpend ?? persisted.sideQuerySpend,
         children: prior?.children ?? persisted.children,
+        backgroundTasks: prior?.backgroundTasks ?? persisted.backgroundTasks,
       });
       recomputeSessionSpend(merged);
       merged.updatedAt = new Date().toISOString();
@@ -328,11 +337,31 @@ export class ProjectSessionStore {
       ];
       await atomicJson(this.indexPath, index);
       session.children = structuredClone(merged.children);
+      session.backgroundTasks = structuredClone(merged.backgroundTasks);
       session.sideQueries = structuredClone(merged.sideQueries);
       session.sideQuerySpend = structuredClone(merged.sideQuerySpend);
       session.totalTokens = { ...merged.totalTokens };
       session.totalCost = merged.totalCost;
       session.costEstimate = merged.costEstimate;
+    });
+  }
+  /** A process patch owns only its narrow receipt; no messages, spend or raw logs. */
+  async patchBackground(
+    id: string,
+    update: BackgroundReceipt,
+  ): Promise<Session> {
+    const receipt = BackgroundReceiptSchema.parse(update);
+    assertSessionId(id);
+    await this.list();
+    return withLock(this.indexPath, async () => {
+      const session = await this.load(id);
+      const prior = session.backgroundTasks?.[receipt.id];
+      if (prior && prior.revision >= receipt.revision) return session;
+      session.backgroundTasks ??= {};
+      session.backgroundTasks[receipt.id] = receipt;
+      session.updatedAt = new Date().toISOString();
+      await this.writePatchedSession(session);
+      return session;
     });
   }
   /** A child patch owns only its receipt/spend; it cannot overwrite main or /btw state. */

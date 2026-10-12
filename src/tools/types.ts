@@ -68,6 +68,11 @@ export interface ToolExecutionConstraint {
   ): import("../security/permission-policy.js").PermissionDecision;
 }
 export interface ToolContext {
+  readonly background?: import("../background/binding.js").BackgroundToolBinding;
+  readonly backgroundExecution?: object;
+  /** Private core lease grant; never accepted from model/extension DTOs. */
+  readonly shellLeaseAuthorization?: object;
+  readonly promoteShellApproval?: (signal: AbortSignal) => Promise<void>;
   readonly subagentAuthorization?: object;
   readonly subagentTools?: import("../subagents/service.js").SubagentToolBinding;
   readonly executionConstraint?: ToolExecutionConstraint;

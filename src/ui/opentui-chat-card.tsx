@@ -13,11 +13,13 @@ export function ChatCard({
   width,
   palette,
   onOpen,
+  onAction,
 }: {
   card: CardData;
   extensionId: string;
   width: number;
   palette: Palette;
+  onAction?(action: NonNullable<CardData["actions"]>[number]): void;
   onOpen?(target: NonNullable<CardData["target"]>): void;
 }) {
   const { unicode, borderChars } = useTerminalDecoration();
@@ -100,6 +102,19 @@ export function ChatCard({
           )}
         </box>
       )}
+      {card.actions?.length && onAction ? (
+        <box flexDirection="row" width="100%" flexShrink={0}>
+          {card.actions.map((action) => (
+            <DialogAction
+              key={action.action}
+              id={`chat-card-${action.action}-${identity}`}
+              label={action.label}
+              palette={palette}
+              onSelect={() => onAction(action)}
+            />
+          ))}
+        </box>
+      ) : undefined}
     </box>
   );
 }

@@ -29,6 +29,7 @@ export type QueuedTabOperation = QueuedTabPrompt | QueuedTabCommand;
 
 /** Execution belongs to the conversation, even while its screen is unmounted. */
 export class TuiTabExecution {
+  backgroundControls?: import("../background/binding.js").BackgroundControls;
   subagentControls?: import("../app/subagent-binding.js").SubagentControls;
   readonly sideRuns = new Map<
     string,
@@ -61,6 +62,11 @@ export class TuiTabExecution {
   }
 
   get busy(): boolean {
+    return this.closeBlocked || this.backgroundControls?.busy() === true;
+  }
+
+  /** Background processes are stopped by owner disposal when their tab closes. */
+  get closeBlocked(): boolean {
     return (
       !!this.activeRun ||
       this.pendingOperations.length > 0 ||
@@ -82,6 +88,7 @@ export class TuiTabExecution {
     for (const submission of this.pendingSubmissions) submission.abort();
     this.pendingSubmissions.clear();
     this.abort?.abort();
+    void this.backgroundControls?.cancel().catch(() => {});
     void this.subagentControls?.cancel().catch(() => {});
     this.approvalResolver.cancel();
   }
@@ -89,6 +96,7 @@ export class TuiTabExecution {
   dispose(): void {
     this.cancelSides();
     this.cancel();
+    void this.backgroundControls?.close().catch(() => {});
     void this.subagentControls?.close().catch(() => {});
     this.approvalResolver.dispose();
   }

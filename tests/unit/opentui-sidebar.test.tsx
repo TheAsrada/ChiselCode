@@ -160,6 +160,7 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
       expect(controller.snapshot.agentTree?.view).toBe("menu");
       await capture(setup, `${theme}-menu`);
       await key(setup, "ARROW_DOWN");
+      await key(setup, "ARROW_DOWN");
       await key(setup, "RETURN");
       expect(controller.snapshot.overlay).toBe("settings");
       expect(

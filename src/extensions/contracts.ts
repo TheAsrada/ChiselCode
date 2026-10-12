@@ -141,6 +141,7 @@ export interface ExtensionCommandDescriptor {
   readonly controlActions?: readonly string[];
 }
 export interface SubagentControlInvocation {
+  readonly background?: import("../background/contracts.js").BackgroundPort;
   readonly workspaceRoot: string;
   readonly sessionId: string;
   readonly signal: AbortSignal;

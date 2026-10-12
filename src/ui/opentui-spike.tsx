@@ -8,6 +8,7 @@ import type {
 } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { backgroundActive } from "../background/contracts.js";
 import {
   type CommandProjection,
   composeCommandProjection,
@@ -46,6 +47,8 @@ import {
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import { OpenTuiAgentDetails } from "./opentui-agent-details.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
+import { OpenTuiBackgroundDetails } from "./opentui-background-details.js";
+import { OpenTuiBackgroundTasks } from "./opentui-background-tasks.js";
 import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { DialogAction } from "./opentui-dialog.js";
@@ -327,11 +330,28 @@ function OpenTuiScreen({
     view.sideView?.visible &&
     !approval &&
     !otherOverlay &&
-    !view.agentView?.visible
+    !view.agentView?.visible &&
+    !view.backgroundView?.visible &&
+    !view.backgroundPanel
   );
   const agentActive = !!(
     controller &&
     view.agentView?.visible &&
+    !approval &&
+    !otherOverlay &&
+    !view.backgroundView?.visible &&
+    !view.backgroundPanel
+  );
+  const backgroundPanelActive = !!(
+    controller &&
+    view.backgroundPanel &&
+    !view.backgroundView?.visible &&
+    !approval &&
+    !otherOverlay
+  );
+  const backgroundActiveView = !!(
+    controller &&
+    view.backgroundView?.visible &&
     !approval &&
     !otherOverlay
   );
@@ -341,7 +361,9 @@ function OpenTuiScreen({
     !approval &&
     !otherOverlay &&
     !sideActive &&
-    !agentActive
+    !agentActive &&
+    !backgroundActiveView &&
+    !backgroundPanelActive
   );
   const agentsFocused = sidebarFocused && sidebarTab === "agents";
   const sidebarOwner =
@@ -353,13 +375,17 @@ function OpenTuiScreen({
     ? "approval"
     : otherOverlay
       ? "dialog"
-      : agentActive
-        ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
-        : sideActive
-          ? sideOwner
-          : sidebarFocused
-            ? sidebarOwner
-            : "main";
+      : backgroundPanelActive
+        ? `background:${controller?.conversationId}:${controller?.currentGeneration}`
+        : backgroundActiveView
+          ? `background-view:${controller?.conversationId}:${controller?.currentGeneration}`
+          : agentActive
+            ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
+            : sideActive
+              ? sideOwner
+              : sidebarFocused
+                ? sidebarOwner
+                : "main";
   useOverlayInputOwner(inputOwner);
   const cancelApprovalChild = approval?.owner?.childId
     ? () => {
@@ -482,10 +508,24 @@ function OpenTuiScreen({
       ? sideRecordIds[Math.min(sideRecordIndex, sideRecordIds.length - 1)]
       : undefined;
   useLayoutEffect(() => {
-    if (sideActive || agentActive) editor.current?.blur();
+    if (
+      sideActive ||
+      agentActive ||
+      backgroundActiveView ||
+      backgroundPanelActive
+    )
+      editor.current?.blur();
     else if (!approval && !otherOverlay && focus === "editor")
       editor.current?.focus();
-  }, [sideActive, agentActive, approval, otherOverlay, focus]);
+  }, [
+    sideActive,
+    agentActive,
+    backgroundActiveView,
+    backgroundPanelActive,
+    approval,
+    otherOverlay,
+    focus,
+  ]);
   const home = !!workspace && !workspace.activeKey;
   const tabRows = workspace?.tabs.length ? 3 : 0;
   useEffect(() => {
@@ -685,6 +725,8 @@ function OpenTuiScreen({
       !modelsActions &&
       !permissionsOpen &&
       !updateOpen &&
+      !backgroundActiveView &&
+      !backgroundPanelActive &&
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
@@ -700,6 +742,8 @@ function OpenTuiScreen({
     modelsActions,
     permissionsOpen,
     updateOpen,
+    backgroundActiveView,
+    backgroundPanelActive,
     contextOnly,
     sidebarTab,
     focus,
@@ -807,7 +851,14 @@ function OpenTuiScreen({
   };
 
   useClipboardComposer(() => {
-    if (sideActive || agentActive || sidebarFocused) return null;
+    if (
+      sideActive ||
+      agentActive ||
+      backgroundActiveView ||
+      backgroundPanelActive ||
+      sidebarFocused
+    )
+      return null;
     if (
       approval ||
       pickerOpen ||
@@ -829,7 +880,13 @@ function OpenTuiScreen({
     if (capturedInputOwner(key) !== inputOwner) return;
     if (key.ctrl && key.name === "c" && !key.shift) {
       key.preventDefault();
-      if (agentActive || sidebarFocused || approval?.owner?.childId) {
+      if (
+        agentActive ||
+        backgroundActiveView ||
+        backgroundPanelActive ||
+        sidebarFocused ||
+        approval?.owner?.childId
+      ) {
         key.stopPropagation();
         return;
       }
@@ -838,7 +895,13 @@ function OpenTuiScreen({
       return;
     }
     // Core tab navigation captures the origin before a viewer can consume Tab/arrows.
-    if (workspace && (agentActive || sidebarFocused)) {
+    if (
+      workspace &&
+      (agentActive ||
+        backgroundPanelActive ||
+        backgroundActiveView ||
+        sidebarFocused)
+    ) {
       if (key.ctrl && key.name === "tab") {
         key.preventDefault();
         key.stopPropagation();
@@ -855,7 +918,7 @@ function OpenTuiScreen({
         return;
       }
     }
-    if (agentActive) return;
+    if (agentActive || backgroundActiveView || backgroundPanelActive) return;
     if (sidebarFocused) {
       if (key.ctrl && key.name === "b") {
         key.preventDefault();
@@ -1243,6 +1306,11 @@ function OpenTuiScreen({
       clearInput();
       return;
     }
+    if (controller && value === "/tasks") {
+      clearInput();
+      controller.showBackground();
+      return;
+    }
     if (getModelsActions && value === "/model") {
       openModels();
       clearInput();
@@ -1477,6 +1545,18 @@ function OpenTuiScreen({
     focusSidebar();
   };
   const menuActions: SidebarMenuAction[] = [
+    ...(controller
+      ? [
+          {
+            id: "background-tasks",
+            label: "Фоновые задачи",
+            detail: "Процессы, вывод и результаты",
+            shortcut: "/tasks",
+            group: "БЕСЕДА",
+            run: () => controller.showBackground(),
+          },
+        ]
+      : []),
     ...(sessionPicker
       ? [
           {
@@ -1606,7 +1686,9 @@ function OpenTuiScreen({
           !updateOpen &&
           !approval &&
           !sideActive &&
-          !agentActive
+          !agentActive &&
+          !backgroundPanelActive &&
+          !backgroundActiveView
         }
         hasDraft={!!draft.trim()}
         busy={view.busy}
@@ -1639,7 +1721,9 @@ function OpenTuiScreen({
             !updateOpen &&
             !approval &&
             !sideActive &&
-            !agentActive
+            !agentActive &&
+            !backgroundPanelActive &&
+            !backgroundActiveView
           }
           initialValue={draft}
           backgroundColor={palette.surface}
@@ -1685,25 +1769,45 @@ function OpenTuiScreen({
         <text
           fg={palette.muted}
           height={1}
-          width={Math.max(1, composerWidth - (controller ? 14 : 0))}
+          width={Math.max(
+            1,
+            composerWidth - (controller ? (composerWidth < 50 ? 16 : 20) : 0),
+          )}
         >
           {terminalLine(
             !home && height < 10
               ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
               : view.busy && onCancel
                 ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
-                : composerWidth >= 70
+                : composerWidth -
+                      (controller ? (composerWidth < 50 ? 16 : 20) : 0) >=
+                    77
                   ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
                   : composerWidth >= 45
                     ? "Enter отправить | Shift+Tab режим | F4 разрешения"
                     : "Shift+Tab режим | F4",
-            Math.max(1, composerWidth - (controller ? 14 : 0)),
+            Math.max(
+              1,
+              composerWidth - (controller ? (composerWidth < 50 ? 16 : 20) : 0),
+            ),
           )}
         </text>
         {controller && (
           <DialogAction
+            id="open-background"
+            label={`Фон ${(view.backgroundTasks ?? []).filter((task) => !task.foreground && backgroundActive(task.state)).length}${controller.backgroundPresentation.unread.size ? "!" : (view.backgroundTasks ?? []).some((task) => task.state === "awaiting_approval") ? "?" : ""}`}
+            palette={palette}
+            onSelect={() => controller.showBackground()}
+          />
+        )}
+        {controller && (
+          <DialogAction
             id="open-agents"
-            label={`${childApproval ? "? " : ""}Агенты ${activeChildren} F7`}
+            label={
+              composerWidth < 50
+                ? `${childApproval ? "?" : ""}Аг F7`
+                : `${childApproval ? "? " : ""}Агенты ${activeChildren} F7`
+            }
             palette={palette}
             onSelect={openAgents}
           />
@@ -1754,8 +1858,20 @@ function OpenTuiScreen({
                   >
                     <OpenTuiTranscript
                       onOpenSide={(id) => controller?.openSide(id)}
+                      onCardAction={(action) => {
+                        if (action.target.type !== "background_task") return;
+                        if (action.action === "promote")
+                          void controller?.promoteBackground(action.target.id);
+                        else if (action.action === "wait")
+                          void controller?.waitBackground(action.target.id);
+                        else if (action.action === "stop")
+                          void controller?.stopBackground(action.target.id);
+                        else void controller?.openBackground(action.target.id);
+                      }}
                       onOpenCard={(target) => {
                         if (target.type === "subagent") openAgent(target.id);
+                        else if (target.type === "background_task")
+                          void controller?.openBackground(target.id);
                       }}
                       focusedSideId={focusedSideId}
                       entries={view.transcript}
@@ -1844,8 +1960,20 @@ function OpenTuiScreen({
                   {controller ? (
                     <OpenTuiTranscript
                       onOpenSide={(id) => controller?.openSide(id)}
+                      onCardAction={(action) => {
+                        if (action.target.type !== "background_task") return;
+                        if (action.action === "promote")
+                          void controller?.promoteBackground(action.target.id);
+                        else if (action.action === "wait")
+                          void controller?.waitBackground(action.target.id);
+                        else if (action.action === "stop")
+                          void controller?.stopBackground(action.target.id);
+                        else void controller?.openBackground(action.target.id);
+                      }}
                       onOpenCard={(target) => {
                         if (target.type === "subagent") openAgent(target.id);
+                        else if (target.type === "background_task")
+                          void controller?.openBackground(target.id);
                       }}
                       focusedSideId={focusedSideId}
                       entries={
@@ -1954,7 +2082,13 @@ function OpenTuiScreen({
                   (child) => child.status === "awaiting_approval",
                 ).length
               }
-              busy={view.busy || activeChildren > 0}
+              busy={
+                view.busy ||
+                activeChildren > 0 ||
+                (view.backgroundTasks ?? []).some((task) =>
+                  backgroundActive(task.state),
+                )
+              }
               onFocus={focusSidebar}
               onSelect={selectSidebar}
               onBack={backFromSidebar}
@@ -2006,6 +2140,27 @@ function OpenTuiScreen({
         )}
       </box>
       {settingsDialog}
+      {backgroundPanelActive && controller && (
+        <OpenTuiBackgroundTasks
+          controller={controller}
+          view={view}
+          width={width}
+          height={height}
+          palette={palette}
+        />
+      )}
+      {backgroundActiveView && controller && (
+        <OpenTuiBackgroundDetails
+          controller={controller}
+          view={view}
+          width={width}
+          height={height}
+          palette={palette}
+          onRetry={(id) => {
+            void onSubmit?.(`/tasks retry ${id}`, controller);
+          }}
+        />
+      )}
       {agentActive && controller && (
         <OpenTuiAgentDetails
           controller={controller}

@@ -317,6 +317,16 @@ export function AgentsSidebar({
                   )}
                 </text>
               )}
+              {!tiny &&
+                (state.backgroundTasks ?? []).some(
+                  (task) => task.childId === child.id && !task.finishedAt,
+                ) && (
+                  <DialogAction
+                    label={`Фон ${(state.backgroundTasks ?? []).filter((task) => task.childId === child.id && !task.finishedAt).length}`}
+                    palette={palette}
+                    onSelect={() => controller.showBackground(child.id)}
+                  />
+                )}
               {!tiny && (
                 <text height={1} fg={palette.muted} selectable={false}>
                   {terminalLine(`    ${child.step}`, width)}

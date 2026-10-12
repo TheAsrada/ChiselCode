@@ -65,6 +65,12 @@ import type { WebConfig } from "../web/schema.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
 
 export interface RunEventHandlers {
+  onBackground?(
+    event: import("../background/contracts.js").BackgroundEvent,
+  ): void;
+  onBackgroundControls?(
+    controls: import("../background/binding.js").BackgroundControls,
+  ): void;
   onSubagent?(event: import("../subagents/contracts.js").SubagentEvent): void;
   onSubagentControls?(
     controls: import("./subagent-binding.js").SubagentControls,
@@ -423,7 +429,7 @@ async function runPromptInWorkspace(
   const previous = options.resume
     ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)
     : undefined;
-  if (previous?.subagent)
+  if (previous?.subagent || previous?.backgroundExecution)
     throw new RuntimeError(
       "SUBAGENT_RECOVERY_REQUIRED",
       "История помощника доступна для просмотра; обычный --resume не повторяет его инструменты. Создайте новое поручение после проверки результата.",
@@ -544,6 +550,9 @@ async function runPromptInWorkspace(
     events.onSubagentControls?.(subagentControls(subagents, childOwner));
   const tools = await createSessionToolRuntime({
     subagentTools,
+    backgroundOwner: { redactor: modelRedactor },
+    onBackground: events.onBackground,
+    onBackgroundControls: events.onBackgroundControls,
     sanitizeExtra: (value) => modelRedactor.value(value),
     root: projectRoot,
     session,
@@ -690,6 +699,36 @@ async function runPromptInWorkspace(
       result.error =
         "Основной ответ завершён, но не все помощники успешно закончили работу. Изучите сохранённые результаты.";
       result.errorCode = "SUBAGENT_UNAVAILABLE";
+    }
+  }
+  if (tools.backgrounds && !options.interactive) {
+    const tasks = await tools.context.background!.port.list();
+    for (const task of tasks)
+      if (task.kind === "service" && task.state === "running")
+        await tools.context.background!.port.stop(task.id);
+    const budget = Math.max(
+      0,
+      Math.min(
+        7200000,
+        ...tasks
+          .filter((task) => !task.finishedAt)
+          .map((task) => Date.parse(task.deadline) - Date.now()),
+      ),
+    );
+    if (tasks.some((task) => !task.finishedAt))
+      await tools.backgrounds.drainOwner(session.id, budget);
+    await tools.backgrounds.cancelOwner(session.id);
+    const outcomes = await tools.context.background!.port.list();
+    if (
+      outcomes.some(
+        (task) => task.state !== "completed" || !task.cleanup.confirmed,
+      ) &&
+      result.status === "completed"
+    ) {
+      result.status = "failed";
+      result.errorCode = "BACKGROUND_RECOVERY_REQUIRED";
+      result.error =
+        "Не все фоновые задачи завершились успешно; результаты сохранены в истории.";
     }
   }
   result.elapsedMs = foregroundElapsedMs;

@@ -16,6 +16,7 @@ import {
 } from "../app/model-runtime.js";
 import { runExtensionCommand } from "../app/run-command.js";
 import { subagentControls } from "../app/subagent-inspection.js";
+import { BackgroundSettingsStore } from "../background/settings.js";
 import {
   checkProviderConnection,
   getModelCapabilities,
@@ -35,6 +36,7 @@ import {
   loadProjectInstructions,
   updateGlobalConfig,
 } from "../config/load.js";
+import { backgroundServiceToken } from "../extensions/builtins/background.js";
 import { subagentServiceToken } from "../extensions/builtins/subagents.js";
 import {
   defaultExtensions,
@@ -440,6 +442,51 @@ async function runApplication(
     controller: TuiController,
     session: Session,
   ) => {
+    if (
+      session.backgroundTasks &&
+      Object.keys(session.backgroundTasks).length
+    ) {
+      const root = controller.snapshot.projectPath;
+      const generation = controller.currentGeneration;
+      const scope = await extensionHost.open(root);
+      const service = scope.services.lookup(backgroundServiceToken);
+      if (service) {
+        await service.bind({
+          session,
+          store: await projectSessionStore(root),
+          root,
+          conversationId: controller.conversationId,
+          generation,
+          signal: controller.ownerSignal,
+          assertAvailable: () => {
+            scope.assertUsable();
+            if (!controller.isCurrent(generation))
+              throw new Error("Разговор заменён.");
+          },
+          scope,
+          config: await loadProjectConfig(root),
+          global: await loadGlobalConfig(options.configPath),
+          configPath: options.configPath,
+          interactive: true,
+          redactor: new SecretRedactor(),
+          currentMode: () => controller.snapshot.agentMode,
+          onEvent: (event) => {
+            if (controller.isCurrent(generation))
+              controller.acceptBackground(event);
+          },
+        });
+        const controls = service.controls(session.id, generation);
+        controller.setBackgroundControls(controls);
+        workspace.execution(controller).backgroundControls = controls;
+        for (const task of await controls.port.list())
+          controller.acceptBackground({
+            type: "changed",
+            ownerId: session.id,
+            task,
+            presentation: task.presentation,
+          });
+      }
+    }
     if (!session.children || !Object.keys(session.children).length) return;
     const generation = controller.currentGeneration;
     const root = controller.snapshot.projectPath;
@@ -605,6 +652,7 @@ async function runApplication(
         }),
     });
     return {
+      background: new BackgroundSettingsStore(root, options.configPath),
       subagents: new SubagentSettingsStore(
         root,
         options.configPath,
@@ -1108,6 +1156,10 @@ async function runApplication(
           names: new Set(selectedSkills),
         });
       }
+      if (parsed?.name === "/tasks" && !parsed.args.trim()) {
+        controller.showBackground();
+        return;
+      }
       const controlAction =
         prepared?.input &&
         typeof prepared.input === "object" &&
@@ -1136,6 +1188,7 @@ async function runApplication(
               sessionId: origin.snapshot.sessionId!,
               signal: origin.ownerSignal,
               subagents: origin.subagentControls!.port,
+              background: origin.backgroundControls?.port,
             },
             selected.input,
           );
@@ -1448,6 +1501,16 @@ async function runApplication(
             },
             execution.approvalResolver,
             {
+              onBackground: (event) => {
+                if (controller.isCurrent(requestGeneration))
+                  controller.acceptBackground(event);
+              },
+              onBackgroundControls: (controls) => {
+                if (controller.isCurrent(requestGeneration)) {
+                  execution.backgroundControls = controls;
+                  controller.setBackgroundControls(controls);
+                }
+              },
               onSubagent: (event) => {
                 if (controller.isCurrent(requestGeneration))
                   controller.acceptSubagent(event);
@@ -1633,6 +1696,16 @@ async function runApplication(
           },
           execution.approvalResolver,
           {
+            onBackground: (event) => {
+              if (controller.isCurrent(requestGeneration))
+                controller.acceptBackground(event);
+            },
+            onBackgroundControls: (controls) => {
+              if (controller.isCurrent(requestGeneration)) {
+                execution.backgroundControls = controls;
+                controller.setBackgroundControls(controls);
+              }
+            },
             onSubagent: (event) => {
               if (controller.isCurrent(requestGeneration))
                 controller.acceptSubagent(event);

@@ -1,3 +1,4 @@
+import { isBackgroundControl } from "../background/capability.js";
 import { loadGlobalConfig, loadProjectConfig } from "../config/load.js";
 import { RuntimeError } from "../runtime/errors.js";
 import type { ApprovalOptions, ApprovalRequest } from "../security/approval.js";
@@ -63,6 +64,7 @@ export class ChildToolPolicy implements ToolExecutionConstraint {
     ]);
   }
   private eligible(handler: ToolHandler): boolean {
+    if (isBackgroundControl(handler)) return this.mode === "coding";
     const spec = handler.spec;
     if (spec.source?.type === "local") {
       if (spec.effect === "read") return true;

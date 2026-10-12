@@ -80,7 +80,7 @@ export async function runExtensionCommand(
   let session = options.resume
     ? await store.load((await store.resolve(options.resume)).id)
     : undefined;
-  if (session?.subagent)
+  if (session?.subagent || session?.backgroundExecution)
     throw new RuntimeError(
       "SUBAGENT_RECOVERY_REQUIRED",
       "История помощника открывается только для просмотра; обычные команды не расширяют его права.",
@@ -182,6 +182,9 @@ export async function runExtensionCommand(
   }
   const tools = await createSessionToolRuntime({
     subagentTools,
+    backgroundOwner: { redactor },
+    onBackground: handlers.onBackground,
+    onBackgroundControls: handlers.onBackgroundControls,
     root,
     session,
     store,
@@ -513,6 +516,35 @@ export async function runExtensionCommand(
           isError: true,
           errorCode: "SUBAGENT_UNAVAILABLE",
         };
+    }
+    if (tools.backgrounds && !options.interactive) {
+      const tasks = await tools.context.background!.port.list();
+      for (const task of tasks)
+        if (task.kind === "service" && !task.finishedAt)
+          await tools.context.background!.port.stop(task.id);
+      const budget = Math.max(
+        0,
+        Math.min(
+          7200000,
+          ...tasks
+            .filter((task) => !task.finishedAt)
+            .map((task) => Date.parse(task.deadline) - Date.now()),
+        ),
+      );
+      if (tasks.some((task) => !task.finishedAt))
+        await tools.backgrounds.drainOwner(session.id, budget);
+      await tools.backgrounds.cancelOwner(session.id);
+      const outcomes = await tools.context.background!.port.list();
+      result.details = { ...result.details, backgroundTasks: outcomes };
+      if (
+        outcomes.some(
+          (task) => task.state !== "completed" || !task.cleanup.confirmed,
+        )
+      ) {
+        result.isError = true;
+        result.errorCode = "BACKGROUND_RECOVERY_REQUIRED";
+      }
+      await tools.saveCheckpoint();
     }
     return { session, result };
   } finally {

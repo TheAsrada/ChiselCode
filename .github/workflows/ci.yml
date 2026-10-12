@@ -68,6 +68,11 @@ jobs:
         env:
           CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
         run: bun tests/fixtures/subagents-runtime.ts
+      - name: Real Background Tasks processes, descendants and native popup
+        timeout-minutes: 3
+        env:
+          CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/background-captures
+        run: bun test tests/unit/background-process.test.ts tests/integration/background-runtime.test.ts
       - name: Test
         env:
           CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
@@ -99,6 +104,7 @@ jobs:
           bun tests/fixtures/side-query-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/worktree-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/subagents-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
+          bun tests/fixtures/background-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |
@@ -137,6 +143,7 @@ jobs:
           bun tests/fixtures/side-query-cli.ts "$binary"
           bun tests/fixtures/worktree-cli.ts "$binary"
           bun tests/fixtures/subagents-cli.ts "$binary"
+          bun tests/fixtures/background-cli.ts "$binary"
       - name: Validate Windows updater installer
         if: runner.os == 'Windows'
         shell: pwsh

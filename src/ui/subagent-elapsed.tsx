@@ -31,6 +31,9 @@ function subscribe(listener: () => void): () => void {
     }
   };
 }
+export function useElapsedClock(active: boolean): number {
+  return useSyncExternalStore(active ? subscribe : idle, snapshot, snapshot);
+}
 export function SubagentElapsed({
   record,
   palette,

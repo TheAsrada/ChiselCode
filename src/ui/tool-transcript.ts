@@ -30,7 +30,9 @@ export function appendToolResult(
 ): void {
   const extension = extensionResultLabel(result);
   const presentation = resultChatPresentation(result);
-  if (result.isError || result.requiresApproval) {
+  if (result.errorCode === "BACKGROUND_RESOURCE_BUSY" && presentation) {
+    appendChatPresentation(view, presentation);
+  } else if (result.isError || result.requiresApproval) {
     view.append(`${FAIL_MARK} ${extension ?? name}: ${result.output}`, "error");
   } else if (result.diffs?.length || result.fileDiff) {
     if (presentation) appendChatPresentation(view, presentation);
@@ -159,7 +161,20 @@ export function replaySessionIntoTranscript(
     number,
     NonNullable<Session["chatPresentations"]>
   >();
-  for (const record of session.chatPresentations ?? []) {
+  const savedPresentations = [
+    ...(session.chatPresentations ?? []),
+    ...Object.values(session.backgroundTasks ?? {}).flatMap((receipt) =>
+      receipt.presentation
+        ? [
+            {
+              afterMessage: receipt.afterMessage,
+              presentation: receipt.presentation,
+            },
+          ]
+        : [],
+    ),
+  ];
+  for (const record of savedPresentations) {
     const group = presentations.get(record.afterMessage) ?? [];
     group.push(record);
     presentations.set(record.afterMessage, group);

@@ -197,6 +197,19 @@ const server = Bun.serve({
             },
           },
         ]);
+      if (state.count === 3)
+        return toolResponse([
+          {
+            id: `child-background-${childRoots.size}`,
+            name: "run_shell",
+            input: {
+              command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify("const fs=require('node:fs');fs.appendFileSync('child-background.txt','once\\n');console.log('child batch READY');setTimeout(()=>console.log('child batch итог'),300)")}`,
+              background: true,
+              label: "Проверка помощника",
+              outputBytes: 4096,
+            },
+          },
+        ]);
       const last = body.messages
         .filter((message) => message.role === "tool")
         .at(-1);
@@ -295,7 +308,7 @@ try {
       cwd: rootAlias,
       configPath,
       allow:
-        "ext:builtin.subagents:submit_coding,ext:builtin.subagents:prepare_worktree,edit_file",
+        "ext:builtin.subagents:submit_coding,ext:builtin.subagents:prepare_worktree,edit_file,run_shell",
       json: true,
     },
     { requestApproval: async () => "unavailable" },
@@ -381,6 +394,21 @@ try {
     ),
     JSON.stringify(records),
   );
+  const childTasks = Object.values(result.session.backgroundTasks ?? {});
+  assert.equal(childTasks.length, 2);
+  assert.ok(
+    childTasks.every((task) => task.childId && task.state === "completed"),
+  );
+  for (const record of records) {
+    assert.equal(
+      await readFile(join(record.root!, "child-background.txt"), "utf8"),
+      "once\n",
+    );
+    assert.match(
+      record.text ?? "",
+      /Фоновые команды \(фактические результаты\)/,
+    );
+  }
   assert.equal(childRoots.size, 2);
   assert.equal(
     await readFile(join(root, "same.txt"), "utf8"),
@@ -409,7 +437,7 @@ try {
   );
   assert.equal(
     persisted.totalTokens.inputTokens,
-    150 + 120 + 2 * (2 * 150 + 120),
+    150 + 120 + 2 * (3 * 150 + 120),
   );
   for (const record of records) {
     const session = await (await projectSessionStore(record.root!)).load(
@@ -422,7 +450,7 @@ try {
       ),
     );
     assert.ok(!JSON.stringify(session).includes("fixture-subagent-secret-key"));
-    assert.equal(session.totalTokens.inputTokens, 420);
+    assert.equal(session.totalTokens.inputTokens, 570);
   }
   const originalHead = await git("rev-parse", "HEAD");
   const originalIndex = await git("ls-files", "--stage");

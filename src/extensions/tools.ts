@@ -1,6 +1,7 @@
 import { Ajv } from "ajv";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { z } from "zod";
+import { inheritBackgroundControl } from "../background/capability.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { ToolCatalog } from "../tools/catalog.js";
 import { isReadEffect, TOOL_EFFECTS } from "../tools/effects.js";
@@ -153,6 +154,7 @@ export class ExtensionToolContributions implements ToolProvider {
         cause,
       );
     }
+    inheritBackgroundControl(tool, handler);
     this.handlers.set(handler.spec.name, handler);
     let removed = false;
     return {

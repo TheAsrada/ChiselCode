@@ -54,11 +54,13 @@ export async function listSessions(
   const summaries = await store.list();
   const results = await Promise.allSettled(
     summaries
-      .filter((item) => !item.subagentOwnerId)
+      .filter((item) => !item.subagentOwnerId && !item.backgroundOwnerId)
       .map((item) => store.load(item.id)),
   );
   return results.flatMap((result) =>
-    result.status === "fulfilled" ? [result.value] : [],
+    result.status === "fulfilled" && !result.value.backgroundExecution
+      ? [result.value]
+      : [],
   );
 }
 export async function deleteSession(

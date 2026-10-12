@@ -10,6 +10,7 @@ import { modelSummarizer } from "../context/model-summary.js";
 import { requestTokens } from "../context/tokenizer.js";
 import { ToolResultStore } from "../context/tool-result-store.js";
 import { buildSystemPrompt } from "../core/prompt.js";
+import { backgroundServiceToken } from "../extensions/builtins/background.js";
 import {
   contextCollection,
   defaultExtensions,
@@ -242,6 +243,9 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
         defaultExtensions([], {
           configPath: owner.options.configPath,
           worktreeService: input.worktrees,
+          backgroundService: owner.scope.services.lookup(
+            backgroundServiceToken,
+          ),
         }),
       );
       scope = await host.open(descriptor.path);
@@ -343,6 +347,20 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       signal,
       sanitizeExtra: (value) => redactor.value(value),
       childPolicy: policy,
+      backgroundOwner: {
+        redactor,
+        origin: owner.root,
+        childId: record.id,
+        childLabel: record.label,
+        childDeadline: Date.parse(record.acceptedAt) + record.limits.deadlineMs,
+        worktree: record.worktree
+          ? {
+              id: record.worktree.id,
+              label: record.label,
+              base: record.worktree.base,
+            }
+          : undefined,
+      },
       approvalOwner: {
         rootOwnerId: record.rootOwnerId,
         childId: record.id,
@@ -500,6 +518,24 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
   } finally {
     const errors: unknown[] = [];
     for (const cleanup of [
+      async () => {
+        const outcomes = await tools?.backgrounds?.drainChild(record.id);
+        if (outcomes?.length) {
+          record.text = `${record.text}\n\nФоновые команды (фактические результаты):\n${outcomes.map((task) => `${task.label}: ${task.state}${task.exitCode != null ? `, код ${task.exitCode}` : ""}; ID ${task.id}; завершение процессов ${task.cleanup.confirmed ? "подтверждено" : "не подтверждено"}`).join("\n")}`;
+          if (
+            outcomes.some(
+              (task) => task.kind === "batch" && task.state !== "completed",
+            )
+          ) {
+            record.status = "failed";
+            record.error = {
+              code: "BACKGROUND_TASK_FAILED",
+              message:
+                "Фоновая проверка помощника не завершилась успешно; сохранён фактический результат.",
+            };
+          }
+        }
+      },
       () => detach(),
       () => tools?.dispose(),
       () => host?.dispose(),

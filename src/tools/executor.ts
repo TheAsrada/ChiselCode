@@ -1,9 +1,16 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  authorizeShellLease,
+  isNativeShell,
+} from "../background/capability.js";
+import { ShellInputSchema } from "../background/input.js";
 import type { ToolGuardPoint, ToolGuardPort } from "../extensions/contracts.js";
 import { allowsToolInMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
+import { RuntimeEventBus } from "../runtime/events.js";
 import type { ApprovalGate } from "../security/approval.js";
 import { initializeSessionState } from "../sessions/migrations.js";
+import { createSession } from "../sessions/store.js";
 import { authorizeSubagentPlan } from "../subagents/capability.js";
 import type { ToolCall, ToolExecutionResult } from "../types/domain.js";
 import {
@@ -120,7 +127,76 @@ export class ToolExecutor {
       cancelled(context.signal);
       const handler = this.catalog.get(call.name);
       record.toolSource = handler.spec.source;
-      await context.executionConstraint?.beforePrepare(handler);
+      if (
+        isNativeShell(handler) &&
+        context.background &&
+        !context.backgroundExecution &&
+        call.input.background === true
+      ) {
+        const input = ShellInputSchema.parse(call.input);
+        await context.executionConstraint?.beforePrepare(handler);
+        const accepted = await context.background.submit(
+          call,
+          input,
+          context,
+          async (ticket, captured, data, taskSignal) => {
+            const execution = createSession(
+              data.actualRoot,
+              context.session.providerId,
+              context.session.model,
+            );
+            execution.backgroundExecution = {
+              id: randomUUID(),
+              ownerId: context.session.subagent?.ownerId ?? context.session.id,
+            };
+            execution.mode = context.mode ?? context.session.mode;
+            initializeSessionState(execution);
+            const bus = new RuntimeEventBus(execution.id);
+            bus.sanitize = context.events.sanitize;
+            bus.subscribe((event) =>
+              context.background!.runtimeEvent(ticket, event),
+            );
+            const executor = new ToolExecutor(
+              this.catalog,
+              this.gate,
+              {
+                ...captured,
+                session: execution,
+                events: bus,
+                signal: taskSignal,
+                backgroundExecution: ticket,
+                checkpoint: () =>
+                  context.background!.checkpointExecution(execution),
+              },
+              this.maxInlineTokens,
+              this.toolGuards,
+            );
+            return executor.execute({
+              id: randomUUID(),
+              name: call.name,
+              input: structuredClone(call.input),
+            });
+          },
+        );
+        const result = await normalizeResult(
+          context.sanitizeResult?.(accepted) ?? accepted,
+          context.artifacts,
+          this.maxInlineTokens,
+        );
+        record.result = result;
+        record.state = result.isError ? "failed" : "succeeded";
+        await context.checkpoint();
+        await context.events.emit({
+          type: result.isError ? "tool_failed" : "tool_completed",
+          invocationId: call.id,
+          name: call.name,
+          result,
+          state: record.state,
+        });
+        return result;
+      }
+      if (!context.backgroundExecution)
+        await context.executionConstraint?.beforePrepare(handler);
       if (handler.lifetimeSignal)
         context.signal = context.signal
           ? AbortSignal.any([context.signal, handler.lifetimeSignal])
@@ -166,11 +242,19 @@ export class ToolExecutor {
         input,
         scope,
       );
-      const preparedResources = preparation.map((access) => access.resource);
-      const { plan, preparedRevision } = await workspaceCoordinator.withPlan(
+      await context.background?.assertAccess(
         preparation,
-        context.signal,
-        async () => {
+        context.backgroundExecution,
+      );
+      const preparedResources = preparation.map((access) => access.resource);
+      const preparationLease = context.background
+        ? await context.background.acquireAccess(preparation, context.signal)
+        : await workspaceCoordinator.acquirePlanLease(
+            preparation,
+            context.signal,
+          );
+      const { plan, preparedRevision } = await (async () => {
+        try {
           this.observeWorkspace(scope);
           const failed = runtime.failedCalls[fingerprint];
           if (
@@ -186,9 +270,15 @@ export class ToolExecutor {
             plan: await handler.prepare(context, input),
             preparedRevision: workspaceCoordinator.revision(preparedResources),
           };
-        },
-      );
+        } finally {
+          await preparationLease.finish();
+        }
+      })();
       const accesses = await executionAccess(handler, context, plan, scope);
+      await context.background?.assertAccess(
+        accesses,
+        context.backgroundExecution,
+      );
       preparedPlan = plan;
       const executionScope = [
         ...new Set(accesses.map((access) => access.resource)),
@@ -348,6 +438,9 @@ export class ToolExecutor {
         handler.spec.timeoutMs ?? 610_000,
       );
       let result: ToolExecutionResult;
+      let lease:
+        | import("./workspace-coordinator.js").WorkspaceLease
+        | undefined;
       try {
         const executionSignal = context.signal
           ? AbortSignal.any([context.signal, timeout.signal])
@@ -438,6 +531,63 @@ export class ToolExecutor {
                 worktreeAuthorization: authorizeWorktreePlan(plan, context),
                 subagentAuthorization: authorizeSubagentPlan(plan, context),
                 signal: executionSignal,
+                shellLeaseAuthorization: authorizeShellLease(
+                  handler,
+                  plan,
+                  context,
+                  lease!,
+                ),
+                promoteShellApproval: async (promotionSignal) => {
+                  cancelled(promotionSignal);
+                  await guard("tool.beforeExecute");
+                  await context.executionConstraint?.beforeExecute(handler);
+                  if (
+                    !allowsToolInMode(
+                      context.session.mode ?? mode,
+                      handler.spec.effect,
+                    ) ||
+                    context.executionConstraint?.decision(request, handler) ===
+                      "deny"
+                  )
+                    throw new RuntimeError(
+                      "PERMISSION_DENIED",
+                      "Перевод в фон запрещён текущей политикой.",
+                    );
+                  const decision = this.gate.policy.decide(
+                    request,
+                    handler.spec.effect,
+                    approvalMode,
+                  );
+                  if (decision === "deny")
+                    throw new RuntimeError(
+                      "PERMISSION_DENIED",
+                      "Перевод в фон запрещён.",
+                    );
+                  if (decision === "ask") {
+                    const approved = await this.gate.resolve(
+                      context.sanitizeApproval?.({
+                        ...request,
+                        preview: `В фон: срок команды сохраняется.\n${request.preview}`,
+                      }) ?? request,
+                      {
+                        effect: handler.spec.effect,
+                        approvalMode,
+                        signal: promotionSignal,
+                      },
+                    );
+                    if (
+                      ![
+                        "approved",
+                        "approved_always",
+                        "approved_session",
+                      ].includes(approved)
+                    )
+                      throw new RuntimeError(
+                        "PERMISSION_DENIED",
+                        "Перевод в фон не разрешён.",
+                      );
+                  }
+                },
                 networkAuthorization,
               },
               plan,
@@ -456,11 +606,17 @@ export class ToolExecutor {
             }
           }
         };
-        result = await workspaceCoordinator.withPlan(
-          accesses,
-          executionSignal,
-          execute,
-        );
+        lease = context.background
+          ? await context.background.acquireAccess(
+              accesses,
+              executionSignal,
+              handler.spec.effect === "process",
+            )
+          : await workspaceCoordinator.acquirePlanLease(
+              accesses,
+              executionSignal,
+            );
+        result = await execute();
       } catch (error) {
         if (context.signal?.aborted)
           throw new RuntimeError("CANCELLED", "Tool execution cancelled.");
@@ -468,6 +624,7 @@ export class ToolExecutor {
           throw new RuntimeError("TOOL_TIMEOUT", "Tool execution timed out.");
         throw error;
       } finally {
+        await lease?.finish();
         clearTimeout(timer);
       }
       if (timeout.signal.aborted)
@@ -517,6 +674,17 @@ export class ToolExecutor {
         }
       }
       let result = failure(error);
+      if (result.errorCode === "BACKGROUND_RESOURCE_BUSY") {
+        try {
+          const presentation = context.background?.resourceBusy(
+            result.details?.taskId,
+            call.id,
+          );
+          if (presentation) result.presentation = presentation;
+        } catch {
+          /* Presentation cannot change the failed tool outcome. */
+        }
+      }
       if (worktreeRecoveryRequired)
         result.details = { ...result.details, worktreeRecoveryRequired: true };
       result = attributed(result, record.toolSource);

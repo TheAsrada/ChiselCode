@@ -184,6 +184,7 @@ export interface ProviderAdapter {
 }
 
 export interface ProjectConfig {
+  backgroundTasks?: import("../background/config.js").ProjectBackgroundConfig;
   subagents?: import("../subagents/config.js").ProjectSubagentConfig;
   lsp?: import("../lsp/config.js").ProjectLspConfig;
   web?: import("../web/schema.js").ProjectWebConfig;
@@ -206,6 +207,7 @@ export interface ProviderConfig {
 }
 
 export interface GlobalConfig {
+  backgroundTasks?: import("../background/config.js").BackgroundConfig;
   subagents?: import("../subagents/config.js").SubagentConfig;
   lsp?: import("../lsp/config.js").LspConfig;
   web?: import("../web/schema.js").WebConfig;
@@ -246,6 +248,12 @@ export interface Session {
     depth: 1;
   };
   children?: Record<string, import("../subagents/contracts.js").ChildReceipt>;
+  backgroundTasks?: Record<
+    string,
+    import("../background/contracts.js").BackgroundReceipt
+  >;
+  /** Private deterministic shell execution; ordinary resume must reject it. */
+  backgroundExecution?: { id: string; ownerId: string };
   /** Presentation only; never a worktree access/ownership capability. */
   worktree?: { id: string; label: string; base: string; origin: string };
   /** Separate expense ownership. Side records never enter provider history or compaction. */

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BackgroundConfigSchema } from "../background/config.js";
 import { LspConfigSchema } from "../lsp/config.js";
 import { McpConfigSchema } from "../mcp/schema.js";
 import { SubagentConfigSchema } from "../subagents/config.js";
@@ -18,6 +19,7 @@ export const ProviderProfileSchema = z.looseObject({
 });
 export const GlobalConfigV2Schema = z.looseObject({
   subagents: SubagentConfigSchema.optional(),
+  backgroundTasks: BackgroundConfigSchema.optional(),
   lsp: LspConfigSchema.optional(),
   schemaVersion: z.literal(2),
   defaultProfileId: ProfileIdSchema.optional(),

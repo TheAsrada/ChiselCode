@@ -1,5 +1,10 @@
 import { resolve } from "node:path";
 import {
+  isBackgroundControl,
+  isNativeShell,
+  shellPlanAccess,
+} from "../background/capability.js";
+import {
   commonGitResource,
   gitIdentity,
   localGitResource,
@@ -45,6 +50,17 @@ export async function preparationAccess(
   input: unknown,
   scope: readonly string[],
 ): Promise<readonly WorkspaceAccess[]> {
+  if (isBackgroundControl(handler)) return [];
+  if (isNativeShell(handler) && context.background) {
+    const plan = await context.background.prepareShell(
+      context,
+      input as import("../background/input.js").ShellInput,
+    );
+    return (shellPlanAccess(handler, plan) ?? []).map((access) => ({
+      ...access,
+      mode: "read" as const,
+    }));
+  }
   if (
     handler.spec.source?.type === "extension" &&
     handler.spec.source.extensionId === "builtin.subagents"
@@ -91,6 +107,8 @@ export async function executionAccess(
   plan: ToolPlan,
   scope: readonly string[],
 ): Promise<readonly WorkspaceAccess[]> {
+  const shell = shellPlanAccess(handler, plan);
+  if (shell) return shell;
   const delegated = subagentPlanAccess(plan, handler.spec.source);
   if (delegated) return delegated;
   const issued = worktreePlanAccess(plan, handler.spec.source);

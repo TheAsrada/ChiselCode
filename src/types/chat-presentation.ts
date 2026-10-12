@@ -36,8 +36,25 @@ export const ChatCardSchema = z
       })
       .strict()
       .optional(),
+    actions: z
+      .array(
+        z
+          .object({
+            label: line,
+            action: z.enum(["open", "promote", "stop", "wait"]),
+            target: z
+              .object({
+                type: z.enum(["subagent", "background_task"]),
+                id: z.uuid(),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .max(3)
+      .optional(),
     target: z
-      .object({ type: z.literal("subagent"), id: z.uuid() })
+      .object({ type: z.enum(["subagent", "background_task"]), id: z.uuid() })
       .strict()
       .optional(),
   })

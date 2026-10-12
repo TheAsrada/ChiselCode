@@ -57,6 +57,7 @@ export class TuiWorkspace {
       [...this.executions.values()].flatMap((execution) => [
         execution.activeRun,
         execution.subagentControls?.wait(),
+        execution.backgroundControls?.wait(),
         ...[...execution.sideRuns.values()].map((run) => run.promise),
       ]),
     );
@@ -130,7 +131,7 @@ export class TuiWorkspace {
     session: Session,
     chat?: import("../types/chat-presentation.js").ChatPresentationPort,
   ): TuiController {
-    if (session.subagent)
+    if (session.subagent || session.backgroundExecution)
       throw new Error(
         "История помощника доступна только в просмотре задачи; обычная вкладка не расширяет его права.",
       );
@@ -175,14 +176,14 @@ export class TuiWorkspace {
     );
   }
 
-  /** Closing a tab never deletes the saved session. Busy tabs keep their owner. */
+  /** Closing preserves history and stops background processes owned by that tab. */
   close(key = this.activeKey): boolean {
     const index = this.tabs.findIndex((tab) => tab.key === key);
     const tab = this.tabs[index];
     if (
       !tab ||
       tab.controller.snapshot.busy ||
-      this.execution(tab.controller).busy
+      this.execution(tab.controller).closeBlocked
     )
       return false;
     this.subscriptions.get(tab.key)?.();

@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { ConversationSourceBridge } from "../app/conversation-source.js";
 import type { SubagentControls } from "../app/subagent-binding.js";
+import type { BackgroundControls } from "../background/binding.js";
+import {
+  type BackgroundEvent,
+  type BackgroundOutputPage,
+  type BackgroundTask,
+  backgroundActive,
+} from "../background/contracts.js";
 import type { ContextCompactionRecord } from "../context/types.js";
 import {
   aggregateSpend,
@@ -53,6 +60,28 @@ export interface TranscriptEntry {
 }
 
 export interface TuiViewState {
+  backgroundTasks?: readonly BackgroundTask[];
+  backgroundPanel?: boolean;
+  backgroundList?: {
+    selected?: string;
+    filter: "all" | "active" | "terminal";
+    childId?: string;
+    search: string;
+  };
+  backgroundView?: {
+    visible: boolean;
+    id: string;
+    section: "output" | "info" | "result";
+    page?: BackgroundOutputPage;
+    follow: boolean;
+    loading?: boolean;
+    notice?: string;
+    search?: string;
+    pausedAtLine?: number;
+    horizontal?: number;
+    searchOutput?: string;
+    searchingOutput?: boolean;
+  };
   children?: readonly SubagentDescriptor[];
   childSpend?: ModelSpend;
   agentTree?: {
@@ -115,6 +144,18 @@ export interface TuiViewState {
 
 /** The agent writes to this boundary; either terminal renderer may subscribe. */
 export class TuiController implements TuiTranscript {
+  backgroundControls?: BackgroundControls;
+  private backgroundWait?: AbortController;
+  readonly backgroundPresentation = {
+    unread: new Set<string>(),
+    scroll: new Map<string, number>(),
+    returnFocus: "composer" as TuiViewState["focus"],
+    cursor: new Map<string, number>(),
+    sections: new Map<string, "output" | "info" | "result">(),
+    follow: new Map<string, boolean>(),
+    pausedLine: new Map<string, number>(),
+    horizontal: new Map<string, number>(),
+  };
   subagentControls?: SubagentControls;
   readonly agentPresentation = {
     scroll: new Map<string, number>(),
@@ -566,6 +607,9 @@ export class TuiController implements TuiTranscript {
     this.sidePresentation.scroll.clear();
     this.sidePresentation.unread.clear();
     this.subagentControls = undefined;
+    this.backgroundControls = undefined;
+    this.backgroundPresentation.unread.clear();
+    this.backgroundPresentation.scroll.clear();
     this.agentPresentation.scroll.clear();
     this.sidebarPresentation.scroll.clear();
     this.sidebarPresentation.menuIndex = 0;
@@ -600,6 +644,401 @@ export class TuiController implements TuiTranscript {
     this.refreshGitChanges();
   }
 
+  setBackgroundControls(controls: BackgroundControls): void {
+    this.backgroundControls = controls;
+    const generation = this.currentGeneration;
+    void controls
+      .list()
+      .then((tasks) => {
+        if (this.isCurrent(generation)) this.update({ backgroundTasks: tasks });
+      })
+      .catch(() => {});
+  }
+  acceptBackground(event: BackgroundEvent): void {
+    if (
+      this.ownerSignal.aborted ||
+      (this.state.sessionId && event.ownerId !== this.state.sessionId)
+    )
+      return;
+    const tasks = new Map(
+      (this.state.backgroundTasks ?? []).map((task) => [task.id, task]),
+    );
+    if ((tasks.get(event.task.id)?.revision ?? -1) >= event.task.revision)
+      return;
+    tasks.set(event.task.id, event.task);
+    if (event.task.outputExpired)
+      this.backgroundPresentation.unread.delete(event.task.id);
+    if (
+      event.type === "terminal" &&
+      [
+        "failed",
+        "cleanup_unknown",
+        "lost",
+        "interrupted",
+        "output_limit",
+        "timed_out",
+        "denied",
+        "start_failed",
+      ].includes(event.task.state) &&
+      !event.task.foreground
+    )
+      this.backgroundPresentation.unread.add(event.task.id);
+    this.update({
+      backgroundTasks: [...tasks.values()].sort(
+        (a, b) => a.ordinal - b.ordinal,
+      ),
+    });
+    if (event.presentation?.extensionId === "builtin.background")
+      appendChatPresentation(this, event.presentation);
+    const viewer = this.state.backgroundView;
+    if (
+      viewer?.visible &&
+      viewer.id === event.task.id &&
+      viewer.follow &&
+      !viewer.loading
+    )
+      void this.loadBackground(event.task.id, true);
+  }
+  showBackground(childId?: string): void {
+    this.backgroundPresentation.returnFocus = this.state.focus;
+    this.hideAgent();
+    this.hideSide();
+    this.update({
+      backgroundPanel: true,
+      backgroundList: {
+        ...(this.state.backgroundList ?? { filter: "all", search: "" }),
+        childId,
+      },
+      focus: "modal",
+    });
+  }
+  hideBackgroundPanel(): void {
+    this.update({
+      backgroundPanel: false,
+      focus: this.backgroundPresentation.returnFocus,
+    });
+  }
+  setBackgroundList(
+    fields: Partial<NonNullable<TuiViewState["backgroundList"]>>,
+  ): void {
+    this.update({
+      backgroundList: {
+        filter: "all",
+        search: "",
+        ...this.state.backgroundList,
+        ...fields,
+      },
+    });
+  }
+  async openBackground(id: string): Promise<void> {
+    const generation = this.currentGeneration;
+    const controls = this.backgroundControls;
+    if (!controls) return;
+    try {
+      const task = await controls.port.status(id);
+      if (!this.isCurrent(generation) || this.backgroundControls !== controls)
+        return;
+      this.acceptBackground({
+        type: "changed",
+        ownerId: task.rootOwnerId,
+        task,
+      });
+    } catch (error) {
+      if (this.isCurrent(generation)) this.append(String(error), "error");
+      return;
+    }
+    if (!this.isCurrent(generation) || this.backgroundControls !== controls)
+      return;
+    if (!this.state.backgroundPanel)
+      this.backgroundPresentation.returnFocus = this.state.focus;
+    this.backgroundPresentation.unread.delete(id);
+    this.setBackgroundList({ selected: id });
+    this.hideAgent();
+    this.hideSide();
+    this.update({
+      backgroundView: {
+        id,
+        visible: true,
+        section: this.backgroundPresentation.sections.get(id) ?? "output",
+        follow: this.backgroundPresentation.follow.get(id) ?? true,
+        pausedAtLine: this.backgroundPresentation.pausedLine.get(id),
+        horizontal:
+          this.backgroundPresentation.horizontal.get(
+            `${id}:${this.backgroundPresentation.sections.get(id) ?? "output"}`,
+          ) ?? 0,
+      },
+      focus: "modal",
+    });
+    await this.loadBackground(id, this.state.backgroundView!.follow);
+  }
+  hideBackground(): void {
+    this.backgroundWait?.abort();
+    if (this.state.backgroundView)
+      this.update({
+        backgroundView: { ...this.state.backgroundView, visible: false },
+        focus: this.state.backgroundPanel
+          ? "modal"
+          : this.backgroundPresentation.returnFocus,
+      });
+  }
+  setBackgroundView(
+    fields: Partial<NonNullable<TuiViewState["backgroundView"]>>,
+  ): void {
+    const prior = this.state.backgroundView;
+    if (!prior) return;
+    if (fields.follow !== undefined)
+      this.backgroundPresentation.follow.set(prior.id, fields.follow);
+    if (
+      fields.follow === false &&
+      (prior.follow || prior.pausedAtLine === undefined)
+    ) {
+      fields.pausedAtLine =
+        this.state.backgroundTasks?.find((task) => task.id === prior.id)
+          ?.outputLines ?? 0;
+      this.backgroundPresentation.pausedLine.set(prior.id, fields.pausedAtLine);
+    }
+    if (fields.follow === true) {
+      fields.search = "";
+      fields.searchOutput = undefined;
+    }
+    if (fields.section)
+      this.backgroundPresentation.sections.set(prior.id, fields.section);
+    if (fields.section && fields.horizontal === undefined)
+      fields.horizontal =
+        this.backgroundPresentation.horizontal.get(
+          `${prior.id}:${fields.section}`,
+        ) ?? 0;
+    if (fields.horizontal !== undefined)
+      this.backgroundPresentation.horizontal.set(
+        `${prior.id}:${fields.section ?? prior.section}`,
+        fields.horizontal,
+      );
+    this.update({ backgroundView: { ...prior, ...fields } });
+  }
+  async loadBackground(
+    id: string,
+    tail: boolean,
+    cursor?: number,
+  ): Promise<void> {
+    const generation = this.currentGeneration;
+    const controls = this.backgroundControls;
+    if (
+      !controls ||
+      this.state.backgroundView?.id !== id ||
+      this.state.backgroundView.loading
+    )
+      return;
+    this.setBackgroundView({ loading: true });
+    try {
+      const task = await controls.port.status(id);
+      const start =
+        cursor ??
+        (tail
+          ? Math.max(0, task.outputBytes - 32768)
+          : (this.backgroundPresentation.cursor.get(id) ?? 0));
+      const page = await controls.port.readOutput(
+        id,
+        start,
+        32768,
+        task.outputGeneration,
+      );
+      const lines = page.text.split("\n");
+      if (lines.length > 512) {
+        if (tail) {
+          const text = lines.slice(-512).join("\n");
+          page.cursor += Buffer.byteLength(page.text) - Buffer.byteLength(text);
+          page.text = text;
+        } else {
+          page.text = `${lines.slice(0, 511).join("\n")}\n`;
+          page.next = page.cursor + Buffer.byteLength(page.text);
+          page.eof = page.next >= page.end;
+        }
+      }
+      if (this.isCurrent(generation) && this.state.backgroundView?.id === id) {
+        this.backgroundPresentation.cursor.set(id, page.cursor);
+        this.setBackgroundView({
+          page,
+          loading: false,
+          notice: page.expired ? "Вывод больше не сохранён." : undefined,
+        });
+      }
+    } catch (error) {
+      if (this.isCurrent(generation) && this.state.backgroundView?.id === id)
+        this.setBackgroundView({ loading: false, notice: String(error) });
+    }
+  }
+  async searchBackground(id: string, query: string): Promise<void> {
+    const controls = this.backgroundControls;
+    const generation = this.currentGeneration;
+    if (!controls || this.state.backgroundView?.id !== id) return;
+    this.setBackgroundView({
+      search: query,
+      follow: false,
+      searchOutput: undefined,
+      searchingOutput: !!query,
+    });
+    if (!query) return;
+    const current = () =>
+      this.isCurrent(generation) &&
+      this.backgroundControls === controls &&
+      this.state.backgroundView?.visible &&
+      this.state.backgroundView.id === id &&
+      this.state.backgroundView.search === query;
+    try {
+      const task = await controls.port.status(id);
+      const matches: string[] = [];
+      let cursor = 0,
+        carry = "",
+        bytes = 0,
+        rows = 0;
+      const needle = query.toLowerCase();
+      while (
+        cursor < task.outputBytes &&
+        current() &&
+        matches.length < 512 &&
+        bytes < 32768
+      ) {
+        const page = await controls.port.readOutput(
+          id,
+          cursor,
+          32768,
+          task.outputGeneration,
+        );
+        if (page.expired || page.next <= cursor) break;
+        const parts = (carry + page.text).split("\n");
+        carry = (parts.pop() ?? "").slice(-4096);
+        if (page.next >= task.outputBytes && carry) {
+          parts.push(carry);
+          carry = "";
+        }
+        for (const line of parts) {
+          rows++;
+          const at = line.toLowerCase().indexOf(needle);
+          if (at < 0) continue;
+          const match = `${rows}: ${line.slice(Math.max(0, at - 80), at + 500)}\n`;
+          if (bytes + Buffer.byteLength(match) > 32768 || matches.length >= 512)
+            break;
+          matches.push(match);
+          bytes += Buffer.byteLength(match);
+        }
+        cursor = page.next;
+      }
+      if (current())
+        this.setBackgroundView({
+          searchingOutput: false,
+          searchOutput: matches.join("") || "Совпадений не найдено",
+          notice: `Поиск в сохранённом выводе: ${matches.length} строк${cursor < task.outputBytes ? " · достигнут лимит результатов" : ""}`,
+        });
+    } catch (error) {
+      if (current())
+        this.setBackgroundView({
+          searchingOutput: false,
+          notice: String(error),
+        });
+    }
+  }
+  async stopBackgroundSet(ids: readonly string[]): Promise<void> {
+    const controls = this.backgroundControls;
+    const generation = this.currentGeneration;
+    if (!controls) return;
+    for (const id of ids) {
+      if (!this.isCurrent(generation) || this.backgroundControls !== controls)
+        return;
+      await this.stopBackground(id);
+    }
+  }
+  async stopBackground(id: string): Promise<void> {
+    const generation = this.currentGeneration;
+    const controls = this.backgroundControls;
+    try {
+      await controls?.port.stop(id);
+    } catch (error) {
+      if (this.isCurrent(generation))
+        this.setBackgroundView({ notice: String(error) });
+    }
+  }
+  async waitBackground(id: string): Promise<void> {
+    const controls = this.backgroundControls;
+    const generation = this.currentGeneration;
+    if (!controls) return;
+    await this.openBackground(id);
+    if (!this.isCurrent(generation)) return;
+    this.backgroundWait?.abort();
+    const wait = new AbortController();
+    this.backgroundWait = wait;
+    this.setBackgroundView({ notice: "Ожидание результата до 30 секунд…" });
+    try {
+      const [task] = await controls.port.wait(
+        [id],
+        30000,
+        AbortSignal.any([this.ownerSignal, wait.signal]),
+      );
+      if (this.isCurrent(generation) && this.state.backgroundView?.id === id)
+        this.setBackgroundView({
+          notice: task ? `${task.label}: ${task.state}` : "Ожидание завершено",
+        });
+    } catch (error) {
+      if (this.isCurrent(generation) && this.state.backgroundView?.id === id)
+        this.setBackgroundView({ notice: String(error) });
+    } finally {
+      if (this.backgroundWait === wait) this.backgroundWait = undefined;
+    }
+  }
+  async promoteBackground(id: string): Promise<void> {
+    const generation = this.currentGeneration;
+    const controls = this.backgroundControls;
+    try {
+      await controls?.promote(id);
+    } catch (error) {
+      if (this.isCurrent(generation)) this.append(String(error), "error");
+    }
+  }
+  async deleteBackgroundHistory(id: string): Promise<void> {
+    const generation = this.currentGeneration;
+    const controls = this.backgroundControls;
+    if (!controls) return;
+    try {
+      const task = await controls.port.deleteHistory(id);
+      if (!this.isCurrent(generation) || this.backgroundControls !== controls)
+        return;
+      this.acceptBackground({
+        type: "changed",
+        ownerId: task.rootOwnerId,
+        task,
+      });
+      if (this.state.backgroundView?.id === id)
+        this.setBackgroundView({
+          page: undefined,
+          notice: "Сохранённые логи удалены. Повторного запуска нет.",
+        });
+    } catch (error) {
+      if (this.isCurrent(generation))
+        this.setBackgroundView({ notice: String(error) });
+    }
+  }
+  async recoverBackground(id: string): Promise<void> {
+    const generation = this.currentGeneration;
+    const controls = this.backgroundControls;
+    if (!controls) return;
+    try {
+      const task = await controls.port.recover(id);
+      if (!this.isCurrent(generation) || this.backgroundControls !== controls)
+        return;
+      this.acceptBackground({
+        type: "changed",
+        ownerId: task.rootOwnerId,
+        task,
+      });
+      if (this.state.backgroundView?.id === id)
+        this.setBackgroundView({
+          notice:
+            "Завершение подтверждено исходным backend. Ресурсы освобождены.",
+        });
+    } catch (error) {
+      if (this.isCurrent(generation) && this.state.backgroundView?.id === id)
+        this.setBackgroundView({ notice: String(error) });
+    }
+  }
   setSidePending(pending: boolean): void {
     this.update({ sidePending: pending });
   }

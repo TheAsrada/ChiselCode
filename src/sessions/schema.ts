@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BackgroundReceiptSchema } from "../background/contracts.js";
 import { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
 import { ChildReceiptSchema } from "../subagents/schema.js";
 import {
@@ -258,6 +259,11 @@ const contentSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export const SessionV3Schema = z.looseObject({
+  backgroundTasks: z.record(z.uuid(), BackgroundReceiptSchema).optional(),
+  backgroundExecution: z
+    .object({ id: z.uuid(), ownerId: z.uuid() })
+    .strict()
+    .optional(),
   subagent: z
     .object({
       id: z.uuid(),

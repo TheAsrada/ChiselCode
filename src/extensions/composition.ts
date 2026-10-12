@@ -1,7 +1,9 @@
 import { runChildAgent } from "../app/subagent-runtime.js";
+import { BackgroundTaskService } from "../background/service.js";
 import { cancelled } from "../runtime/errors.js";
 import { SubagentService } from "../subagents/service.js";
 import { WorktreeService } from "../worktrees/service.js";
+import { createBackgroundExtension } from "./builtins/background.js";
 import { btwExtension } from "./builtins/btw.js";
 import { createLspExtension } from "./builtins/lsp.js";
 import { projectExtension } from "./builtins/project.js";
@@ -28,7 +30,11 @@ export type ExtensionDependencies =
 /** Explicit application defaults; an ExtensionHost([]) still has no definitions. */
 export function defaultExtensions(
   custom: readonly ChiselExtension[] = [],
-  options: { configPath?: string; worktreeService?: WorktreeService } = {},
+  options: {
+    configPath?: string;
+    worktreeService?: WorktreeService;
+    backgroundService?: BackgroundTaskService;
+  } = {},
 ): readonly ChiselExtension[] {
   const worktrees = options.worktreeService ?? new WorktreeService();
   const subagents = new SubagentService(worktrees, runChildAgent);
@@ -38,6 +44,10 @@ export function defaultExtensions(
     createLspExtension(options),
     btwExtension,
     createSubagentExtension(subagents),
+    createBackgroundExtension(
+      options.backgroundService ?? new BackgroundTaskService(worktrees),
+      !options.backgroundService,
+    ),
     ...custom,
   ];
 }

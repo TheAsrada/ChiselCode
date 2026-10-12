@@ -44,3 +44,35 @@ export function terminalLine(input: string, maxColumns: number): string {
   }
   return text + suffix;
 }
+
+/** Plain output rows keep byte positions, including repeated and empty lines. */
+export function terminalTextRows(
+  text: string,
+  cursor = 0,
+): { key: number; line: string }[] {
+  return text.split("\n").map((line) => {
+    const key = cursor;
+    cursor += Buffer.byteLength(line) + 1;
+    return { key, line };
+  });
+}
+
+/** A bounded viewport into a long plain line; the renderer receives only cells in view. */
+export function terminalSlice(
+  input: string,
+  offset: number,
+  width: number,
+): string {
+  let column = 0;
+  let result = "";
+  const end = Math.max(0, offset) + Math.max(1, width);
+  for (const { segment } of graphemes.segment(terminalSafeText(input))) {
+    const cells = stringWidth(segment);
+    if (column + cells > end) break;
+    if (column >= offset) result += segment;
+    else if (column + cells > offset)
+      result += " ".repeat(column + cells - offset);
+    column += cells;
+  }
+  return result;
+}

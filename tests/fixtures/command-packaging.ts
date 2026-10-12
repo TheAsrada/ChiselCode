@@ -42,6 +42,7 @@ try {
         "dist/side-smoke",
         "dist/worktree-smoke",
         "dist/subagent-smoke",
+        "dist/background-smoke",
       ],
     }),
   );
@@ -99,6 +100,16 @@ try {
     "tests/fixtures/tui-subagents.ts",
     "--outdir",
     join(packageRoot, "dist/subagent-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-background.ts",
+    "--outdir",
+    join(packageRoot, "dist/background-smoke"),
     "--target",
     "bun",
     "--external",
@@ -204,6 +215,41 @@ try {
   );
   process.stdout.write(
     "Установленный пакет: настоящий цикл помощника, правое дерево и CLI проверены.\n",
+  );
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "background-smoke/tui-background.js"),
+      ])
+    ).includes("Background Tasks TUI:"),
+  );
+  assert.ok(
+    (
+      await run(process.execPath, [
+        "tests/fixtures/background-cli.ts",
+        process.execPath,
+        join(distribution, "cli.js"),
+      ])
+    ).includes("Background Tasks CLI:"),
+  );
+  const backgroundBinary = join(
+    staging,
+    process.platform === "win32" ? "background-tui.exe" : "background-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-background.ts",
+    "--compile",
+    "--outfile",
+    backgroundBinary,
+  ]);
+  assert.ok(
+    (await run(backgroundBinary, [process.execPath])).includes(
+      "Background Tasks TUI:",
+    ),
+  );
+  process.stdout.write(
+    "Установленный и compiled Background Tasks: реальные процессы и native popup проверены.\n",
   );
   const binary = join(
     staging,
