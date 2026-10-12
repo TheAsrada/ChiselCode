@@ -4,11 +4,11 @@
 
 ## Статус
 
-Изменения сделаны прямо в `main`, без новой ветки, development worktree или PR. Исходная база: `926d67e`, package 0.6.22, OpenTUI 0.5.12. Подготовлена версия 0.6.23; в опубликованный v0.6.22 функция не входит. Изменение UI по поручению владельца: кнопка в «Меню» открывает отдельное нативное окно; исходные три вкладки боковой панели сохранены.
+Изменения сделаны прямо в `main`, без новой ветки, development worktree или PR. Исходная база: `926d67e`, package 0.6.22, OpenTUI 0.5.12. [Версия 0.6.23 опубликована](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.23) 12.10.2026, 13:30:36 UTC; в v0.6.22 функция не входит. Изменение UI по поручению владельца: кнопка в «Меню» открывает отдельное нативное окно; исходные три вкладки боковой панели сохранены.
 
-Исходный коммит реализации и кадров: `bee0c8e2b4f1513ce5379050caa6ff3094aaadde` — «feat: добавить фоновые команды и нативное окно задач». Исправления shell, маршрутизации ввода и подготовка 0.6.23 добавлены следующими коммитами без переписывания истории. Публикация версии и итог текущего удалённого CI пока не подтверждены.
+Исходный коммит реализации и кадров: `bee0c8e2b4f1513ce5379050caa6ff3094aaadde` — «feat: добавить фоновые команды и нативное окно задач». Финальный source commit и тег `v0.6.23`: `3aeecd4ad24466c7b54a0763ee73464dd9425c77`. Исправления добавлены следующими коммитами прямо в main, без переписывания истории.
 
-Этот отчёт отделяет локальные результаты от межплатформенного acceptance. Roadmap пока не помечен completed/released, публикация 0.6.23 ещё не подтверждена. [Промежуточный CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38218947912) прошёл Quality и native LSP на Linux/macOS. Windows прошёл отдельные shell/Unicode/descendant проверки и настоящий child runtime, но crash fixture преждевременно удалял занятый cwd, а JSON LSP download завершился сетевым `WEB_TIMEOUT`. Удаление fixture теперь ограниченно ожидает освобождения каталога; итог следующего полного CI ещё требуется.
+Этот отчёт отделяет локальные результаты от межплатформенного acceptance. [Финальный CI исходников релиза](https://github.com/TheAsrada/ChiselCode/actions/runs/38252417038) завершился успешно: все шесть Quality / Real Auto LSP jobs на Windows, macOS и Linux. Проверены настоящие процессы, descendants, paths/junctions, cleanup, полный test/lint/eval/build и installed/compiled CLI/TUI. [Release workflow](https://github.com/TheAsrada/ChiselCode/actions/runs/38255473690) также завершился успешно на том же source commit: verify, три installer jobs и publish. Выпуск публичный, `draft=false`, `prerelease=false`; загружены Windows `.exe`, macOS arm64/x64 `.pkg` и Linux amd64 `.deb`. Файл roadmap в этой работе отдельно не изменялся. Последующее обновление документации в main описывает эти факты; приведённые checks относятся к исходникам тега v0.6.23.
 
 ## Shell и ввод в 0.6.23
 
@@ -17,6 +17,8 @@
 Общий `ManagedProcess` фиксирует shell profile до spawn; Windows CMD запускается с отключённым AutoRun после настройки UTF-8 в фиксированном byte transport, Python получает UTF-8 defaults. Проверены на Windows runner native CMD/Python Unicode, stderr, exit codes, аргументы с кириллицей/кавычками и literal backslash, EOF stdin, promotion одного instance, сохранение вывода реального Python-потомка после abrupt parent exit и tree stop. На Linux/macOS orphan fixture использует Node. Ordinary installed/compiled проверки входят в CI. Программы, явно выбравшие другую кодировку, не объявляются автоматически перекодированными.
 
 Удалённые проверки выявили и исправили учёт собственного системного console host как writer, кодировку встроенных CMD-команд и неканонический `/var` в macOS fixture. Цепочка Windows helper получает command/cwd как данные, удерживает транспорт до EOF/cleanup acknowledgement и не передаёт PowerShell progress в пользовательский log. Fixture builders используют настоящий shell quoting, а не `JSON.stringify`: на CMD обратные слеши имеют другие правила, чем в POSIX sh. Неуспешные ранние CI runs не выдаются за успешные проверки итогового HEAD.
+
+Windows crash fixture выявил уничтожение supervisor/helper до остановки CMD descendants. Отдельная process group и живой native handle владельца позволяют выполнить bounded cleanup после жёсткого завершения приложения; fixture проверяет освобождение каталога, сохранённый вывод, отсутствие replay и оставшийся recovery fence. Promotion теперь подтверждает сохранённый snapshot revision и process token, дожидаясь последней foreground-записи. Изменение live revision во время чтения store не обесценивает подтверждённую передачу; более новая несохранённая revision и чужой token не снимают marker. Короткие legacy extension fixtures получили достаточный bounded shell timeout; product deadlines сохранены.
 
 Enter в сфокусированном «Меню» поглощается без открытия пункта и отправки черновика; мышь и прежние команды/shortcuts остаются. После Esc Enter отправляет сообщение. UI использует одну общую `keypress`-подписку на renderer; порядок callbacks, captured owner и `stopPropagation` сохранены, новая поверхность не получает событие, которое её открыло. Повторные открытия проверяют число keyboard/resize listeners, production TUI и installed/compiled сценарий проверяют настоящий native editor.
 
@@ -38,11 +40,11 @@ Enter в сфокусированном «Меню» поглощается бе
 | Проверка | Фактический результат |
 | --- | --- |
 | `bun run typecheck` | Успешно |
-| `bun test` для 0.6.23 | 1136 passed, 3 skipped, 0 failed; 131 файл, 10337 assertions |
-| Финальные process/background/child/worktree/UI regressions | 35 passed, 415 assertions; настоящие процессы, Git, stores, persistence fault и recovery |
+| `bun test` в финальном CI | Linux: 1137 passed / 3 skipped / 0 failed, 10344 assertions; macOS: 1137 / 3 / 0, 10351; Windows: 1139 / 1 / 0, 10362. 1140 tests, 131 файл |
+| Последние process/runtime/extension regressions локально | 37 passed, 214 assertions; настоящие процессы, stores, promotion snapshot barrier, stale approval и recovery |
 | Нативные состояния / список / listeners | 8 passed, 233 assertions; максимум 64 смонтированных task rows, resize listeners не растут после 12 повторных открытий |
 | Production TUI captures | 8 успешных прогонов: четыре темы × Unicode/ASCII; отдельно настоящий mouse promotion |
-| `bun run lint` | Без ошибок; 166 warnings, 14 infos |
+| `bun run lint` | Без ошибок; 171 warnings, 15 infos |
 | `bun run eval --category all` | 14 из 14 сценариев успешно |
 | `bun run build`, `bun run compile` | Успешно |
 | `command-packaging.ts` | Успешно: installed npm, compiled native TUI, прежние LSP/worktrees/subagents/`/btw` |
@@ -50,7 +52,7 @@ Enter в сфокусированном «Меню» поглощается бе
 
 В локальном Linux пропущен существующий тест обмена Unicode через системный clipboard и две настоящие CMD/Python проверки, предназначенные для Windows runner. Полный набор включает остановку при ошибке сохранения сразу после spawn, сохранение пробелов в `/tasks start`, подсказки диалекта, отсутствие Enter activation в меню и общий keyboard dispatcher. Последующий ordinary production TUI и installed/compiled прогон прошли; после объединения keyboard subscriptions `MaxListenersExceededWarning` в финальном ordinary TUI не обнаружен. Предупреждения React `act` относятся к тестовым потоковым кадрам. Lint сохраняет предупреждения `noNonNullAssertion` и существующие диагностические замечания; это не проверка с нулём warnings.
 
-Intentional daemon escape и ограничения ОС не объявляются универсально очищенными; unknown сохраняет recovery block. Linux использует process group и subreaper; ordinary descendants и быстрый выход leader проверяются реальными процессами в матрице macOS/Windows. CPU/RAM quotas, PTY/stdin, daemon/reconnect, auto restart и HTTP readiness probe не реализованы. Локальный Linux не заменяет конечный результат CI Windows/macOS. Recovery metadata не является доказательством отсутствия descendants и не разрешает kill восстановленного PID. После crash или неизвестного escape без подтверждения исходного backend автоматического снятия fencing и универсальной кнопки освобождения нет.
+Intentional daemon escape и ограничения ОС не объявляются универсально очищенными; unknown сохраняет recovery block. Linux использует process group и subreaper; ordinary descendants и быстрый выход leader проверены реальными процессами в матрице macOS/Windows. CPU/RAM quotas, PTY/stdin, daemon/reconnect, auto restart и HTTP readiness probe не реализованы. Windows/macOS подтверждены удалённым CI; локальная платформа остаётся Linux. Recovery metadata не является доказательством отсутствия descendants и не разрешает kill восстановленного PID. После crash или неизвестного escape без подтверждения исходного backend автоматического снятия fencing и универсальной кнопки освобождения нет.
 
 ## Кадры интерфейса
 
@@ -81,4 +83,4 @@ CHISEL_BACKGROUND_STATE_CAPTURES=/absolute/captures bun test tests/unit/opentui-
 python3 scripts/render-terminal-captures.py /absolute/captures
 ```
 
-Тематическая справка и архитектура возвращаются к оглавлению; interactive/configuration/permissions/sessions/worktrees/subagents/CLI содержат короткие ссылки на workflow и ограничения. Пользовательская справка указывает 0.6.23 и страницу выпуска; фактический результат публикации фиксируется отдельно в статусе отчёта.
+Тематическая справка и архитектура возвращаются к оглавлению; interactive/configuration/permissions/sessions/worktrees/subagents/CLI содержат короткие ссылки на workflow и ограничения. Пользовательская справка указывает доступную версию 0.6.23 и опубликованный выпуск; фактические CI и Release результаты приведены в статусе отчёта.
