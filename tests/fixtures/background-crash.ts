@@ -194,6 +194,14 @@ if (process.argv[2] === "--child") {
     clearTimeout(watchdog);
     child.kill("SIGKILL");
     await child.exited;
-    await rm(directory, { recursive: true, force: true });
+    // Application exit precedes the supervisor's bounded descendant cleanup.
+    // Windows keeps a live command's cwd locked. Await its release through the
+    // filesystem operation, without killing a restored PID or ignoring EBUSY.
+    await rm(directory, {
+      recursive: true,
+      force: true,
+      maxRetries: 15,
+      retryDelay: 100,
+    });
   }
 }
