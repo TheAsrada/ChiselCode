@@ -247,6 +247,16 @@ test("sanitized DTO limits and twenty bind/dispose cycles keep data and subscrip
       detail: "x".repeat(65536),
     }),
   ).toThrow();
+  expect(() =>
+    sanitizeUi(UiSnapshotSchema, {
+      revision: 1,
+      state: "ready",
+      rows: [
+        { id: "same", label: "Первый" },
+        { id: "same", label: "Соседний" },
+      ],
+    }),
+  ).toThrow("Duplicate UI row identity");
   const root = await mkdtemp(join(tmpdir(), "chisel-ui-cycles-"));
   const fixture = uiExtension();
   const host = new ExtensionHost([fixture.extension]);

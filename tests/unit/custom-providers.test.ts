@@ -212,6 +212,8 @@ test("duplicate IDs disable all conflicting packages; missing manifests and syml
   });
 });
 test("catalog loads 500 manifests, supports search without fixed limits", async () => {
+  // Real setup and discovery of 500 packages exceed the default five seconds
+  // on Windows runners; this checks catalog completeness, not disk throughput.
   await fixture(async (root) => {
     for (let i = 0; i < 500; i++)
       await pack(root, `folder-${i}`, {
@@ -224,7 +226,7 @@ test("catalog loads 500 manifests, supports search without fixed limits", async 
     expect(c.registry.search("Scale 499")).toHaveLength(1);
     expect(c.diagnostics).toEqual([]);
   });
-});
+}, 20_000);
 test("remote HTTP warned, local HTTP allowed", async () => {
   await fixture(async (root) => {
     await pack(root, "remote", {

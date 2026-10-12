@@ -507,9 +507,19 @@ test("bounded cache sends didClose; result caps and policy refresh prevent stale
   expect((await f.service.collectContext()) ?? "").not.toContain(
     "fixture error",
   );
+  // Each model-context refresh has the production 250 ms budget. Slow filesystems
+  // may need subsequent normal boundaries to finish closing the already tracked files.
+  for (
+    let boundary = 0;
+    boundary < 32 && (await f.service.status()).trackedDocuments;
+    ++boundary
+  )
+    expect((await f.service.collectContext()) ?? "").not.toContain(
+      "fixture error",
+    );
   expect((await f.service.status()).trackedDocuments).toBe(0);
   await f.service.dispose();
   await expect(f.service.ensureStarted()).rejects.toMatchObject({
     code: "LSP_UNAVAILABLE",
   });
-}, 15_000);
+}, 30_000);

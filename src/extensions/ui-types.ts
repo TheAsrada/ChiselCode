@@ -46,7 +46,13 @@ export const UiSnapshotSchema = z
     rows: z.array(UiRowSchema).max(8).optional(),
     action: UiActionUseSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      new Set((value.rows ?? []).map((row) => row.id)).size ===
+      (value.rows?.length ?? 0),
+    "Duplicate UI row identity.",
+  );
 export const UiDetailsPageSchema = z
   .object({
     revision: z.number().int().nonnegative(),
@@ -57,7 +63,14 @@ export const UiDetailsPageSchema = z
     nextCursor: z.string().max(120).optional(),
     actions: z.array(UiActionUseSchema).max(6).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      [value.fields ?? [], value.rows ?? []].every(
+        (rows) => new Set(rows.map((row) => row.id)).size === rows.length,
+      ),
+    "Duplicate UI details identity.",
+  );
 export type UiSnapshot = z.infer<typeof UiSnapshotSchema>;
 export type UiDetailsPage = z.infer<typeof UiDetailsPageSchema>;
 export type UiRow = z.infer<typeof UiRowSchema>;

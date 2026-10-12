@@ -66,6 +66,9 @@ export class ExtensionUiBinding {
               "lost",
               "output_limit",
               "start_failed",
+              "timed_out",
+              "denied",
+              "interrupted",
             ].includes(task.state),
           ).length,
           awaitingApproval: tasks.filter(
@@ -77,7 +80,13 @@ export class ExtensionUiBinding {
             .length,
           total: children.length,
           errors: children.filter((child) =>
-            ["failed", "cleanup_unknown", "interrupted"].includes(child.status),
+            [
+              "failed",
+              "interrupted",
+              "timed_out",
+              "budget_exhausted",
+              "approval_unavailable",
+            ].includes(child.status),
           ).length,
         },
       };

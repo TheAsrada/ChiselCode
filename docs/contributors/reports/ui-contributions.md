@@ -24,6 +24,8 @@ Core tests проверяют namespaces, seal/late/duplicate/rollback, owner ca
 
 Предыдущий docs HEAD 0.6.23 CI `38256388828` завершился с failure Windows Quality из-за 5-секундного timeout legacy Session migration fixture; он не объявляется успешным. Fixture budget увеличен до 15 секунд при сохранении реальной миграции и проверок оригиналов. CI релизного source 0.6.23 `38252417038` и Release `38255473690` остаются подтверждёнными успешными runs.
 
+Промежуточные CI `38284054866` и `38285918369` выявили преждевременное чтение Session checkpoint в compiled fixture и слишком короткие filesystem budgets Windows fixtures. Проверки теперь ждут настоящий terminal tool result; очистка 64 ignored LSP documents проверяется на последовательных штатных bounded context boundaries. Production budget 250 мс не увеличен, eager UI scan не добавлен. Fixture создания и чтения 500 provider manifests получил 20 секунд вместо общих пяти; проверки полноты и поиска сохранены.
+
 ## Кадры и воспроизведение
 
 Сохранены **80 native capture triplets** в `docs/assets/ui-contributions`: пять размеров 160×50 / 120×40 / 80×24 / 40×12 / 24×8, четыре темы и Unicode/ASCII. Дополнительные кадры показывают context/menu, approval, unavailable и status overflow. Генерация — actual `captureCharFrame` / `captureSpans`, PNG renderer `scripts/render-terminal-captures.py`; browser/imagegen макеты не используются.

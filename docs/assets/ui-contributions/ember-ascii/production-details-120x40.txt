@@ -37,4 +37,4 @@
                                                                                                                         
                                                                                                                         
                                                                                  РАСШИРЕНИЯ                             
- /tmp/chisel-ui-production-YsyXCR/Проект интерфейса          ChiselCode 0.6.24  Ctrl+B панель · F7 агенты               
+ /tmp/chisel-ui-production-eNZru8/Проект интерфейса          ChiselCode 0.6.24  Ctrl+B панель · F7 агенты               

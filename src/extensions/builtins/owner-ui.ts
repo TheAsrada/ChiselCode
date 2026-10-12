@@ -21,7 +21,7 @@ export function registerOwnerUi(
         revision: ++revision,
         state: count ? "ready" : "empty",
         count,
-        label: `${compact} ${count}${value.errors ? " · ошибка" : awaiting ? " · разрешение" : ""}`,
+        label: `${compact} ${count}${value.errors ? " · ошибка" : awaiting ? " · разрешение" : count ? " · в работе" : " · нет активных"}`,
         detail:
           kind === "background"
             ? "Процессы, вывод и результаты"

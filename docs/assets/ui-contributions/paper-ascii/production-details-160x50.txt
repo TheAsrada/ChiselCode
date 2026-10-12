@@ -47,4 +47,4 @@
                                                                                                                           Обзор расширения                      
                                                                                                                           Беседа ещё не сохранена               
                                                                                                                                                                 
- /tmp/chisel-ui-production-SQBm9w/Проект интерфейса                                                  ChiselCode 0.6.24  Ctrl+B панель · F7 агенты               
+ /tmp/chisel-ui-production-qXUyyB/Проект интерфейса                                                  ChiselCode 0.6.24  Ctrl+B панель · F7 агенты               

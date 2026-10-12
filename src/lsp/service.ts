@@ -793,6 +793,7 @@ export class LspService {
     this.invalidate(entry);
     await this.stopEntry(entry);
     entry.documents.clear();
+    this.emitUi();
     cancelled(signal);
     const fresh = await this.selection(entry.id);
     if (fresh.state !== "stopped") this.denied(fresh);
@@ -875,6 +876,7 @@ export class LspService {
       accessed: Date.now(),
     };
     entry.documents.set(file.path, doc);
+    this.emitUi();
     try {
       if (!previous || previous.generation !== entry.generation) {
         await transport.notification("textDocument/didOpen", {
@@ -929,6 +931,7 @@ export class LspService {
     } catch (error) {
       if (entry.documents.get(file.path) === doc)
         entry.documents.delete(file.path);
+      this.emitUi();
       await transport
         .notification("textDocument/didClose", {
           textDocument: { uri: file.uri },
@@ -970,6 +973,7 @@ export class LspService {
           "LSP workspace document cache is full.",
         );
       oldest.server.documents.delete(oldest.doc.path);
+      this.emitUi();
       await oldest.server.transport?.notification("textDocument/didClose", {
         textDocument: { uri: oldest.doc.uri },
       });
@@ -1163,6 +1167,7 @@ export class LspService {
         cancelled(port.signal);
         this.invalidate(entry);
         entry.documents.delete(doc.path);
+        this.emitUi();
         await entry.transport?.notification("textDocument/didClose", {
           textDocument: { uri: doc.uri },
         });
@@ -1684,6 +1689,7 @@ export class LspService {
           errors.push(error);
         }
         entry.documents.clear();
+        this.emitUi();
         entry.locks.clear();
       }
       this.entries.clear();

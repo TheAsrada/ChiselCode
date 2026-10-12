@@ -47,6 +47,8 @@ Core назначает `UiBinding.workspaceRoot`, `scopeInstance`, optional con
 
 Strict DTO schemas принимают plain text, состояния `loading/empty/ready/stale/error/unavailable`, tones `muted/accent/success/warning/error`, counts, rows и declared action uses. ANSI/OSC/C0/C1 и секреты очищаются до cache/publication. Malformed, oversize, throw и timeout изолируются fallback «Данные недоступны». Plain данные не входят в model messages или новую долговременную память.
 
+Row IDs уникальны внутри списка и страницы. UI scope получается через узкий host path без перечисления навыков. Изменения tracked documents обновляют LSP cache даже у backend, который не прислал diagnostics; открытие view не добавляет анализ.
+
 | Ограничение | Значение |
 | --- | --- |
 | Contributions / named views на extension | 12 / 8 |
