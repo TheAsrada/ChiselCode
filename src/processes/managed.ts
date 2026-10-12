@@ -4,6 +4,7 @@ import { execa } from "execa";
 import { RuntimeError } from "../runtime/errors.js";
 import { hostShell } from "./shell.js";
 import { processSupervisor } from "./supervisor.js";
+import { WINDOWS_SHELL_TRANSPORT } from "./windows-shell.js";
 
 export type ProcessStream = "stdout" | "stderr";
 export interface ManagedOutcome {
@@ -64,7 +65,7 @@ export class ManagedProcess {
       process.execPath,
       [
         "-e",
-        `(${processSupervisor.toString()})(${JSON.stringify(this.shell)})`,
+        `(${processSupervisor.toString()})(${JSON.stringify(this.shell)},${JSON.stringify(process.platform === "win32" ? WINDOWS_SHELL_TRANSPORT : "")})`,
       ],
       {
         cwd: input.cwd,

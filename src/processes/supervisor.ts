@@ -2,7 +2,10 @@ import type { ShellRuntime } from "./shell.js";
 
 /** Self-contained helper, serialized into the ordinary Bun/compiled runtime.
  * No project imports, configuration, model calls or user stdin are available. */
-export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
+export async function processSupervisor(
+  runtime: ShellRuntime,
+  windowsTransport: string,
+): Promise<void> {
   const { spawn, execFile } = await import("node:child_process");
   const { createWriteStream } = await import("node:fs");
   const { createInterface } = await import("node:readline");
@@ -43,6 +46,10 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
   let sampling = false;
   let finished = false;
   let escaped = !orphanTracking;
+  let commandPid: number | undefined;
+  let commandEof = false;
+  let transportExited = false;
+  let transportEnding = false;
   const descendants = new Map<number, string>();
   const startedAt = Date.now();
   type Row = {
@@ -132,7 +139,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
         // Do not ignore similarly named user programs or command descendants.
         !(
           windows &&
-          row.parent === process.pid &&
+          (row.parent === process.pid || row.parent === shell?.pid) &&
           row.executable?.toLowerCase() === consoleHost
         ),
     );
@@ -180,6 +187,7 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
         for (const row of rows)
           if (
             (descendants.has(row.parent) ||
+              row.parent === commandPid ||
               row.parent === process.pid ||
               (process.platform !== "win32" && row.group === process.pid)) &&
             !descendants.has(row.pid)
@@ -196,7 +204,13 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
       }
       const live = rows.filter(
         (row) =>
-          descendants.has(row.pid) ||
+          (descendants.has(row.pid) &&
+            !(
+              runtime.kind === "cmd" &&
+              exited &&
+              commandEof &&
+              row.pid === shell?.pid
+            )) ||
           (process.platform !== "win32" && row.group === process.pid),
       );
       if (exited)
@@ -216,8 +230,22 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
         escaped = true;
         send({ type: "ownership_unknown" });
       }
-      if (exited && stdoutDone && stderrDone && !live.length) finish(!escaped);
+      if (runtime.kind === "cmd" && exited && commandEof && !live.length) {
+        if (!transportEnding && !transportExited) {
+          transportEnding = true;
+          shell.stdin?.write("finish\n");
+        }
+        if (transportExited && stdoutDone && stderrDone) finish(!escaped);
+      } else if (
+        runtime.kind !== "cmd" &&
+        exited &&
+        stdoutDone &&
+        stderrDone &&
+        !live.length
+      )
+        finish(!escaped);
       else if (
+        process.platform !== "win32" &&
         exited &&
         stdoutDone &&
         stderrDone &&
@@ -296,29 +324,89 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
         // UTF-8 capture pipeline. Explicit caller overrides remain possible.
         env.PYTHONIOENCODING ??= "utf-8";
         env.PYTHONUTF8 ??= "1";
+        env.CHISEL_SHELL_COMMAND = message.command;
+        env.CHISEL_SHELL_EXECUTABLE = runtime.executable;
       }
       shell = spawn(
-        runtime.executable,
+        windows ? "powershell.exe" : runtime.executable,
         windows
-          ? ["/d", "/s", "/c", `"chcp 65001 >nul & ${message.command}"`]
+          ? [
+              "-NoLogo",
+              "-NoProfile",
+              "-NonInteractive",
+              "-EncodedCommand",
+              Buffer.from(windowsTransport, "utf16le").toString("base64"),
+            ]
           : ["-c", message.command],
         {
           cwd: message.cwd,
           shell: false,
-          windowsVerbatimArguments: windows,
+          windowsVerbatimArguments: false,
           windowsHide: true,
           env,
-          stdio: ["ignore", "pipe", "pipe"],
+          stdio: [windows ? "pipe" : "ignore", "pipe", "pipe"],
         },
       );
       shell.on("spawn", () => {
         if (!orphanTracking) send({ type: "ownership_unknown" });
-        send({ type: "ready", pid: shell?.pid, supervisorPid: process.pid });
+        if (!windows)
+          send({ type: "ready", pid: shell?.pid, supervisorPid: process.pid });
       });
-      shell.stdout!.pipe(process.stdout, { end: false });
+      if (windows) {
+        void (async () => {
+          let pending = "";
+          for await (const chunk of shell!.stdout!) {
+            pending += Buffer.from(chunk).toString("utf8");
+            let end = pending.indexOf("\n");
+            while (end !== -1) {
+              const frame = JSON.parse(pending.slice(0, end));
+              pending = pending.slice(end + 1);
+              end = pending.indexOf("\n");
+              if (frame.type === "started") {
+                commandPid = frame.pid;
+                send({
+                  type: "ready",
+                  pid: commandPid,
+                  supervisorPid: process.pid,
+                });
+              } else if (frame.type === "output") {
+                const target =
+                  frame.stream === "stderr" ? process.stderr : process.stdout;
+                await new Promise<void>((resolve, reject) =>
+                  target.write(Buffer.from(frame.data, "base64"), (error) =>
+                    error ? reject(error) : resolve(),
+                  ),
+                );
+              } else if (frame.type === "exit") {
+                exited = true;
+                code = frame.code;
+                send({ type: "exit", exitCode: code, signal: null });
+                void sample();
+              } else if (frame.type === "eof") {
+                commandEof = true;
+                void sample();
+              } else if (frame.type === "error") {
+                escaped = true;
+                send({ type: "error", message: frame.message });
+                send({ type: "ownership_unknown" });
+                stop();
+              }
+            }
+            if (pending.length > 16384)
+              throw new Error("Внутренний канал Windows переполнен.");
+          }
+          stdoutDone = true;
+          void sample();
+        })().catch((error) => {
+          escaped = true;
+          send({ type: "error", message: String(error) });
+          send({ type: "ownership_unknown" });
+          stop();
+        });
+      } else shell.stdout!.pipe(process.stdout, { end: false });
       shell.stderr!.pipe(process.stderr, { end: false });
       shell.stdout!.on("end", () => {
-        stdoutDone = true;
+        if (!windows) stdoutDone = true;
         void sample();
       });
       shell.stderr!.on("end", () => {
@@ -326,6 +414,25 @@ export async function processSupervisor(runtime: ShellRuntime): Promise<void> {
         void sample();
       });
       shell.on("exit", (exitCode, exitSignal) => {
+        if (windows) {
+          transportExited = true;
+          if (!exited || !commandEof) {
+            escaped = !stopping && !!commandPid;
+            if (!exited) {
+              exited = true;
+              code = commandPid ? null : exitCode;
+            }
+            commandEof = true;
+            if (!stopping)
+              send({
+                type: "error",
+                message: "Windows helper завершился до подтверждения вывода.",
+              });
+            if (escaped) send({ type: "ownership_unknown" });
+          }
+          void sample();
+          return;
+        }
         exited = true;
         code = exitCode;
         signal = exitSignal;
