@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -13,7 +20,31 @@ import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { quoteShellArg } from "../helpers/shell.js";
 
-async function removeAfterCrashCleanup(directory: string): Promise<void> {
+type ProcessRow = { pid: number; parent: number; start: string; name: string };
+async function windowsProcesses(): Promise<ProcessRow[]> {
+  const result = await execa(
+    "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate,Name | ConvertTo-Json -Compress",
+    ],
+    { timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true },
+  );
+  const parsed = JSON.parse(result.stdout);
+  return (Array.isArray(parsed) ? parsed : [parsed]).map((row) => ({
+    pid: row.ProcessId,
+    parent: row.ParentProcessId,
+    start: String(row.CreationDate),
+    name: String(row.Name),
+  }));
+}
+async function removeAfterCrashCleanup(
+  directory: string,
+  owned: ProcessRow[],
+): Promise<void> {
   const cleanupDeadline = Date.now() + 12000;
   for (;;) {
     try {
@@ -22,14 +53,33 @@ async function removeAfterCrashCleanup(directory: string): Promise<void> {
     } catch (error) {
       // Bun on Windows does not consistently apply node:fs rm maxRetries.
       // Retry the actual locked-directory operation within a fixed bound.
-      if (
-        process.platform !== "win32" ||
-        !(error instanceof Error) ||
-        !("code" in error) ||
-        !["EBUSY", "ENOTEMPTY", "EPERM"].includes(String(error.code)) ||
-        Date.now() >= cleanupDeadline
-      )
+      const retry =
+        process.platform === "win32" &&
+        error instanceof Error &&
+        "code" in error &&
+        ["EBUSY", "ENOTEMPTY", "EPERM"].includes(String(error.code)) &&
+        Date.now() < cleanupDeadline;
+      if (!retry) {
+        if (process.platform === "win32") {
+          const observed = await windowsProcesses();
+          console.error(
+            "Crash cleanup diagnostics:",
+            JSON.stringify({
+              remaining: observed.filter((row) =>
+                owned.some(
+                  (item) => item.pid === row.pid && item.start === row.start,
+                ),
+              ),
+              files: (await readdir(directory, { recursive: true })).slice(
+                0,
+                40,
+              ),
+              fixtureCwd: process.cwd(),
+            }),
+          );
+        }
         throw error;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
@@ -125,6 +175,7 @@ if (process.argv[2] === "--child") {
   })();
   const stderr = new Response(child.stderr).text();
   const watchdog = setTimeout(() => child.kill("SIGKILL"), 15000);
+  let owned: ProcessRow[] = [];
   try {
     const first = await Promise.race([
       accepted,
@@ -132,6 +183,14 @@ if (process.argv[2] === "--child") {
         throw new Error((await stderr) || "Application ended before handshake");
       }),
     ]);
+    if (process.platform === "win32") {
+      const rows = await windowsProcesses();
+      const parents = new Set([child.pid]);
+      for (let index = 0; index < rows.length; index++)
+        for (const row of rows)
+          if (parents.has(row.parent)) parents.add(row.pid);
+      owned = rows.filter((row) => parents.has(row.pid));
+    }
     child.kill("SIGKILL");
     await child.exited;
     await reader;
@@ -219,6 +278,6 @@ if (process.argv[2] === "--child") {
     // Application exit precedes the supervisor's bounded descendant cleanup.
     // Windows keeps a live command's cwd locked. Await its release through the
     // filesystem operation, without killing a restored PID or ignoring EBUSY.
-    await removeAfterCrashCleanup(directory);
+    await removeAfterCrashCleanup(directory, owned);
   }
 }
