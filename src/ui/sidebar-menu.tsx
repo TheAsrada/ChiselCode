@@ -42,10 +42,15 @@ export function SidebarMenu({
     controller?.sidebarPresentation.menuKey ??
       actions[controller?.sidebarPresentation.menuIndex ?? 0]?.id,
   );
-  const selected = Math.max(
-    0,
-    actions.findIndex((action) => action.id === selectedKey),
+  const selectedIndex = actions.findIndex(
+    (action) => action.id === selectedKey,
   );
+  const lastIndex = useRef(controller?.sidebarPresentation.menuIndex ?? 0);
+  const selected =
+    selectedIndex >= 0
+      ? selectedIndex
+      : Math.max(0, Math.min(actions.length - 1, lastIndex.current));
+  lastIndex.current = selected;
   const scroll = useRef<ScrollBoxRenderable>(null);
   const pressed = useRef<SidebarMenuAction | undefined>(undefined);
   const restored = useRef(false);

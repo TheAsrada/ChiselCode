@@ -17,6 +17,11 @@ export interface WorkspaceCommandSnapshot {
 }
 export interface WorkspaceCommandsPort {
   load(root: string, signal?: AbortSignal): Promise<WorkspaceCommandSnapshot>;
+  /** UI binding may activate a known scope, but never enumerate project skills. */
+  uiScope?(
+    root: string,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceExtensionScope | undefined>;
 }
 
 /** Application-owned composition. Listing activates definitions, never MCP/model runtimes. */
@@ -26,6 +31,22 @@ export class WorkspaceCommands implements WorkspaceCommandsPort {
     private readonly host: ExtensionHost,
     private readonly signal?: AbortSignal,
   ) {}
+  async uiScope(
+    root: string,
+    operation?: AbortSignal,
+  ): Promise<WorkspaceExtensionScope | undefined> {
+    try {
+      const signal =
+        this.signal && operation
+          ? AbortSignal.any([this.signal, operation])
+          : (operation ?? this.signal);
+      const scope = await abortable(() => this.host.open(root), signal);
+      scope.assertUsable();
+      return scope;
+    } catch {
+      return undefined;
+    }
+  }
   /** UI-only reads never wait for activation; dispatch still awaits a fresh ready scope. */
   current(root: string): WorkspaceCommandSnapshot {
     const skills = loadSkills(root);

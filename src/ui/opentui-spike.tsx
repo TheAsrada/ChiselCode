@@ -332,22 +332,22 @@ function OpenTuiScreen({
   const bindingGeneration = controller?.currentGeneration;
   // biome-ignore lint/correctness/useExhaustiveDependencies: Session allocation replaces the pre-session binding without creating a session from a view.
   useEffect(() => {
-    if (!controller || !commandActions) return;
+    if (!controller || !commandActions?.uiScope) return;
     let active = true;
     let binding: ExtensionUiBinding | undefined;
     void commandActions
-      .load(controller.snapshot.projectPath, controller.ownerSignal)
-      .then((snapshot) => {
+      .uiScope(controller.snapshot.projectPath, controller.ownerSignal)
+      .then((scope) => {
         if (
           !active ||
-          !snapshot.scope ||
+          !scope ||
           controller.ownerSignal.aborted ||
           controller.currentGeneration !== bindingGeneration
         )
           return;
         binding = new ExtensionUiBinding(
           controller,
-          snapshot.scope,
+          scope,
           onUiTool,
           uiRedactor,
         );

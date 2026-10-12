@@ -190,6 +190,16 @@ try {
   );
   const store = await projectSessionStore(root);
   await until(async () => (await store.list()).length > 0, "Нет checkpoint");
+  await until(async () => {
+    const summary = (await store.list())[0];
+    if (!summary) return false;
+    const checkpoint = await store.load(summary.id);
+    return Object.values(checkpoint.runtime?.invocations ?? {}).some(
+      (item) =>
+        item.name === "ext:fixture.interface:save" &&
+        item.result?.output === "Выбор сохранён",
+    );
+  }, "Terminal tool result не сохранён в checkpoint");
   const saved = await store.load((await store.list())[0]!.id);
   assert.ok(
     Object.values(saved.runtime?.invocations ?? {}).some(
