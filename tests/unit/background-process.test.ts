@@ -56,8 +56,10 @@ test("managed backend reports real exit and never gives the shell interactive st
 }, 15000);
 test("the supervisor retains inherited output after its leader exits", async () => {
   const { root, command } = await fixture(
-    "const {spawn}=require('node:child_process');spawn(process.execPath,['-e',\"console.log('потомок начал');setTimeout(()=>console.log('потомок завершён'),500)\"],{stdio:['ignore','inherit','inherit']});process.exit(0);",
-    "node",
+    globalThis.process.platform === "win32"
+      ? "import os, subprocess, sys\nsubprocess.Popen([sys.executable, '-c', \"import time; print('потомок начал', flush=True); time.sleep(0.5); print('потомок завершён', flush=True)\"], stdin=subprocess.DEVNULL, stdout=sys.stdout, stderr=sys.stderr)\nos._exit(0)\n"
+      : "const {spawn}=require('node:child_process');spawn(process.execPath,['-e',\"console.log('потомок начал');setTimeout(()=>console.log('потомок завершён'),500)\"],{stdio:['ignore','inherit','inherit']});process.exit(0);",
+    globalThis.process.platform === "win32" ? "python" : "node",
   );
   let output = "";
   const process = new ManagedProcess({

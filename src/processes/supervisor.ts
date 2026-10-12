@@ -50,6 +50,7 @@ export async function processSupervisor(
   let commandEof = false;
   let transportExited = false;
   let transportEnding = false;
+  let transportError = Buffer.alloc(0);
   const descendants = new Map<number, string>();
   const startedAt = Date.now();
   type Row = {
@@ -326,6 +327,7 @@ export async function processSupervisor(
         env.PYTHONUTF8 ??= "1";
         env.CHISEL_SHELL_COMMAND = message.command;
         env.CHISEL_SHELL_EXECUTABLE = runtime.executable;
+        env.CHISEL_SHELL_CWD = message.cwd;
       }
       shell = spawn(
         windows ? "powershell.exe" : runtime.executable,
@@ -404,13 +406,27 @@ export async function processSupervisor(
           stop();
         });
       } else shell.stdout!.pipe(process.stdout, { end: false });
-      shell.stderr!.pipe(process.stderr, { end: false });
+      if (windows) {
+        void (async () => {
+          for await (const chunk of shell!.stderr!)
+            transportError = Buffer.concat([
+              transportError,
+              Buffer.from(chunk),
+            ]).subarray(-2048);
+          stderrDone = true;
+          void sample();
+        })().catch(() => {
+          stderrDone = true;
+          escaped = true;
+          stop();
+        });
+      } else shell.stderr!.pipe(process.stderr, { end: false });
       shell.stdout!.on("end", () => {
         if (!windows) stdoutDone = true;
         void sample();
       });
       shell.stderr!.on("end", () => {
-        stderrDone = true;
+        if (!windows) stderrDone = true;
         void sample();
       });
       shell.on("exit", (exitCode, exitSignal) => {
@@ -426,7 +442,7 @@ export async function processSupervisor(
             if (!stopping)
               send({
                 type: "error",
-                message: "Windows helper завершился до подтверждения вывода.",
+                message: `Windows helper завершился до подтверждения вывода. ${transportError.toString("utf8").slice(0, 500)}`,
               });
             if (escaped) send({ type: "ownership_unknown" });
           }

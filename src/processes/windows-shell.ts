@@ -2,20 +2,24 @@
  * Keep Bun's Windows process job alive until core confirms owned-tree cleanup. */
 export const WINDOWS_SHELL_TRANSPORT = String.raw`
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 [Console]::InputEncoding = $utf8
 [Console]::OutputEncoding = $utf8
 $OutputEncoding = $utf8
 $command = [Environment]::GetEnvironmentVariable('CHISEL_SHELL_COMMAND')
 $executable = [Environment]::GetEnvironmentVariable('CHISEL_SHELL_EXECUTABLE')
+$cwd = [Environment]::GetEnvironmentVariable('CHISEL_SHELL_CWD')
 [Environment]::SetEnvironmentVariable('CHISEL_SHELL_COMMAND', $null)
 [Environment]::SetEnvironmentVariable('CHISEL_SHELL_EXECUTABLE', $null)
+[Environment]::SetEnvironmentVariable('CHISEL_SHELL_CWD', $null)
 function Send-Frame($frame) {
   [Console]::Out.WriteLine(($frame | ConvertTo-Json -Compress))
   [Console]::Out.Flush()
 }
 $info = New-Object System.Diagnostics.ProcessStartInfo
 $info.FileName = $executable
+$info.WorkingDirectory = $cwd
 $info.Arguments = '/d /s /c "' + $command + '"'
 $info.UseShellExecute = $false
 # Inherit the transport's hidden console after configuring its code page.
