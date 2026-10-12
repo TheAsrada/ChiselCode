@@ -6,6 +6,8 @@ import { RuntimeError } from "../../runtime/errors.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ChiselExtension } from "../contracts.js";
 import { createServiceToken } from "../services.js";
+import { backgroundUiTarget } from "../ui-core.js";
+import { registerOwnerUi } from "./owner-ui.js";
 export const backgroundServiceToken = createServiceToken<BackgroundTaskService>(
   "builtin.background.service",
 );
@@ -94,6 +96,7 @@ export function createBackgroundExtension(
   return {
     id: "builtin.background",
     activate(ctx) {
+      registerOwnerUi(ctx, "background", backgroundUiTarget);
       ctx.services.provide(backgroundServiceToken, service);
       if (ownsService)
         ctx.add({ dispose: () => service.closeRoot(ctx.workspaceRoot) });

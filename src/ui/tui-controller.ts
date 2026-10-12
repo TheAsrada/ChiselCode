@@ -60,6 +60,8 @@ export interface TranscriptEntry {
 }
 
 export interface TuiViewState {
+  uiContributions?: readonly import("../extensions/ui-types.js").OwnedUiContribution[];
+  extensionView?: import("./extension-ui.js").ExtensionDetailsState;
   backgroundTasks?: readonly BackgroundTask[];
   backgroundPanel?: boolean;
   backgroundList?: {
@@ -144,6 +146,21 @@ export interface TuiViewState {
 
 /** The agent writes to this boundary; either terminal renderer may subscribe. */
 export class TuiController implements TuiTranscript {
+  uiBinding?: import("./extension-ui.js").ExtensionUiBinding;
+  readonly uiPresentation = new Map<
+    string,
+    { selected?: string; cursor?: string; search?: string; scroll?: number }
+  >();
+  setUiContributions(items: TuiViewState["uiContributions"]): void {
+    this.update({ uiContributions: items });
+  }
+  setExtensionView(extensionView?: TuiViewState["extensionView"]): void {
+    this.update({ extensionView });
+  }
+  setExtensionNotice(notice: string): void {
+    if (this.state.extensionView)
+      this.update({ extensionView: { ...this.state.extensionView, notice } });
+  }
   backgroundControls?: BackgroundControls;
   private backgroundWait?: AbortController;
   readonly backgroundPresentation = {
@@ -164,6 +181,7 @@ export class TuiController implements TuiTranscript {
   };
   readonly sidebarPresentation = {
     menuIndex: 0,
+    menuKey: undefined as string | undefined,
     scroll: new Map<string, number>(),
   };
   readonly conversationId = randomUUID();
@@ -613,6 +631,8 @@ export class TuiController implements TuiTranscript {
     this.agentPresentation.scroll.clear();
     this.sidebarPresentation.scroll.clear();
     this.sidebarPresentation.menuIndex = 0;
+    this.sidebarPresentation.menuKey = undefined;
+    this.uiPresentation.clear();
     this.generation++;
     this.compactionNotices.clear();
     this.presentation.windowEnd = undefined;

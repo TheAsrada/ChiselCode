@@ -1,6 +1,18 @@
 import { z } from "zod";
 
 const line = z.string().min(1).max(240);
+export const ChatTargetSchema = z.discriminatedUnion("type", [
+  z
+    .object({ type: z.enum(["subagent", "background_task"]), id: z.uuid() })
+    .strict(),
+  z
+    .object({
+      type: z.literal("extension_view"),
+      viewId: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+      dataRef: z.string().max(120).optional(),
+    })
+    .strict(),
+]);
 export const ChatStyleSchema = z
   .object({
     title: line,
@@ -42,21 +54,13 @@ export const ChatCardSchema = z
           .object({
             label: line,
             action: z.enum(["open", "promote", "stop", "wait"]),
-            target: z
-              .object({
-                type: z.enum(["subagent", "background_task"]),
-                id: z.uuid(),
-              })
-              .strict(),
+            target: ChatTargetSchema,
           })
           .strict(),
       )
       .max(3)
       .optional(),
-    target: z
-      .object({ type: z.enum(["subagent", "background_task"]), id: z.uuid() })
-      .strict()
-      .optional(),
+    target: ChatTargetSchema.optional(),
   })
   .strict();
 export type ChatCard = z.infer<typeof ChatCardSchema>;

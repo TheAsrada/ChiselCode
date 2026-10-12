@@ -6,6 +6,7 @@
 
 | Возможность | Справка | Материалы реализации |
 | --- | --- | --- |
+| Статусы и панели возможностей | [Как пользоваться](../interface-contributions.md) | [UI contributions: реализация и проверки](reports/ui-contributions.md) |
 | Фоновые задачи | [Как пользоваться](../background-tasks.md) | [Реализация, проверки и кадры интерфейса](reports/background-tasks.md) |
 | Побочные вопросы | [Как пользоваться](../side-questions.md) | [Реализация, проверки и кадры интерфейса](reports/model-requests.md) |
 | Помощники и делегирование | [Как пользоваться](../subagents.md) | [Реализация и проверки](reports/subagents.md) |

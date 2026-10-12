@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { abortable } from "../extensions/lifecycle.js";
+import { abortable, frozenClone } from "../extensions/lifecycle.js";
 import { createServiceToken } from "../extensions/services.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import { SecretRedactor } from "../security/redaction.js";
@@ -91,6 +91,20 @@ export interface LspStatus {
   reason?: string;
   capabilities?: readonly string[];
 }
+export interface LspUiStatus {
+  revision: number;
+  workspaceRoot: string;
+  mode: LspMode | "unknown";
+  state: LspState | "unknown";
+  trackedDocuments: number;
+  checkedDocuments: number;
+  observedDocuments: number;
+  staleDocuments: number;
+  diagnosticCount: number;
+  requiresRestart: boolean;
+  generation: number;
+  diagnostics: readonly LspDiagnostic[];
+}
 interface Document extends LspFile {
   diagnosticEvidence?: "versioned_push" | "unversioned_push" | "pull_request";
   version: number;
@@ -148,6 +162,11 @@ export class LspService {
   private configurationReads = 0;
   private configurationApplied = 0;
   private preferred?: Server;
+  private uiRevision = 0;
+  private uiPending = false;
+  private uiListeners = new Set<() => void>();
+  private uiCache: Readonly<LspUiStatus>;
+  private detachUiRevision: () => void;
   private readonly onAbort = () => {
     void this.dispose().catch(() => {});
   };
@@ -159,6 +178,100 @@ export class LspService {
     private readonly timers?: LspClock,
   ) {
     workspaceSignal.addEventListener("abort", this.onAbort, { once: true });
+    this.uiCache = this.projectUi();
+    this.detachUiRevision = workspaceCoordinator.onChanged(() => {
+      if (
+        [...this.entries.values()].some(
+          (entry) =>
+            entry.revision !==
+            workspaceCoordinator.revision([this.workspaceRoot]),
+        )
+      )
+        this.emitUi();
+    });
+  }
+
+  /** Cached data only: never configure, prepare, start, scan or acquire access. */
+  uiStatus(): Readonly<LspUiStatus> {
+    return this.uiCache;
+  }
+  subscribeUi(changed: () => void): { dispose(): void } {
+    this.uiListeners.add(changed);
+    return {
+      dispose: () => {
+        this.uiListeners.delete(changed);
+      },
+    };
+  }
+  private projectUi(): Readonly<LspUiStatus> {
+    const entries = [...this.entries.values()];
+    const documents = entries.flatMap((entry) =>
+      [...entry.documents.values()].map((doc) => ({
+        doc,
+        stale:
+          entry.requiresRestart ||
+          entry.revision !==
+            workspaceCoordinator.revision([this.workspaceRoot]) ||
+          doc.freshness === "stale",
+      })),
+    );
+    const checked = documents.filter(
+      ({ doc, stale }) =>
+        !stale &&
+        doc.diagnosticEvidence &&
+        ["current", "observed"].includes(doc.freshness),
+    );
+    const diagnostics = checked.flatMap(({ doc }) => doc.diagnostics);
+    const mode = this.configuration
+      ? effectiveLspMode(this.configuration)
+      : "unknown";
+    const state = this.closed
+      ? "disposed"
+      : this.configError
+        ? "unavailable"
+        : mode === "off"
+          ? "disabled"
+          : (entries.find((entry) => entry.state === "error")?.state ??
+            entries.find((entry) =>
+              ["starting", "restarting"].includes(entry.state),
+            )?.state ??
+            entries.find((entry) => entry.state === "ready")?.state ??
+            entries[0]?.state ??
+            (mode === "unknown" ? "unknown" : "stopped"));
+    return frozenClone({
+      revision: this.uiRevision,
+      workspaceRoot: this.workspaceRoot,
+      mode,
+      state,
+      trackedDocuments: documents.length,
+      checkedDocuments: checked.length,
+      observedDocuments: checked.filter(
+        ({ doc }) => doc.freshness === "observed",
+      ).length,
+      staleDocuments: documents.filter(({ stale }) => stale).length,
+      diagnosticCount: diagnostics.length,
+      requiresRestart: entries.some((entry) => entry.requiresRestart),
+      generation: Math.max(0, ...entries.map((entry) => entry.generation)),
+      diagnostics: diagnostics
+        .slice(0, 256)
+        .map((item) => ({ ...item, message: safeText(item.message, 300) })),
+    });
+  }
+  private emitUi(): void {
+    if (this.uiPending) return;
+    this.uiPending = true;
+    queueMicrotask(() => {
+      this.uiPending = false;
+      ++this.uiRevision;
+      this.uiCache = this.projectUi();
+      for (const listener of this.uiListeners) {
+        try {
+          listener();
+        } catch {
+          /* UI is passive. */
+        }
+      }
+    });
   }
 
   private available(): void {
@@ -226,6 +339,7 @@ export class LspService {
         this.configuration?.project,
         this.configuration?.ignorePatterns,
       ]);
+    this.emitUi();
     for (const entry of this.entries.values()) {
       if (read !== this.configurationApplied) return;
       if (viewChanged) this.invalidate(entry);
@@ -239,6 +353,7 @@ export class LspService {
       if (read !== this.configurationApplied) return;
       if (selection.state !== "stopped") {
         entry.state = selection.state;
+        this.emitUi();
         entry.reason = selection.reason ?? this.configError;
         this.invalidate(entry);
         await this.stopEntry(entry);
@@ -431,6 +546,7 @@ export class LspService {
     this.available();
     if (entry.stopping) await entry.stopping;
     entry.state = "starting";
+    this.emitUi();
     entry.controller = new AbortController();
     const preparationSignal = AbortSignal.any([
       this.signal(undefined, entry),
@@ -447,6 +563,7 @@ export class LspService {
       cancelled(preparationSignal);
     } catch (error) {
       entry.state = "error";
+      this.emitUi();
       entry.reason =
         "Не удалось подготовить backend. Проверьте настройки/установку и перезапустите LSP.";
       throw error;
@@ -471,6 +588,7 @@ export class LspService {
     cancelled(preparationSignal);
     this.available();
     entry.state = "starting";
+    this.emitUi();
     entry.reason = undefined;
     entry.requiresRestart = false;
     const generation = ++entry.generation;
@@ -484,6 +602,7 @@ export class LspService {
           if (entry.generation !== generation || entry.transport !== transport)
             return;
           entry.state = "error";
+          this.emitUi();
           entry.reason = "Language server завершился. Перезапустите его явно.";
           entry.controller.abort();
           this.invalidate(entry);
@@ -492,6 +611,7 @@ export class LspService {
       );
     } catch (error) {
       entry.state = "error";
+      this.emitUi();
       entry.reason =
         "Не удалось запустить language server. Проверьте runtime и process-tree support; затем перезапустите.";
       entry.controller.abort();
@@ -584,9 +704,11 @@ export class LspService {
           "Language server generation changed during initialization.",
         );
       entry.state = "ready";
+      this.emitUi();
       entry.revision = workspaceCoordinator.revision([this.workspaceRoot]);
     } catch (error) {
       entry.state = "error";
+      this.emitUi();
       entry.reason =
         launch.kind === "auto"
           ? "Не удалось запустить стандартный анализ кода. Перезапустите LSP; проверьте установку ChiselCode."
@@ -617,6 +739,7 @@ export class LspService {
       doc.notificationSerial = receipt;
       ++doc.serial;
     }
+    this.emitUi();
   }
   private async stopEntry(entry: Server): Promise<void> {
     entry.controller.abort();
@@ -666,6 +789,7 @@ export class LspService {
     }
     const reopen = [...entry.documents.values()].map((doc) => doc.relativePath);
     entry.state = "restarting";
+    this.emitUi();
     this.invalidate(entry);
     await this.stopEntry(entry);
     entry.documents.clear();
@@ -997,6 +1121,7 @@ export class LspService {
     doc.omitted = omitted;
     doc.freshness = evidence === "unversioned_push" ? "observed" : "current";
     doc.diagnosticEvidence = evidence;
+    this.emitUi();
     ++doc.serial;
     try {
       await this.evict(entry, doc.path);
@@ -1542,12 +1667,15 @@ export class LspService {
   dispose(): Promise<void> {
     if (this.cleanup) return this.cleanup;
     this.closed = true;
+    this.detachUiRevision();
+    this.emitUi();
     this.lifetime.abort();
     this.workspaceSignal.removeEventListener("abort", this.onAbort);
     this.cleanup = (async () => {
       const errors: unknown[] = [];
       for (const entry of this.entries.values()) {
         entry.state = "disposed";
+        this.emitUi();
         this.invalidate(entry);
         try {
           await this.stopEntry(entry);

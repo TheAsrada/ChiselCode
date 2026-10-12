@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/react */
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Palette } from "./appearance.js";
@@ -36,11 +37,17 @@ export function SidebarMenu({
   owner: string;
   onFocus(): void;
 }) {
-  const [selected, setSelected] = useState(
-    controller?.sidebarPresentation.menuIndex ?? 0,
+  const renderer = useRenderer();
+  const [selectedKey, setSelectedKey] = useState(
+    controller?.sidebarPresentation.menuKey ??
+      actions[controller?.sidebarPresentation.menuIndex ?? 0]?.id,
+  );
+  const selected = Math.max(
+    0,
+    actions.findIndex((action) => action.id === selectedKey),
   );
   const scroll = useRef<ScrollBoxRenderable>(null);
-  const pressed = useRef<string | undefined>(undefined);
+  const pressed = useRef<SidebarMenuAction | undefined>(undefined);
   const restored = useRef(false);
   const restore = () => {
     const body = scroll.current;
@@ -61,10 +68,11 @@ export function SidebarMenu({
   const compact = height < 12 || width < 30;
   const pick = (index: number) => {
     const next = Math.max(0, Math.min(actions.length - 1, index));
-    setSelected(next);
+    setSelectedKey(actions[next]?.id);
     const id = actions[next]?.id;
     if (id) scroll.current?.scrollChildIntoView(`sidebar-menu-${id}`);
     if (controller) controller.sidebarPresentation.menuIndex = next;
+    if (controller) controller.sidebarPresentation.menuKey = id;
   };
   const selectedId = actions[selected]?.id;
   // biome-ignore lint/correctness/useExhaustiveDependencies: A resized viewport must reveal the selected action again.
@@ -73,6 +81,13 @@ export function SidebarMenu({
     if (!body) return;
     if (selectedId) body.scrollChildIntoView(`sidebar-menu-${selectedId}`);
   }, [selectedId, compact, height]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Resize and owner replacement invalidate a pressed hit area.
+  useLayoutEffect(() => {
+    pressed.current = undefined;
+    return () => {
+      pressed.current = undefined;
+    };
+  }, [width, height, owner]);
   useUiKeyboard((key) => {
     if (
       !focused ||
@@ -100,6 +115,10 @@ export function SidebarMenu({
       key.stopPropagation();
       // Enter is reserved for the composer. A focused menu consumes it without
       // opening a dialog or leaking the same event into message submission.
+    } else if (key.name === "space" || key.name === " ") {
+      key.preventDefault();
+      key.stopPropagation();
+      actions[selected]?.run();
     }
   });
   return (
@@ -129,6 +148,7 @@ export function SidebarMenu({
             </text>
           )}
           {/* biome-ignore lint/a11y/noStaticElementInteractions: Arrow keys select; existing command shortcuts open the same dialogs. */}
+          {/* biome-ignore lint/a11y/useKeyWithMouseEvents: Native OpenTUI has no DOM blur; captured keyboard ownership handles focus. */}
           <box
             id={`sidebar-menu-${action.id}`}
             height={compact ? 1 : 3}
@@ -138,19 +158,29 @@ export function SidebarMenu({
             paddingRight={1}
             backgroundColor={selected === index ? palette.raised : palette.bg}
             onMouseDown={(event) => {
-              if (event.button === 0) pressed.current = action.id;
+              if (event.button === 0) pressed.current = action;
               event.stopPropagation();
             }}
             onMouseUp={(event) => {
+              const captured = pressed.current;
               const accept =
-                event.button === 0 && pressed.current === action.id;
+                event.button === 0 &&
+                captured?.id === action.id &&
+                !event.isDragging &&
+                !renderer.getSelection()?.getSelectedText();
               pressed.current = undefined;
               event.stopPropagation();
               if (accept) {
                 pick(index);
                 onFocus();
-                action.run();
+                captured?.run();
               }
+            }}
+            onMouseDrag={() => {
+              pressed.current = undefined;
+            }}
+            onMouseOut={() => {
+              pressed.current = undefined;
             }}
           >
             <box height={1} flexDirection="row">

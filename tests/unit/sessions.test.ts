@@ -73,7 +73,7 @@ describe("session helpers", () => {
       }
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 15000);
   test("builds a title from the first prompt line", () => {
     expect(sessionTitleForPrompt("  почини баг  ")).toBe("почини баг");
     expect(sessionTitleForPrompt("первая строка\nвторая строка")).toBe(

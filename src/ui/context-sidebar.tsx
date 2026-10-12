@@ -3,6 +3,8 @@ import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { useLayoutEffect, useRef } from "react";
 import { contextProgress } from "../core/context-usage.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { DialogAction } from "./opentui-dialog.js";
+import { uiTone } from "./opentui-extension-details.js";
 import { SidebarSection } from "./sidebar-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
@@ -21,6 +23,7 @@ export function ContextSidebar({
   focused = false,
   palette = THEMES.obsidian,
   presentation,
+  onAction,
 }: {
   state: TuiViewState;
   width?: number;
@@ -28,6 +31,9 @@ export function ContextSidebar({
   focused?: boolean;
   palette?: Palette;
   presentation?: TuiController["sidebarPresentation"];
+  onAction?(
+    item: import("../extensions/ui-types.js").OwnedUiContribution,
+  ): void;
 }) {
   const scroll = useRef<ScrollBoxRenderable>(null);
   const remembered = useRef(presentation?.scroll.get("context"));
@@ -288,6 +294,51 @@ export function ContextSidebar({
           />
         </SidebarSection>
       )}
+      {(state.uiContributions ?? [])
+        .filter((item) => item.descriptor.slot === "context_section")
+        .map((item) => (
+          <SidebarSection
+            key={item.key}
+            title={item.descriptor.title}
+            width={cardWidth}
+            palette={palette}
+            trailing={
+              item.snapshot.count === undefined
+                ? undefined
+                : String(item.snapshot.count)
+            }
+          >
+            <text
+              fg={uiTone(palette, item.snapshot.tone)}
+              content={terminalLine(
+                item.snapshot.label ?? item.descriptor.title,
+                inner,
+              )}
+            />
+            {item.snapshot.detail && (
+              <text fg={palette.muted} content={item.snapshot.detail} />
+            )}
+            {(item.snapshot.rows ?? []).slice(0, 8).map((row) => (
+              <text
+                key={row.id}
+                fg={uiTone(palette, row.tone)}
+                content={terminalLine(
+                  `${row.label}${row.value ? ` · ${row.value}` : ""}`,
+                  inner,
+                )}
+              />
+            ))}
+            <DialogAction
+              label={
+                item.snapshot.state === "unavailable"
+                  ? "Повторить получение"
+                  : "Открыть подробности"
+              }
+              palette={palette}
+              onSelect={() => onAction?.(item)}
+            />
+          </SidebarSection>
+        ))}
     </TerminalScrollbox>
   );
 }

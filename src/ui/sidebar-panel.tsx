@@ -236,7 +236,9 @@ export function SidebarPanel({
           selectable={false}
           content={terminalLine(
             focused
-              ? "1-3 разделы · [ ] · Esc в чат"
+              ? tab === "menu"
+                ? "Space открыть · 1-3 · Esc в чат"
+                : "1-3 разделы · [ ] · Esc в чат"
               : "Ctrl+B панель · F7 агенты",
             Math.max(1, width - 1),
           )}

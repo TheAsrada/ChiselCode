@@ -404,3 +404,7 @@ Apply использует existing EditingService.replaceBatch/commit, реал
 ## Фоновые задачи
 
 Core `BackgroundTaskService` владеет локальными командами между turns; `builtin.background` предоставляет narrow controls и оформление через общий chat API. Foreground/background используют общий managed process backend; одноразовая передача удержанных local/durable ресурсов не освобождает writers до подтверждённого cleanup. UI — кнопка в «Меню» и shared native popup. Контракты handoff, policy, child lifetime, logs и completion описаны отдельно в [архитектуре фоновых задач](architecture/background-tasks.md); workflow — в [справке](background-tasks.md).
+
+## UI contributions
+
+Workspace extension scope владеет staged UI registry. Linked consumers объявляют status/context/menu и named details; core привязывает cache к owner, рисует native surfaces и передаёт effects обычному executor. LSP использует passive service cache; Background Tasks и помощники открывают прежние owned views. [API, binding, action contracts и limits](architecture/ui-contributions.md).

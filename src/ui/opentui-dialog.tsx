@@ -3,6 +3,7 @@ import { RGBA } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { type ReactNode, useRef } from "react";
 import { type Palette, THEMES } from "./appearance.js";
+import { uiInputStamp } from "./overlay-input.js";
 import { useTerminalDecoration } from "./terminal-decoration.js";
 
 export function dialogLayout(
@@ -137,6 +138,7 @@ export function DialogAction({
   primary = false,
   disabled = false,
   id,
+  tone,
 }: {
   label: string;
   onSelect: () => void;
@@ -145,9 +147,13 @@ export function DialogAction({
   primary?: boolean;
   disabled?: boolean;
   id?: string;
+  tone?: import("../extensions/ui-types.js").UiTone;
 }) {
   const renderer = useRenderer();
-  const pressed = useRef<(() => void) | undefined>(undefined);
+  const pressed = useRef<
+    | { activate(): void; stamp: string; width: number; height: number }
+    | undefined
+  >(undefined);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Dialog actions have keyboard equivalents.
     // biome-ignore lint/a11y/useKeyWithMouseEvents: Native OpenTUI box uses captured keyboard ownership and has no DOM blur prop.
@@ -165,7 +171,14 @@ export function DialogAction({
       }
       onMouseDown={(event) => {
         pressed.current =
-          event.button === 0 && !disabled ? onSelect : undefined;
+          event.button === 0 && !disabled
+            ? {
+                activate: onSelect,
+                stamp: uiInputStamp(renderer.keyInput),
+                width: renderer.width,
+                height: renderer.height,
+              }
+            : undefined;
         event.stopPropagation();
       }}
       onMouseDrag={() => {
@@ -180,6 +193,9 @@ export function DialogAction({
         const area = event.currentTarget;
         if (
           !activate ||
+          activate.stamp !== uiInputStamp(renderer.keyInput) ||
+          activate.width !== renderer.width ||
+          activate.height !== renderer.height ||
           event.isDragging ||
           !area ||
           event.x < area.x ||
@@ -190,7 +206,7 @@ export function DialogAction({
         )
           return;
         event.stopPropagation();
-        if (!disabled) activate();
+        if (!disabled) activate.activate();
       }}
     >
       <text
@@ -203,7 +219,17 @@ export function DialogAction({
               ? palette.bg
               : active
                 ? palette.accent
-                : palette.text
+                : tone === "error"
+                  ? palette.red
+                  : tone === "warning"
+                    ? palette.yellow
+                    : tone === "success"
+                      ? palette.green
+                      : tone === "accent"
+                        ? palette.accent
+                        : tone === "muted"
+                          ? palette.muted
+                          : palette.text
         }
       >
         {label}

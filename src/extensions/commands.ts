@@ -199,6 +199,10 @@ export class ExtensionCommandContributions {
   seal(): void {
     this.sealed = true;
   }
+  /** Host staging validation only; this does not make a command invocable. */
+  registeredOwner(name: string): string | undefined {
+    return this.commands.get(name)?.source.extensionId;
+  }
   dispose(): void {
     this.closed = true;
     this.commands.clear();

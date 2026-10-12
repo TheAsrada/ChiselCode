@@ -44,8 +44,14 @@ export function OpenTuiTranscript({
 }: {
   entries: readonly TranscriptEntry[];
   onOpenSide?(operationId: string): void;
-  onCardAction?(action: NonNullable<CardData["actions"]>[number]): void;
-  onOpenCard?(target: NonNullable<CardData["target"]>): void;
+  onCardAction?(
+    action: NonNullable<CardData["actions"]>[number],
+    extensionId?: string,
+  ): void;
+  onOpenCard?(
+    target: NonNullable<CardData["target"]>,
+    extensionId?: string,
+  ): void;
   focusedSideId?: string;
   contentWidth: number;
   expandedId?: number;
@@ -78,8 +84,12 @@ export function OpenTuiTranscript({
               extensionId={entry.chatCard.extensionId}
               width={contentWidth}
               palette={palette}
-              onOpen={onOpenCard}
-              onAction={onCardAction}
+              onOpen={(target) =>
+                onOpenCard?.(target, entry.chatCard!.extensionId)
+              }
+              onAction={(action) =>
+                onCardAction?.(action, entry.chatCard!.extensionId)
+              }
             />
           );
         const sideId = entry.sideOperationId;

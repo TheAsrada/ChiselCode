@@ -43,6 +43,7 @@ try {
         "dist/worktree-smoke",
         "dist/subagent-smoke",
         "dist/background-smoke",
+        "dist/ui-smoke",
       ],
     }),
   );
@@ -110,6 +111,16 @@ try {
     "tests/fixtures/tui-background.ts",
     "--outdir",
     join(packageRoot, "dist/background-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-ui-contributions.ts",
+    "--outdir",
+    join(packageRoot, "dist/ui-smoke"),
     "--target",
     "bun",
     "--external",
@@ -231,6 +242,29 @@ try {
         join(distribution, "cli.js"),
       ])
     ).includes("Background Tasks CLI:"),
+  );
+  const uiMarker = "UI contributions: production slots";
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "ui-smoke/tui-ui-contributions.js"),
+      ])
+    ).includes(uiMarker),
+  );
+  const uiBinary = join(
+    staging,
+    process.platform === "win32" ? "ui-tui.exe" : "ui-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-ui-contributions.ts",
+    "--compile",
+    "--outfile",
+    uiBinary,
+  ]);
+  assert.ok((await run(uiBinary, [])).includes(uiMarker));
+  process.stdout.write(
+    "Установленный и compiled UI registry: независимое расширение, native details и own-tool approval проверены.\n",
   );
   const backgroundBinary = join(
     staging,

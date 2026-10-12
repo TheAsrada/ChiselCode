@@ -48,6 +48,7 @@ import {
 import type { RunEventHandlers, RunOptions } from "./run-prompt.js";
 import { subagentControls } from "./subagent-inspection.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
+import { assertUiToolInvocation } from "./ui-tool.js";
 
 export interface PreparedExtensionCommand {
   readonly command: RegisteredExtensionCommand;
@@ -68,6 +69,7 @@ export async function runExtensionCommand(
   } = {},
 ): Promise<{ session: Session; result: ToolExecutionResult }> {
   scope.assertUsable();
+  const uiInvocation = assertUiToolInvocation(prepared, scope);
   if (prepared.command.executionPolicy !== "foreground")
     throw new Error("Side command requires the side-query dispatch lane.");
   const acceptedAt = Date.now();
@@ -112,7 +114,9 @@ export async function runExtensionCommand(
         options.model ?? definition.defaults.model ?? "",
       );
     }
-    session.title = sessionTitleForPrompt(`/${prepared.command.name}`);
+    session.title = sessionTitleForPrompt(
+      uiInvocation ? "Действие интерфейса" : `/${prepared.command.name}`,
+    );
   }
   const mode = options.mode ?? session.mode ?? DEFAULT_AGENT_MODE;
   const approvalMode = resolveApprovalMode({
@@ -431,7 +435,10 @@ export async function runExtensionCommand(
     );
     await bus.emit({ type: "checkpoint_saved" });
     cancelled(signal);
-    const current = scope.commands.get(prepared.command.name);
+    const uiAction = assertUiToolInvocation(prepared, scope);
+    const current = uiAction
+      ? prepared.command
+      : scope.commands.get(prepared.command.name);
     if (current !== prepared.command)
       throw new RuntimeError(
         "INVALID_TOOL_INPUT",

@@ -34,3 +34,24 @@ export {
   type ServiceToken,
 } from "./services.js";
 export { attachExtensionTools } from "./tools.js";
+export { ExtensionUiRegistry, UiSubscription } from "./ui.js";
+export type {
+  OwnedUiContribution,
+  UiAction,
+  UiActionUse,
+  UiBinding,
+  UiContribution,
+  UiDetailsPage,
+  UiDetailsView,
+  UiOwnerSummary,
+  UiRow,
+  UiSnapshot,
+  UiSource,
+  UiTone,
+} from "./ui-types.js";
+export {
+  UiActionUseSchema,
+  UiDetailsPageSchema,
+  UiRowSchema,
+  UiSnapshotSchema,
+} from "./ui-types.js";

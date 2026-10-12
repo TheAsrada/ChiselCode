@@ -49,6 +49,15 @@ export function useUiKeyboard(handler: (event: KeyEvent) => void): void {
 }
 
 const owners = new WeakMap<object, string>();
+const liveInputs = new WeakMap<
+  KeyHandler,
+  { owner: string; revision: number }
+>();
+/** Shared mouse gate; descriptors never register their own input/resize listeners. */
+export function uiInputStamp(input: KeyHandler): string {
+  const state = liveInputs.get(input);
+  return state ? `${state.owner}/${state.revision}` : "unbound";
+}
 export function capturedInputOwner(event: object): string | undefined {
   return owners.get(event);
 }
@@ -58,7 +67,18 @@ export function useOverlayInputOwner(owner: string): void {
   const renderer = useRenderer();
   const current = useRef(owner);
   current.current = owner;
+  const live = liveInputs.get(renderer.keyInput);
+  if (live) {
+    if (live.owner !== owner) {
+      live.owner = owner;
+      ++live.revision;
+    }
+  } else liveInputs.set(renderer.keyInput, { owner, revision: 0 });
   useLayoutEffect(() => {
+    const resized = () => {
+      const state = liveInputs.get(renderer.keyInput);
+      if (state) ++state.revision;
+    };
     const capture = (event: KeyEvent | PasteEvent) => {
       owners.set(event, current.current);
       if (
@@ -71,9 +91,12 @@ export function useOverlayInputOwner(owner: string): void {
     };
     renderer.keyInput.prependListener("keypress", capture);
     renderer.keyInput.prependListener("paste", capture);
+    renderer.on("resize", resized);
     return () => {
       renderer.keyInput.off("keypress", capture);
       renderer.keyInput.off("paste", capture);
+      renderer.off("resize", resized);
+      liveInputs.delete(renderer.keyInput);
     };
   }, [renderer]);
 }

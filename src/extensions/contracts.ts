@@ -96,6 +96,10 @@ export interface ExtensionContext {
   readonly workspaceRoot: string;
   readonly signal: AbortSignal;
   readonly chat: { register(view: ExtensionChatView): void };
+  readonly ui: {
+    register(contribution: import("./ui-types.js").UiContribution): void;
+    registerView(view: import("./ui-types.js").UiDetailsView): void;
+  };
   readonly tools: {
     register(tool: ExtensionToolContribution): void;
   };

@@ -6,6 +6,7 @@ import { RuntimeError } from "../../runtime/errors.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ToolContext } from "../../tools/types.js";
 import type { ChiselExtension } from "../contracts.js";
+import { registerLspUi } from "./lsp-ui.js";
 
 const empty = z.object({}).strict();
 const file = z.object({ path: z.string().min(1).max(4096) }).strict();
@@ -53,6 +54,7 @@ export function createLspExtension(
       );
       ctx.add(service);
       ctx.services.provide(lspServiceToken, service);
+      registerLspUi(ctx, service);
       ctx.tools.register(
         defineTool(
           {

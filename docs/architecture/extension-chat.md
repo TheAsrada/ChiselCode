@@ -70,3 +70,5 @@ ctx.tools.register(defineTool(
 `target: { type: "background_task", id }` адресует core task UUID, не child ID/PID. Карточка может содержать до трёх действий `open`, `promote`, `stop`, `wait` с typed target; dispatcher проверяет live root owner/child scope через core port перед async действием. Сохранённый DTO не выдаёт права на запуск/kill. После promotion исходная карточка обновляется тем же ID; busy resource card содержит действия просмотра/остановки/ожидания. Ошибка форматтера не меняет errorCode или результат инструмента.
 
 Связанные темы: [Архитектура фоновых задач](background-tasks.md), [Помощники](subagents.md), [Справка](../background-tasks.md).
+
+Карточки и typed targets используют общий owned dispatcher: [UI contributions](ui-contributions.md).

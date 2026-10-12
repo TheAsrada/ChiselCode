@@ -192,7 +192,9 @@ test("versioned diagnostics track bytes, old notifications cannot replace curren
   const old = await f.service.diagnostics("main.ts", f.port);
   expect(old.freshness).toBe("unavailable");
   expect(old.diagnostics).toEqual([]);
-  expect(await f.service.collectContext()).not.toContain("fixture error");
+  expect((await f.service.collectContext()) ?? "").not.toContain(
+    "fixture error",
+  );
   await f.update({});
   await writeFile(join(f.root, "main.ts"), "export const clean = 1;\n");
   const clean = await f.service.diagnostics("main.ts", f.port);
@@ -261,7 +263,9 @@ test("unversioned provisional empty remains observed; external change invalidate
     (value) => value.diagnostics.length > 0,
   );
   expect(error.freshness).toBe("observed");
-  expect(await f.service.collectContext()).not.toContain("fixture error");
+  expect((await f.service.collectContext()) ?? "").not.toContain(
+    "fixture error",
+  );
   const count = f.observations.length;
   await writeFile(join(f.root, "main.ts"), "export const clean = 1;\n");
   await f.service.collectContext();
@@ -401,7 +405,9 @@ test("Full sync sends replacement bytes; project changes invalidate previously c
   await f.service.diagnostics("main.ts", f.port);
   expect(await f.service.collectContext()).toContain("fixture error");
   f.configuration.project = { serverId: "peer" };
-  expect(await f.service.collectContext()).not.toContain("fixture error");
+  expect((await f.service.collectContext()) ?? "").not.toContain(
+    "fixture error",
+  );
   await writeFile(join(f.root, "main.ts"), "export const clean = 1;\r\n");
   await f.service.synchronizeDocument("main.ts", f.port);
   const changes = (await f.log()).filter(
@@ -498,7 +504,9 @@ test("bounded cache sends didClose; result caps and policy refresh prevent stale
       .length,
   ).toBeGreaterThanOrEqual(2);
   f.configuration.ignorePatterns = ["*.js", "main.ts"];
-  expect(await f.service.collectContext()).not.toContain("fixture error");
+  expect((await f.service.collectContext()) ?? "").not.toContain(
+    "fixture error",
+  );
   expect((await f.service.status()).trackedDocuments).toBe(0);
   await f.service.dispose();
   await expect(f.service.ensureStarted()).rejects.toMatchObject({

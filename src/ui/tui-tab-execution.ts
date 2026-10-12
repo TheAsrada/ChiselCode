@@ -18,7 +18,7 @@ export interface QueuedTabPrompt {
   root: string;
 }
 export interface QueuedTabCommand extends Omit<QueuedTabPrompt, "kind"> {
-  kind: "command";
+  kind: "command" | "ui_tool";
   prepared: PreparedExtensionCommand;
   capturedModel?: CapturedCommandModel;
   scope: WorkspaceExtensionScope;
@@ -78,7 +78,7 @@ export class TuiTabExecution {
 
   cancel(): void {
     for (const item of this.pendingOperations)
-      if (item.kind === "command")
+      if (item.kind !== "prompt")
         item.onResult?.({
           output: "Queued command cancelled.",
           isError: true,

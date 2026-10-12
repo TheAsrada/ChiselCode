@@ -39,6 +39,12 @@ export class WorkspaceCoordinator {
   private changes = new Map<string, number>();
   private serial = 0;
   private released = new Set<() => void>();
+  private observers = new Set<(paths: readonly string[]) => void>();
+
+  onChanged(listener: (paths: readonly string[]) => void): () => void {
+    this.observers.add(listener);
+    return () => this.observers.delete(listener);
+  }
 
   onReleased(listener: () => void): () => void {
     this.released.add(listener);
@@ -108,6 +114,13 @@ export class WorkspaceCoordinator {
   changed(paths: readonly string[]): void {
     const version = ++this.serial;
     for (const path of paths) this.changes.set(path, version);
+    for (const listener of this.observers) {
+      try {
+        listener(paths);
+      } catch {
+        /* Passive projections cannot veto a revision. */
+      }
+    }
   }
 
   async withAccess<T>(

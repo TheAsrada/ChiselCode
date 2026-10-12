@@ -5,6 +5,8 @@ import type { SubagentService } from "../../subagents/service.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ChiselExtension } from "../contracts.js";
 import { createServiceToken } from "../services.js";
+import { agentsUiTarget } from "../ui-core.js";
+import { registerOwnerUi } from "./owner-ui.js";
 import {
   subagentActionTitle,
   subagentTaskView,
@@ -84,6 +86,7 @@ export function createSubagentExtension(
   return {
     id: "builtin.subagents",
     activate(ctx) {
+      registerOwnerUi(ctx, "agents", agentsUiTarget);
       ctx.chat.register({ id: "task", render: subagentTaskView });
       ctx.chat.register({
         id: "agent",

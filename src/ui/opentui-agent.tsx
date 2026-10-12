@@ -16,6 +16,10 @@ import {
 } from "../app/model-runtime.js";
 import { runExtensionCommand } from "../app/run-command.js";
 import { subagentControls } from "../app/subagent-inspection.js";
+import {
+  assertUiToolInvocation,
+  prepareUiToolInvocation,
+} from "../app/ui-tool.js";
 import { BackgroundSettingsStore } from "../background/settings.js";
 import {
   checkProviderConnection,
@@ -68,6 +72,7 @@ import {
   APPROVAL_MODE_LABELS,
   resolveApprovalMode,
 } from "../security/approval-mode.js";
+import { CredentialStore } from "../security/credentials.js";
 import { SecretRedactor } from "../security/redaction.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession, shortSessionId } from "../sessions/store.js";
@@ -189,6 +194,22 @@ async function runApplication(
     return controller;
   };
   const catalog = await getProviderCatalog();
+  const uiRedactor = new SecretRedactor();
+  for (const provider of catalog.registry.list())
+    for (const name of provider.auth.envVars) {
+      const value = process.env[name]?.trim();
+      if (value) uiRedactor.add(value);
+    }
+  const credentials = new CredentialStore();
+  for (const profile of Object.values(config.profiles)) {
+    if (!profile.apiKeyRef) continue;
+    try {
+      const value = await credentials.get(profile.apiKeyRef);
+      if (value) uiRedactor.add(value);
+    } catch {
+      /* Settings retains the existing credential error path. */
+    }
+  }
   const modelService = new ModelRequestService();
   let sideOperations = 0;
   const homeModel = settingsDraft(config, catalog.registry, activeOptions);
@@ -717,6 +738,7 @@ async function runApplication(
         );
       },
       save: async (values) => {
+        if (values.apiKey?.trim()) uiRedactor.add(values.apiKey.trim());
         const outcome = await saveProviderSettings(values, catalog.registry, {
           configPath: options.configPath,
         });
@@ -1418,8 +1440,15 @@ async function runApplication(
       abort.signal.aborted ||
       !controller.isCurrent(item.generation) ||
       controller.snapshot.projectPath !== item.root
-    )
+    ) {
+      if (item.kind !== "prompt")
+        item.onResult?.({
+          output: "Разговор изменён или закрыт.",
+          isError: true,
+          errorCode: "CANCELLED",
+        });
       return;
+    }
     const execution = workspace.execution(controller);
     const {
       input,
@@ -1430,7 +1459,11 @@ async function runApplication(
     const requestGeneration = controller.currentGeneration;
     const turnAbort = new AbortController();
     execution.abort = turnAbort;
-    const signal = AbortSignal.any([abort.signal, turnAbort.signal]);
+    const signal = AbortSignal.any([
+      abort.signal,
+      turnAbort.signal,
+      controller.ownerSignal,
+    ]);
     controller.conversation.begin(item.kind === "prompt" ? input : undefined);
     controller.startRequest();
     controller.setRunningMode(turnMode);
@@ -1451,18 +1484,23 @@ async function runApplication(
           controller.setSessionId(
             await abortable(() => pendingSession, signal),
           );
-        if (item.kind === "command") {
+        if (item.kind !== "prompt") {
           const snapshot = await commandActions.load(item.root, signal);
-          const descriptor = resolveSlashCommand(snapshot.projection, input);
+          const descriptor =
+            item.kind === "ui_tool"
+              ? undefined
+              : resolveSlashCommand(snapshot.projection, input);
           if (!controller.isCurrent(requestGeneration) || signal.aborted)
             return;
           if (
             snapshot.error ||
             snapshot.scope !== item.scope ||
-            descriptor?.source.type !== "extension" ||
-            descriptor.source.extensionId !==
-              item.prepared.command.source.extensionId ||
-            descriptor.source.name !== item.prepared.command.name
+            (item.kind === "ui_tool"
+              ? !assertUiToolInvocation(item.prepared, item.scope)
+              : descriptor?.source.type !== "extension" ||
+                descriptor.source.extensionId !==
+                  item.prepared.command.source.extensionId ||
+                descriptor.source.name !== item.prepared.command.name)
           ) {
             controller.append(
               snapshot.error ??
@@ -1471,7 +1509,10 @@ async function runApplication(
             );
             return;
           }
-          const heading = extensionCommandLabel(item.prepared.command);
+          const heading =
+            item.kind === "ui_tool"
+              ? "Действие интерфейса"
+              : extensionCommandLabel(item.prepared.command);
           controller.append(heading, "tool");
           controller.setToolActivity(heading);
           const outcome = await runExtensionCommand(
@@ -1829,7 +1870,7 @@ async function runApplication(
             "error",
           );
       } finally {
-        if (item.kind === "command") {
+        if (item.kind !== "prompt") {
           item.onResult?.({
             output: signal.aborted
               ? "Command cancelled."
@@ -1853,7 +1894,7 @@ async function runApplication(
         }
         let next = execution.pendingOperations.shift();
         while (next && !controller.isCurrent(next.generation)) {
-          if (next.kind === "command")
+          if (next.kind !== "prompt")
             next.onResult?.({
               output: "Queued workspace generation changed.",
               isError: true,
@@ -1928,6 +1969,46 @@ async function runApplication(
         initialSettingsOpen: setupRequired || setupOnly,
         onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
+        uiRedactor,
+        onUiTool: async (controller, scope, extensionId, tool, args) => {
+          const generation = controller.currentGeneration;
+          const originRoot = controller.snapshot.projectPath;
+          const assertOwner = () => {
+            if (
+              controller.ownerSignal.aborted ||
+              !controller.isCurrent(generation) ||
+              controller.snapshot.projectPath !== originRoot
+            )
+              throw new Error("Разговор заменён.");
+          };
+          const prepared = await prepareUiToolInvocation(
+            scope,
+            extensionId,
+            tool,
+            args,
+            assertOwner,
+          );
+          assertOwner();
+          return new Promise((resolve) => {
+            const item: QueuedTabOperation = {
+              kind: "ui_tool",
+              input: `Действие: ${tool}`,
+              prepared,
+              scope,
+              root: originRoot,
+              generation,
+              mode: controller.snapshot.agentMode,
+              approvalMode: controller.snapshot.approvalMode,
+              modelOptions: modelOptions(controller),
+              onResult: resolve,
+            };
+            const execution = workspace.execution(controller);
+            if (execution.activeRun) {
+              execution.pendingOperations.push(item);
+              controller.setBusy(true);
+            } else void executeOperation(controller, item);
+          });
+        },
         initialMode: config.ui?.sidebarMode ?? "auto",
         initialTheme: config.ui?.theme ?? "obsidian",
         initialUnicodeDecorations: config.ui?.unicodeDecorations === true,

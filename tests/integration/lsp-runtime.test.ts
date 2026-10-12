@@ -35,6 +35,7 @@ import type {
 import { attachSessionRecorder } from "../../src/sessions/checkpoints.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
+import { workspaceCoordinator } from "../../src/tools/workspace-coordinator.js";
 import type {
   JsonObject,
   ToolExecutionResult,
@@ -178,6 +179,54 @@ async function waitDiagnostics(
     "Real TypeScript diagnostics did not reach the expected update.",
   );
 }
+
+test("registered passive LSP views read a cached real analysis and mark workspace changes stale", async () => {
+  const f = await fixture();
+  let changes = 0;
+  const listener = f.service.subscribeUi(() => {
+    ++changes;
+  });
+  const ui = f.scope.ui.bind(
+    {
+      conversationId: "passive-owner",
+      generation: 1,
+      signal: new AbortController().signal,
+      read: {
+        ownerSummary: () => ({
+          background: { active: 0, errors: 0, awaitingApproval: 0 },
+          agents: { active: 0, total: 0, errors: 0 },
+        }),
+        subscribeOwner: () => ({ dispose() {} }),
+      },
+    },
+    () => {},
+  );
+  try {
+    const initial = await ui.page("builtin.lsp/analysis");
+    expect(initial.summary).toBe("Файлы ещё не проверены");
+    expect(f.service.uiStatus().generation).toBe(0);
+    expect(f.service.uiStatus().trackedDocuments).toBe(0);
+    const r = await runtime(f);
+    await waitDiagnostics(r, (items) =>
+      items.some((item) => Number(item.code) === 2322),
+    );
+    expect(f.service.uiStatus().checkedDocuments).toBe(1);
+    expect(f.service.uiStatus().diagnosticCount).toBeGreaterThan(0);
+    const cached = f.service.uiStatus();
+    const page = await ui.page("builtin.lsp/analysis");
+    expect(page.rows?.[0]?.label).toMatch(/^main\.ts:[1-9]\d*:[1-9]\d*$/);
+    expect(f.service.uiStatus()).toBe(cached);
+    expect(changes).toBeGreaterThan(0);
+    workspaceCoordinator.changed([join(f.root, "main.ts")]);
+    await Promise.resolve();
+    expect(f.service.uiStatus().staleDocuments).toBe(1);
+    expect((await ui.page("builtin.lsp/analysis")).state).toBe("stale");
+    expect(f.service.uiStatus().diagnostics).toHaveLength(0);
+  } finally {
+    ui.dispose();
+    listener.dispose();
+  }
+}, 20000);
 
 for (const scenario of [
   "auto",

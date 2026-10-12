@@ -168,6 +168,10 @@ export class ExtensionToolContributions implements ToolProvider {
   seal(): void {
     this.sealed = true;
   }
+  /** Host staging validation only; execution still goes through ToolCatalog. */
+  hasOwned(extensionId: string, name: string): boolean {
+    return this.handlers.has(`ext:${extensionId}:${name}`);
+  }
   dispose(): void {
     this.closed = true;
     this.handlers.clear();

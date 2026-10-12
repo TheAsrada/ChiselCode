@@ -19,6 +19,7 @@ import {
 } from "./lifecycle.js";
 import { ServiceRegistry } from "./services.js";
 import { ExtensionToolContributions } from "./tools.js";
+import { ExtensionUiRegistry } from "./ui.js";
 
 export async function canonicalWorkspaceRoot(root: string): Promise<string> {
   const canonical = await realpath(resolve(root));
@@ -37,6 +38,7 @@ export class WorkspaceExtensionScope implements Disposable {
   readonly tools: ExtensionToolContributions;
   readonly commands: ExtensionCommandContributions;
   readonly chat: ExtensionChatViews;
+  readonly ui: ExtensionUiRegistry;
   private readonly activations: ActivationResources[] = [];
   private readonly tracked = new Set<Disposable>();
   private disposal?: Promise<void>;
@@ -46,6 +48,13 @@ export class WorkspaceExtensionScope implements Disposable {
     private readonly onClose: () => void = () => {},
   ) {
     this.chat = new ExtensionChatViews(() => this.assertUsable());
+    this.ui = new ExtensionUiRegistry(
+      workspaceRoot,
+      this.signal,
+      () => this.assertUsable(),
+      (name) => this.commands.registeredOwner(name),
+      (owner, name) => this.tools.hasOwned(owner, name),
+    );
     this.toolGuards = new RuntimeHookPipeline(workspaceRoot, this.signal);
     this.contextProviders = new ContextProviderRegistry(
       workspaceRoot,
@@ -109,6 +118,16 @@ export class WorkspaceExtensionScope implements Disposable {
           register: (view: import("./contracts.js").ExtensionChatView) => {
             assertRegistering();
             track(this.chat.register(definition.id, view));
+          },
+        }),
+        ui: Object.freeze({
+          register: (contribution: import("./ui-types.js").UiContribution) => {
+            assertRegistering();
+            track(this.ui.register(definition.id, contribution));
+          },
+          registerView: (view: import("./ui-types.js").UiDetailsView) => {
+            assertRegistering();
+            track(this.ui.registerView(definition.id, view));
           },
         }),
         commands: Object.freeze({
@@ -191,6 +210,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.tools.seal();
     this.commands.seal();
     this.chat.seal();
+    this.ui.seal();
     this.ready = true;
   }
   abortLifetime(): void {
@@ -226,6 +246,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.tools.dispose();
     this.commands.dispose();
     this.chat.dispose();
+    this.ui.dispose();
     this.abortLifetime();
     return this.disposal;
   }
