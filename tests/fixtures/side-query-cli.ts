@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { execa } from "execa";
 
 /** Same ordinary CLI consumer through source, installed npm package and compiled binary. */
-export async function smokeSideQueryCli(command: string, args: string[]) {
+export async function smokeSideQueryCli(
+  command: string,
+  args: string[],
+  protocols: readonly ("oa" | "anth")[] = ["oa", "anth"],
+) {
   const storage = await mkdtemp(join(tmpdir(), "chisel-btw-cli-"));
   const root = join(storage, "workspace");
   await mkdir(root);
@@ -220,7 +224,7 @@ export async function smokeSideQueryCli(command: string, args: string[]) {
         lsp: { mode: "off", servers: {} },
       }),
     );
-    for (const protocol of ["oa", "anth"]) {
+    for (const protocol of protocols) {
       anthropic = protocol === "anth";
       for (const mode of [
         "success",
@@ -233,6 +237,8 @@ export async function smokeSideQueryCli(command: string, args: string[]) {
       ]) {
         attempts = 0;
         responseMode = mode;
+        const started = Date.now();
+        process.stderr.write(`Side query CLI: ${protocol}/${mode} — запуск\n`);
         const result = await execa(
           command,
           [
@@ -245,6 +251,9 @@ export async function smokeSideQueryCli(command: string, args: string[]) {
             "/btw Что происходит?",
           ],
           { env, reject: false, timeout: 20000 },
+        );
+        process.stderr.write(
+          `Side query CLI: ${protocol}/${mode} — ${Date.now() - started} ms, ${attempts} HTTP requests, exit ${result.exitCode}\n`,
         );
         const output = JSON.parse(result.stdout);
         assert.equal(output.owner.extensionId, "builtin.btw");
@@ -295,7 +304,7 @@ export async function smokeSideQueryCli(command: string, args: string[]) {
         assert.equal(saved.schemaVersion, 3);
       }
     }
-    assert.ok(bodies.length >= 10);
+    assert.equal(bodies.length, protocols.length * 9);
     process.stdout.write(
       "Side query CLI: real OpenAI/Anthropic, no-auth custom providers, three HTTP attempts, partial/protocol/auth failures and durable isolated records passed\n",
     );
@@ -308,5 +317,9 @@ if (import.meta.main) {
   const [command, ...args] = process.argv.slice(2);
   if (!command)
     throw new Error("Specify a CLI executable and optional leading arguments.");
-  await smokeSideQueryCli(command, args);
+  const protocol = process.env.CHISEL_TEST_SIDE_QUERY_PROTOCOL;
+  const selected: ("oa" | "anth")[] | undefined =
+    protocol === "oa" || protocol === "anth" ? [protocol] : undefined;
+  assert.ok(!protocol || selected);
+  await smokeSideQueryCli(command, args, selected);
 }
