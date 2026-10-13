@@ -66,7 +66,7 @@ jobs:
           if gh release view v0.6.25 --json isDraft > "$RUNNER_TEMP/current-release.json" 2>/dev/null; then
             test "$(jq -r .isDraft "$RUNNER_TEMP/current-release.json")" = true
           else
-            gh release create v0.6.25 --target "$SOURCE_SHA" --draft --title 'ChiselCode v0.6.25' --notes-file "$RUNNER_TEMP/release-notes.md"
+            gh release create v0.6.25 --verify-tag --draft --title 'ChiselCode v0.6.25' --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
           for file in "${files[@]}"; do
             timeout 180 gh release upload v0.6.25 "$file" --clobber
