@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import { execa } from "execa";
 import { RuntimeError } from "../runtime/errors.js";
+import { waitForOwnedGroupExit } from "./group-cleanup.js";
 import { hostShell } from "./shell.js";
 import { processSupervisor } from "./supervisor.js";
 import { WINDOWS_SHELL_TRANSPORT } from "./windows-shell.js";
@@ -40,6 +41,7 @@ export class ManagedProcess {
   private leaderSignal: string | null = null;
   private windowsTreeStopped = false;
   private groupKilled = false;
+  private cleanupDeadline?: number;
   private stopPromise?: Promise<ManagedOutcome>;
   private foregroundSignal?: AbortSignal;
   private readonly aborted = () => {
@@ -160,18 +162,15 @@ export class ManagedProcess {
         this.reason ??= "capture_failed";
       }
       let cleanup = this.outcome?.cleanup ?? false;
-      if (!cleanup && this.reason && !this.escaped) {
+      if (!cleanup && this.reason && !this.escaped && !this.outcome?.escaped) {
         if (process.platform === "win32") cleanup = this.windowsTreeStopped;
         else if (this.groupKilled)
           try {
-            const result = await execa("ps", ["-axo", "pgid=,stat="], {
-              timeout: 2000,
-              maxBuffer: 2 * 1024 * 1024,
-            });
-            cleanup = !result.stdout.split("\n").some((line) => {
-              const [group, state] = line.trim().split(/\s+/);
-              return Number(group) === child.pid && !state?.startsWith("Z");
-            });
+            this.cleanupPhase = "tree";
+            cleanup = await waitForOwnedGroupExit(
+              child.pid!,
+              this.cleanupDeadline ?? Date.now() + 2000,
+            );
           } catch {
             /* Missing proof retains the lifetime fence. */
           }
@@ -210,6 +209,7 @@ export class ManagedProcess {
   }
   private async terminate(): Promise<ManagedOutcome> {
     if (this.closed) return this.done;
+    this.cleanupDeadline = Date.now() + 10000;
     this.child.stdin?.write(`${JSON.stringify({ type: "stop" })}\n`);
     let graceful: ReturnType<typeof setTimeout>;
     let deadline: ReturnType<typeof setTimeout>;

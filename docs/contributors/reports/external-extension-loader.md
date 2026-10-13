@@ -47,3 +47,7 @@ Native captures: [docs/assets/external-extensions](../../assets/external-extensi
 ## Ограничения
 
 Runtime — trusted in-process JS; cooperative signals не прерывают sync hang/process.exit и не дают OS/CPU isolation. Exact digest не подтверждает publisher. Snapshot rechecks не исключают все атаки пользователя с теми же filesystem правами. Непроверенные платформы не объявляются успешными по Linux. Hot reload/reconnect/module unload, arbitrary native modules, npm registry publication и весь P3 не заявляются выполненными.
+
+## Дополнительная process regression
+
+[CI 38363373798](https://github.com/TheAsrada/ChiselCode/actions/runs/38363373798), source `a6cb42557e1a`, прошёл все шесть jobs, включая Windows installed/compiled external package, cancellation и raw-exit recovery. Последующий source `c5f767c27f8d` с compact unavailable view выявил macOS failure в прежнем TERM-ignoring descendant test ([job 115192934915](https://github.com/TheAsrada/ChiselCode/actions/runs/38366549450/job/115192934915)): после SIGKILL single ps snapshot мог ещё видеть живой выходящий процесс. Parent backend теперь ожидает реальный group exit в прежнем total cleanup deadline 10 s, с grace 2 s. Неопределённый/failed proof остаётся false и сохраняет fencing; escaped outcome не превращается в success. Real process-group barrier regression проверяет, что ожидание не завершается при живой группе и завершается после её фактического SIGKILL/exit. Native stop/descendant/pipe assertions и timeouts не удалены. Финальный CI ожидается.
