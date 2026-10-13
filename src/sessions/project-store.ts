@@ -5,7 +5,6 @@ import {
   readdir,
   readFile,
   realpath,
-  rename,
   rm,
   stat,
 } from "node:fs/promises";
@@ -32,6 +31,7 @@ import type { ChildReceipt } from "../subagents/contracts.js";
 import { ChildReceiptSchema } from "../subagents/schema.js";
 import type { Session } from "../types/domain.js";
 import { clipText } from "../utils/text.js";
+import { replaceSessionFile } from "./atomic.js";
 import { withLock } from "./lock.js";
 import {
   legacyProfileId,
@@ -98,7 +98,11 @@ const isMissing = (error: unknown): boolean =>
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8"));
 }
-async function atomicJson(path: string, value: unknown): Promise<void> {
+async function atomicJson(
+  path: string,
+  value: unknown,
+  assertOwned: () => Promise<void>,
+): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`;
   const handle = await open(temporary, "wx", 0o600);
   try {
@@ -108,7 +112,7 @@ async function atomicJson(path: string, value: unknown): Promise<void> {
     await handle.close();
   }
   try {
-    await rename(temporary, path);
+    await replaceSessionFile(temporary, path, assertOwned);
   } catch (error) {
     await rm(temporary, { force: true });
     throw error;
@@ -162,7 +166,7 @@ export class SessionProjectRegistry {
     await mkdir(sessionProjectsDir(), { recursive: true });
     const canonicalPath = await canonicalize(path);
     const registryPath = join(sessionsRootDir(), "projects.json");
-    const project = await withLock(registryPath, async () => {
+    const project = await withLock(registryPath, async (assertOwned) => {
       const projects = await this.list();
       const now = new Date().toISOString();
       let item = projects.find(
@@ -182,8 +186,12 @@ export class SessionProjectRegistry {
       } else item.lastOpenedAt = now;
       const directory = join(sessionProjectsDir(), item.id);
       await mkdir(directory, { recursive: true });
-      await atomicJson(join(directory, "project.json"), item);
-      await atomicJson(registryPath, { schemaVersion: 1, projects });
+      await atomicJson(join(directory, "project.json"), item, assertOwned);
+      await atomicJson(
+        registryPath,
+        { schemaVersion: 1, projects },
+        assertOwned,
+      );
       return item;
     });
     const store = new ProjectSessionStore(project);
@@ -299,7 +307,7 @@ export class ProjectSessionStore {
       title: session.title || "Без названия",
     });
     await this.list();
-    await withLock(this.indexPath, async () => {
+    await withLock(this.indexPath, async (assertOwned) => {
       let prior: z.infer<typeof persistedSessionSchema> | undefined;
       try {
         prior = persistedSessionSchema.parse(
@@ -327,7 +335,7 @@ export class ProjectSessionStore {
         ...mergedFields,
         schemaVersion: 3,
       });
-      await atomicJson(this.file(session.id), persisted);
+      await atomicJson(this.file(session.id), persisted, assertOwned);
       let index: z.infer<typeof indexSchema>;
       try {
         index = indexSchema.parse(await readJson(this.indexPath));
@@ -338,7 +346,7 @@ export class ProjectSessionStore {
         toSummary(merged),
         ...index.sessions.filter((entry) => entry.id !== session.id),
       ];
-      await atomicJson(this.indexPath, index);
+      await atomicJson(this.indexPath, index, assertOwned);
       session.children = structuredClone(merged.children);
       session.backgroundTasks = structuredClone(merged.backgroundTasks);
       session.sideQueries = structuredClone(merged.sideQueries);
@@ -356,14 +364,14 @@ export class ProjectSessionStore {
     const receipt = BackgroundReceiptSchema.parse(update);
     assertSessionId(id);
     await this.list();
-    return withLock(this.indexPath, async () => {
+    return withLock(this.indexPath, async (assertOwned) => {
       const session = await this.load(id);
       const prior = session.backgroundTasks?.[receipt.id];
       if (prior && prior.revision >= receipt.revision) return session;
       session.backgroundTasks ??= {};
       session.backgroundTasks[receipt.id] = receipt;
       session.updatedAt = new Date().toISOString();
-      await this.writePatchedSession(session);
+      await this.writePatchedSession(session, assertOwned);
       return session;
     });
   }
@@ -376,7 +384,7 @@ export class ProjectSessionStore {
     )
       throw new Error("Помощник принадлежит другому разговору.");
     await this.list();
-    return withLock(this.indexPath, async () => {
+    return withLock(this.indexPath, async (assertOwned) => {
       const session = await this.load(id);
       ensureMainSpend(session);
       const prior = session.children?.[receipt.child.id];
@@ -391,7 +399,7 @@ export class ProjectSessionStore {
       session.children[receipt.child.id] = receipt;
       recomputeSessionSpend(session);
       session.updatedAt = new Date().toISOString();
-      await this.writePatchedSession(session);
+      await this.writePatchedSession(session, assertOwned);
       return session;
     });
   }
@@ -401,7 +409,7 @@ export class ProjectSessionStore {
     if (record.owner.sessionId !== assertSessionId(id))
       throw new Error("Side request belongs to a different session.");
     await this.list();
-    return withLock(this.indexPath, async () => {
+    return withLock(this.indexPath, async (assertOwned) => {
       const session = await this.load(id);
       ensureMainSpend(session);
       const records = session.sideQueries ?? [];
@@ -437,14 +445,14 @@ export class ProjectSessionStore {
       session.sideQuerySpend[record.operationId] = spendForRecord(record);
       recomputeSessionSpend(session);
       session.updatedAt = new Date().toISOString();
-      await this.writePatchedSession(session);
+      await this.writePatchedSession(session, assertOwned);
       return session;
     });
   }
   /** Called at an owner resume boundary, never by ordinary checkpoint/load. */
   async interruptSideQueries(id: string): Promise<Session> {
     await this.list();
-    return withLock(this.indexPath, async () => {
+    return withLock(this.indexPath, async (assertOwned) => {
       const session = await this.load(id);
       let changed = false;
       for (const record of session.sideQueries ?? []) {
@@ -459,23 +467,26 @@ export class ProjectSessionStore {
         record.updatedAt = record.finishedAt = new Date().toISOString();
         record.revision++;
       }
-      if (changed) await this.writePatchedSession(session);
+      if (changed) await this.writePatchedSession(session, assertOwned);
       return session;
     });
   }
-  private async writePatchedSession(session: Session): Promise<void> {
+  private async writePatchedSession(
+    session: Session,
+    assertOwned: () => Promise<void>,
+  ): Promise<void> {
     const { projectPath: _projectPath, ...fields } = session;
     const persisted = persistedSessionSchema.parse({
       ...fields,
       schemaVersion: 3,
     });
-    await atomicJson(this.file(session.id), persisted);
+    await atomicJson(this.file(session.id), persisted, assertOwned);
     const index = indexSchema.parse(await readJson(this.indexPath));
     index.sessions = [
       toSummary(session),
       ...index.sessions.filter((entry) => entry.id !== session.id),
     ];
-    await atomicJson(this.indexPath, index);
+    await atomicJson(this.indexPath, index, assertOwned);
   }
   async load(id: string): Promise<Session> {
     const raw = await readJson(this.file(id));
@@ -542,7 +553,7 @@ export class ProjectSessionStore {
     const prior = indexRepairs.get(key);
     if (prior) return structuredClone(await prior);
     const rebuild = Promise.resolve().then(() =>
-      withLock(this.indexPath, async () => {
+      withLock(this.indexPath, async (assertOwned) => {
         const sessions: SessionSummary[] = [];
         for (const name of await listFiles(this.directory)) {
           if (!name.endsWith(".json")) continue;
@@ -555,7 +566,11 @@ export class ProjectSessionStore {
           }
         }
         sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-        await atomicJson(this.indexPath, { schemaVersion: 2, sessions });
+        await atomicJson(
+          this.indexPath,
+          { schemaVersion: 2, sessions },
+          assertOwned,
+        );
         return sessions;
       }),
     );
@@ -595,7 +610,7 @@ export class ProjectSessionStore {
     >,
   ): Promise<void> {
     await this.list();
-    await withLock(this.indexPath, async () => {
+    await withLock(this.indexPath, async (assertOwned) => {
       const session = await this.load(id);
       const changedModel =
         (preferences.providerId !== undefined &&
@@ -614,7 +629,7 @@ export class ProjectSessionStore {
         ...preferences,
       });
       const index = indexSchema.parse(await readJson(this.indexPath));
-      await atomicJson(this.file(id), persisted);
+      await atomicJson(this.file(id), persisted, assertOwned);
       index.sessions = index.sessions.map((entry) =>
         entry.id === id
           ? toSummary(
@@ -625,12 +640,12 @@ export class ProjectSessionStore {
             )
           : entry,
       );
-      await atomicJson(this.indexPath, index);
+      await atomicJson(this.indexPath, index, assertOwned);
     });
   }
   async delete(id: string): Promise<void> {
     await this.list();
-    await withLock(this.indexPath, async () => {
+    await withLock(this.indexPath, async (assertOwned) => {
       const existing = await this.load(id);
       if (
         Object.values(existing.children ?? {}).some(({ child }) =>
@@ -652,7 +667,7 @@ export class ProjectSessionStore {
         index = { schemaVersion: 2, sessions: [] };
       }
       index.sessions = index.sessions.filter((entry) => entry.id !== id);
-      await atomicJson(this.indexPath, index);
+      await atomicJson(this.indexPath, index, assertOwned);
     });
   }
   async resolve(ref: string): Promise<SessionSummary> {

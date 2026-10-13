@@ -33,6 +33,27 @@ afterEach(async () => {
 });
 
 describe("project session storage", () => {
+  test("real concurrent index readers and checkpoints retain the last durable result", async () => {
+    const store = await projectSessionStore(join(root, "reader-writer-work"));
+    const session = store.create("anthropic", "model");
+    await store.save(session);
+    await Promise.all([
+      (async () => {
+        for (let i = 1; i <= 20; i++) {
+          session.title = `checkpoint ${i}`;
+          await store.save(session);
+        }
+      })(),
+      ...Array.from({ length: 6 }, async () => {
+        for (let i = 0; i < 30; i++) {
+          const items = await store.list();
+          expect(items.some((item) => item.id === session.id)).toBe(true);
+        }
+      }),
+    ]);
+    expect((await store.load(session.id)).title).toBe("checkpoint 20");
+    expect((await store.list())[0]?.title).toBe("checkpoint 20");
+  });
   test("concurrent readers share one index-gap repair instead of starving child checkpoints with queued rescans", async () => {
     const store = await projectSessionStore(join(root, "repair-work"));
     const session = store.create("anthropic", "model");
