@@ -8,7 +8,7 @@
         │ Заметки проекта                                                                                      │/model  
         │ Источник: example.project-notes · Подробности                                                        │        
         │ Внешний пакет использует общий renderer ChiselCode                                                 ▀ │       █
-        │ Проект: /tmp/chisel-external-tui-k2kVgH/Проект внешнего SDK                                          │/tasks █
+        │ Проект: /tmp/chisel-external-tui-uxMHwB/Проект внешнего SDK                                          │/tasks █
         │  Заметка 1                                                                                           │       █
   ╭─ Чер│  Заметка 2                                                                                           │       █
   │     │  Заметка 3                                                                                           │    F7 █
@@ -37,4 +37,4 @@
                                                                                                                         
                                                                                                                         
                                                                                  РАСШИРЕНИЯ                             
- /tmp/chisel-external-tui-k2kVgH/Проект внешнего SDK         ChiselCode 0.6.25  Ctrl+B панель · F7 агенты               
+ /tmp/chisel-external-tui-uxMHwB/Проект внешнего SDK         ChiselCode 0.6.25  Ctrl+B панель · F7 агенты               

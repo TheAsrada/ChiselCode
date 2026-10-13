@@ -47,4 +47,4 @@
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
- /tmp/chisel-external-tui-Hi0eBa/Проект внешнего SDK                                                                                          ChiselCode 0.6.25 
+ /tmp/chisel-external-tui-LkUK23/Проект внешнего SDK                                                                                          ChiselCode 0.6.25 

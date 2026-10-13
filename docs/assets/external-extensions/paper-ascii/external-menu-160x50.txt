@@ -47,4 +47,4 @@
                                                                                                                           > Заметки проекта                     
                                                                                                                           Разрешённое внешнее расширение        
                                                                                                                                                                 
- /tmp/chisel-external-tui-zkSaFr/Проект внешнего SDK                                                 ChiselCode 0.6.25  Space открыть · 1-3 · Esc в чат         
+ /tmp/chisel-external-tui-kgIyUG/Проект внешнего SDK                                                 ChiselCode 0.6.25  Space открыть · 1-3 · Esc в чат         

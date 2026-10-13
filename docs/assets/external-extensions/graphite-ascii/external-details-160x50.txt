@@ -13,7 +13,7 @@
                             | Заметки проекта                                                                                      |                            
                             | Источник: example.project-notes · Подробности                                                        |                        F7  
                             | Внешний пакет использует общий renderer ChiselCode                                                 ^ |, изменения и результат...  
-                            | Проект: /tmp/chisel-external-tui-Vb3jVy/Проект внешнего SDK                                        v |                            
+                            | Проект: /tmp/chisel-external-tui-UfkCZZ/Проект внешнего SDK                                        v |                            
                             |  Заметка 1                                                                                           |                            
                             |  Заметка 2                                                                                           |                            
                  +- Черновик|  Заметка 3                                                                                           |                            
@@ -47,4 +47,4 @@
                                                                                                                           Заметки проекта                       
                                                                                                                           Разрешённое внешнее расширение        
                                                                                                                                                                 
- /tmp/chisel-external-tui-Vb3jVy/Проект внешнего SDK                                                 ChiselCode 0.6.25  Ctrl+B панель · F7 агенты               
+ /tmp/chisel-external-tui-UfkCZZ/Проект внешнего SDK                                                 ChiselCode 0.6.25  Ctrl+B панель · F7 агенты               

@@ -48,7 +48,13 @@ await writeFile(
   }),
 );
 const example = resolve("examples/extensions/project-notes");
-await copyFile(join(example, "index.ts"), join(author, "index.ts"));
+await writeFile(
+  join(author, "index.ts"),
+  (await readFile(join(example, "index.ts"), "utf8")).replace(
+    "page(_binding, request) {",
+    'page(_binding, request) { if (request.search === "fault") throw Error("never-display-source-error");',
+  ),
+);
 const bun = Bun.which("bun");
 assert.ok(bun, "Authoring fixture requires the installed Bun compiler");
 await execa(
@@ -235,6 +241,27 @@ try {
     );
     await capture(`external-details-${width}x${height}`);
   }
+  await act(async () => ui.renderer.resize(120, 40));
+  await frame();
+  // A real external source failure must remain readable in the smallest view.
+  await act(async () => ui.renderer.resize(24, 8));
+  await frame();
+  await key("/");
+  for (const character of "fault") await key(character);
+  await key("RETURN");
+  await until(
+    () => ui.captureCharFrame().includes("Данные недоступны"),
+    "На малом экране пропала причина unavailable",
+  );
+  assert.ok(!ui.captureCharFrame().includes("never-display-source-error"));
+  await capture("external-unavailable-24x8");
+  await key("/");
+  for (let i = 0; i < 5; i++) await key("BACKSPACE");
+  await key("RETURN");
+  await until(
+    () => !!ui.renderer.root.findDescendantById("extension-row-note-0"),
+    "Readonly cache retry не восстановил список",
+  );
   await act(async () => ui.renderer.resize(120, 40));
   await frame();
   await click("extension-refresh");

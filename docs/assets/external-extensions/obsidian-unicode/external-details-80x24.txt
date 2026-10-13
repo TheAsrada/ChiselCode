@@ -4,7 +4,7 @@
   │ Заметки проекта                                                          │  
   │ Источник: example.project-notes · Подробности                            │  
   │ Внешний пакет использует общий renderer ChiselCode                     █ │  
-  │ Проект: /tmp/chisel-external-tui-LT6zik/Проект внешнего SDK            █ │  
+  │ Проект: /tmp/chisel-external-tui-i41xrH/Проект внешнего SDK            █ │  
   │  Заметка 1                                                             █ │  
   │  Заметка 2                                                             ▀ │  
   │  Заметка 3                                                               │  
@@ -21,4 +21,4 @@
   │ ↑↓ выбор · Enter подробности · / поиск · Tab действия · Esc назад        │  
   │                                                                          │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
- /tmp/chisel-external-tui-LT6zik/Проект Ctrl+B панель · F7 агенты               
+ /tmp/chisel-external-tui-i41xrH/Проект Ctrl+B панель · F7 агенты               

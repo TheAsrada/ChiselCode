@@ -189,7 +189,7 @@ export function OpenTuiExtensionDetails({
         focused={false}
         viewportCulling
       >
-        {page?.summary && !compact && (
+        {page?.summary && (!compact || rows.length === 0) && (
           <text
             fg={uiTone(palette, page.state === "error" ? "error" : "muted")}
             content={page.summary}

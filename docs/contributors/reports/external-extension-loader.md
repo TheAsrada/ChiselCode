@@ -34,7 +34,7 @@ Fixture/example не входят в defaultExtensions, npm files или уст�
 
 Полный npm tarball также установлен в отдельный temporary TypeScript project вне checkout, typecheck/build прошли без src imports. Это отдельный Linux proof; межплатформенная fixture использует public exports/declarations настоящего installed package.
 
-Native captures: [docs/assets/external-extensions](../../assets/external-extensions/README.md), **80 TXT + 80 JSON + 80 PNG**, четыре темы × Unicode/ASCII, details 160×50/120×40/80×24/40×12/24×8, status/error/context/menu/approval/return draft. PNG экспортированы из настоящих captureSpans, вручную проверены все пять размеров, четыре темы, оба режима, error и approval. На малом экране второстепенные summary/attribution уступают место строкам списка; «Назад» остаётся доступно.
+Native captures: [docs/assets/external-extensions](../../assets/external-extensions/README.md), **88 TXT + 88 JSON + 88 PNG**, четыре темы × Unicode/ASCII, details 160×50/120×40/80×24/40×12/24×8, status/error/context/menu/approval/unavailable source/return draft. PNG экспортированы из настоящих captureSpans, вручную проверены все пять размеров, четыре темы, оба режима, error и approval. На малом экране при готовом списке второстепенные summary/attribution уступают место строкам; empty/unavailable сохраняет объяснение и readonly retry; «Назад» остаётся доступно.
 
 ## CI и Windows regression базы
 
