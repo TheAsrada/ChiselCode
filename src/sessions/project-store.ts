@@ -86,6 +86,9 @@ const indexSchema = z.object({
 
 export type SessionSummary = z.infer<typeof summarySchema>;
 export type ProjectMetadata = z.infer<typeof projectSchema>;
+// A file/index update gap can be observed by several child checkpoints and the
+// viewer together. Share one repair instead of queuing a full scan for each reader.
+const indexRepairs = new Map<string, Promise<SessionSummary[]>>();
 
 export function assertSessionId(id: string): string {
   return idSchema.parse(id);
@@ -532,22 +535,37 @@ export class ProjectSessionStore {
     return (await this.list()).find((item) => item.id === assertSessionId(id));
   }
   async rebuildIndex(): Promise<SessionSummary[]> {
-    return withLock(this.indexPath, async () => {
-      const sessions: SessionSummary[] = [];
-      for (const name of await listFiles(this.directory)) {
-        if (!name.endsWith(".json")) continue;
-        const id = name.slice(0, -5);
-        if (!idSchema.safeParse(id).success) continue;
-        try {
-          sessions.push(toSummary(await this.load(id)));
-        } catch {
-          /* corrupt session remains on disk */
+    const key =
+      process.platform === "win32"
+        ? this.indexPath.toLowerCase()
+        : this.indexPath;
+    const prior = indexRepairs.get(key);
+    if (prior) return structuredClone(await prior);
+    const rebuild = Promise.resolve().then(() =>
+      withLock(this.indexPath, async () => {
+        const sessions: SessionSummary[] = [];
+        for (const name of await listFiles(this.directory)) {
+          if (!name.endsWith(".json")) continue;
+          const id = name.slice(0, -5);
+          if (!idSchema.safeParse(id).success) continue;
+          try {
+            sessions.push(toSummary(await this.load(id)));
+          } catch {
+            /* corrupt session remains on disk */
+          }
         }
-      }
-      sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      await atomicJson(this.indexPath, { schemaVersion: 2, sessions });
-      return sessions;
-    });
+        sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        await atomicJson(this.indexPath, { schemaVersion: 2, sessions });
+        return sessions;
+      }),
+    );
+    indexRepairs.set(key, rebuild);
+    void rebuild
+      .finally(() => {
+        if (indexRepairs.get(key) === rebuild) indexRepairs.delete(key);
+      })
+      .catch(() => {});
+    return structuredClone(await rebuild);
   }
   async rename(id: string, title: string): Promise<void> {
     const trimmed = title.trim();

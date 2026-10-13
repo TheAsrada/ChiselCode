@@ -54,7 +54,19 @@ export interface ChatPresentation {
     }>;
   }>;
 }
+export interface FileDiff {
+  path: string;
+  kind: "create" | "edit" | "delete";
+  patch: string;
+  additions: number;
+  deletions: number;
+}
 export interface ToolResult {
+  preview?: string;
+  fileDiff?: FileDiff;
+  diffs?: FileDiff[];
+  artifact?: { uri: string; tokens: number };
+  requiresApproval?: boolean;
   output: string;
   rawOutput?: string;
   isError?: boolean;
@@ -339,6 +351,7 @@ export interface ExtensionDefinition {
   readonly id: string;
   readonly version: string;
   readonly apiVersion: 1;
+  readonly entry: string;
   activate(context: ActivationContext): void | Promise<void>;
 }
 export interface HostSdk {

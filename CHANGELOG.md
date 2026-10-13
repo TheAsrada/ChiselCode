@@ -4,6 +4,14 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), версии следуют [семантическому версионированию](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.25] - 2026-10-13
+
+- Внешние самодостаточные ESM-расширения загружаются из ChiselCode Home после проверки manifest, совместимости и явного доверия точному SHA-256 всех файлов. `extensions path/inspect/status/approve` работают без выполнения кода; `--no-external-extensions` сохраняет встроенные возможности при восстановлении запуска.
+- Опубликован SDK v1 `chiselcode/extension-sdk`: injected factory, JSON Schema tools, подготовленные операции чтения/записи/shell, команды и побочные запросы модели, context/guards/chat и три UI slots. Разрешения и владение проверяются штатным runtime; API не является OS sandbox для доверенного JavaScript.
+- Ошибка optional расширения откатывает его собственные регистрации, сохраняя исправные builtins. Code/trust/enabled применяются после перезапуска; установка, обновление, удаление и Settings → Extensions остаются следующими этапами.
+- Одновременные читатели разделяют одно восстановление индекса сессий, снижая очередь перед checkpoints помощников. Исправлена проверка canonical Home при системных aliases пути macOS; добавлены настоящие external authoring/import, file/checkpoint, child/background/worktree, installed/compiled и native TUI проверки.
+- Релиз включает npm tarball с публичными декларациями SDK и CLI в дополнение к четырём установщикам. Пример автора и тестовые расширения не входят в стандартный набор.
+
 ## [0.6.24] - 2026-10-12
 
 - Итог помощника публикуется после cleanup; ошибка освобождения копии сохраняет recovery state и не маскируется отменой.

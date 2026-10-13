@@ -2,6 +2,7 @@ import type { ExtensionFactory, ToolDefinition, JsonObject } from "chiselcode/ex
 
 const factory: ExtensionFactory = ({ sdk, manifest }) => ({
   id: manifest.id, version: manifest.version, apiVersion: 1,
+  entry: manifest.entry,
   activate(context) {
     let revision = 0;
     const subscribers = new Set<() => void>();

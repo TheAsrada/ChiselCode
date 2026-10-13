@@ -75,3 +75,5 @@ chisel --approval bypassPermissions "Выполни задачу"
 ## Фоновые задачи
 
 Запуск и перевод локальной команды в фон используют те же shell permissions, deny/guards и live recheck. Plan и readonly помощник не получают process capability; `/btw` не запускает фоновые процессы. Перевод не включает Bypass и не расширяет root/network. См. [Фоновые задачи](background-tasks.md).
+
+Подключение подготовленных пакетов: [Внешние расширения](extensions.md). Для автора: [SDK и примеры](extensions/README.md).

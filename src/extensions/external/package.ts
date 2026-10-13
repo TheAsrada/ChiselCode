@@ -44,8 +44,34 @@ export async function extensionsDirectory(): Promise<string> {
   return realpath(dir);
 }
 async function safeRoot(candidate: string, parent: string): Promise<string> {
-  const path = resolve(candidate),
+  const path = resolve(candidate);
+  let base = parent,
     rel = relative(canonicalPath(parent), canonicalPath(path));
+  // Canonical Home can have a system alias above it (macOS /var -> /private/var).
+  // Only accept an ancestor whose actual identity is this exact Home directory.
+  if (
+    isAbsolute(rel) ||
+    rel === ".." ||
+    rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
+  ) {
+    let anchor = dirname(path),
+      found = false;
+    for (let depth = 0; depth < 64; depth++) {
+      if (canonicalPath(await realpath(anchor)) === canonicalPath(parent)) {
+        base = anchor;
+        rel = relative(anchor, path);
+        found = true;
+        break;
+      }
+      const next = dirname(anchor);
+      if (next === anchor) break;
+      anchor = next;
+    }
+    if (!found)
+      throw new Error(
+        "Подготовленный пакет должен находиться внутри ChiselCode Home/extensions.",
+      );
+  }
   if (
     !rel ||
     isAbsolute(rel) ||
@@ -55,15 +81,18 @@ async function safeRoot(candidate: string, parent: string): Promise<string> {
     throw new Error(
       "Подготовленный пакет должен находиться внутри ChiselCode Home/extensions.",
     );
-  let current = parent;
-  for (const part of relative(parent, path).split(/[\\/]/)) {
+  let current = base;
+  for (const part of relative(base, path).split(/[\\/]/)) {
     current = join(current, part);
     const info = await lstat(current);
     if (info.isSymbolicLink() || !info.isDirectory())
       throw new Error("Ссылки и junction в пути пакета запрещены.");
   }
   const canonical = await realpath(path);
-  if (canonicalPath(canonical) !== canonicalPath(path))
+  if (
+    canonicalPath(canonical) !==
+    canonicalPath(resolve(parent, relative(base, path)))
+  )
     throw new Error("Путь пакета изменился.");
   return canonical;
 }

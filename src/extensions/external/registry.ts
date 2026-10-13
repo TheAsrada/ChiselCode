@@ -16,6 +16,7 @@ export const ExtensionRecordSchema = z
     id: ExternalIdSchema,
     version: z.string().max(80),
     apiVersion: z.literal(1),
+    entry: z.string().min(1).max(512),
     location: z.string().min(1).max(4096),
     digest: z.string().regex(/^[a-f0-9]{64}$/),
     enabled: z.boolean(),
@@ -62,6 +63,7 @@ export function receiptMatches(
     record.id === candidate.manifest.id &&
     record.version === candidate.manifest.version &&
     record.apiVersion === candidate.manifest.apiVersion &&
+    record.entry === candidate.manifest.entry &&
     canonicalPath(record.location) === canonicalPath(candidate.location) &&
     record.digest === candidate.digest
   );
@@ -101,6 +103,7 @@ export async function approvePackage(
       id,
       version: candidate.manifest.version,
       apiVersion: 1,
+      entry: candidate.manifest.entry,
       location: candidate.location,
       digest,
       enabled,

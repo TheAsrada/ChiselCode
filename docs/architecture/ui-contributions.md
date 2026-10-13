@@ -2,7 +2,7 @@
 
 [Архитектура](../architecture.md) · [Пользовательская справка](../interface-contributions.md) · [Отчёт](../contributors/reports/ui-contributions.md)
 
-Это рабочий internal linked API. Код расширения исполняется в процессе приложения. Loader, установка, trust, marketplace, внешний SDK и совместимость package/apiVersion остаются отдельным этапом. Data-only contracts и AbortSignal не создают OS sandbox и не прерывают синхронный бесконечный JS callback.
+Это рабочий internal linked API встроенных возможностей. [Публичный SDK и внешний loader](external-extensions.md) адаптируют его для подготовленного trusted пакета; external context не получает private core navigation constructors. Установка/обновление/удаление и Settings остаются следующими этапами. Data-only contracts и AbortSignal не создают OS sandbox и не прерывают синхронный бесконечный JS callback.
 
 ## Регистрация
 

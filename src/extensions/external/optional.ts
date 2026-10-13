@@ -22,14 +22,14 @@ export function optionalDiagnostic(
 const optional = new WeakMap<
   ChiselExtension,
   (
-    state: "active" | "activation_failed" | "cleanup_failed",
+    state: "active" | "activation_failed" | "cleanup_failed" | "disposed",
     root: string,
   ) => void
 >();
 export function markOptional(
   definition: ChiselExtension,
   outcome: (
-    state: "active" | "activation_failed" | "cleanup_failed",
+    state: "active" | "activation_failed" | "cleanup_failed" | "disposed",
     root: string,
   ) => void,
 ): ChiselExtension {

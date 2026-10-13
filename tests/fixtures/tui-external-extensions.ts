@@ -88,7 +88,7 @@ await writeFile(
 );
 await writeFile(
   join(broken, "index.mjs"),
-  "export default ({manifest})=>({id:manifest.id,version:manifest.version,apiVersion:1,activate(){throw Error('token=never-display-raw-cause')}});",
+  "export default ({manifest})=>({id:manifest.id,version:manifest.version,apiVersion:1,entry:manifest.entry,activate(){throw Error('token=never-display-raw-cause')}});",
 );
 const failedCandidate = await inspectPackage(broken);
 await approvePackage(
@@ -152,6 +152,7 @@ async function click(id: string) {
 async function capture(name: string) {
   const folder = process.env.CHISEL_EXTERNAL_CAPTURES;
   if (!folder) return;
+  await frame();
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, name + ".txt"), ui.captureCharFrame());
   const spans = ui.captureSpans();
@@ -227,6 +228,11 @@ try {
     await frame();
     const back = ui.renderer.root.findDescendantById("extension-close");
     assert.ok(back && back.y < height!);
+    const row = ui.renderer.root.findDescendantById("extension-row-note-0");
+    assert.ok(
+      row && row.y < height! - 2,
+      "На малом экране должна оставаться строка списка",
+    );
     await capture(`external-details-${width}x${height}`);
   }
   await act(async () => ui.renderer.resize(120, 40));

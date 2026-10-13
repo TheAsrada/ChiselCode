@@ -8,6 +8,7 @@ import { abortable, frozenClone } from "../lifecycle.js";
 import { adaptDefinition, createHostSdk } from "./adapter.js";
 import { markOptional, setOptionalDiagnostic } from "./optional.js";
 import {
+  canonicalPath,
   type InspectedPackage,
   inspectPackage,
   runtimeSnapshot,
@@ -105,7 +106,14 @@ export async function inspectRecord(
   }
 }
 // Canonical dynamic import, never a query-string cache bust. Factory runs once per approved identity.
-const modules = new Map<string, Promise<ChiselExtension>>();
+interface ModuleEntry {
+  promise: Promise<ChiselExtension>;
+  demand: Set<AbortSignal>;
+  abort: AbortController;
+  started: boolean;
+  settled: boolean;
+}
+const modules = new Map<string, ModuleEntry>();
 let operations = 0;
 const waiters: Array<() => void> = [];
 async function limited<T>(work: () => Promise<T>): Promise<T> {
@@ -123,35 +131,85 @@ async function limited<T>(work: () => Promise<T>): Promise<T> {
 async function loadModule(
   record: ExtensionRecord,
   candidate: InspectedPackage,
+  signal: AbortSignal,
 ): Promise<ChiselExtension> {
-  const key = JSON.stringify([record.id, record.location, record.digest]);
+  const key = JSON.stringify([
+    record.id,
+    canonicalPath(record.location),
+    record.digest,
+  ]);
   let pending = modules.get(key);
+  if (pending?.abort.signal.aborted && !pending.started) {
+    modules.delete(key);
+    pending = undefined;
+  }
   if (!pending) {
-    pending = limited(async () => {
-      const entry = await runtimeSnapshot(
-        candidate,
-        AbortSignal.timeout(10000),
-      );
-      const module = await abortable(
-        () => import(pathToFileURL(entry).href),
-        AbortSignal.timeout(10000),
-      );
-      if (typeof module.default !== "function")
-        throw new Error("Отсутствует default factory.");
-      const sdk = createHostSdk(candidate.manifest),
-        factory = module.default as ExtensionFactory;
-      const definition = await abortable(
-        () =>
-          factory(
-            Object.freeze({ sdk, manifest: frozenClone(candidate.manifest) }),
-          ),
-        AbortSignal.timeout(10000),
-      );
-      return adaptDefinition(definition, candidate.manifest, sdk);
-    });
+    let cacheEntry!: ModuleEntry;
+    const promise = Promise.resolve().then(() =>
+      limited(async () => {
+        // No remaining live workspace means no new snapshot/import/factory may begin.
+        if (cacheEntry.abort.signal.aborted)
+          throw new Error("Загрузка отменена до import.");
+        const budget = () =>
+          AbortSignal.any([
+            cacheEntry.abort.signal,
+            AbortSignal.timeout(10000),
+          ]);
+        const file = await runtimeSnapshot(candidate, budget());
+        if (cacheEntry.abort.signal.aborted)
+          throw new Error("Загрузка отменена до import.");
+        cacheEntry.started = true;
+        const module = await abortable(
+          () => import(pathToFileURL(file).href),
+          budget(),
+        );
+        if (typeof module.default !== "function")
+          throw new Error("Отсутствует default factory.");
+        const sdk = createHostSdk(candidate.manifest),
+          factory = module.default as ExtensionFactory;
+        const definition = await abortable(
+          () =>
+            factory(
+              Object.freeze({ sdk, manifest: frozenClone(candidate.manifest) }),
+            ),
+          budget(),
+        );
+        return adaptDefinition(definition, candidate.manifest, sdk);
+      }),
+    );
+    cacheEntry = {
+      demand: new Set(),
+      abort: new AbortController(),
+      started: false,
+      settled: false,
+      promise,
+    };
+    promise.then(
+      () => {
+        cacheEntry.settled = true;
+      },
+      () => {
+        cacheEntry.settled = true;
+        if (!cacheEntry.started && modules.get(key) === cacheEntry)
+          modules.delete(key);
+      },
+    );
+    pending = cacheEntry;
     modules.set(key, pending);
   }
-  return pending;
+  const current = pending;
+  current.demand.add(signal);
+  const release = () => {
+    current.demand.delete(signal);
+    if (!current.demand.size && !current.settled) current.abort.abort();
+  };
+  signal.addEventListener("abort", release, { once: true });
+  try {
+    return await abortable(() => current.promise, signal);
+  } finally {
+    signal.removeEventListener("abort", release);
+    release();
+  }
 }
 
 /** One frozen user boot plan. Workspace policy only narrows it before import. */
@@ -243,7 +301,7 @@ export class ExternalExtensionLoader {
           let definition: ChiselExtension;
           try {
             definition = await abortable(
-              () => loadModule(record, candidate),
+              () => loadModule(record, candidate, context.signal),
               context.signal,
             );
           } catch {
@@ -267,6 +325,11 @@ export class ExternalExtensionLoader {
       );
       return [
         markOptional(wrapper, (state, root) => {
+          if (state === "disposed") {
+            this.diagnostics.delete(`${record.id}/${root}`);
+            loadedRoots.delete(root);
+            return;
+          }
           const prior = this.diagnostics.get(`${record.id}/${root}`);
           if (
             !prior ||

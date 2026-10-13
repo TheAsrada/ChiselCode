@@ -278,13 +278,27 @@ export class WorkspaceExtensionScope implements Disposable {
       const failures: CleanupFailure[] = [];
       for (const frame of [...this.activations].reverse()) {
         frame.lifetime.abort();
+        const definition = this.definitions.find(
+          (item) => item.id === frame.extensionId,
+        );
+        const outcome = definition && optionalOutcome(definition);
+        const budget = outcome ? AbortSignal.timeout(10000) : undefined;
+        let frameFailed = false;
         for (const resource of [...frame.resources].reverse()) {
           try {
-            await resource.dispose();
+            const pending = Promise.resolve(resource.dispose());
+            pending.catch(() => {});
+            if (budget) await abortable(() => pending, budget);
+            else await pending;
           } catch (cause) {
+            frameFailed = true;
             failures.push(cleanupFailure(frame.extensionId, cause));
           }
         }
+        outcome?.(
+          frameFailed ? "cleanup_failed" : "disposed",
+          this.workspaceRoot,
+        );
       }
       this.activations.length = 0;
       this.tracked.clear();

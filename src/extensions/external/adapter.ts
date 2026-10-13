@@ -33,6 +33,8 @@ const nativeTools = new Set([
   "apply_patch",
   "read_tool_result",
   "run_shell",
+  "web_search",
+  "web_fetch",
   "git_status",
   "git_diff",
   "git_log",
@@ -342,7 +344,9 @@ function adaptTool(
                 : { ...context, signal },
               captured.plan,
             )
-            .then((result) => publicResult(result));
+            .then((result) =>
+              publicResult(context.sanitizeResult?.(result) ?? result),
+            );
           return run;
         },
       });
@@ -370,6 +374,13 @@ function publicResult(result: ToolExecutionResult): Public.ToolResult {
     ...(result.isError !== undefined ? { isError: result.isError } : {}),
     ...(result.errorCode ? { errorCode: result.errorCode } : {}),
     ...(result.details ? { details: result.details } : {}),
+    ...(result.preview ? { preview: result.preview } : {}),
+    ...(result.fileDiff ? { fileDiff: result.fileDiff } : {}),
+    ...(result.diffs ? { diffs: result.diffs } : {}),
+    ...(result.artifact ? { artifact: result.artifact } : {}),
+    ...(result.requiresApproval !== undefined
+      ? { requiresApproval: result.requiresApproval }
+      : {}),
   }) as Public.ToolResult;
 }
 function publicModel(
@@ -441,6 +452,7 @@ export function adaptDefinition(
     definition.id !== manifest.id ||
     definition.version !== manifest.version ||
     definition.apiVersion !== 1 ||
+    definition.entry !== manifest.entry ||
     typeof definition.activate !== "function"
   )
     throw new Error("Factory definition не совпадает с manifest.");

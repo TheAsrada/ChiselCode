@@ -40,6 +40,7 @@ export function OpenTuiExtensionDetails({
   const [search, setSearch] = useState(view?.search ?? "");
   const scroll = useRef<ScrollBoxRenderable>(null);
   const layout = dialogLayout(width, height);
+  const compact = layout.popupHeight < 16;
   const owner = `extension-view:${controller.conversationId}:${controller.currentGeneration}`;
   const page = view?.page;
   const rows = page?.rows ?? [];
@@ -163,7 +164,7 @@ export function OpenTuiExtensionDetails({
         fg={palette.accent}
         content={terminalLine(view.title, inner)}
       />
-      {!layout.tiny && (
+      {!compact && (
         <text
           height={1}
           fg={palette.muted}
@@ -188,13 +189,13 @@ export function OpenTuiExtensionDetails({
         focused={false}
         viewportCulling
       >
-        {page?.summary && (
+        {page?.summary && !compact && (
           <text
             fg={uiTone(palette, page.state === "error" ? "error" : "muted")}
             content={page.summary}
           />
         )}
-        {!layout.tiny &&
+        {!compact &&
           (page?.fields ?? []).map((row) => (
             <text
               key={row.id}
@@ -242,7 +243,7 @@ export function OpenTuiExtensionDetails({
         <DialogAction
           id="extension-refresh"
           label={
-            layout.tiny
+            compact
               ? "Ещё"
               : page?.nextCursor
                 ? "Следующая страница"

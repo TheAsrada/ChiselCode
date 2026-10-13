@@ -9,9 +9,9 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { sessionProjectsDir, sessionsRootDir } from "../../src/paths/home.js";
-import { withLock } from "../../src/sessions/lock.js";
+import { storageLockDiagnostics, withLock } from "../../src/sessions/lock.js";
 import {
   projectSessionStore,
   SessionProjectRegistry,
@@ -33,6 +33,68 @@ afterEach(async () => {
 });
 
 describe("project session storage", () => {
+  test("concurrent readers share one index-gap repair instead of starving child checkpoints with queued rescans", async () => {
+    const store = await projectSessionStore(join(root, "repair-work"));
+    const session = store.create("anthropic", "model");
+    await store.save(session);
+    const path = join(store.directory, "index.json");
+    let entered!: () => void, release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = withLock(path, async () => {
+      await writeFile(path, "interrupted index");
+      entered();
+      await barrier;
+    });
+    await ready;
+    let requests = 0,
+      noticed!: () => void;
+    const all = new Promise<void>((resolve) => {
+      noticed = resolve;
+    });
+    const rebuild = store.rebuildIndex.bind(store);
+    store.rebuildIndex = () => {
+      if (++requests === 20) noticed();
+      return rebuild();
+    };
+    const readers = Array.from({ length: 20 }, () => store.list());
+    try {
+      await all;
+      expect(
+        storageLockDiagnostics().filter(
+          (item) => item.path === resolve(path) && item.phase === "local_queue",
+        ).length,
+      ).toBe(1);
+      release();
+      await holder;
+      const lists = await Promise.all(readers);
+      expect(
+        lists.every((list) => list.length === 1 && list[0]?.id === session.id),
+      ).toBe(true);
+      lists[0]![0]!.title = "caller-local";
+      expect(lists[1]![0]!.title).not.toBe("caller-local");
+      session.messages.push({
+        role: "user",
+        content: [{ type: "text", text: "checkpoint after repair" }],
+      });
+      await store.save(session);
+      expect((await store.load(session.id)).messages.at(-1)?.content).toEqual(
+        session.messages.at(-1)?.content,
+      );
+      expect(
+        storageLockDiagnostics().filter((item) => item.path === resolve(path))
+          .length,
+      ).toBe(0);
+    } finally {
+      release();
+      await holder;
+      await Promise.allSettled(readers);
+    }
+  });
   test("model preference updates preserve latest history, modes and accounting and invalidate context", async () => {
     const store = await projectSessionStore(join(root, "work"));
     const session = store.create("anthropic", "old-model");

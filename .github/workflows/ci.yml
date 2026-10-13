@@ -201,3 +201,11 @@ jobs:
           path: dist/subagent-captures
           if-no-files-found: error
           retention-days: 7
+      - name: Save ordinary external SDK TUI captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-sdk-opentui-${{ matrix.os }}
+          path: dist/external-extension-captures
+          if-no-files-found: warn
+          retention-days: 7
