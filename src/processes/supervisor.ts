@@ -167,10 +167,23 @@ export async function processSupervisor(
     );
     control.end(() => process.exit(0));
   };
+  const finishWindowsTransport = () => {
+    // After command exit + EOF + an empty owned-tree census, the fixed
+    // transport only disposes handles and exits. Its exit/pipe events are
+    // enough to finish that handshake; another expensive CIM query cannot
+    // add command-writer evidence and can exhaust a child's drain budget.
+    if (transportEnding && transportExited && stdoutDone && stderrDone)
+      void finish(!escaped);
+  };
   const sample = async () => {
     if (sampling || finished || !shell?.pid) return;
+    if (transportEnding) {
+      finishWindowsTransport();
+      return;
+    }
     sampling = true;
     try {
+      const commandEndedBeforeCensus = exited && commandEof;
       const rows = await census();
       const leader = rows.find((row) => row.pid === shell!.pid);
       if (
@@ -231,12 +244,13 @@ export async function processSupervisor(
         escaped = true;
         send({ type: "ownership_unknown" });
       }
-      if (runtime.kind === "cmd" && exited && commandEof && !live.length) {
-        if (!transportEnding && !transportExited) {
+      if (runtime.kind === "cmd" && commandEndedBeforeCensus && !live.length) {
+        if (!transportEnding) {
           transportEnding = true;
-          shell.stdin?.write("finish\n");
+          send({ type: "cleanup_phase", phase: "transport" });
+          if (!transportExited) shell.stdin?.write("finish\n");
         }
-        if (transportExited && stdoutDone && stderrDone) finish(!escaped);
+        finishWindowsTransport();
       } else if (
         runtime.kind !== "cmd" &&
         exited &&
@@ -405,7 +419,8 @@ export async function processSupervisor(
               throw new Error("Внутренний канал Windows переполнен.");
           }
           stdoutDone = true;
-          void sample();
+          if (transportEnding) finishWindowsTransport();
+          else void sample();
         })().catch((error) => {
           escaped = true;
           send({ type: "error", message: String(error) });
@@ -421,7 +436,8 @@ export async function processSupervisor(
               Buffer.from(chunk),
             ]).subarray(-2048);
           stderrDone = true;
-          void sample();
+          if (transportEnding) finishWindowsTransport();
+          else void sample();
         })().catch(() => {
           stderrDone = true;
           escaped = true;
@@ -453,7 +469,8 @@ export async function processSupervisor(
               });
             if (escaped) send({ type: "ownership_unknown" });
           }
-          void sample();
+          if (transportEnding) finishWindowsTransport();
+          else void sample();
           return;
         }
         exited = true;
