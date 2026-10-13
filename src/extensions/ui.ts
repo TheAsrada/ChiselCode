@@ -233,8 +233,11 @@ export class ExtensionUiRegistry implements Disposable {
       );
     }
   }
-  seal(): void {
-    for (const entry of [...this.entries.values(), ...this.views.values()])
+  validateOwner(owner?: string): void {
+    const entries = [...this.entries.values(), ...this.views.values()].filter(
+      (entry) => !owner || entry.extensionId === owner,
+    );
+    for (const entry of entries)
       for (const action of entry.actions)
         if (
           action.type === "view" &&
@@ -244,7 +247,7 @@ export class ExtensionUiRegistry implements Disposable {
             "UI view is not registered.",
             entry.extensionId,
           );
-    for (const entry of [...this.entries.values(), ...this.views.values()])
+    for (const entry of entries)
       for (const action of entry.actions)
         if (
           action.type === "tool" &&
@@ -256,6 +259,7 @@ export class ExtensionUiRegistry implements Disposable {
             entry.extensionId,
           );
     for (const entry of this.entries.values()) {
+      if (owner && entry.extensionId !== owner) continue;
       const shortcut = entry.descriptor.shortcut;
       if (!shortcut) continue;
       const valid = shortcut.startsWith("/")
@@ -272,6 +276,9 @@ export class ExtensionUiRegistry implements Disposable {
           entry.extensionId,
         );
     }
+  }
+  seal(): void {
+    this.validateOwner();
     this.sealed = true;
   }
   assertAvailable(): void {

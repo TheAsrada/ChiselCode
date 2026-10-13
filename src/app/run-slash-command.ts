@@ -5,7 +5,7 @@ import {
 } from "../commands/slash.js";
 import { loadGlobalConfig } from "../config/load.js";
 import {
-  defaultExtensions,
+  applicationExtensions,
   withOwnedExtensionHost,
 } from "../extensions/composition.js";
 import { captureConversation } from "../models/context.js";
@@ -42,7 +42,7 @@ export async function runSlashCommand(
   process.on("SIGINT", cancel);
   try {
     return await withOwnedExtensionHost(
-      defaultExtensions([], options),
+      await applicationExtensions(options),
       async (host) => {
         const scope = await host.open(root);
         const descriptor = resolveSlashCommand(
@@ -52,6 +52,24 @@ export async function runSlashCommand(
           ),
           input,
         );
+        if (
+          !descriptor &&
+          scope
+            .externalDiagnostics()
+            .some((item) =>
+              [
+                "invalid",
+                "modified",
+                "load_failed",
+                "activation_failed",
+                "cleanup_failed",
+                "incompatible",
+              ].includes(item.state),
+            )
+        )
+          throw new Error(
+            "Команда недоступна после ошибки внешнего пакета; проверьте chisel extensions status. Запрос модели не запущен.",
+          );
         if (descriptor?.source.type !== "extension") return undefined;
         const command = scope.commands.get(descriptor.source.name);
         let parsed: unknown;

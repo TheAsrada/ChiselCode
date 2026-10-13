@@ -71,6 +71,19 @@ async function removeStaleLock(lock: string): Promise<void> {
 }
 
 const localQueues = new Map<string, Promise<void>>();
+const pendingLocks = new Set<{ path: string; phase: string; since: number }>();
+/** Passive diagnostics for a bounded storage wait; no lock acquisition or filesystem reads. */
+export function storageLockDiagnostics(): ReadonlyArray<{
+  path: string;
+  phase: string;
+  elapsedMs: number;
+}> {
+  return [...pendingLocks].slice(0, 64).map((item) => ({
+    path: item.path,
+    phase: item.phase,
+    elapsedMs: Date.now() - item.since,
+  }));
+}
 
 /** Same-process writers use FIFO before contending for the durable OS-visible lock. */
 export async function withLock<T>(
@@ -87,6 +100,12 @@ export async function withLock<T>(
   });
   const queue = previous.then(() => current);
   localQueues.set(key, queue);
+  const diagnostic = {
+    path: canonical,
+    phase: "local_queue",
+    since: Date.now(),
+  };
+  pendingLocks.add(diagnostic);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
@@ -99,10 +118,13 @@ export async function withLock<T>(
       }),
     ]);
     if (timeout) clearTimeout(timeout);
-    return await withFileLock(path, action);
+    return await withFileLock(path, action, (phase) => {
+      diagnostic.phase = phase;
+    });
   } finally {
     if (timeout) clearTimeout(timeout);
     release();
+    pendingLocks.delete(diagnostic);
     // A timed-out waiter must keep its predecessor in the queue until it leaves.
     void queue.then(() => {
       if (localQueues.get(key) === queue) localQueues.delete(key);
@@ -113,7 +135,9 @@ export async function withLock<T>(
 async function withFileLock<T>(
   path: string,
   action: (assertOwned: () => Promise<void>) => Promise<T>,
+  progress: (phase: string) => void,
 ): Promise<T> {
+  progress("file_lock");
   const lock = `${path}.lock`;
   const token = randomUUID();
   const owner = join(lock, "owner");
@@ -148,8 +172,10 @@ async function withFileLock<T>(
   }, HEARTBEAT_MS);
   timer.unref();
   const releaseOwned = async () => {
+    progress("heartbeat_drain");
     clearInterval(timer);
     await heartbeat;
+    progress("release_owned");
     const releaseDeadline = Date.now() + WAIT_MS;
     while (
       !(await withCleanupGuard(lock, async () => {
@@ -165,6 +191,7 @@ async function withFileLock<T>(
     }
   };
   try {
+    progress("action");
     return await action(async () => {
       if ((await readFile(owner, "utf8").catch(() => "")) !== token)
         throw new Error(

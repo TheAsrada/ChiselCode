@@ -10,6 +10,7 @@ import { projectExtension } from "./builtins/project.js";
 import { createSubagentExtension } from "./builtins/subagents.js";
 import { createWorktreeExtension } from "./builtins/worktrees.js";
 import type { ChiselExtension, ContextCollectionPort } from "./contracts.js";
+import { ExternalExtensionLoader } from "./external/loader.js";
 import {
   canonicalWorkspaceRoot,
   ExtensionHost,
@@ -50,6 +51,16 @@ export function defaultExtensions(
     ),
     ...custom,
   ];
+}
+
+/** Ordinary application startup only. Explicit borrowed/custom dependencies remain explicit. */
+export async function applicationExtensions(
+  options: { configPath?: string; externalExtensions?: boolean } = {},
+): Promise<readonly ChiselExtension[]> {
+  const builtins = defaultExtensions([], options);
+  if (options.externalExtensions === false) return builtins;
+  const loader = await ExternalExtensionLoader.create();
+  return [...builtins, ...loader.definitions(builtins)];
 }
 
 export async function withOwnedExtensionHost<T>(

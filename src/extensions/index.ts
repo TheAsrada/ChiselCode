@@ -12,7 +12,7 @@ export type {
   ChatPresentation,
   ChatStyle,
 } from "../types/chat-presentation.js";
-export { defaultExtensions } from "./composition.js";
+export { applicationExtensions, defaultExtensions } from "./composition.js";
 export type {
   ChiselExtension,
   ContextProviderSnapshot,

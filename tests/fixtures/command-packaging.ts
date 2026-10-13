@@ -49,6 +49,12 @@ try {
   );
   for (const file of ["README.md", "LICENSE"])
     await copyFile(join(root, file), join(packageRoot, file));
+  await mkdir(join(packageRoot, "dist/extension-sdk"), { recursive: true });
+  for (const file of ["index.js", "index.d.ts"])
+    await copyFile(
+      join(root, "dist/extension-sdk", file),
+      join(packageRoot, "dist/extension-sdk", file),
+    );
   // Include actual build assets (not local installed smoke dirs or compiled binaries).
   for (const file of await readdir(join(root, "dist"), { withFileTypes: true }))
     if (file.isFile() && /\.(?:js|gz|scm|wasm)$/.test(file.name))
@@ -119,6 +125,16 @@ try {
   await run(process.execPath, [
     "build",
     "tests/fixtures/tui-ui-contributions.ts",
+    "--outdir",
+    join(packageRoot, "dist/ui-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-external-extensions.ts",
     "--outdir",
     join(packageRoot, "dist/ui-smoke"),
     "--target",
@@ -263,6 +279,29 @@ try {
     uiBinary,
   ]);
   assert.ok((await run(uiBinary, [])).includes(uiMarker));
+  const externalMarker = "External TUI: ordinary loader";
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "ui-smoke/tui-external-extensions.js"),
+      ])
+    ).includes(externalMarker),
+  );
+  const externalBinary = join(
+    staging,
+    process.platform === "win32" ? "external-tui.exe" : "external-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-external-extensions.ts",
+    "--compile",
+    "--outfile",
+    externalBinary,
+  ]);
+  assert.ok((await run(externalBinary, [])).includes(externalMarker));
+  process.stdout.write(
+    "Installed/compiled ordinary external TUI loader: внешний .mjs, slots, pages, approval и настоящая запись проверены.\n",
+  );
   process.stdout.write(
     "Установленный и compiled UI registry: независимое расширение, native details и own-tool approval проверены.\n",
   );

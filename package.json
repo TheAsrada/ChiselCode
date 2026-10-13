@@ -11,15 +11,20 @@
     "dist/*.gz",
     "dist/*.scm",
     "dist/*.wasm",
+    "dist/extension-sdk/*.js",
+    "dist/extension-sdk/*.d.ts",
     "README.md",
     "LICENSE"
   ],
   "engines": {
     "bun": ">=1.3.0"
   },
+  "exports": {
+    "./extension-sdk": { "types": "./dist/extension-sdk/index.d.ts", "import": "./dist/extension-sdk/index.js" }
+  },
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "build": "bun build ./src/cli.ts --outdir ./dist --target bun --external '@opentui/core-*'",
+    "build": "bun build ./src/cli.ts --outdir ./dist --target bun --external '@opentui/core-*' && bun scripts/build-extension-sdk.ts",
     "compile": "bun build ./src/cli.ts --compile --outfile ./dist/chisel",
     "opentui:spike": "bun run scripts/opentui-spike.tsx",
     "opentui:compile": "bun build ./scripts/opentui-spike.tsx --compile --outfile ./dist/opentui-spike",

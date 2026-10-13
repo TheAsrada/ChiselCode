@@ -13,6 +13,7 @@ import type { TextareaRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
+import { storageLockDiagnostics } from "../../src/sessions/lock.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 
@@ -313,6 +314,7 @@ async function until(
     });
     if (await predicate()) return;
   }
+  const blockedStorage = storageLockDiagnostics();
   const store = await projectSessionStore(root);
   const owner = (await store.list()).find((item) => !item.subagentOwnerId);
   const records = owner
@@ -329,7 +331,13 @@ async function until(
       )
     : [];
   throw new Error(
-    label + "\n" + JSON.stringify(records) + "\n" + ui.captureCharFrame(),
+    label +
+      "\n" +
+      JSON.stringify(records) +
+      "\nStorage waits: " +
+      JSON.stringify(blockedStorage) +
+      "\n" +
+      ui.captureCharFrame(),
   );
 }
 async function key(name: string, ctrl = false) {

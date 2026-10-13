@@ -34,6 +34,7 @@ export interface ExtensionDetailsState {
   notice?: string;
 }
 
+const externalNotices = new WeakMap<TuiController, Set<string>>();
 /** Application adapter: the registry and linked code never receive a controller. */
 export class ExtensionUiBinding {
   readonly subscription: UiSubscription;
@@ -51,6 +52,28 @@ export class ExtensionUiBinding {
     redactor?: SecretRedactor,
   ) {
     this.generation = controller.currentGeneration;
+    const notices = externalNotices.get(controller) ?? new Set<string>();
+    externalNotices.set(controller, notices);
+    for (const diagnostic of scope.externalDiagnostics()) {
+      if (
+        ![
+          "invalid",
+          "modified",
+          "incompatible",
+          "load_failed",
+          "activation_failed",
+          "cleanup_failed",
+        ].includes(diagnostic.state)
+      )
+        continue;
+      const key = `${scope.workspaceRoot}/${diagnostic.id}`;
+      if (notices.has(key)) continue;
+      notices.add(key);
+      controller.appendNotice(
+        `Расширение ${diagnostic.name ?? diagnostic.id}: ${diagnostic.reason ?? "данные недоступны"} Встроенные возможности доступны.`,
+        "error",
+      );
+    }
     const ownerSummary = (): UiOwnerSummary => {
       const tasks = (controller.snapshot.backgroundTasks ?? []).filter(
         (task) => !task.foreground,

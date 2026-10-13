@@ -17,6 +17,13 @@ import {
 } from "./migrate.js";
 
 const ProjectConfigSchema = z.object({
+  externalExtensions: z
+    .object({
+      disabled: z.boolean().optional(),
+      disabledIds: z.array(z.string().max(128)).max(32).optional(),
+    })
+    .strict()
+    .optional(),
   backgroundTasks: ProjectBackgroundConfigSchema.optional(),
   subagents: ProjectSubagentConfigSchema.optional(),
   lsp: ProjectLspConfigSchema.optional(),

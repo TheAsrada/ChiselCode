@@ -184,6 +184,7 @@ export interface ProviderAdapter {
 }
 
 export interface ProjectConfig {
+  externalExtensions?: { disabled?: boolean; disabledIds?: string[] };
   backgroundTasks?: import("../background/config.js").ProjectBackgroundConfig;
   subagents?: import("../subagents/config.js").ProjectSubagentConfig;
   lsp?: import("../lsp/config.js").ProjectLspConfig;

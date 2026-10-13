@@ -43,7 +43,7 @@ import {
 import { backgroundServiceToken } from "../extensions/builtins/background.js";
 import { subagentServiceToken } from "../extensions/builtins/subagents.js";
 import {
-  defaultExtensions,
+  applicationExtensions,
   withOwnedExtensionHost,
 } from "../extensions/composition.js";
 import type { ChiselExtension } from "../extensions/contracts.js";
@@ -122,18 +122,20 @@ export async function runOpenTuiAgent(
   initialSession?: Session,
   setupRequired = false,
   setupOnly = false,
-  extensions: readonly ChiselExtension[] = defaultExtensions([], options),
+  extensions?: readonly ChiselExtension[],
   rendererFactory: typeof createCliRenderer = createCliRenderer,
 ): Promise<void> {
-  return withOwnedExtensionHost(extensions, (host) =>
-    runApplication(
-      options,
-      initialSession,
-      setupRequired,
-      setupOnly,
-      host,
-      rendererFactory,
-    ),
+  return withOwnedExtensionHost(
+    extensions ?? (await applicationExtensions(options)),
+    (host) =>
+      runApplication(
+        options,
+        initialSession,
+        setupRequired,
+        setupOnly,
+        host,
+        rendererFactory,
+      ),
   );
 }
 

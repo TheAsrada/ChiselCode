@@ -9,12 +9,18 @@ import type {
   Disposable,
   ExtensionContext,
 } from "./contracts.js";
+import {
+  inheritOptional,
+  optionalDiagnostic,
+  optionalOutcome,
+} from "./external/optional.js";
 import { RuntimeHookPipeline } from "./guards.js";
 import {
   abortable,
   type CleanupFailure,
   cleanupFailure,
   ExtensionLifecycleError,
+  operationSignal,
   validateId,
 } from "./lifecycle.js";
 import { ServiceRegistry } from "./services.js";
@@ -28,7 +34,11 @@ export async function canonicalWorkspaceRoot(root: string): Promise<string> {
     : canonical;
 }
 
-type ActivationResources = { extensionId: string; resources: Disposable[] };
+type ActivationResources = {
+  extensionId: string;
+  resources: Disposable[];
+  lifetime: AbortController;
+};
 
 export class WorkspaceExtensionScope implements Disposable {
   private readonly lifetime = new AbortController();
@@ -43,6 +53,15 @@ export class WorkspaceExtensionScope implements Disposable {
   private readonly tracked = new Set<Disposable>();
   private disposal?: Promise<void>;
   private ready = false;
+  private definitions: readonly ChiselExtension[] = [];
+  /** Cached runtime metadata only: no import, file reads or mutable extension authority. */
+  externalDiagnostics(): readonly import("./external/loader.js").ExtensionDiagnostic[] {
+    this.assertUsable();
+    return this.definitions.flatMap((definition) => {
+      const diagnostic = optionalDiagnostic(definition, this.workspaceRoot);
+      return diagnostic ? [Object.freeze({ ...diagnostic })] : [];
+    });
+  }
   constructor(
     readonly workspaceRoot: string,
     private readonly onClose: () => void = () => {},
@@ -82,16 +101,20 @@ export class WorkspaceExtensionScope implements Disposable {
   }
   /** Internal lifecycle entry; definitions never receive the scope. */
   async activate(definitions: readonly ChiselExtension[]): Promise<void> {
+    this.definitions = definitions;
     for (const definition of definitions) {
       cancelled(this.signal);
       const frame: ActivationResources = {
         extensionId: definition.id,
         resources: [],
+        lifetime: new AbortController(),
       };
+      const optional = optionalOutcome(definition);
+      const frameSignal = operationSignal(this.signal, frame.lifetime.signal);
       this.activations.push(frame);
       let registering = true;
       const assertRegistering = () => {
-        if (!registering || this.signal.aborted)
+        if (!registering || frameSignal.aborted)
           throw new ExtensionLifecycleError(
             `Extension ${definition.id} registrations are closed.`,
             definition.id,
@@ -113,7 +136,7 @@ export class WorkspaceExtensionScope implements Disposable {
       };
       const context: ExtensionContext = Object.freeze({
         workspaceRoot: this.workspaceRoot,
-        signal: this.signal,
+        signal: frameSignal,
         chat: Object.freeze({
           register: (view: import("./contracts.js").ExtensionChatView) => {
             assertRegistering();
@@ -192,8 +215,38 @@ export class WorkspaceExtensionScope implements Disposable {
         add: track,
       });
       try {
-        await abortable(() => definition.activate(context), this.signal);
+        await abortable(
+          () => definition.activate(context),
+          optional
+            ? AbortSignal.any([frameSignal, AbortSignal.timeout(10000)])
+            : frameSignal,
+        );
+        this.ui.validateOwner(definition.id);
       } catch (cause) {
+        registering = false;
+        frame.lifetime.abort();
+        if (optional && !this.signal.aborted) {
+          let cleanupFailed = false;
+          const cleanupBudget = AbortSignal.timeout(10000);
+          for (const resource of [...frame.resources].reverse()) {
+            try {
+              // Invoke every cleanup, including registry removals after budget expiry.
+              const pending = Promise.resolve(resource.dispose());
+              pending.catch(() => {});
+              await abortable(() => pending, cleanupBudget);
+            } catch {
+              cleanupFailed = true;
+            }
+            this.tracked.delete(resource);
+          }
+          frame.resources.length = 0;
+          this.activations.splice(this.activations.indexOf(frame), 1);
+          optional(
+            cleanupFailed ? "cleanup_failed" : "activation_failed",
+            this.workspaceRoot,
+          );
+          continue;
+        }
         throw new ExtensionLifecycleError(
           `Extension ${definition.id} activation failed.`,
           definition.id,
@@ -212,6 +265,9 @@ export class WorkspaceExtensionScope implements Disposable {
     this.chat.seal();
     this.ui.seal();
     this.ready = true;
+    for (const definition of definitions)
+      if (this.activations.some((frame) => frame.extensionId === definition.id))
+        optionalOutcome(definition)?.("active", this.workspaceRoot);
   }
   abortLifetime(): void {
     this.lifetime.abort();
@@ -220,7 +276,8 @@ export class WorkspaceExtensionScope implements Disposable {
     if (this.disposal) return this.disposal;
     this.disposal = Promise.resolve().then(async () => {
       const failures: CleanupFailure[] = [];
-      for (const frame of [...this.activations].reverse())
+      for (const frame of [...this.activations].reverse()) {
+        frame.lifetime.abort();
         for (const resource of [...frame.resources].reverse()) {
           try {
             await resource.dispose();
@@ -228,6 +285,7 @@ export class WorkspaceExtensionScope implements Disposable {
             failures.push(cleanupFailure(frame.extensionId, cause));
           }
         }
+      }
       this.activations.length = 0;
       this.tracked.clear();
       this.onClose();
@@ -292,12 +350,14 @@ export class ExtensionHost implements Disposable {
         );
       ids.add(definition.id);
     }
-    this.definitions = definitions.map((definition) =>
-      Object.freeze({
+    this.definitions = definitions.map((definition) => {
+      const captured = Object.freeze({
         id: definition.id,
         activate: definition.activate.bind(definition),
-      }),
-    );
+      });
+      inheritOptional(definition, captured);
+      return captured;
+    });
   }
   async open(root: string): Promise<WorkspaceExtensionScope> {
     if (this.closed)

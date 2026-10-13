@@ -8,8 +8,8 @@ import { ContextManager } from "../context/context-manager.js";
 import { modelSummarizer } from "../context/model-summary.js";
 import { buildSystemPrompt, type DynamicContext } from "../core/prompt.js";
 import {
+  applicationExtensions,
   contextCollection,
-  defaultExtensions,
   type ExtensionDependencies,
   withExtensionWorkspace,
 } from "../extensions/composition.js";
@@ -93,6 +93,8 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
+  /** Recovery bootstrap: disables all external imports while retaining builtins. */
+  externalExtensions?: boolean;
   /** Conversation lifetime, deliberately separate from a foreground turn signal. */
   subagentOwner?: {
     conversationId: string;
@@ -381,7 +383,7 @@ export async function runPrompt(
   try {
     return await withExtensionWorkspace(
       options.cwd ?? process.cwd(),
-      extensions ?? { extensions: defaultExtensions([], options) },
+      extensions ?? { extensions: await applicationExtensions(options) },
       signal,
       async (scope, operation) => {
         completed = await runPromptInWorkspace(

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "example.project-notes",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "entry": "index.mjs",
+  "displayName": "Заметки проекта",
+  "description": "Чтение и подготовленная запись заметки через штатные инструменты.",
+  "chiselVersion": ">=0.6.24 <0.7.0"
+}

@@ -6,6 +6,7 @@ import { stdin as nodeStdin, stdout as nodeStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Command, Option } from "commander";
 import { runSlashCommand } from "./app/run-slash-command.js";
+import { registerExtensionCommands } from "./commands/extensions.js";
 import { registerMcpCommands } from "./commands/mcp.js";
 import {
   hasApiKey,
@@ -71,6 +72,10 @@ program
   .option("--yes", "совместимый флаг Accept edits: команды требуют разрешения")
   .option("--allow <tools>", "разрешить конкретные инструменты через запятую")
   .option("--json", "вывести один JSON-объект")
+  .option(
+    "--no-external-extensions",
+    "восстановление: запустить встроенные возможности без внешнего кода",
+  )
   .option("--resume <session-id>", "продолжить предыдущую сессию")
   .option("--cwd <path>", "папка проекта", process.cwd())
   .option("--pause", "ждать Enter перед выходом (для запуска двойным кликом)")
@@ -334,6 +339,7 @@ auth
 
 try {
   registerMcpCommands(program);
+  registerExtensionCommands(program);
   registerWebCommands(program);
   await program.parseAsync();
 } catch (error: unknown) {
@@ -356,6 +362,7 @@ try {
 
 function toOptions(raw: Record<string, unknown>): RunOptions {
   return {
+    externalExtensions: raw.externalExtensions !== false,
     provider: raw.provider as string | undefined,
     profile: raw.profile as string | undefined,
     model: raw.model as string | undefined,
