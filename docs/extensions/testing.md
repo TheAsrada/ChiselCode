@@ -9,7 +9,7 @@
 | Состояние | Значение |
 | --- | --- |
 | disabled | User/project отключил пакет; code import не нужен |
-| not_trusted | Inspect не выдаёт доверия |
+| not_trusted | Для проверенного содержимого нет совпадающего доверия |
 | incompatible | Версия приложения/платформа не подходят |
 | modified | Digest/location не совпадают с receipt |
 | invalid | Manifest/paths/limits не прошли проверку |

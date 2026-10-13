@@ -15,6 +15,7 @@ import { runExtensionCommand } from "../../src/app/run-command.js";
 import { defaultExtensions } from "../../src/extensions/composition.js";
 import { ExternalExtensionLoader } from "../../src/extensions/external/loader.js";
 import {
+  canonicalPath,
   extensionsDirectory,
   inspectPackage,
   runtimeSnapshot,
@@ -103,7 +104,9 @@ test("approved external module imports once, activates per canonical root; priva
   expect(loader.metadata().every((item) => item.state === "active")).toBe(true);
   await a.dispose();
   expect(loader.metadata()).toHaveLength(1);
-  expect(loader.metadata()[0]?.workspaceRoot).toBe(other);
+  expect(loader.metadata()[0]?.workspaceRoot).toBe(
+    canonicalPath(await realpath(other)),
+  );
   expect(loader.metadata()[0]?.state).toBe("active");
 });
 test("partial optional activation rolls back own registrations/resources; required linked failure remains strict", async () => {
@@ -171,9 +174,7 @@ test("external tool contexts are rebuilt and effects stay bound to the approved 
       },
       execute(invocation){for(const key of ['session','editing','sandbox','events','checkpoint','worktrees','networkAuthorization'])if(key in invocation)throw Error('broad execute');return invocation.effects.run({path:'foreign.txt',content:'forbidden'});}
     }));
-    ctx.tools.register(sdk.defineTool({name:'shell_it',description:'Проверка prepared shell',effect:'process',inputSchema:{type:'object',properties:{command:{type:'string'}},required:['command'],additionalProperties:false},prepare(invocation,input){return invocation.plan.shell(input.command)},async execute(invocation){const first=invocation.effects.run({command:'echo FOREIGN_COMMAND'}),second=invocation.effects.run();if(first!==second)throw Error('duplicate spawn');return await first;}}));
     ctx.commands.register({name:'sdk-check',description:'Проверить invocation',parse:JSON.parse,async execute(invocation,input){
-      if(input.process)return invocation.tools.execute('ext:'+manifest.id+':shell_it',{command:input.command});
       if(input.foreign)return invocation.tools.execute('ext:foreign.plugin:write',{});
       if(input.write){await invocation.tools.execute('read_file',{path:input.path});return invocation.tools.execute('ext:'+manifest.id+':write_it',{path:input.path,content:input.content});}
       return invocation.tools.execute('ext:'+manifest.id+':read_it',input);
@@ -247,17 +248,44 @@ test("external tool contexts are rebuilt and effects stay bound to the approved 
   expect(await readFile(join(f.root, "note.txt"), "utf8")).toBe(
     "changed during approval\n",
   );
-  const processResult = await run({
-    process: true,
-    command: "echo SDK_PUBLIC_PROCESS",
-  });
-  expect(processResult.result.output).toContain("SDK_PUBLIC_PROCESS");
-  expect(processResult.result.output).not.toContain("FOREIGN_COMMAND");
-  expect(processResult.result.details?.exitCode).toBe(0);
-  expect(
-    (await run({ process: true, command: "echo PLAN_FORBIDDEN" }, "plan"))
-      .result.errorCode,
-  ).toBe("MODE_RESTRICTION");
+});
+
+test("public process port executes the same approved command once, without a nested lease or Plan grant", async () => {
+  const f = await fixture(`
+    ctx.tools.register(sdk.defineTool({name:'shell_it',description:'Проверка prepared shell',effect:'process',inputSchema:{type:'object',properties:{command:{type:'string'}},required:['command'],additionalProperties:false},prepare(invocation,input){return invocation.plan.shell(input.command)},async execute(invocation){const first=invocation.effects.run({command:'echo FOREIGN_COMMAND'}),second=invocation.effects.run();if(first!==second)throw Error('duplicate spawn');return await first;}}));
+    ctx.commands.register({name:'sdk-process',description:'Проверить prepared process',parse:JSON.parse,execute(invocation,input){return invocation.tools.execute('ext:'+manifest.id+':shell_it',input);}});
+  `);
+  const configPath = join(f.root, "global.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      schemaVersion: 2,
+      profiles: {},
+      lsp: { mode: "off", servers: {} },
+      web: { enabled: false },
+    }),
+  );
+  const candidate = await inspectPackage(f.dir);
+  await approvePackage(f.dir, candidate.manifest.id, candidate.digest, true);
+  const builtins = defaultExtensions([], { configPath }),
+    loader = await ExternalExtensionLoader.create(() => {}),
+    host = new ExtensionHost([...builtins, ...loader.definitions(builtins)]);
+  hosts.push(host);
+  const scope = await host.open(f.root),
+    command = scope.commands.get("sdk-process");
+  const run = (mode: "build" | "plan") =>
+    runExtensionCommand(
+      { command, input: { command: "echo SDK_PUBLIC_PROCESS" } },
+      scope,
+      { cwd: f.root, configPath, mode, interactive: true },
+      { requestApproval: async () => "approved" },
+    );
+  const outcome = await run("build");
+  expect(outcome.result.output).toContain("SDK_PUBLIC_PROCESS");
+  expect(outcome.result.output.match(/SDK_PUBLIC_PROCESS/g)).toHaveLength(1);
+  expect(outcome.result.output).not.toContain("FOREIGN_COMMAND");
+  expect(outcome.result.details?.exitCode).toBe(0);
+  expect((await run("plan")).result.errorCode).toBe("MODE_RESTRICTION");
 });
 
 test("late activation after its ten-second budget cannot register or replace healthy frames", async () => {
@@ -337,7 +365,7 @@ test("four loader operations bound imports; closing a queued workspace never exe
       workspace = join(f.root, `workspace-${i}`);
     await mkdir(directory);
     await mkdir(workspace);
-    workspaces.push(workspace);
+    workspaces.push(canonicalPath(await realpath(workspace)));
     await writeFile(
       join(directory, "chisel-extension.json"),
       JSON.stringify({ ...f.manifest, id }),
