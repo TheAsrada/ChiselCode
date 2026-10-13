@@ -204,7 +204,8 @@ jobs:
         run: |
           mkdir -p dist/release
           npm pack --pack-destination dist/release
-          tar -tzf dist/release/chiselcode-*.tgz | grep -q 'package/dist/extension-sdk/index.d.ts'
+          tar -tzf dist/release/chiselcode-*.tgz > "$RUNNER_TEMP/chisel-sdk-files.txt"
+          grep -Fqx 'package/dist/extension-sdk/index.d.ts' "$RUNNER_TEMP/chisel-sdk-files.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: installer-sdk
