@@ -10,6 +10,8 @@
 
 `tests/fixtures/tui-extension-themes.ts` запускает ordinary `runOpenTuiAgent`: реальные dark/light палитры из captureSpans, поиск, применение, отмена, config persistence, сохранённый accent, editor instance/draft/focus, повторный запуск и удалённый package с fallback. Browse/select не вызывают network/model. `command-packaging.ts` проверяет этот сценарий в установленном npm bundle и compiled binary. `external-extensions-cli.ts` typechecks отдельного автора двух тем по declarations установленного SDK.
 
+Исходник автора исключён из TS-программы приложения: он отдельно typechecks вне checkout по declarations реального npm package. Первый чистый CI `38395926527` выявил зависимость этого fixture от локального `dist`; граница исправлена, проверка автора в distribution smoke сохранена.
+
 Unit scenarios проверяют полноту/schema/contrast, immutable namespace, invalid-theme isolation, accent override, старые настройки и app catalog после workspace close. Production background fixture дополнительно меняет тему при живом процессе и удержанном model response: spawn остаётся один, model requests не прибавляются, retained output и selected stop продолжают работать. Существующие process/task suites сохраняются.
 
 ## Кадры OpenTUI

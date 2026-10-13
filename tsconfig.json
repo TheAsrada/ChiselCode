@@ -21,6 +21,7 @@
     "evals/**/*.ts"
   ],
   "exclude": [
-    "evals/fixtures"
+    "evals/fixtures",
+    "tests/fixtures/extensions/themes"
   ]
 }
