@@ -493,8 +493,67 @@ export async function smokeExternalCli(
       expectedRequests,
       "Ошибка/modified package не запускает fallback model request",
     );
+    // Trusted raw JS can exit the process. Prove recovery in a separate bounded
+    // ordinary executable, never in the test runner or a mocked loader.
+    const crashPackage = join(home, "extensions", "Проверка восстановления"),
+      crashSentinel = join(temp, "trusted-crash.txt");
+    await mkdir(crashPackage);
+    await writeFile(
+      join(crashPackage, "chisel-extension.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "fixture.recovery",
+        version: "1.0.0",
+        apiVersion: 1,
+        entry: "index.mjs",
+        displayName: "Проверка восстановления",
+      }),
+    );
+    await writeFile(
+      join(crashPackage, "index.mjs"),
+      `import {appendFileSync} from 'node:fs'; appendFileSync(${JSON.stringify(crashSentinel)},'trusted exit\\n'); process.exit(23); export default ({manifest})=>({id:manifest.id,version:manifest.version,apiVersion:1,entry:manifest.entry,activate(){}});`,
+    );
+    const crashInspection = await invoke([
+      "extensions",
+      "inspect",
+      crashPackage,
+      "--json",
+    ]);
+    assert.equal(crashInspection.exitCode, 0, crashInspection.stderr);
+    await assert.rejects(readFile(crashSentinel));
+    const crashCandidate = JSON.parse(crashInspection.stdout);
+    const crashApproval = await invoke([
+      "extensions",
+      "approve",
+      crashPackage,
+      "--id",
+      crashCandidate.manifest.id,
+      "--digest",
+      crashCandidate.digest,
+      "--enable",
+      "--ack-process-access",
+    ]);
+    assert.equal(crashApproval.exitCode, 0, crashApproval.stderr);
+    await assert.rejects(readFile(crashSentinel));
+    const crashed = await invoke(["--cwd", project, "--json", "/tasks list"]);
+    assert.equal(
+      crashed.exitCode,
+      23,
+      "Raw trusted process.exit is not sandboxed or falsely contained",
+    );
+    const crashBytes = await readFile(crashSentinel, "utf8");
+    const recovered = await invoke([
+      "--no-external-extensions",
+      "--cwd",
+      project,
+      "--json",
+      "/tasks list",
+    ]);
+    assert.equal(recovered.exitCode, 0, recovered.stdout + recovered.stderr);
+    assert.equal(await readFile(crashSentinel, "utf8"), crashBytes);
+    assert.equal(requests, expectedRequests);
     console.log(
-      "External SDK: standalone author/types, exact trust, ordinary import/read/write/Plan, modified asset refusal and recovery verified",
+      "External SDK: standalone author/types, exact trust, ordinary import/read/write/Plan, modified asset refusal, raw exit and recovery verified",
     );
   } finally {
     modelServer?.stop(true);
