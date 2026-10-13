@@ -7,6 +7,7 @@ import { InstructionResolver } from "../context/instructions.js";
 import { ProjectLspConfigSchema } from "../lsp/config.js";
 import { readMcpConfig } from "../mcp/configuration.js";
 import { McpConfigSchema } from "../mcp/schema.js";
+import { withLock } from "../sessions/lock.js";
 import { ProjectSubagentConfigSchema } from "../subagents/config.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
 import { ProjectWebConfigSchema } from "../web/schema.js";
@@ -108,9 +109,12 @@ export function updateGlobalConfig(
   const task = (updates.get(target) ?? Promise.resolve())
     .catch(() => {})
     .then(async () => {
-      const next = await update(await loadGlobalConfig(target));
-      await saveGlobalConfig(next, target);
-      return next;
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+      return withLock(target, async () => {
+        const next = await update(await loadGlobalConfig(target));
+        await saveGlobalConfig(next, target);
+        return next;
+      });
     });
   updates.set(target, task);
   void task

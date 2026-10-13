@@ -38,6 +38,10 @@ import { invocableSkills, loadSkills } from "../skills/skills.js";
 import { failure, normalizeResult } from "../tools/result.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
 import {
+  acquireExecutionLease,
+  releaseAfterOwnedTasks,
+} from "./execution-lease.js";
+import {
   type CapturedCommandModel,
   commandModelInvocation,
 } from "./model-command.js";
@@ -57,6 +61,37 @@ export interface PreparedExtensionCommand {
 
 /** Deterministic application operation: real tools/checkpoints, no model request/history. */
 export async function runExtensionCommand(
+  ...args: Parameters<typeof runExtensionCommandOwned>
+): ReturnType<typeof runExtensionCommandOwned> {
+  const release = await acquireExecutionLease(args[1].workspaceRoot);
+  const handlers = args[4] ?? {};
+  let children: import("./subagent-binding.js").SubagentControls | undefined;
+  let background:
+    | import("../background/binding.js").BackgroundControls
+    | undefined;
+  args[4] = {
+    ...handlers,
+    onSubagentControls: (controls) => {
+      children = controls;
+      handlers.onSubagentControls?.(controls);
+    },
+    onBackgroundControls: (controls) => {
+      background = controls;
+      handlers.onBackgroundControls?.(controls);
+    },
+  };
+  try {
+    return await runExtensionCommandOwned(...args);
+  } finally {
+    if (children?.busy() || background?.busy())
+      void releaseAfterOwnedTasks(release, [children, background]).catch(
+        () => {},
+      );
+    else await release();
+  }
+}
+
+async function runExtensionCommandOwned(
   prepared: PreparedExtensionCommand,
   scope: WorkspaceExtensionScope,
   options: RunOptions,

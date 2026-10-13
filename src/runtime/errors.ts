@@ -1,4 +1,5 @@
 export type RuntimeErrorCode =
+  | "WORKSPACE_BUSY"
   | "BACKGROUND_UNAVAILABLE"
   | "BACKGROUND_LIMIT"
   | "BACKGROUND_OWNER_CLOSED"

@@ -1,6 +1,6 @@
 {
   "name": "chiselcode",
-  "version": "0.6.26",
+  "version": "0.6.27",
   "description": "A secure multi-provider coding agent CLI",
   "type": "module",
   "bin": {
@@ -13,6 +13,8 @@
     "dist/*.wasm",
     "dist/extension-sdk/*.js",
     "dist/extension-sdk/*.d.ts",
+    "dist/desktop-sdk/*.js",
+    "dist/desktop-sdk/*.d.ts",
     "README.md",
     "LICENSE"
   ],
@@ -20,11 +22,14 @@
     "bun": ">=1.3.0"
   },
   "exports": {
+    "./desktop-sdk": { "types": "./dist/desktop-sdk/index.d.ts", "import": "./dist/desktop-sdk/index.js" },
     "./extension-sdk": { "types": "./dist/extension-sdk/index.d.ts", "import": "./dist/extension-sdk/index.js" }
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "build": "bun build ./src/cli.ts --outdir ./dist --target bun --external '@opentui/core-*' && bun scripts/build-extension-sdk.ts",
+    "build": "bun build ./src/cli.ts --outdir ./dist --target bun --external '@opentui/core-*' && bun scripts/build-extension-sdk.ts && bun scripts/build-desktop-sdk.ts",
+    "desktop:engine": "bun build src/desktop/entry.ts --compile --outfile dist/chisel-engine",
+    "desktop:smoke": "bun tests/fixtures/desktop-server.ts",
     "compile": "bun build ./src/cli.ts --compile --outfile ./dist/chisel",
     "opentui:spike": "bun run scripts/opentui-spike.tsx",
     "opentui:compile": "bun build ./scripts/opentui-spike.tsx --compile --outfile ./dist/opentui-spike",

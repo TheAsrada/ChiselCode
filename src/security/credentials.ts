@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { withLock } from "../sessions/lock.js";
 
 const FALLBACK_FILE = "credentials.enc";
 const writes = new Map<string, Promise<void>>();
@@ -53,7 +54,13 @@ export class CredentialStore implements CredentialStorage {
     const file = join(this.directory ?? configDirectory(), FALLBACK_FILE);
     const task = (writes.get(file) ?? Promise.resolve())
       .catch(() => {})
-      .then(() => this.write(name, secret));
+      .then(async () => {
+        await mkdir(this.directory ?? configDirectory(), {
+          recursive: true,
+          mode: 0o700,
+        });
+        await withLock(file, () => this.write(name, secret));
+      });
     writes.set(file, task);
     try {
       await task;

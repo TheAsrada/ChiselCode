@@ -48,6 +48,14 @@ import { VERSION } from "./version.js";
 
 const program = new Command();
 program
+  .command("app-server")
+  .description("Локальный JSON-RPC интерфейс для ChiselCode Desktop")
+  .option("--config <path>", "Путь пользовательской конфигурации")
+  .action(async (options: { config?: string }) => {
+    const { serveDesktopStdio } = await import("./desktop/stdio.js");
+    await serveDesktopStdio(options.config);
+  });
+program
   .name("chisel")
   .description("Безопасный помощник для работы с кодом")
   .version(VERSION)

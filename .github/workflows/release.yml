@@ -216,17 +216,62 @@ jobs:
           npm pack --pack-destination dist/release
           tar -tzf dist/release/chiselcode-*.tgz > "$RUNNER_TEMP/chisel-sdk-files.txt"
           grep -Fqx 'package/dist/extension-sdk/index.d.ts' "$RUNNER_TEMP/chisel-sdk-files.txt"
+          npm pack ./dist/desktop-sdk --pack-destination dist/release
+          mv dist/release/chiselcode-desktop-sdk-1.0.0.tgz dist/release/chisel-desktop-sdk-1.0.0.tgz
+          tar -czf dist/release/chisel-engine-skills.tgz skills/bundled
       - uses: actions/upload-artifact@v4
         with:
           name: installer-sdk
-          path: dist/release/chiselcode-*.tgz
+          path: dist/release/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop-engine:
+    name: Build and verify desktop engine (${{ matrix.target }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win32-x64
+            suffix: .exe
+          - os: ubuntu-latest
+            target: linux-x64
+            suffix: ""
+          - os: macos-latest
+            target: darwin-arm64
+            suffix: ""
+          - os: macos-15-intel
+            target: darwin-x64
+            suffix: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - run: npm ci
+      - name: Compile and run the actual protocol
+        shell: bash
+        run: |
+          mkdir -p dist/release
+          binary="dist/release/chisel-engine-${{ matrix.target }}${{ matrix.suffix }}"
+          bun build src/desktop/entry.ts --compile --outfile="$binary"
+          bun tests/fixtures/desktop-server.ts "$(pwd)/$binary"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-engine-${{ matrix.target }}
+          path: dist/release/chisel-engine-*
           if-no-files-found: error
           retention-days: 7
 
   publish:
     name: Publish verified installers
     runs-on: ubuntu-latest
-    needs: [verify, installer-windows, installer-macos, installer-linux, package-sdk]
+    needs: [verify, installer-windows, installer-macos, installer-linux, package-sdk, desktop-engine]
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -240,6 +285,9 @@ jobs:
           pattern: installer-*
           path: dist/release-artifacts
           merge-multiple: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
       - name: Create draft, upload assets, then publish
         shell: bash
         timeout-minutes: 30
@@ -282,4 +330,10 @@ jobs:
           done
           count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
           test "$count" -eq 5
+          bun scripts/engine-manifest.ts
+          engine_files=(dist/release-artifacts/chisel-engine-* dist/release-artifacts/chisel-desktop-sdk-* dist/release-artifacts/engine-manifest.json)
+          test "${#engine_files[@]}" -eq 7
+          gh release upload "$RELEASE_TAG" "${engine_files[@]}"
+          count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
+          test "$count" -eq 12
           gh release edit "$RELEASE_TAG" --draft=false

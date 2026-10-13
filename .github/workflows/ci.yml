@@ -105,6 +105,13 @@ jobs:
         run: bun run eval --category all
       - name: Build package
         run: bun run build
+      - name: Real compiled desktop protocol
+        shell: bash
+        run: |
+          binary=dist/chisel-engine
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build src/desktop/entry.ts --compile --outfile="$binary"
+          bun tests/fixtures/desktop-server.ts "$(pwd)/$binary"
       - name: Smoke packaged/compiled commands, subagents, worktrees, parallel /btw and real LSP
         run: bun tests/fixtures/command-packaging.ts
       - name: Smoke installed npm package

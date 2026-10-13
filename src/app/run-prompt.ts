@@ -63,6 +63,10 @@ import type {
 } from "../types/domain.js";
 import { exitCodeFor, OneShotRenderer } from "../ui/one-shot.js";
 import type { WebConfig } from "../web/schema.js";
+import {
+  acquireExecutionLease,
+  releaseAfterOwnedTasks,
+} from "./execution-lease.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
 
 export interface RunEventHandlers {
@@ -380,6 +384,22 @@ export async function runPrompt(
   extensions?: ExtensionDependencies,
 ): Promise<{ result: AgentResult; exitCode: number }> {
   let completed: { result: AgentResult; exitCode: number } | undefined;
+  const release = await acquireExecutionLease(options.cwd ?? process.cwd());
+  let children: import("./subagent-binding.js").SubagentControls | undefined;
+  let background:
+    | import("../background/binding.js").BackgroundControls
+    | undefined;
+  const trackedEvents: RunEventHandlers = {
+    ...events,
+    onSubagentControls: (controls) => {
+      children = controls;
+      events.onSubagentControls?.(controls);
+    },
+    onBackgroundControls: (controls) => {
+      background = controls;
+      events.onBackgroundControls?.(controls);
+    },
+  };
   try {
     return await withExtensionWorkspace(
       options.cwd ?? process.cwd(),
@@ -390,7 +410,7 @@ export async function runPrompt(
           prompt,
           options,
           resolver,
-          events,
+          trackedEvents,
           operation,
           scope,
         );
@@ -412,6 +432,10 @@ export async function runPrompt(
         error.cleanupFailures,
       );
     throw error;
+  } finally {
+    const live = [children, background].filter((controls) => controls?.busy());
+    if (live.length) void releaseAfterOwnedTasks(release, live).catch(() => {});
+    else await release();
   }
 }
 
