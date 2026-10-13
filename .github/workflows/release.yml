@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -61,6 +63,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -105,6 +109,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -152,6 +158,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -194,6 +202,8 @@ jobs:
     needs: verify
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
@@ -222,6 +232,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Download verified installers
         uses: actions/download-artifact@v4
         with:
@@ -255,9 +267,9 @@ jobs:
             if [ -n "$prev" ]; then
               printf '\n**Полный список изменений**: https://github.com/%s/compare/%s...%s\n' "${{ github.repository }}" "$prev" "$RELEASE_TAG" >> /tmp/release-notes.md
             fi
-            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --title "ChiselCode $RELEASE_TAG" --notes-file /tmp/release-notes.md
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "ChiselCode $RELEASE_TAG" --notes-file /tmp/release-notes.md
           else
-            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --generate-notes --title "ChiselCode $RELEASE_TAG"
+            gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes --title "ChiselCode $RELEASE_TAG"
           fi
           for file in "${files[@]}"; do
             for attempt in 1 2; do

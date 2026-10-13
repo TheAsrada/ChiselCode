@@ -53,6 +53,6 @@ chisel --no-external-extensions
 
 ## Доступность и границы
 
-Загрузчик и SDK подготовлены в исходниках для **0.6.25**; публикация пока не подтверждена. Установку из архива, обновление, удаление и Settings → Extensions добавят отдельно. Нет поиска по npm/GitHub, install scripts, runtime TypeScript/JSX, native modules, hot reload или sandbox изолированного JS.
+Загрузчик и SDK доступны в [**0.6.25**](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.25). Релиз содержит четыре установщика и `chiselcode-0.6.25.tgz` с CLI и публичными типами SDK; npm registry upload не выполнялся. Установку из архива, обновление, удаление и Settings → Extensions добавят отдельно. Нет поиска по npm/GitHub, install scripts, runtime TypeScript/JSX, native modules, hot reload или sandbox изолированного JS.
 
 Связанные темы: [статусы и панели](interface-contributions.md), [CLI](cli.md), [разрешения](permissions.md), [ошибки запуска](troubleshooting.md).
