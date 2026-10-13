@@ -133,6 +133,9 @@ test("exact update/rollback and CAS preserve working selection; new startup load
   hosts.push(host);
   await host.open(f.root);
   expect(await readFile(f.sentinel, "utf8")).toBe("1.0.0\n");
+  expect((await f.service.status("author.package")).restartRequired).toBe(
+    false,
+  );
   const v2 = await f.source("2.0.0"),
     update = await f.service.prepareUpdate("author.package", v2.path),
     competing = await f.service.prepareUpdate("author.package", v2.zip);
@@ -144,6 +147,7 @@ test("exact update/rollback and CAS preserve working selection; new startup load
     digest: update.preview.digest,
     acknowledgeProcessAccess: true,
   });
+  expect((await f.service.status("author.package")).restartRequired).toBe(true);
   await expect(
     f.service.commitCandidate(competing, {
       digest: competing.preview.digest,

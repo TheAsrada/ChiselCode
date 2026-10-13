@@ -705,7 +705,19 @@ export class PackageManagementService {
             phase,
             confidence,
           })),
-          restartRequired: !!ownUses.length || row.enabled,
+          restartRequired: ownUses.length
+            ? ownUses.some(
+                (use) =>
+                  !row.enabled ||
+                  !!row.removedAt ||
+                  !version ||
+                  use.digest !== version.digest ||
+                  canonicalPath(use.location) !==
+                    canonicalPath(version.location) ||
+                  use.phase === "recovery" ||
+                  use.confidence === "unknown",
+              )
+            : row.enabled,
         });
       }),
     );
