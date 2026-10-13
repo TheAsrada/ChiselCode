@@ -53,6 +53,9 @@ export async function smokeExternalCli(
   const invoke = (args: string[]) =>
     execa(command, [...prefix, ...args], {
       env,
+      // env is already a complete inherited snapshot with Home aliases normalized.
+      // Execa's default merge would reintroduce the original Windows casing.
+      extendEnv: false,
       reject: false,
       timeout: 45000,
       maxBuffer: 1024 * 1024,
