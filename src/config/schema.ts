@@ -32,7 +32,17 @@ export const GlobalConfigV2Schema = z.looseObject({
   ui: z
     .looseObject({
       sidebarMode: z.enum(["auto", "show", "hide"]).optional(),
-      theme: z.enum(["obsidian", "graphite", "ember", "paper"]).optional(),
+      theme: z
+        .union([
+          z.enum(["obsidian", "graphite", "ember", "paper"]),
+          z
+            .string()
+            .max(220)
+            .regex(
+              /^extension:[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}:[a-z][a-z0-9_-]{0,63}$/,
+            ),
+        ])
+        .optional(),
       unicodeDecorations: z.boolean().optional(),
       accent: z
         .string()

@@ -25,3 +25,7 @@ Activation context содержит workspaceRoot, lifetime signal, registration
 Создайте token через injected `sdk.createServiceToken<T>(diagnosticId)` и используйте `ctx.services.provide/get/lookup`. Token принадлежит SDK данного package: совпадающая строка или JSON не дают доступа. Workspace registries независимы. Cross-extension services и lookup builtins не входят в API v1.
 
 Ресурс явно передайте `ctx.add`. Закрытие последнего owner освобождает workspace frame; соседняя беседа того же root сохраняет shared service. Dispose не выгружает module-level JavaScript и не доказывает остановку arbitrary raw effects. Recovery fences штатных worktree/process capabilities сохраняются при неподтверждённом cleanup.
+
+## Темы
+
+Optional `ExtensionDefinition.themes` объявляет application palettes вне workspace activation. Core выбирает rendering и проверяет полную палитру/contrast; callbacks и layout не передаются. [Типы, пример и lifecycle](themes.md).

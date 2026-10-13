@@ -462,6 +462,7 @@ export function adaptDefinition(
     owner = tokenOwners.get(probe)!;
   return Object.freeze({
     id: manifest.id,
+    themes: definition.themes ? frozenClone(definition.themes) : undefined,
     activate: (core: ExtensionContext) => {
       const alive = () => assertLive(core.signal);
       const token = <T>(value: Public.ServiceToken<T>) => {

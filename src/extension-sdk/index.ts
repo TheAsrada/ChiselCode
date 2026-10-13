@@ -347,7 +347,26 @@ export interface ActivationContext {
   };
   add(disposable: Disposable): void;
 }
+export type ThemeToken =
+  | "bg"
+  | "surface"
+  | "raised"
+  | "border"
+  | "text"
+  | "muted"
+  | "accent"
+  | "green"
+  | "red"
+  | "yellow";
+export interface ThemeContribution {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly variant: "light" | "dark";
+  readonly colors: Readonly<Record<ThemeToken, string>>;
+}
 export interface ExtensionDefinition {
+  readonly themes?: readonly ThemeContribution[];
   readonly id: string;
   readonly version: string;
   readonly apiVersion: 1;

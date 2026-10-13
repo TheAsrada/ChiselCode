@@ -30,6 +30,7 @@ import {
   resolveApprovalMode,
 } from "../security/approval-mode.js";
 import { invocableSkills } from "../skills/skills.js";
+import type { ThemeCatalog } from "../themes/catalog.js";
 import { AgentsSidebar } from "./agents-sidebar.js";
 import { type ThemeName, themePalette } from "./appearance.js";
 import {
@@ -125,6 +126,11 @@ export function OpenTuiSpike(
 ) {
   const [, refresh] = useState(0);
   const [theme, setTheme] = useState(props.initialTheme ?? "obsidian");
+  const [previewTheme, setPreviewTheme] = useState<ThemeName>();
+  useEffect(
+    () => props.themeCatalog?.subscribe(() => refresh((value) => value + 1)),
+    [props.themeCatalog],
+  );
   const [mode, setMode] = useState(props.initialMode ?? "auto");
   const [unicodeDecorations, setUnicodeDecorations] = useState(
     props.initialUnicodeDecorations ?? false,
@@ -148,7 +154,10 @@ export function OpenTuiSpike(
   return (
     <UnicodeDecorationContext value={unicodeDecorations}>
       <OpenTuiClipboard
-        palette={themePalette(theme, props.accent)}
+        palette={
+          props.themeCatalog?.palette(previewTheme ?? theme, props.accent) ??
+          themePalette(previewTheme ?? theme, props.accent)
+        }
         clipboard={props.clipboard}
       >
         <OpenTuiScreen
@@ -164,6 +173,7 @@ export function OpenTuiSpike(
               ? props.workspace?.execution(controller).approvalResolver
               : undefined)
           }
+          onThemePreview={setPreviewTheme}
           initialTheme={theme}
           initialUnicodeDecorations={unicodeDecorations}
           onUnicodeDecorationsChange={async (next) => {
@@ -185,6 +195,7 @@ export function OpenTuiSpike(
           onThemeChange={async (next) => {
             await props.onThemeChange?.(next);
             setTheme(next);
+            setPreviewTheme(undefined);
           }}
           onModeChange={(next) => {
             setMode(next);
@@ -227,8 +238,10 @@ function OpenTuiScreen({
   commandActions,
   getMcpActions,
   initialTheme = "obsidian",
+  themeCatalog,
   accent,
   onThemeChange,
+  onThemePreview,
   initialUnicodeDecorations = false,
   onUnicodeDecorationsChange,
 }: {
@@ -262,8 +275,10 @@ function OpenTuiScreen({
   commandActions?: WorkspaceCommandsPort;
   getMcpActions?: (root?: string) => OpenTuiMcpActions;
   initialTheme?: ThemeName;
+  themeCatalog?: ThemeCatalog;
   accent?: string;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
+  onThemePreview?: (theme: ThemeName) => void;
   initialUnicodeDecorations?: boolean;
   onUnicodeDecorationsChange?: (value: boolean) => Promise<void>;
 }) {
@@ -288,7 +303,8 @@ function OpenTuiScreen({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
-  const palette = themePalette(theme, accent);
+  const palette =
+    themeCatalog?.palette(theme, accent) ?? themePalette(theme, accent);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [mcpActions, setMcpActions] = useState<OpenTuiMcpActions>();
   const [modelsActions, setModelsActions] = useState<OpenTuiModelsActions>();
@@ -1475,8 +1491,12 @@ function OpenTuiScreen({
       initialSelection={settingsSelection}
       initialPage={settingsPage}
       theme={initialTheme}
+      themeCatalog={themeCatalog}
       setup={setupPending}
-      onThemePreview={setTheme}
+      onThemePreview={(next) => {
+        setTheme(next);
+        onThemePreview?.(next);
+      }}
       onThemeChange={onThemeChange}
       unicodeDecorations={initialUnicodeDecorations}
       onUnicodeDecorationsChange={onUnicodeDecorationsChange}
@@ -2073,8 +2093,8 @@ function OpenTuiScreen({
                     ))}
                   <text fg={palette.accent}>
                     {onSubmit
-                      ? `[i] ${showLogo ? "" : "ChiselCode  |  "}${terminalLine(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  |  ${theme}`
-                      : `[i] ChiselCode | probe | ${width}x${height} | ${theme}`}
+                      ? `[i] ${showLogo ? "" : "ChiselCode  |  "}${terminalLine(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  |  ${palette.label}`
+                      : `[i] ChiselCode | probe | ${width}x${height} | ${palette.label}`}
                   </text>
                   <box
                     width="100%"

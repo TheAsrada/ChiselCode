@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture.themes",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "entry": "index.mjs",
+  "displayName": "Север и лён",
+  "description": "Две тестовые темы для проверки общего каталога."
+}

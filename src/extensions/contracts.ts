@@ -211,6 +211,8 @@ export type ExtensionCommandContribution<T = unknown> =
         }
     );
 export interface ChiselExtension {
+  /** Immutable application contributions, captured once; independent of workspace activation. */
+  readonly themes?: readonly import("../themes/contracts.js").ThemeContribution[];
   readonly id: string;
   activate(context: ExtensionContext): void | Promise<void>;
 }

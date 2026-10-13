@@ -410,3 +410,7 @@ Core `BackgroundTaskService` владеет локальными команда�
 ## UI contributions
 
 Workspace extension scope владеет staged UI registry. Linked consumers объявляют status/context/menu и named details; core привязывает cache к owner, рисует native surfaces и передаёт effects обычному executor. LSP использует passive service cache; Background Tasks и помощники открывают прежние owned views. [API, binding, action contracts и limits](architecture/ui-contributions.md).
+
+## Темы интерфейса
+
+Декларативные палитры расширений принимает application catalog. Core проверяет семантические цвета, применяет preview/сохранённый выбор и fallback; workspace switching не удаляет принятые темы. [Контракт тем](architecture/themes.md).

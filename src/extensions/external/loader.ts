@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from "node:util";
 import { loadProjectConfig } from "../../config/load.js";
 import type { ExtensionFactory } from "../../extension-sdk/index.js";
 import { SecretRedactor } from "../../security/redaction.js";
+import { setThemeSource } from "../../themes/source.js";
 import type { ChiselExtension } from "../contracts.js";
 import { abortable, frozenClone } from "../lifecycle.js";
 import { adaptDefinition, createHostSdk } from "./adapter.js";
@@ -260,6 +261,8 @@ export class ExternalExtensionLoader {
       }
       ids.add(record.id);
       const loadedRoots = new Set<string>();
+      let themeDefinition: ChiselExtension | undefined;
+      let themeName = record.id;
       const report = (root: string, diagnostic: ExtensionDiagnostic) =>
         this.diagnostics.set(`${record.id}/${root}`, {
           ...diagnostic,
@@ -316,10 +319,17 @@ export class ExternalExtensionLoader {
             );
             throw new Error("Внешнее расширение не загрузилось.");
           }
+          themeDefinition = definition;
+          themeName = candidate.manifest.displayName;
           loadedRoots.add(context.workspaceRoot);
           await definition.activate(context);
         },
       };
+      setThemeSource(wrapper, () =>
+        themeDefinition
+          ? { themes: themeDefinition.themes ?? [], name: themeName }
+          : undefined,
+      );
       setOptionalDiagnostic(wrapper, (root) =>
         this.diagnostics.get(`${record.id}/${root}`),
       );

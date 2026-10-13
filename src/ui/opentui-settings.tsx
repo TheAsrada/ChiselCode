@@ -10,14 +10,10 @@ import type {
 } from "../providers/contracts.js";
 import { createBuiltinProviderRegistry } from "../providers/runtime.js";
 import type { SubagentSettingsActions } from "../subagents/settings.js";
+import { ThemeCatalog } from "../themes/catalog.js";
 import type { ProviderId } from "../types/domain.js";
 import type { WebSettingsActions } from "../web/settings.js";
-import {
-  type Palette,
-  THEME_NAMES,
-  THEMES,
-  type ThemeName,
-} from "./appearance.js";
+import { type Palette, THEMES, type ThemeName } from "./appearance.js";
 import { OpenTuiBackgroundSettings } from "./opentui-background-settings.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import {
@@ -124,6 +120,7 @@ export function OpenTuiSettings({
   initialSelection = 0,
   initialPage = "connection",
   theme = "obsidian",
+  themeCatalog,
   onThemePreview,
   onThemeChange,
   unicodeDecorations = false,
@@ -142,6 +139,7 @@ export function OpenTuiSettings({
   initialSelection?: number;
   initialPage?: Page;
   theme?: ThemeName;
+  themeCatalog?: ThemeCatalog;
   onThemePreview?: (theme: ThemeName) => void;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
   unicodeDecorations?: boolean;
@@ -223,8 +221,24 @@ export function OpenTuiSettings({
     "info",
   );
   const [busy, setBusy] = useState<Work>();
-  const [themeIndex, setThemeIndexState] = useState(THEME_NAMES.indexOf(theme));
-  const themeIndexRef = useRef(THEME_NAMES.indexOf(theme));
+  const catalog = useMemo(
+    () => themeCatalog ?? new ThemeCatalog(),
+    [themeCatalog],
+  );
+  const [themeSearch, setThemeSearch] = useState("");
+  const [themeSearchFocus, setThemeSearchFocus] = useState(false);
+  const themes = catalog
+    .list()
+    .filter((item) =>
+      `${item.name} ${item.source} ${item.description} ${item.variant === "light" ? "светлая" : "тёмная"}`
+        .toLocaleLowerCase()
+        .includes(themeSearch.toLocaleLowerCase()),
+    );
+  const names = themes.map((item) => item.key);
+  const [themeIndex, setThemeIndexState] = useState(
+    Math.max(0, names.indexOf(theme)),
+  );
+  const themeIndexRef = useRef(Math.max(0, names.indexOf(theme)));
   const setThemeIndex = (value: number | ((current: number) => number)) => {
     const next =
       typeof value === "function" ? value(themeIndexRef.current) : value;
@@ -302,6 +316,17 @@ export function OpenTuiSettings({
           ? 1
           : 0)) /
         rowHeight,
+    ),
+  );
+  const themeVisibleCount = Math.max(
+    1,
+    Math.floor(Math.max(1, bodyHeight - 2) / rowHeight),
+  );
+  const themeFirst = Math.max(
+    0,
+    Math.min(
+      themeIndex - themeVisibleCount + 1,
+      names.length - themeVisibleCount,
     ),
   );
   const definition = providers.find((p) => p.id === values.provider);
@@ -405,7 +430,8 @@ export function OpenTuiSettings({
             ]
           : [];
   const choiceIndex = Math.min(selected, Math.max(0, choices.length - 1));
-  const currentTheme = THEME_NAMES[themeIndex] ?? "obsidian";
+  const currentTheme = names[themeIndex] ?? savedTheme;
+  const currentColors = catalog.palette(currentTheme);
   const selector =
     screen === "providers" || screen === "profiles" || screen === "model-list";
   const field =
@@ -492,7 +518,7 @@ export function OpenTuiSettings({
   }, [actions]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Preview follows selection, not the callback identity.
   useEffect(() => {
-    if (page === "appearance") onThemePreview?.(currentTheme);
+    if (page === "appearance" && names.length) onThemePreview?.(currentTheme);
   }, [page, currentTheme]);
   const close = () => {
     if (
@@ -592,7 +618,8 @@ export function OpenTuiSettings({
     });
   };
   const applyTheme = () => {
-    const chosen = THEME_NAMES[themeIndexRef.current] ?? "obsidian";
+    const chosen = names[themeIndexRef.current];
+    if (!chosen) return;
     run("theme", async (valid) => {
       await onThemeChange?.(chosen);
       if (!valid()) return;
@@ -848,6 +875,22 @@ export function OpenTuiSettings({
       }
       return;
     }
+    if (page === "appearance" && !navigationOnly) {
+      if (name === "/" && !key.ctrl) {
+        key.preventDefault();
+        setShellFocus("content");
+        setThemeSearchFocus(true);
+        return;
+      }
+      if (themeSearchFocus) {
+        if (["return", "escape", "down", "tab"].includes(name)) {
+          key.preventDefault();
+          setThemeSearchFocus(false);
+          setShellFocus("content");
+        }
+        return;
+      }
+    }
     if (name === "tab") {
       key.preventDefault();
       const zones = navigationOnly
@@ -981,6 +1024,18 @@ export function OpenTuiSettings({
       return;
     }
     if (page === "appearance") {
+      if (name === "/") {
+        key.preventDefault();
+        setThemeSearchFocus(true);
+        return;
+      }
+      if (themeSearchFocus) {
+        if (name === "return" || name === "escape" || name === "down") {
+          key.preventDefault();
+          setThemeSearchFocus(false);
+        }
+        return;
+      }
       if (
         name === "up" ||
         name === "down" ||
@@ -993,8 +1048,8 @@ export function OpenTuiSettings({
           (i) =>
             (i +
               (name === "up" || name === "left" ? -1 : 1) +
-              THEME_NAMES.length) %
-            THEME_NAMES.length,
+              Math.max(1, names.length)) %
+            Math.max(1, names.length),
         );
       } else if (name === "return") {
         key.preventDefault();
@@ -1227,110 +1282,145 @@ export function OpenTuiSettings({
                 </box>
               </TerminalScrollbox>
             ) : page === "appearance" ? (
-              <box flexDirection="row" height="100%" width="100%">
+              <box flexDirection="column" height="100%" width="100%">
+                <input
+                  id="settings-theme-search"
+                  value={themeSearch}
+                  focused={active && themeSearchFocus && !confirmClose}
+                  placeholder="Поиск тем /"
+                  onMouseDown={() => {
+                    setShellFocus("content");
+                    setThemeSearchFocus(true);
+                  }}
+                  backgroundColor={palette.raised}
+                  textColor={palette.text}
+                  focusedTextColor={palette.text}
+                  placeholderColor={palette.muted}
+                  onInput={(value) => {
+                    if (value === themeSearch) return;
+                    setThemeSearch(cleanSettingsInput(value));
+                    setThemeIndex(0);
+                  }}
+                />
                 <box
-                  width={wide ? listWidth : innerWidth}
-                  height="100%"
-                  flexDirection="column"
+                  flexDirection="row"
+                  height={Math.max(1, bodyHeight - 2)}
+                  width="100%"
                 >
-                  {THEME_NAMES.slice(
-                    start(themeIndex, THEME_NAMES.length),
-                    start(themeIndex, THEME_NAMES.length) + visibleCount,
-                  ).map((name) => {
-                    const colors = THEMES[name];
-                    const active = name === currentTheme;
-                    return (
-                      // biome-ignore lint/a11y/noStaticElementInteractions: Arrow keys preview themes and Enter applies.
-                      <box
-                        id={`settings-theme-${name}`}
-                        key={name}
-                        height={rowHeight}
-                        flexShrink={0}
-                        flexDirection="column"
-                        paddingLeft={1}
-                        paddingRight={1}
-                        backgroundColor={
-                          active ? palette.raised : palette.surface
-                        }
-                        onMouseUp={(event) => {
-                          if (event.button !== 0) return;
-                          event.stopPropagation();
-                          if (!busy) {
-                            setThemeIndex(THEME_NAMES.indexOf(name));
-                            setNotice("");
-                          }
-                        }}
-                      >
-                        <box
-                          height={1}
-                          flexDirection="row"
-                          justifyContent="space-between"
-                        >
-                          <text
-                            height={1}
-                            fg={active ? palette.accent : palette.text}
-                          >
-                            {(active ? "> " : "  ") +
-                              colors.label +
-                              (name === savedTheme ? " +" : "")}
-                          </text>
-                          <text
-                            height={1}
-                            fg={colors.accent}
-                            selectable={false}
-                          >
-                            <span bg={colors.bg}>{"  "}</span>{" "}
-                            <span bg={colors.surface}>{"  "}</span>{" "}
-                            <span bg={colors.accent}>{"  "}</span>
-                          </text>
-                        </box>
-                        {roomy && (
-                          <text height={1} fg={palette.muted}>
-                            {colors.description}
-                          </text>
-                        )}
-                      </box>
-                    );
-                  })}
-                </box>
-                {wide && (
                   <box
-                    width={innerWidth - listWidth}
+                    width={wide ? listWidth : innerWidth}
                     height="100%"
-                    paddingLeft={2}
                     flexDirection="column"
                   >
-                    <text height={1} fg={palette.accent}>
-                      <strong>{THEMES[currentTheme].label}</strong>
-                    </text>
-                    <text fg={palette.muted}>
-                      {THEMES[currentTheme].description}
-                    </text>
+                    {names
+                      .slice(themeFirst, themeFirst + themeVisibleCount)
+                      .map((name) => {
+                        const colors = catalog.palette(name);
+                        const item = catalog.get(name)!;
+                        const active = name === currentTheme;
+                        return (
+                          <box
+                            id={`settings-theme-row-${name}`}
+                            key={name}
+                            height={rowHeight}
+                            flexShrink={0}
+                            flexDirection="column"
+                            paddingLeft={1}
+                            paddingRight={1}
+                            backgroundColor={
+                              active ? palette.raised : palette.surface
+                            }
+                          >
+                            <box
+                              height={1}
+                              flexDirection="row"
+                              justifyContent="space-between"
+                            >
+                              <DialogAction
+                                id={`settings-theme-${name}`}
+                                label={terminalLine(
+                                  (active ? "> " : "  ") +
+                                    colors.label +
+                                    (name === savedTheme ? " +" : ""),
+                                  Math.max(
+                                    3,
+                                    listWidth - (listWidth >= 30 ? 12 : 4),
+                                  ),
+                                )}
+                                palette={palette}
+                                active={active}
+                                disabled={!!busy}
+                                onSelect={() => {
+                                  setThemeIndex(names.indexOf(name));
+                                  setNotice("");
+                                }}
+                              />
+                              {listWidth >= 30 && (
+                                <text
+                                  height={1}
+                                  fg={colors.accent}
+                                  selectable={false}
+                                >
+                                  <span bg={colors.bg}>{"  "}</span>{" "}
+                                  <span bg={colors.surface}>{"  "}</span>{" "}
+                                  <span bg={colors.accent}>{"  "}</span>
+                                </text>
+                              )}
+                            </box>
+                            {roomy && (
+                              <text height={1} fg={palette.muted}>
+                                {terminalLine(
+                                  `${item.variant === "light" ? "Светлая" : "Тёмная"} · ${item.source}`,
+                                  listWidth - 2,
+                                )}
+                              </text>
+                            )}
+                          </box>
+                        );
+                      })}
+                  </box>
+                  {wide && (
                     <box
-                      marginTop={1}
-                      height={4}
-                      backgroundColor={palette.bg}
-                      border
-                      borderStyle="rounded"
-                      customBorderChars={borderChars}
-                      borderColor={palette.border}
-                      paddingLeft={1}
+                      width={innerWidth - listWidth}
+                      height="100%"
+                      paddingLeft={2}
                       flexDirection="column"
                     >
-                      <text fg={palette.muted}>{">"} Проверь мой проект</text>
-                      <text fg={palette.text}>Готов к следующей задаче.</text>
+                      <text height={1} fg={palette.accent}>
+                        <strong>{currentColors.label}</strong>
+                      </text>
+                      <text fg={palette.muted}>
+                        {currentColors.description}
+                      </text>
+                      <text
+                        height={1}
+                        flexShrink={0}
+                        marginTop={1}
+                        fg={palette.yellow}
+                      >
+                        Разрешения и предупреждения
+                      </text>
+                      <text height={1} flexShrink={0} fg={palette.red}>
+                        Ошибки и остановка
+                      </text>
+                      <text height={1} flexShrink={0} fg={palette.green}>
+                        Завершённые действия
+                      </text>
+                      <text marginTop={1} fg={palette.muted}>
+                        {decorative
+                          ? "Coder Mini и округлые рамки. Шрифт должен поддерживать графические символы."
+                          : "ASCII-логотип и рамки совместимы с обычными шрифтами. Графика включается отдельно."}
+                      </text>
+                      <text marginTop={1} fg={palette.muted}>
+                        Стрелки показывают тему во всём интерфейсе. Примените
+                        понравившийся вариант или нажмите Esc, чтобы вернуться.
+                      </text>
                     </box>
-                    <text marginTop={1} fg={palette.muted}>
-                      {decorative
-                        ? "Coder Mini и округлые рамки. Шрифт должен поддерживать графические символы."
-                        : "ASCII-логотип и рамки совместимы с обычными шрифтами. Графика включается отдельно."}
-                    </text>
-                    <text marginTop={1} fg={palette.muted}>
-                      Стрелки показывают тему во всём интерфейсе. Примените
-                      понравившийся вариант или нажмите Esc, чтобы вернуться.
-                    </text>
-                  </box>
-                )}
+                  )}
+                  {!names.length && (
+                    <text fg={palette.muted}>Темы не найдены</text>
+                  )}
+                </box>
               </box>
             ) : field ? (
               <box width="100%" height="100%" flexDirection="column">
@@ -1780,14 +1870,42 @@ export function OpenTuiSettings({
             onSelect={toggleBypass}
           />
         ) : page === "appearance" ? (
-          <DialogAction
-            id="settings-apply-theme"
-            label={busy === "theme" ? "Сохраняем..." : "Применить тему"}
-            primary
-            palette={palette}
-            disabled={!!busy}
-            onSelect={applyTheme}
-          />
+          <>
+            <DialogAction
+              id="settings-apply-theme"
+              label={
+                busy === "theme"
+                  ? "Сохраняем..."
+                  : tiny
+                    ? "Применить"
+                    : "Применить тему"
+              }
+              primary
+              palette={palette}
+              disabled={!!busy}
+              onSelect={applyTheme}
+            />
+            <DialogAction
+              id="settings-cancel-theme"
+              label={surfaceWidth < 55 ? "Отмена" : "Отменить предпросмотр"}
+              palette={palette}
+              disabled={!!busy}
+              onSelect={() => {
+                setThemeSearch("");
+                setThemeSearchFocus(false);
+                setThemeIndex(
+                  Math.max(
+                    0,
+                    catalog
+                      .list()
+                      .findIndex((item) => item.key === restore.current.theme),
+                  ),
+                );
+                onThemePreview?.(restore.current.theme);
+                setNotice("");
+              }}
+            />
+          </>
         ) : field || selector ? (
           <>
             <DialogAction

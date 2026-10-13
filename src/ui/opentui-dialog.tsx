@@ -74,7 +74,14 @@ export function OpenTuiDialog({
       zIndex={100}
       backgroundColor={
         shadow
-          ? RGBA.fromInts(0, 0, 0, palette.bg === THEMES.paper.bg ? 65 : 150)
+          ? RGBA.fromInts(
+              0,
+              0,
+              0,
+              palette.variant === "light" || palette.bg === THEMES.paper.bg
+                ? 65
+                : 150,
+            )
           : palette.bg
       }
       onMouseDown={(event) => {

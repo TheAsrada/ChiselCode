@@ -1,6 +1,8 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { cancelled } from "../runtime/errors.js";
+import { ThemeCatalog } from "../themes/catalog.js";
+import { inheritThemeSource, themeSource } from "../themes/source.js";
 import { ExtensionChatViews } from "./chat.js";
 import { ExtensionCommandContributions } from "./commands.js";
 import { ContextProviderRegistry } from "./context.js";
@@ -325,6 +327,8 @@ export class WorkspaceExtensionScope implements Disposable {
 }
 
 export class ExtensionHost implements Disposable {
+  readonly themes = new ThemeCatalog();
+  private readonly themeOwners = new Set<string>();
   private definitions: readonly ChiselExtension[];
   private readonly workspaces = new Map<
     string,
@@ -370,6 +374,11 @@ export class ExtensionHost implements Disposable {
         activate: definition.activate.bind(definition),
       });
       inheritOptional(definition, captured);
+      inheritThemeSource(definition, captured);
+      if (definition.themes) {
+        this.themes.accept(definition.id, definition.themes);
+        this.themeOwners.add(definition.id);
+      }
       return captured;
     });
   }
@@ -402,6 +411,18 @@ export class ExtensionHost implements Disposable {
             "Extension host closed during activation.",
           );
         scope.assertUsable();
+        for (const definition of definitions) {
+          if (this.themeOwners.has(definition.id)) continue;
+          const source = themeSource(definition);
+          if (
+            source &&
+            (!optionalDiagnostic(definition, canonical) ||
+              optionalDiagnostic(definition, canonical)?.state === "active")
+          ) {
+            this.themes.accept(definition.id, source.themes, source.name);
+            this.themeOwners.add(definition.id);
+          }
+        }
         return scope;
       } catch (error) {
         try {
@@ -459,6 +480,7 @@ export class ExtensionHost implements Disposable {
         }
       }
       this.workspaces.clear();
+      this.themes.dispose();
       if (failures.length)
         throw new ExtensionLifecycleError(
           `Extension host cleanup failed for ${[...new Set(failures.map((failure) => failure.extensionId))].join(", ")}.`,

@@ -90,7 +90,7 @@ import { clipText } from "../utils/text.js";
 import { VERSION } from "../version.js";
 import { resolveWebConfig } from "../web/schema.js";
 import { WebSettingsStore } from "../web/settings.js";
-import { themePalette } from "./appearance.js";
+import type { ThemeName } from "./appearance.js";
 import {
   appendChatPresentation,
   extensionCommandLabel,
@@ -297,7 +297,7 @@ async function runApplication(
   warmModelCapabilities(workspace.home);
   warmModelCapabilities(workspace.controller);
   const modelRequests = new Map<string, number>();
-  let currentTheme = config.ui?.theme ?? "obsidian";
+  let currentTheme: ThemeName = config.ui?.theme ?? "obsidian";
   const classic =
     process.env.CHISEL_ALT_SCREEN === "0" ||
     process.env.CHISEL_NO_ALT_SCREEN === "1";
@@ -347,7 +347,7 @@ async function runApplication(
         scrollbackDetachments.set(
           tab.controller,
           attachTranscriptScrollback(tab.controller, renderer, () =>
-            themePalette(currentTheme, config.ui?.accent),
+            extensionHost.themes.palette(currentTheme, config.ui?.accent),
           ),
         );
     }
@@ -359,7 +359,7 @@ async function runApplication(
   syncScrollback();
   const detachScrollback = classic
     ? attachTranscriptScrollback(workspace.home, renderer, () =>
-        themePalette(currentTheme, config.ui?.accent),
+        extensionHost.themes.palette(currentTheme, config.ui?.accent),
       )
     : undefined;
   const root = createRoot(renderer);
@@ -1919,6 +1919,19 @@ async function runApplication(
   let applicationFailed = false;
   const cleanupErrors: unknown[] = [];
   try {
+    await extensionHost.open(currentController().snapshot.projectPath);
+    if (!extensionHost.themes.get(currentTheme)) {
+      currentTheme = "obsidian";
+      currentController().appendNotice(
+        "Выбранная тема расширения недоступна. Используется Obsidian; проверьте расширение и перезапустите ChiselCode после изменения его состояния.",
+        "info",
+      );
+    }
+    if (extensionHost.themes.diagnostics.length)
+      currentController().appendNotice(
+        "Некоторые темы расширений отклонены: палитра неполная или недостаточно читаемая. Остальные темы доступны.",
+        "info",
+      );
     root.render(
       React.createElement(OpenTuiSpike, {
         onExit: shutdown,
@@ -2012,7 +2025,8 @@ async function runApplication(
           });
         },
         initialMode: config.ui?.sidebarMode ?? "auto",
-        initialTheme: config.ui?.theme ?? "obsidian",
+        initialTheme: currentTheme,
+        themeCatalog: extensionHost.themes,
         initialUnicodeDecorations: config.ui?.unicodeDecorations === true,
         onUnicodeDecorationsChange: (unicodeDecorations) => {
           const saved = pendingSave.then(async () => {

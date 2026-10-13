@@ -227,7 +227,12 @@ export interface GlobalConfig {
   providers: Partial<Record<ProviderId, ProviderConfig>>;
   ui?: {
     sidebarMode?: "auto" | "show" | "hide";
-    theme?: "obsidian" | "graphite" | "ember" | "paper";
+    theme?:
+      | "obsidian"
+      | "graphite"
+      | "ember"
+      | "paper"
+      | `extension:${string}:${string}`;
     unicodeDecorations?: boolean;
     accent?: string;
   };

@@ -114,6 +114,10 @@ export async function smokeExternalCli(
     `,
       ),
     );
+    await copyFile(
+      resolve("tests/fixtures/extensions/themes/index.ts"),
+      join(author, "themes.ts"),
+    );
     await writeFile(
       join(author, "tsconfig.json"),
       JSON.stringify({
@@ -124,7 +128,7 @@ export async function smokeExternalCli(
           moduleResolution: "NodeNext",
           skipLibCheck: false,
         },
-        include: ["index.ts"],
+        include: ["index.ts", "themes.ts"],
       }),
     );
     const types = await execa(

@@ -134,13 +134,16 @@ async function key(name: string, ctrl = false) {
   await act(async () => {
     ui.mockInput.pressKey(
       (
-        { return: "RETURN", up: "ARROW_UP", escape: "ESCAPE" } as Record<
-          string,
-          string
-        >
+        {
+          return: "RETURN",
+          up: "ARROW_UP",
+          down: "ARROW_DOWN",
+          escape: "ESCAPE",
+        } as Record<string, string>
       )[name] ?? name,
       { ctrl },
     );
+    if (name === "escape") await Bun.sleep(120);
   });
   await frame();
 }
@@ -241,6 +244,24 @@ try {
     () => ui.captureCharFrame().includes("Фон 1"),
     "Нет индикатора фоновой команды",
   );
+  await key("t", true);
+  await until(
+    () => !!ui.renderer.root.findDescendantById("settings-popup"),
+    "Настройки темы недоступны при running task",
+  );
+  await key("down");
+  await key("return");
+  await until(
+    () => ui.captureCharFrame().includes("Тема сохранена"),
+    "Тема не сохранилась при running task",
+  );
+  await key("escape");
+  await until(
+    () => !ui.renderer.root.findDescendantById("settings-popup"),
+    "Esc не закрыл настройки темы",
+  );
+  assert.equal(calls, 2, "Смена темы не делает model request");
+  assert.equal(await readFile(join(root, "launches.txt"), "utf8"), "one\n");
   await send("/tasks");
   await until(
     () => !!ui.renderer.root.findDescendantById("background-tasks-popup"),
@@ -272,7 +293,7 @@ try {
     "Enter не открыл вывод",
   );
   await until(
-    () => ui.captureCharFrame().includes("Сохранённая строка"),
+    () => /Сохранённая строка|Новая строка/.test(ui.captureCharFrame()),
     "Нет настоящего сохранённого вывода",
   );
   await capture("ordinary-tui-120x40-background-output");
@@ -281,7 +302,7 @@ try {
     ui
       .captureCharFrame()
       .split("\n")
-      .map((line) => line.match(/Сохранённая строка \d+/)?.[0])
+      .map((line) => line.match(/(?:Сохранённая|Новая) строка \d+/)?.[0])
       .filter(Boolean)
       .join("\n");
   const oldRows = frozenRows();
@@ -337,6 +358,10 @@ try {
   throw error;
 } finally {
   release();
+  if (application) {
+    process.emit("SIGTERM");
+    await application.catch(() => {});
+  }
   server.stop(true);
   ui.renderer.destroy();
   await rm(directory, { recursive: true, force: true });

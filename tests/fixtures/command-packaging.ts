@@ -142,6 +142,16 @@ try {
     "--external",
     "@opentui/core-*",
   ]);
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-extension-themes.ts",
+    "--outdir",
+    join(packageRoot, "dist/ui-smoke"),
+    "--target",
+    "bun",
+    "--external",
+    "@opentui/core-*",
+  ]);
   const tarball = (
     await run(
       "npm",
@@ -304,6 +314,29 @@ try {
   );
   process.stdout.write(
     "Установленный и compiled UI registry: независимое расширение, native details и own-tool approval проверены.\n",
+  );
+  const themesMarker = "Extension themes TUI:";
+  assert.ok(
+    (
+      await run(process.execPath, [
+        join(distribution, "ui-smoke/tui-extension-themes.js"),
+      ])
+    ).includes(themesMarker),
+  );
+  const themesBinary = join(
+    staging,
+    process.platform === "win32" ? "themes-tui.exe" : "themes-tui",
+  );
+  await run(process.execPath, [
+    "build",
+    "tests/fixtures/tui-extension-themes.ts",
+    "--compile",
+    "--outfile",
+    themesBinary,
+  ]);
+  assert.ok((await run(themesBinary, [])).includes(themesMarker));
+  process.stdout.write(
+    "Installed/compiled extension themes: внешний .mjs, предпросмотр, выбор, сохранение и fallback проверены.\n",
   );
   const backgroundBinary = join(
     staging,
