@@ -13,6 +13,7 @@ import {
 import {
   approvePackage,
   extensionRecords,
+  receiptMatches,
 } from "../extensions/external/registry.js";
 
 export function registerExtensionCommands(program: Command): void {
@@ -33,10 +34,23 @@ export function registerExtensionCommands(program: Command): void {
     .option("--json", "JSON результат")
     .action(async (path: string, options: { json?: boolean }) => {
       const candidate = await inspectPackage(path);
+      const prior = (await extensionRecords()).find(
+        (record) => record.id === candidate.manifest.id,
+      );
+      const trusted = !!prior && receiptMatches(prior, candidate);
+      const state = candidate.incompatible
+        ? "incompatible"
+        : prior && !trusted
+          ? "modified"
+          : trusted
+            ? prior.enabled
+              ? "pending_restart"
+              : "disabled"
+            : "not_trusted";
       const value = {
         ...candidate,
         location: safeExtensionText(candidate.location),
-        state: "not_trusted",
+        state,
         manifest: {
           ...candidate.manifest,
           displayName: safeExtensionText(candidate.manifest.displayName),
@@ -44,13 +58,13 @@ export function registerExtensionCommands(program: Command): void {
             ? { description: safeExtensionText(candidate.manifest.description) }
             : {}),
         },
-        trusted: false,
-        enabled: false,
+        trusted,
+        enabled: prior?.enabled ?? false,
       };
       stdout.write(
         options.json || program.opts().json
           ? JSON.stringify(value) + "\n"
-          : `${value.manifest.displayName} · ${value.manifest.id} · ${value.manifest.version}\nAPI ${value.manifest.apiVersion} · ${value.incompatible ?? "Совместим"}\nПуть: ${safeExtensionText(value.location)}\nSHA-256: ${value.digest}\nФайлов: ${value.files} · bytes: ${value.bytes}\nКод не выполнялся. Доверие ещё не выдано.\n`,
+          : `${value.manifest.displayName} · ${value.manifest.id} · ${value.manifest.version}\nAPI ${value.manifest.apiVersion} · ${value.incompatible ?? "Совместим"}\nПуть: ${safeExtensionText(value.location)}\nSHA-256: ${value.digest}\nФайлов: ${value.files} · bytes: ${value.bytes}\nКод не выполнялся. Доверие: ${trusted ? "совпадает" : "не подтверждено"}. Состояние: ${state}.\n`,
       );
     });
   extensions

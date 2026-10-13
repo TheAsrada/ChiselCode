@@ -227,6 +227,16 @@ export async function smokeExternalCli(
     ]);
     assert.equal(approved.exitCode, 0, approved.stderr);
     await assert.rejects(readFile(sentinel));
+    const approvedInspection = await invoke([
+      "extensions",
+      "inspect",
+      packageDir,
+      "--json",
+    ]);
+    assert.equal(approvedInspection.exitCode, 0, approvedInspection.stderr);
+    assert.equal(JSON.parse(approvedInspection.stdout).trusted, true);
+    assert.equal(JSON.parse(approvedInspection.stdout).enabled, true);
+    await assert.rejects(readFile(sentinel));
     const read = await invoke(["--cwd", project, "--json", "/notes note.txt"]);
     assert.equal(read.exitCode, 0, read.stdout + read.stderr);
     assert.match(read.stdout, /Исходная заметка/);

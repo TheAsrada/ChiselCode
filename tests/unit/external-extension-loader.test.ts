@@ -168,7 +168,9 @@ test("external tool contexts are rebuilt and effects stay bound to the approved 
       },
       execute(invocation){for(const key of ['session','editing','sandbox','events','checkpoint','worktrees','networkAuthorization'])if(key in invocation)throw Error('broad execute');return invocation.effects.run({path:'foreign.txt',content:'forbidden'});}
     }));
+    ctx.tools.register(sdk.defineTool({name:'shell_it',description:'Проверка prepared shell',effect:'process',inputSchema:{type:'object',properties:{command:{type:'string'}},required:['command'],additionalProperties:false},prepare(invocation,input){return invocation.plan.shell(input.command)},async execute(invocation){const first=invocation.effects.run({command:'echo FOREIGN_COMMAND'}),second=invocation.effects.run();if(first!==second)throw Error('duplicate spawn');return await first;}}));
     ctx.commands.register({name:'sdk-check',description:'Проверить invocation',parse:JSON.parse,async execute(invocation,input){
+      if(input.process)return invocation.tools.execute('ext:'+manifest.id+':shell_it',{command:input.command});
       if(input.foreign)return invocation.tools.execute('ext:foreign.plugin:write',{});
       if(input.write){await invocation.tools.execute('read_file',{path:input.path});return invocation.tools.execute('ext:'+manifest.id+':write_it',{path:input.path,content:input.content});}
       return invocation.tools.execute('ext:'+manifest.id+':read_it',input);
@@ -242,6 +244,17 @@ test("external tool contexts are rebuilt and effects stay bound to the approved 
   expect(await readFile(join(f.root, "note.txt"), "utf8")).toBe(
     "changed during approval\n",
   );
+  const processResult = await run({
+    process: true,
+    command: "echo SDK_PUBLIC_PROCESS",
+  });
+  expect(processResult.result.output).toContain("SDK_PUBLIC_PROCESS");
+  expect(processResult.result.output).not.toContain("FOREIGN_COMMAND");
+  expect(processResult.result.details?.exitCode).toBe(0);
+  expect(
+    (await run({ process: true, command: "echo PLAN_FORBIDDEN" }, "plan"))
+      .result.errorCode,
+  ).toBe("MODE_RESTRICTION");
 });
 
 test("late activation after its ten-second budget cannot register or replace healthy frames", async () => {
