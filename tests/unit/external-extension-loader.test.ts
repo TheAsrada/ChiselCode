@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -38,7 +39,9 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 async function fixture(code = "", id = "fixture.external") {
-  const root = await mkdtemp(join(tmpdir(), "chisel-external-"));
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "chisel-external-")),
+  );
   roots.push(root);
   for (const key of keys) process.env[key] = join(root, "Данные пользователя");
   const dir = join(await extensionsDirectory(), "Пакет с пробелами"),
