@@ -17,6 +17,7 @@ import {
   inspectPackage,
 } from "../../src/extensions/external/package.js";
 import { approvePackage } from "../../src/extensions/external/registry.js";
+import { PackageManagementService } from "../../src/extensions/packages/service.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 
@@ -69,16 +70,19 @@ await execa(
   ],
   { cwd: author },
 );
-const packageDir = join(await extensionsDirectory(), "Заметки проекта");
-await mkdir(packageDir);
 // Files arrive after the application/harness was built; no source definition injection.
-await copyFile(join(author, "index.mjs"), join(packageDir, "index.mjs"));
 await copyFile(
   join(example, "chisel-extension.json"),
-  join(packageDir, "chisel-extension.json"),
+  join(author, "chisel-extension.json"),
 );
-const candidate = await inspectPackage(packageDir);
-await approvePackage(packageDir, candidate.manifest.id, candidate.digest, true);
+const packages = new PackageManagementService(),
+  prepared = await packages.prepareInstall(author);
+await packages.commitCandidate(prepared, {
+  digest: prepared.preview.digest,
+  acknowledgeProcessAccess: true,
+  enabled: true,
+});
+await rm(author, { recursive: true });
 const broken = join(await extensionsDirectory(), "Сломанный пакет");
 await mkdir(broken);
 await writeFile(
@@ -277,6 +281,15 @@ try {
     "Нет ordinary approval внешнего UI tool",
   );
   await capture("external-approval-120x40");
+  const loaded = await packages.status(prepared.preview.id);
+  await packages.setEnabled(loaded.id, false, {
+    digest: loaded.selected!.digest,
+    revision: loaded.revision,
+  });
+  assert.ok(
+    ui.renderer.root.findDescendantById("approval-popup"),
+    "Package disable stole captured approval/focus",
+  );
   await key("y");
   await until(
     async () =>
@@ -303,6 +316,17 @@ try {
     "Заметка через внешний UI SDK\n",
   );
   await capture("external-return-draft-120x40");
+  const disabled = await packages.status(prepared.preview.id);
+  const removed = await packages.remove(disabled.id, {
+    digest: disabled.selected!.digest,
+    revision: disabled.revision,
+  });
+  assert.equal(
+    removed.deferred,
+    true,
+    "Active external bytes were removed before restart",
+  );
+  await capture("external-removed-live-draft-120x40");
   await click("prompt-editor");
   await key("a", true);
   await key("k", true);

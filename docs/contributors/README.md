@@ -7,6 +7,7 @@
 | Возможность | Справка | Материалы реализации |
 | --- | --- | --- |
 | Внешние расширения | [Подключение и доверие](../extensions.md) | [Loader/SDK: реализация и проверки](reports/external-extension-loader.md) |
+| Пакеты расширений | [Установка и версии](../extensions.md) | [Транзакции, leases и проверки](reports/extension-packages.md) |
 | Статусы и панели возможностей | [Как пользоваться](../interface-contributions.md) | [UI contributions: реализация и проверки](reports/ui-contributions.md) |
 | Фоновые задачи | [Как пользоваться](../background-tasks.md) | [Реализация, проверки и кадры интерфейса](reports/background-tasks.md) |
 | Побочные вопросы | [Как пользоваться](../side-questions.md) | [Реализация, проверки и кадры интерфейса](reports/model-requests.md) |

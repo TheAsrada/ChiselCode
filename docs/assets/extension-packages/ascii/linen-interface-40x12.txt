@@ -1,0 +1,12 @@
+             <i> ChiselCode             
+                                        
+  +- Черновик -----------------------+  
+  |                                  |  
+  |  Сохранённый черновик темы       |  
+  |                                  |  
+  |   Build   Manual v       Enter   |  
+  |  claude-opus-5 v                 |  
+  +----------------------------------+  
+  Shift+Tab режим | F4                  
+                                        
+ /tmp/chisel-the...   ChiselCode 0.6.27 

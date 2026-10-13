@@ -253,7 +253,7 @@ Lifetime workspace объединяется с caller signal на всём execu
 
 **Встроенный consumer:** production CLI/TUI явно используют `defaultExtensions()` с `builtin.project`. `ext:builtin.project:manifest` читает только корневые `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, без recursive discovery, scripts, process/network и instruction authority. Schema — `z.object({}).strict()`: неизвестные path/command fields отклоняются. Данные читаются заново в execute, лимит **512000 bytes на файл**, paths/symlinks/ignore revalidated через WorkspacePolicy; ignored и missing пропускаются, IO/oversize/outside-root errors возвращаются честно. Чтение обновляет EditingService observations. Существует ограниченная in-process TOCTOU защита по общим path rules, не OS filesystem sandbox.
 
-Универсальный `new ExtensionHost([])` остаётся пустым. Явный borrowed host/scope уважает собственные definitions; TUI не добавляет built-ins повторно в runPrompt. Явный `{ extensions: [...] }` задаёт точный linked список; `defaultExtensions([example])` явно объединяет consumer с custom definitions. Duplicate IDs не игнорируются. Loader, settings/installation/trust UI, hot reload и публичный SDK пока отсутствуют.
+Универсальный `new ExtensionHost([])` остаётся пустым. Явный borrowed host/scope уважает собственные definitions; TUI не добавляет built-ins повторно в runPrompt. Явный `{ extensions: [...] }` задаёт точный linked список; `defaultExtensions([example])` явно объединяет consumer с custom definitions. Duplicate IDs не игнорируются. Ordinary application composition использует [external loader/SDK](architecture/external-extensions.md); локальными installed versions управляет [package service](architecture/extension-packages.md). Полный Settings → Extensions и hot reload отсутствуют.
 
 **Command contributions P1.2:** `ctx.commands.register` регистрирует slash head во время activation и автоматически отслеживается теми же frames, sealing и reverse rollback. Имя без `/` соответствует `^[a-z][a-z0-9-]{0,63}$`; description — непустой plain text до **240 символов**, optional usage — до **160 символов**, без terminal controls и переводов строки. Core копирует metadata, фиксирует callable references с исходным `this` и формирует identity `{ type: "extension", extensionId, name }`. После activation/dispose registration закрыта; сохранённый adapter не исполняет закрытый scope. Slash `/example-state` не является model tool или wire alias; вызванный tool сохраняет `ext:example:state` и собственный source.
 
@@ -416,3 +416,7 @@ Workspace extension scope владеет staged UI registry. Linked consumers о
 ## Темы интерфейса
 
 Декларативные палитры расширений принимает application catalog. Core проверяет семантические цвета, применяет preview/сохранённый выбор и fallback; workspace switching не удаляет принятые темы. [Контракт тем](architecture/themes.md).
+
+## Пакеты расширений
+
+Общий сервис захватывает папку/ZIP без исполнения JS, хранит immutable версии и exact trust, атомарно меняет desired selection. Loader удерживает application version leases; update/disable/remove требуют restart и не стирают used/unknown bytes. [Транзакции, migration, quota и recovery](architecture/extension-packages.md), [пользовательские команды](extensions.md).

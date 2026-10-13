@@ -4,7 +4,9 @@
 
 Проверяйте package в отдельном TypeScript-проекте с установленным packed ChiselCode. Declarations должны разрешаться через `chiselcode/extension-sdk`; готовый `.mjs` не должен импортировать внутренний `src` или требовать bare runtime SDK.
 
-Затем используйте ordinary CLI inspect/approve/status и новый запуск приложения. Проверки distribution должны копировать entry после compilation; injected definition не доказывает внешний loader. Project config не выдаёт trust. Для tools проверьте реальные files/checkpoints, Plan, deny, адресованные approvals, stale revisions и workspace conflicts.
+Затем используйте ordinary CLI inspect/install/approve/status и новый запуск приложения. [Папка и ZIP](package-management.md) должны устанавливаться из внешнего source; удалите его и убедитесь, что installed package самостоятелен. Проверки distribution копируют entry после compilation; injected definition не доказывает внешний loader. Project config не выдаёт trust. Для tools проверьте реальные files/checkpoints, Plan, deny, адресованные approvals, stale revisions и workspace conflicts.
+
+Для отдельного author project с packed SDK: bun node_modules/typescript/bin/tsc --noEmit --project tsconfig.json, затем bun build index.ts --target bun --outfile package/index.mjs. Manifest и assets помещаются в package отдельно; проверяйте assembled package, а не source node_modules. Репозиторный tests/fixtures/extension-packages-cli.ts использует declarations установленного tarball и ordinary npm/compiled CLI с настоящим author output.
 
 | Состояние | Значение |
 | --- | --- |

@@ -1,6 +1,6 @@
 {
   "name": "chiselcode",
-  "version": "0.6.27",
+  "version": "0.6.28",
   "description": "A secure multi-provider coding agent CLI",
   "type": "module",
   "bin": {
@@ -22,8 +22,14 @@
     "bun": ">=1.3.0"
   },
   "exports": {
-    "./desktop-sdk": { "types": "./dist/desktop-sdk/index.d.ts", "import": "./dist/desktop-sdk/index.js" },
-    "./extension-sdk": { "types": "./dist/extension-sdk/index.d.ts", "import": "./dist/extension-sdk/index.js" }
+    "./desktop-sdk": {
+      "types": "./dist/desktop-sdk/index.d.ts",
+      "import": "./dist/desktop-sdk/index.js"
+    },
+    "./extension-sdk": {
+      "types": "./dist/extension-sdk/index.d.ts",
+      "import": "./dist/extension-sdk/index.js"
+    }
   },
   "scripts": {
     "dev": "bun run src/cli.ts",

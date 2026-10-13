@@ -8,6 +8,7 @@ SDK v1 предназначен для готового self-contained ESM па�
 | --- | --- |
 | Собрать первый пакет и подключить его | [Быстрый старт](quickstart.md) |
 | Описать manifest, пути и совместимость | [Формат пакета](package.md) |
+| Упаковать ZIP и проверить установку/версии | [Пакеты и lifecycle](package-management.md) |
 | Определить tools, commands и запрос модели | [Инструменты и команды](tools-commands.md) |
 | Добавить chat/UI, context, guards и собственное состояние | [Представления и lifecycle](contributions.md) |
 | Добавить светлую и тёмную тему | [Палитры, проверка и lifecycle](themes.md) |

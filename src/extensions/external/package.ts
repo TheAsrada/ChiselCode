@@ -108,7 +108,7 @@ async function capture(
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       cancelled(signal);
       const name = prefix + entry.name,
-        folded = name.toLowerCase();
+        folded = name.normalize("NFC").toLowerCase();
       if (
         name.length > 512 ||
         // biome-ignore lint/suspicious/noControlCharactersInRegex: Package names cannot contain terminal/path control bytes.
@@ -140,7 +140,9 @@ async function capture(
         throw new Error("Превышен размер или число файлов пакета.");
       const file = await open(
         path,
-        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+        constants.O_RDONLY |
+          (constants.O_NOFOLLOW ?? 0) |
+          (constants.O_NONBLOCK ?? 0),
       );
       let bytes: Buffer;
       try {
@@ -228,6 +230,7 @@ export async function inspectPackage(
 export async function runtimeSnapshot(
   candidate: InspectedPackage,
   signal?: AbortSignal,
+  onPublished?: () => Promise<void>,
 ): Promise<string> {
   const location = await safeRoot(
       candidate.location,
@@ -252,8 +255,10 @@ export async function runtimeSnapshot(
     }
     if ((await capture(temporary, signal)).digest !== candidate.digest)
       throw new Error("Runtime snapshot не совпадает с подтверждёнными bytes.");
+    let published = false;
     try {
       await rename(temporary, destination);
+      published = true;
     } catch (error) {
       if (
         !["EEXIST", "ENOTEMPTY", "EPERM"].includes(
@@ -265,6 +270,7 @@ export async function runtimeSnapshot(
     await safeRoot(destination, root);
     if ((await capture(destination, signal)).digest !== candidate.digest)
       throw new Error("Runtime snapshot повреждён.");
+    if (published) await onPublished?.();
     return join(destination, candidate.manifest.entry);
   } finally {
     await rm(temporary, { recursive: true, force: true });

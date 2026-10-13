@@ -24,6 +24,8 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 
 ## Флаги запроса
 
+Для локальных пакетов расширений: `chisel extensions inspect/install/update/enable/disable/versions/rollback/remove/status/recover`. Эти команды не запускают внешний JS или модель. Установка по умолчанию выключена без доверия; [точные flags, ZIP и restart](extensions.md) описаны отдельно. Tarball приложения/SDK не является ZIP пакетом расширения.
+
 Для внешних инструментов доступны `chisel mcp list`, `add`, `remove`, `info`, `tools`, `enable`, `disable`, `doctor`, `logs` и `trust`. `chisel mcp` показывает список без запуска команд. Общие `--cwd` и `--json` поддерживаются. `mcp doctor` возвращает 0 при успешных проверках, 2 при ошибке сервера, необходимом доверии или авторизации; ошибка команды возвращает 1. Примеры и настройка без TUI: [MCP → CLI](mcp.md#cli).
 
 | Флаг | Назначение |
