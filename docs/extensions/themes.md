@@ -46,6 +46,8 @@ export default factory;
 
 Проверяются исходные цвета темы. Пользовательский accent override затем применяется отдельно и не изменяется расширением.
 
+[Update/disable/remove пакета](package-management.md) меняют desired code, а не live catalog. После restart missing palette использует прежний fallback; installer не переписывает желаемую тему или accent.
+
 ## Lifecycle и совместимость
 
 Метаданные захватываются и замораживаются. Внешняя тема попадает в application catalog после successful workspace seal её расширения; optional activation failure не публикует новые темы. Закрытие workspace не удаляет уже принятые статические палитры. Project policy проверяется перед обычным import; каталог не обходит её ради предварительного просмотра.

@@ -8,7 +8,7 @@ Activation context содержит workspaceRoot, lifetime signal, registration
 
 ## Chat и UI
 
-`ctx.chat.register({id,render})` возвращает safe summary/cards. Tool/command `chat: {title, view}` выбирает formatter. Formatter получает frozen data, не изменяет выполненный результат; ошибка даёт существующий fallback. `extension_view` ведёт к owned named view. Не сериализуйте callback, token или path как authority в Session.
+`ctx.chat.register({id,render})` регистрирует formatter и возвращает `void`. Safe summary/cards возвращает callback `render`, а не вызов регистрации. Tool/command `chat: {title, view}` выбирает formatter. Formatter получает frozen data, не изменяет выполненный результат; ошибка даёт существующий fallback. `extension_view` ведёт к owned named view. Не сериализуйте callback, token или path как authority в Session.
 
 `ctx.ui.register` поддерживает `status`, `context_section`, `menu_entry`; `registerView` — summary/key/value/paginated list. Slot scope — workspace или conversation. Core контролирует Palette, размеры, фокус и keyboard/mouse. External actions — открыть own view или вызвать own registered tool. Private core navigation constructors, JSX/renderables и raw input handlers отсутствуют.
 

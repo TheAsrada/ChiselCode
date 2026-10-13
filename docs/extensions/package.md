@@ -37,3 +37,5 @@
 Paths относительные: без drive/UNC/URL/absolute/`..`/NUL. Symlinks, junctions, hard links, special files и case collisions запрещены. Loader не выбирает entry по порядку файлов и не сканирует cwd/node_modules/repository.
 
 Digest: SHA-256 начинается с UTF-8 `ChiselCode extension package v1` + NUL. Файлы упорядочены сравнением UTF-8 relative paths с `/`. Для каждого идут uint32 big-endian длины пути, uint64 big-endian размера bytes, UTF-8 путь и сами bytes. Manifest входит в digest; hash receipt хранится вне пакета. Пустые директории не являются regular files и не вносят bytes.
+
+[Упаковка ZIP, версии и migration](package-management.md) · [Пользовательские операции](../extensions.md).

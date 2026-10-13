@@ -1,0 +1,8 @@
+     <i> ChiselCode     
++- Черновик -----------+
+|                      |
+|  черновик темы       |
+|   Build   Manual v  En
+|  claude-opus...      |
++----------------------+
+Shift+Tab режим | F4    

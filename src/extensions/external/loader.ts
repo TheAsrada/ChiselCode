@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { loadProjectConfig } from "../../config/load.js";
@@ -6,7 +7,10 @@ import { SecretRedactor } from "../../security/redaction.js";
 import { setThemeSource } from "../../themes/source.js";
 import type { ChiselExtension } from "../contracts.js";
 import { abortable, frozenClone } from "../lifecycle.js";
+import { markRuntimeSnapshot } from "../packages/runtime-ownership.js";
+import { acquireVersionUse, type PackageUseLease } from "../packages/use.js";
 import { adaptDefinition, createHostSdk } from "./adapter.js";
+import { setApplicationResource } from "./application-resource.js";
 import { markOptional, setOptionalDiagnostic } from "./optional.js";
 import {
   canonicalPath,
@@ -81,14 +85,18 @@ export async function inspectRecord(
         trusted,
         compatible: !candidate.incompatible,
         state: !trusted
-          ? "modified"
+          ? record.approvedAt
+            ? "modified"
+            : "not_trusted"
           : candidate.incompatible
             ? "incompatible"
             : !record.enabled
               ? "disabled"
               : "pending_restart",
         reason: !trusted
-          ? "Содержимое отличается от подтверждённого; код не загружен."
+          ? record.approvedAt
+            ? "Содержимое отличается от подтверждённого; код не загружен."
+            : "Доверие к коду не подтверждено; код не загружен."
           : (candidate.incompatible ??
             (!record.enabled
               ? "Расширение выключено."
@@ -133,6 +141,7 @@ async function loadModule(
   record: ExtensionRecord,
   candidate: InspectedPackage,
   signal: AbortSignal,
+  lease: PackageUseLease,
 ): Promise<ChiselExtension> {
   const key = JSON.stringify([
     record.id,
@@ -156,7 +165,14 @@ async function loadModule(
             cacheEntry.abort.signal,
             AbortSignal.timeout(10000),
           ]);
-        const file = await runtimeSnapshot(candidate, budget());
+        const file = await runtimeSnapshot(candidate, budget(), () =>
+          markRuntimeSnapshot(
+            record.id,
+            record.digest,
+            candidate.bytes,
+            lease.token,
+          ),
+        );
         if (cacheEntry.abort.signal.aborted)
           throw new Error("Загрузка отменена до import.");
         cacheEntry.started = true;
@@ -215,6 +231,10 @@ async function loadModule(
 
 /** One frozen user boot plan. Workspace policy only narrows it before import. */
 export class ExternalExtensionLoader {
+  private readonly applicationId = randomUUID();
+  private readonly leases = new Map<string, Promise<PackageUseLease>>();
+  private readonly failedCleanup = new Set<string>();
+  private closed = false;
   private readonly diagnostics = new Map<string, ExtensionDiagnostic>();
   private readonly noticed = new Set<string>();
   private constructor(
@@ -246,6 +266,53 @@ export class ExternalExtensionLoader {
   }
   metadata(): readonly ExtensionDiagnostic[] {
     return frozenClone([...this.diagnostics.values()]);
+  }
+  private async use(
+    record: ExtensionRecord,
+    candidate: InspectedPackage,
+  ): Promise<PackageUseLease> {
+    if (this.closed) throw new Error("Application loader закрыт.");
+    const key = JSON.stringify([
+      record.id,
+      record.digest,
+      canonicalPath(record.location),
+    ]);
+    let lease = this.leases.get(key);
+    if (!lease) {
+      lease = acquireVersionUse(record, this.applicationId, candidate.bytes);
+      this.leases.set(key, lease);
+    }
+    const result = await lease;
+    if (this.closed) {
+      await result.shutdown();
+      throw new Error("Application loader закрыт.");
+    }
+    return result;
+  }
+  async dispose(cleanupConfirmed = true): Promise<void> {
+    this.closed = true;
+    const held = await Promise.allSettled(
+      [...this.leases].map(async ([key, promise]) => ({
+        id: (JSON.parse(key) as [string])[0],
+        lease: await promise,
+      })),
+    );
+    const results = await Promise.allSettled(
+      held.flatMap((result) =>
+        result.status === "fulfilled"
+          ? [
+              result.value.lease.shutdown(
+                cleanupConfirmed && !this.failedCleanup.has(result.value.id),
+              ),
+            ]
+          : [],
+      ),
+    );
+    this.leases.clear();
+    if (results.some((result) => result.status === "rejected"))
+      throw new Error(
+        "Use lease shutdown не подтверждён; bytes защищены recovery record.",
+      );
   }
   definitions(
     required: readonly ChiselExtension[],
@@ -284,7 +351,7 @@ export class ExternalExtensionLoader {
               apiVersion: 1,
               digest: record.digest.slice(0, 12),
               enabled: false,
-              trusted: true,
+              trusted: !!record.approvedAt,
               compatible: false,
               state: "disabled",
               reason: "Выключено user/project настройкой; код не загружен.",
@@ -303,16 +370,19 @@ export class ExternalExtensionLoader {
           report(context.workspaceRoot, { ...diagnostic, state: "loading" });
           let definition: ChiselExtension;
           try {
+            const lease = await this.use(record, candidate);
             definition = await abortable(
-              () => loadModule(record, candidate, context.signal),
+              () => loadModule(record, candidate, context.signal, lease),
               context.signal,
             );
+            await lease.loaded();
           } catch {
             report(context.workspaceRoot, {
               ...diagnostic,
               state: "load_failed",
               reason: "Ошибка import/factory после подтверждения доверия.",
             });
+            this.failedCleanup.add(record.id);
             this.notice(
               record.id,
               `Расширение ${record.id}: код не загружен; inspect/status покажет сведения.`,
@@ -330,11 +400,13 @@ export class ExternalExtensionLoader {
           ? { themes: themeDefinition.themes ?? [], name: themeName }
           : undefined,
       );
+      setApplicationResource(wrapper, this);
       setOptionalDiagnostic(wrapper, (root) =>
         this.diagnostics.get(`${record.id}/${root}`),
       );
       return [
         markOptional(wrapper, (state, root) => {
+          if (state === "cleanup_failed") this.failedCleanup.add(record.id);
           if (state === "disposed") {
             this.diagnostics.delete(`${record.id}/${root}`);
             loadedRoots.delete(root);

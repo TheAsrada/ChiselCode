@@ -6,6 +6,8 @@
 
 Pipeline: registry/enabled → project narrowing → manifest/paths/compatibility/conflicts → exact trust receipt → verified snapshot → canonical dynamic import → default factory с injected SDK → public adapter → optional activation transaction → seal → active metadata. Inspect/trust/status/help/version/doctor/recovery не проходят import path.
 
+[Управление локальными пакетами](extension-packages.md) добавляет source capture, schema 1→2 migration, immutable versions, journals/CAS и application use lease до snapshot/import. Installer не ослабляет Home-only inspector и не делает пробный import. Текущая loaded identity сохраняется до restart; desired selection/trust/enabled отдельно.
+
 ## Integrity и snapshot
 
 Receipt связывает id/version/apiVersion/entry/location/digest и enabled. Atomic file writes + existing storage lock сохраняют чужие global settings: bootstrap registry отдельный. Все regular paths/bytes, включая manifest/assets, входят в deterministic digest [описанного формата](../extensions/package.md). Ссылки/junctions/case collisions и специальные файлы отклоняются.

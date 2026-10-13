@@ -13,11 +13,7 @@ import type { BoxRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
-import {
-  extensionsDirectory,
-  inspectPackage,
-} from "../../src/extensions/external/package.js";
-import { approvePackage } from "../../src/extensions/external/registry.js";
+import { PackageManagementService } from "../../src/extensions/packages/service.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -64,15 +60,18 @@ await execa(
   ],
   { cwd: author },
 );
-const packageDir = join(await extensionsDirectory(), "Темы интерфейса");
-await mkdir(packageDir);
-await copyFile(join(author, "index.mjs"), join(packageDir, "index.mjs"));
 await copyFile(
   join(example, "chisel-extension.json"),
-  join(packageDir, "chisel-extension.json"),
+  join(author, "chisel-extension.json"),
 );
-const candidate = await inspectPackage(packageDir);
-await approvePackage(packageDir, candidate.manifest.id, candidate.digest, true);
+const packages = new PackageManagementService(),
+  candidate = await packages.prepareInstall(author);
+const installed = await packages.commitCandidate(candidate, {
+  digest: candidate.preview.digest,
+  acknowledgeProcessAccess: true,
+  enabled: true,
+});
+await rm(author, { recursive: true }); // Ordinary loader must use self-contained managed bytes.
 const originalFetch = globalThis.fetch;
 let fetches = 0;
 globalThis.fetch = Object.assign(
@@ -279,8 +278,118 @@ try {
   await openThemes();
   assert.match(ui.captureCharFrame(), /Лён \+/);
   await key("ESCAPE");
+  // Package lifecycle is independent of mounted views and changes only desired code.
+  const updateSource = join(storage, "Обновлённый пакет");
+  await mkdir(updateSource);
+  const newManifest = JSON.parse(
+    await readFile(join(example, "chisel-extension.json"), "utf8"),
+  );
+  newManifest.version = "2.0.0";
+  await writeFile(
+    join(updateSource, "chisel-extension.json"),
+    JSON.stringify(newManifest),
+  );
+  await writeFile(
+    join(updateSource, "index.ts"),
+    (await readFile(join(example, "index.ts"), "utf8"))
+      .replace(
+        "themes,",
+        'themes: themes.filter(theme => theme.id !== "linen"),',
+      )
+      .replace('name: "Север"', 'name: "Новый север"'),
+  );
+  await execa(bun, [
+    "build",
+    join(updateSource, "index.ts"),
+    "--target",
+    "bun",
+    "--outfile",
+    join(updateSource, "index.mjs"),
+  ]);
+  const update = await packages.prepareUpdate(
+    candidate.preview.id,
+    updateSource,
+  );
+  await packages.commitCandidate(update, {
+    digest: update.preview.digest,
+    acknowledgeProcessAccess: true,
+  });
+  await openThemes();
+  assert.ok(
+    ui.renderer.root.findDescendantById(
+      "settings-theme-extension:fixture.themes:linen",
+    ),
+    "Update hot-replaced the loaded catalog",
+  );
+  await key("ESCAPE");
+  assert.equal(
+    ui.renderer.currentFocusedEditor?.plainText,
+    "Сохранённый черновик темы",
+  );
+  await capture("update-before-restart-160x50");
   await stop();
-  await rm(packageDir, { recursive: true, force: true });
+  await start();
+  await until(
+    () =>
+      ui.captureCharFrame().includes("Выбранная тема расширения недоступна"),
+    "Update did not revalidate missing desired theme",
+  );
+  await capture("update-after-restart-fallback-160x50");
+  await key("t", true);
+  assert.ok(
+    !ui.renderer.root.findDescendantById(
+      "settings-theme-extension:fixture.themes:linen",
+    ),
+  );
+  assert.match(ui.captureCharFrame(), /Новый север/);
+  await key("ESCAPE");
+  await stop();
+  let status = await packages.status(candidate.preview.id);
+  await packages.rollback(status.id, installed.digest!, {
+    digest: status.selected!.digest,
+    revision: status.revision,
+  });
+  await start();
+  assert.deepEqual(
+    ui.captureSpans().lines[0]!.spans[0]!.bg.toInts().slice(0, 3),
+    [247, 244, 238],
+  );
+  await capture("rollback-restored-160x50");
+  await stop();
+  status = await packages.status(candidate.preview.id);
+  await packages.setEnabled(status.id, false, {
+    digest: status.selected!.digest,
+    revision: status.revision,
+  });
+  await start();
+  await until(
+    () =>
+      ui.captureCharFrame().includes("Выбранная тема расширения недоступна"),
+    "Disable did not fall back",
+  );
+  await capture("disabled-fallback-160x50");
+  await stop();
+  status = await packages.status(candidate.preview.id);
+  await packages.setEnabled(status.id, true, {
+    digest: status.selected!.digest,
+    revision: status.revision,
+  });
+  await start();
+  status = await packages.status(candidate.preview.id);
+  const removed = await packages.remove(status.id, {
+    digest: status.selected!.digest,
+    revision: status.revision,
+  });
+  assert.equal(removed.deferred, true, "Remove deleted loaded managed version");
+  await openThemes();
+  assert.ok(
+    ui.renderer.root.findDescendantById(
+      "settings-theme-extension:fixture.themes:linen",
+    ),
+  );
+  await key("ESCAPE");
+  await capture("remove-before-restart-160x50");
+  await stop();
   await start();
   await until(
     () =>
@@ -288,6 +397,12 @@ try {
     "Нет fallback notice",
   );
   await capture("unavailable-fallback-160x50");
+  await act(async () => ui.renderer.resize(24, 8));
+  await capture("removed-fallback-24x8");
+  await act(async () => ui.renderer.resize(160, 50));
+  const preserved = JSON.parse(await readFile(configPath, "utf8"));
+  assert.equal(preserved.ui.theme, "extension:fixture.themes:linen");
+  assert.equal(preserved.ui.accent, "#a286f6");
   await key("t", true);
   assert.ok(
     !ui.renderer.root.findDescendantById(

@@ -4,6 +4,13 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), версии следуют [семантическому версионированию](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.27] - 2026-10-13
+
+- Локальные расширения устанавливаются из подготовленной папки или ZIP без выполнения кода. Общий сервис и production CLI предоставляют install/update/enable/disable/versions/rollback/remove/recover; установка по умолчанию выключена без доверия, новый digest отдельно подтверждается.
+- Immutable managed versions, атомарный выбор, CAS, reservations и journals сохраняют рабочую установку при отказе/ошибке. Registry schema 1 мигрирует без нового trust и без удаления вручную подготовленных папок; crash recovery не запускает код повторно.
+- Application use leases защищают загруженные версии и runtime snapshots от remove/GC. Изменения действуют после restart; неизвестный владелец сохраняет bytes. Темы, accent, беседы, artifacts, worktrees и результаты инструментов сохраняются.
+- Добавлены настоящие standalone author/SDK, папка/streaming ZIP, cross-process/fault, installed/compiled CLI и native TUI проверки. Исправлены SDK quickstart version и описание возвращаемого значения chat.register. Full Settings → Extensions, marketplace и сетевой installer остаются отдельными этапами.
+
 ## [0.6.26] - 2026-10-13
 
 - Темы расширений подключаются через общий декларативный контракт linked API и публичного SDK. Core проверяет полный набор семантических цветов, контраст текста, выделения, ошибок и разрешений; renderer, CSS и компоновка расширению не передаются.

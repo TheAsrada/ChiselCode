@@ -12,6 +12,10 @@ import type {
   ExtensionContext,
 } from "./contracts.js";
 import {
+  type ApplicationResource,
+  applicationResource,
+} from "./external/application-resource.js";
+import {
   inheritOptional,
   optionalDiagnostic,
   optionalOutcome,
@@ -327,6 +331,7 @@ export class WorkspaceExtensionScope implements Disposable {
 }
 
 export class ExtensionHost implements Disposable {
+  private readonly applicationResources = new Set<ApplicationResource>();
   readonly themes = new ThemeCatalog();
   private readonly themeOwners = new Set<string>();
   private definitions: readonly ChiselExtension[];
@@ -369,6 +374,8 @@ export class ExtensionHost implements Disposable {
       ids.add(definition.id);
     }
     this.definitions = definitions.map((definition) => {
+      const resource = applicationResource(definition);
+      if (resource) this.applicationResources.add(resource);
       const captured = Object.freeze({
         id: definition.id,
         activate: definition.activate.bind(definition),
@@ -481,6 +488,14 @@ export class ExtensionHost implements Disposable {
       }
       this.workspaces.clear();
       this.themes.dispose();
+      for (const resource of [...this.applicationResources].reverse()) {
+        try {
+          await resource.dispose(failures.length === 0);
+        } catch (error) {
+          failures.push(cleanupFailure("external-application", error));
+        }
+      }
+      this.applicationResources.clear();
       if (failures.length)
         throw new ExtensionLifecycleError(
           `Extension host cleanup failed for ${[...new Set(failures.map((failure) => failure.extensionId))].join(", ")}.`,
