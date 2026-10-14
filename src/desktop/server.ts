@@ -10,6 +10,7 @@ import {
 } from "../app/run-prompt.js";
 import type { SubagentControls } from "../app/subagent-binding.js";
 import type { BackgroundControls } from "../background/binding.js";
+import { BACKGROUND_LIMITS } from "../background/config.js";
 import { loadGlobalConfig, updateGlobalConfig } from "../config/load.js";
 import { ProfileIdSchema } from "../config/schema.js";
 import { applicationExtensions } from "../extensions/composition.js";
@@ -665,7 +666,7 @@ export class DesktopServer {
           const output = await background.port.readOutput(
             p.id,
             undefined,
-            64_000,
+            BACKGROUND_LIMITS.pageBytes,
           );
           return {
             text: this.redactor.text(

@@ -280,6 +280,58 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
       throw new Error("Cross-process workspace admission failed.");
     await first.client.request("turn/cancel", { sessionId: cancelled.id });
     await first.wait("turn.completed", cancelled.id);
+    const backgroundSession = await start(
+      "/tasks start node -e \"console.log('desktop-background-ready');setTimeout(()=>{},30000)\"",
+    );
+    const backgroundApproval = (
+      await first.wait("approval.requested", backgroundSession.id)
+    ).data as Record<string, unknown>;
+    await first.client.request("approvals/respond", {
+      requestId: backgroundApproval.requestId as string,
+      decision: "approved",
+    });
+    await first.wait("turn.completed", backgroundSession.id);
+    const listed = (await first.client.request("tasks/list", {
+      path: root,
+      sessionId: backgroundSession.id,
+    })) as { background: Record<string, { id: string }> };
+    const task = Object.values(listed.background)[0];
+    if (!task) throw new Error("Live background process was not exposed.");
+    let inspected = "";
+    for (let retry = 0; retry < 100; retry++) {
+      inspected = (
+        await first.client.request("tasks/inspect", {
+          sessionId: backgroundSession.id,
+          id: task.id,
+          view: "history",
+        })
+      ).text;
+      if (inspected.includes("desktop-background-ready")) break;
+      await Bun.sleep(50);
+    }
+    if (!inspected.includes("desktop-background-ready"))
+      throw new Error(
+        `Live background output was unavailable: ${inspected} ${JSON.stringify(listed)}`,
+      );
+    if (!(await first.client.request("system/status", {})).busy)
+      throw new Error("Background activity did not block updates.");
+    await first.client.request("tasks/cancel", {
+      sessionId: backgroundSession.id,
+      id: task.id,
+    });
+    const stopped = (await first.client.request("tasks/list", {
+      path: root,
+      sessionId: backgroundSession.id,
+    })) as {
+      background: Record<
+        string,
+        { state: string; cleanup: { confirmed: boolean } }
+      >;
+    };
+    if (!stopped.background[task.id]?.cleanup.confirmed)
+      throw new Error(
+        "Targeted background stop did not confirm process cleanup.",
+      );
     if (first.raw().includes("desktop-fixture-secret"))
       throw new Error("Secret leaked to the wire.");
     await first.close();
