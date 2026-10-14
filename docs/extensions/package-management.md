@@ -2,7 +2,7 @@
 
 [Разработка расширений](README.md) · [Формат manifest](package.md) · [Пользовательские команды](../extensions.md) · [Транзакции и leases](../architecture/extension-packages.md)
 
-Собирайте пакет вне исходников приложения с packed SDK declarations. Runtime получает injected SDK v1; managed layout не требует bare import chiselcode рядом с package. Базовый API требует 0.6.25+, optional themes — 0.6.26+. Для последующих additions используйте актуальные declarations и подходящий chiselVersion.
+Команды менеджера пакетов доступны с [0.6.27](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.27). Собирайте пакет вне исходников приложения с packed SDK declarations. Runtime получает injected SDK v1; managed layout не требует bare import chiselcode рядом с package. Базовый API требует 0.6.25+, optional themes — 0.6.26+. Для последующих additions используйте актуальные declarations и подходящий chiselVersion.
 
 ## Подготовка папки и ZIP
 
