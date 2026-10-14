@@ -34,6 +34,6 @@ Command tools идут обычным owner runtime и whitelist own/documented 
 
 Safe bounded diagnostics разделяют loaded module и workspace active. Optional failures не запускают fallback model. TUI показывает один startup notice на package/root/controller, без раскрытия окна или изменения draft. Slot snapshots ephemeral, не новая память. Saved chat receipts читаются без runtime package; unavailable view не replay-ится.
 
-Trusted code исполняется в процессе: raw fs/network/process вызовы возможны и не ограничиваются SDK permissions. Cooperative signal не прерывает sync hang и не откатывает module-level effects. Recovery bootstrap доступен до первого external import. Installer/update/remove и полноценные Settings — отдельные следующие этапы.
+Trusted code исполняется в процессе: raw fs/network/process вызовы возможны и не ограничиваются SDK permissions. Cooperative signal не прерывает sync hang и не откатывает module-level effects. Recovery bootstrap доступен до первого external import. [Установка и версии](extension-packages.md) используют общий сервис; [каталог и настройки](extension-settings.md) объединяют обе оболочки.
 
 Optional factory `themes` подключается к application catalog после successful seal; API v1 остаётся совместимым. [Контракт тем](themes.md).

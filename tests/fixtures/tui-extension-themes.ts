@@ -155,9 +155,17 @@ async function start() {
     "Нет ordinary TUI",
   );
   await click("prompt-editor");
-  await act(async () =>
-    ui.mockInput.pasteBracketedText("Сохранённый черновик темы"),
-  );
+  const existingDraft = ui.renderer.currentFocusedEditor?.plainText ?? "";
+  if (existingDraft)
+    assert.equal(
+      existingDraft,
+      "Сохранённый черновик темы",
+      "Restart изменил сохранённый черновик",
+    );
+  else
+    await act(async () =>
+      ui.mockInput.pasteBracketedText("Сохранённый черновик темы"),
+    );
   await frame();
 }
 async function stop() {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -84,11 +85,11 @@ export async function smokeExternalCli(
         exports: packageManifest.exports,
       }),
     );
-    for (const file of ["index.d.ts", "index.js"])
-      await copyFile(
-        join(installedPackage, "dist/extension-sdk", file),
-        join(author, "node_modules/chiselcode/dist/extension-sdk", file),
-      );
+    await cp(
+      join(installedPackage, "dist/extension-sdk"),
+      join(author, "node_modules/chiselcode/dist/extension-sdk"),
+      { recursive: true },
+    );
     await writeFile(
       join(author, "package.json"),
       JSON.stringify({ private: true, type: "module" }),

@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+## [0.6.30] - 2026-10-14
+
+- «Настройки → Расширения» в OpenTUI и публичный desktop API: общий каталог встроенных/установленных возможностей, поиск, фильтры, сведения и фактическое состояние текущего сеанса. Папка/ZIP, exact review/trust, update, версии/rollback, включение и удаление используют PackageManagementService; отмена и CAS сохраняют прежнюю версию.
+- Декларативные settings в manifest и SDK API v1: boolean/string/number/enum, defaults/validation, global per-ID значения, защищённые секреты, сохранение неизвестных полей. Изменения внешних параметров применяются после restart.
+- Desktop SDK 1.1.0 / protocol 1.1 объявляет capabilities extension-management/extension-settings и typed operations; существующие пакеты, events и session schema совместимы. Builtin формы используют прежние core stores и project ceilings.
+- Неотправленные OpenTUI drafts сохраняются в защищённом хранилище отдельно от model history и восстанавливаются при открытии беседы после restart. Добавлены реальный source/compiled TUI lifecycle и adapter/SDK regressions без model requests.
+
 - В AGENTS.md закреплена обязательная проверка документации при каждом задании: соответствие коду, единый стиль, структура по задачам читателя, оглавления, ссылки и примеры. Правила согласованы с Desktop и доступны из оглавления документации.
 - В AGENTS.md закреплены обязательная синхронизация изменений с ChiselCodeDesktop, проверки общего engine/SDK и выпуск обеих версий по просьбе владельца о релизе. Добавлен порядок работы с невыпущенными изменениями, совместимостью, установщиками и частичным сбоем публикации.
 

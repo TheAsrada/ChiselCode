@@ -2,6 +2,7 @@ export type SettingsRoute =
   | "connection"
   | "appearance"
   | "permissions"
+  | "extensions"
   | "tools.background"
   | "tools.subagents"
   | "tools.lsp"
@@ -62,6 +63,21 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     title: "Доступ и Bypass",
     description: "Доступность режима Bypass; выбор режима остаётся отдельным",
     keywords: ["permissions", "approval", "bypass", "разрешения", "доступ"],
+    fields: [],
+  },
+  {
+    id: "extensions",
+    group: "Расширения",
+    title: "Расширения",
+    description: "Встроенные возможности и установленные пакеты",
+    keywords: [
+      "extensions",
+      "расширения",
+      "пакеты",
+      "установить",
+      "доверие",
+      "версии",
+    ],
     fields: [],
   },
   {

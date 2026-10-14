@@ -27,6 +27,7 @@ export interface InspectedPackage {
   readonly manifest: ExtensionManifest;
   readonly files: number;
   readonly bytes: number;
+  readonly contents: readonly { path: string; bytes: number; digest: string }[];
   readonly incompatible?: string;
 }
 export function canonicalPath(path: string): string {
@@ -216,6 +217,15 @@ function inspectCaptured(
     digest: captured.digest,
     files: captured.files.size,
     bytes: captured.bytes,
+    contents: Object.freeze(
+      [...captured.files].map(([path, bytes]) =>
+        Object.freeze({
+          path,
+          bytes: bytes.length,
+          digest: createHash("sha256").update(bytes).digest("hex"),
+        }),
+      ),
+    ),
     incompatible: compatibility(manifest),
   });
 }

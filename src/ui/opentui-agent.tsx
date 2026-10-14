@@ -52,6 +52,7 @@ import {
   type ExtensionHost,
 } from "../extensions/host.js";
 import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
+import { ExtensionManagementService } from "../extensions/management.js";
 import { lspServiceToken } from "../lsp/service.js";
 import { LspSettingsStore } from "../lsp/settings.js";
 import { McpController } from "../mcp/controller.js";
@@ -108,6 +109,7 @@ import {
   settingsDraft,
   settingsKeyReady,
 } from "./provider-settings.js";
+import { loadTerminalDraft, saveTerminalDraft } from "./terminal-drafts.js";
 import { FAIL_MARK, formatStatusDashboard, OK_MARK } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import type { TuiController } from "./tui-controller.js";
@@ -152,6 +154,17 @@ async function runApplication(
   let bypassAvailable = config.permissions?.allowBypassPermissions === true;
   let webConfigLive = resolveWebConfig(config.web);
   const webSettingsStore = new WebSettingsStore(options.configPath);
+  const extensionManagement = new ExtensionManagementService({
+    configPath: options.configPath,
+    externalDisabled: options.externalExtensions === false,
+    diagnostics: (root) =>
+      extensionHost
+        .readyScopes()
+        .filter((s) => !root || s.workspaceRoot === root)
+        .flatMap((s) => s.externalDiagnostics()),
+    scopeReady: (root) =>
+      extensionHost.readyScopes().some((s) => s.workspaceRoot === root),
+  });
   const initialRoot = await canonicalWorkspaceRoot(
     options.cwd ?? process.cwd(),
   );
@@ -178,6 +191,15 @@ async function runApplication(
       ).interruptSideQueries(initialSession.id);
     }
     workspace.openSession(initialSession);
+  }
+  const restoredDraft = await loadTerminalDraft(
+    workspace.controller.snapshot.projectPath,
+    workspace.controller.snapshot.sessionId,
+  ).catch(() => undefined);
+  if (restoredDraft !== undefined) {
+    workspace.controller.setDraft(restoredDraft);
+    workspace.controller.presentation.history.value = restoredDraft;
+    workspace.controller.presentation.history.cursor = restoredDraft.length;
   }
   workspace.controller.setApprovalMode(initialApprovalMode);
   if (options.mode) workspace.controller.setAgentMode(options.mode);
@@ -457,6 +479,12 @@ async function runApplication(
     });
     const scope = await extensionHost.open(session.projectPath);
     const controller = workspace.openSession(session, scope.chat);
+    const draft = await loadTerminalDraft(
+      session.projectPath,
+      session.id,
+    ).catch(() => undefined);
+    if (draft !== undefined && !controller.snapshot.draft)
+      controller.setDraft(draft);
     persistExecutionModes(controller);
     await restoreSubagentControls(controller, session);
     warmModelCapabilities(controller);
@@ -606,8 +634,10 @@ async function runApplication(
     const lsp = new LspSettingsStore(root, options.configPath, {
       status: async () => {
         try {
-          const scope = await extensionHost.open(root);
-          const service = scope.services.lookup(lspServiceToken);
+          const scope = extensionHost
+            .readyScopes()
+            .find((s) => s.workspaceRoot === root);
+          const service = scope?.services.lookup(lspServiceToken);
           if (service) return service.status();
         } catch {
           /* Existing navigation stays available if an extension activation fails. */
@@ -675,6 +705,7 @@ async function runApplication(
         }),
     });
     return {
+      extensions: extensionManagement,
       background: new BackgroundSettingsStore(root, options.configPath),
       subagents: new SubagentSettingsStore(
         root,
@@ -2082,6 +2113,19 @@ async function runApplication(
       }
     };
     await cleanup(() => modelService.dispose());
+    await cleanup(() => extensionManagement.dispose());
+    await cleanup(() =>
+      Promise.all(
+        [workspace.home, ...workspace.tabs.map((tab) => tab.controller)].map(
+          (controller) =>
+            saveTerminalDraft(
+              controller.snapshot.projectPath,
+              controller.snapshot.sessionId,
+              controller.snapshot.draft,
+            ),
+        ),
+      ),
+    );
     await cleanup(() => Promise.allSettled([...closingScopes]));
     await cleanup(() => root.unmount());
     await cleanup(() => updater.dispose());

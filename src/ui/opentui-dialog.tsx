@@ -5,6 +5,7 @@ import { type ReactNode, useRef } from "react";
 import { type Palette, THEMES } from "./appearance.js";
 import { uiInputStamp } from "./overlay-input.js";
 import { useTerminalDecoration } from "./terminal-decoration.js";
+import { terminalSafeText } from "./terminal-text.js";
 
 export function dialogLayout(
   width: number,
@@ -146,6 +147,7 @@ export function DialogAction({
   disabled = false,
   id,
   tone,
+  subtitle,
 }: {
   label: string;
   onSelect: () => void;
@@ -155,6 +157,7 @@ export function DialogAction({
   disabled?: boolean;
   id?: string;
   tone?: import("../extensions/ui-types.js").UiTone;
+  subtitle?: string;
 }) {
   const renderer = useRenderer();
   const pressed = useRef<
@@ -166,6 +169,7 @@ export function DialogAction({
     // biome-ignore lint/a11y/useKeyWithMouseEvents: Native OpenTUI box uses captured keyboard ownership and has no DOM blur prop.
     <box
       id={id}
+      flexDirection="column"
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
@@ -239,8 +243,17 @@ export function DialogAction({
                           : palette.text
         }
       >
-        {label}
+        {terminalSafeText(label, 4000)}
       </text>
+      {subtitle && (
+        <text
+          height={1}
+          selectable={false}
+          fg={active ? palette.text : palette.muted}
+        >
+          {terminalSafeText(subtitle, 4000)}
+        </text>
+      )}
     </box>
   );
 }

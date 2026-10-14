@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { VERSION } from "../../version.js";
+import { SettingsSchemaValidator } from "../settings-schema.js";
 
 export const EXTENSION_MANIFEST = "chisel-extension.json";
 export const EXTERNAL_LIMITS = Object.freeze({
@@ -47,6 +48,7 @@ export const ExtensionManifestSchema = z
     displayName: z.string().min(1).max(120),
     description: z.string().max(2000).optional(),
     chiselVersion: z.string().max(120).optional(),
+    settings: SettingsSchemaValidator.optional(),
     platforms: z
       .array(z.enum(["win32", "darwin", "linux"]))
       .min(1)

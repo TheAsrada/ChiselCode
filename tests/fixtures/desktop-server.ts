@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   DesktopClient,
   type EngineEvent,
@@ -10,6 +10,10 @@ import {
 
 /** Real protocol → provider driver → tools → approvals → durable history, including another process. */
 export async function smokeDesktopEngine(command: string, args: string[] = []) {
+  const executable =
+    command.includes("/") || command.includes("\\")
+      ? resolve(command)
+      : command;
   const root = await mkdtemp(join(tmpdir(), "chisel-desktop-smoke-"));
   await mkdir(join(root, "config", "chiselcode"), { recursive: true });
   const config = join(root, "config", "chiselcode", "config.json");
@@ -80,7 +84,7 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
     },
   });
   function connect() {
-    const process = spawn(command, [...args, "--config", config], {
+    const process = spawn(executable, [...args, "--config", config], {
       cwd: root,
       env: {
         ...globalThis.process.env,
@@ -118,6 +122,9 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
         return () => listeners.delete(listener);
       },
     });
+    process.once("error", () =>
+      client.dispose("Не удалось запустить выбранный engine для smoke."),
+    );
     client.onEvent((event) => events.push(event));
     async function wait(type: string, sessionId: string) {
       const since = Date.now();

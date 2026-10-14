@@ -1,6 +1,6 @@
 {
   "name": "chiselcode",
-  "version": "0.6.29",
+  "version": "0.6.30",
   "description": "A secure multi-provider coding agent CLI",
   "type": "module",
   "bin": {
@@ -13,8 +13,8 @@
     "dist/*.wasm",
     "dist/extension-sdk/*.js",
     "dist/extension-sdk/*.d.ts",
-    "dist/desktop-sdk/*.js",
-    "dist/desktop-sdk/*.d.ts",
+    "dist/desktop-sdk/**/*.js",
+    "dist/desktop-sdk/**/*.d.ts",
     "README.md",
     "LICENSE"
   ],

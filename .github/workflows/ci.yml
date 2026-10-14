@@ -140,6 +140,19 @@ jobs:
         env:
           CHISEL_THEME_CAPTURES: dist/theme-captures
         run: bun tests/fixtures/tui-extension-themes.ts
+      - name: Extension Settings native UI and real restart lifecycle
+        timeout-minutes: 3
+        env:
+          CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
+        run: bun tests/fixtures/tui-extensions-settings.ts
+      - name: Compiled Extension Settings native UI
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          binary=dist/extension-settings-ui
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/tui-extensions-settings.ts --compile --outfile="$binary"
+          "$binary"
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |
@@ -228,5 +241,13 @@ jobs:
         with:
           name: extension-themes-opentui-${{ matrix.os }}
           path: dist/theme-captures
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Save real extension Settings captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-settings-opentui-${{ matrix.os }}
+          path: dist/extension-settings-captures
           if-no-files-found: warn
           retention-days: 7

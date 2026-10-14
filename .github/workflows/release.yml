@@ -217,7 +217,7 @@ jobs:
           tar -tzf dist/release/chiselcode-*.tgz > "$RUNNER_TEMP/chisel-sdk-files.txt"
           grep -Fqx 'package/dist/extension-sdk/index.d.ts' "$RUNNER_TEMP/chisel-sdk-files.txt"
           npm pack ./dist/desktop-sdk --pack-destination dist/release
-          mv dist/release/chiselcode-desktop-sdk-1.0.0.tgz dist/release/chisel-desktop-sdk-1.0.0.tgz
+          mv dist/release/chiselcode-desktop-sdk-1.1.0.tgz dist/release/chisel-desktop-sdk-1.1.0.tgz
           tar -czf dist/release/chisel-engine-skills.tgz skills/bundled
       - uses: actions/upload-artifact@v4
         with:

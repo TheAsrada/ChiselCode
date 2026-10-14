@@ -13,9 +13,20 @@ import type { BackgroundControls } from "../background/binding.js";
 import { BACKGROUND_LIMITS } from "../background/config.js";
 import { loadGlobalConfig, updateGlobalConfig } from "../config/load.js";
 import { ProfileIdSchema } from "../config/schema.js";
+import { subagentServiceToken } from "../extensions/builtins/subagents.js";
 import { applicationExtensions } from "../extensions/composition.js";
+import { ExternalIdSchema } from "../extensions/external/manifest.js";
 import { canonicalWorkspaceRoot, ExtensionHost } from "../extensions/host.js";
+import {
+  BuiltinIdSchema,
+  ExtensionManagementService,
+} from "../extensions/management.js";
+import {
+  SettingNameSchema,
+  SettingValueSchema,
+} from "../extensions/settings-schema.js";
 import { gitCommand } from "../git/driver.js";
+import { lspServiceToken } from "../lsp/service.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
 import { McpServerIdSchema, McpServerSchema } from "../mcp/schema.js";
@@ -33,6 +44,7 @@ import {
 } from "../sessions/project-store.js";
 import { createSession } from "../sessions/store.js";
 import { expandSkill, loadSkills } from "../skills/skills.js";
+import { effectiveSubagentConfig } from "../subagents/config.js";
 import type { Session as CoreSession } from "../types/domain.js";
 import { readGitWorkingState } from "../ui/git-changes.js";
 import { VERSION } from "../version.js";
@@ -57,7 +69,68 @@ const sessionId = z.uuid();
 const project = z.strictObject({ path });
 const session = z.strictObject({ path, sessionId });
 const empty = z.strictObject({});
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const revision = z.number().int().nonnegative();
+const extensionExpected = { id: ExternalIdSchema, digest, revision };
+const boundedJson = z
+  .json()
+  .refine(
+    (value) => Buffer.byteLength(JSON.stringify(value)) <= 128 * 1024,
+    "Слишком большие настройки.",
+  );
 const schemas = {
+  "extensions/list": z.strictObject({ path: path.optional() }),
+  "extensions/prepare": z.strictObject({
+    requestId: z.uuid(),
+    kind: z.enum(["install", "update", "trust", "rollback", "remove"]),
+    source: path.optional(),
+    id: ExternalIdSchema.optional(),
+    versionKey: z.string().max(160).optional(),
+  }),
+  "extensions/operation": z.strictObject({ requestId: z.uuid() }),
+  "extensions/cancel": z.strictObject({ requestId: z.uuid() }),
+  "extensions/commit": z.strictObject({
+    requestId: z.uuid(),
+    digest,
+    revision,
+    trust: z.boolean(),
+    enable: z.boolean().optional(),
+  }),
+  "extensions/setEnabled": z.strictObject({
+    ...extensionExpected,
+    id: z.union([ExternalIdSchema, BuiltinIdSchema]),
+    path: path.optional(),
+    enabled: z.boolean(),
+  }),
+  "extensions/settings/read": z.strictObject(extensionExpected),
+  "extensions/settings/save": z.strictObject({
+    ...extensionExpected,
+    settingsRevision: revision,
+    values: z
+      .record(SettingNameSchema, SettingValueSchema)
+      .refine((v) => Object.keys(v).length <= 64),
+    secrets: z
+      .record(SettingNameSchema, z.string().max(8192))
+      .refine((v) => Object.keys(v).length <= 64)
+      .optional(),
+    clearSecrets: z.array(SettingNameSchema).max(64).optional(),
+    reset: z.boolean().optional(),
+  }),
+  "extensions/builtin/read": z.strictObject({ id: BuiltinIdSchema, path }),
+  "extensions/builtin/save": z.strictObject({
+    id: BuiltinIdSchema,
+    path,
+    scope: z.enum(["global", "project"]),
+    revision: digest,
+    value: boundedJson,
+  }),
+  "extensions/lsp/action": z.strictObject({
+    path,
+    action: z.enum(["trust", "check", "restart"]),
+    serverId: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+    allowed: z.boolean().optional(),
+    value: boundedJson.optional(),
+  }),
   "system/status": empty,
   initialize: z.strictObject({
     protocolMajor: z.number().int(),
@@ -164,6 +237,73 @@ interface Conversation {
 /** UI-independent application adapter. Core retains all tools, policy and persistence. */
 export class DesktopServer {
   private host?: Promise<ExtensionHost>;
+  private readyHost?: ExtensionHost;
+  private management?: ExtensionManagementService;
+  private get extensionManagement() {
+    if (this.management) return this.management;
+    this.management = new ExtensionManagementService({
+      desktop: true,
+      configPath: this.configPath,
+      diagnostics: (root) =>
+        this.readyHost
+          ?.readyScopes()
+          .filter((scope) => !root || scope.workspaceRoot === root)
+          .flatMap((scope) => scope.externalDiagnostics()) ?? [],
+      scopeReady: (root) =>
+        !!this.readyHost
+          ?.readyScopes()
+          .some((scope) => scope.workspaceRoot === root),
+      lsp: (root) => ({
+        status: async () => {
+          const service = this.readyHost
+            ?.readyScopes()
+            .find((s) => s.workspaceRoot === root)
+            ?.services.lookup(lspServiceToken);
+          return service
+            ? service.status()
+            : {
+                workspaceRoot: root,
+                backend: "typescript",
+                state: "unavailable",
+                generation: 0,
+                trackedDocuments: 0,
+                requiresRestart: false,
+                reason:
+                  "Рабочий сеанс ещё не открыт; просмотр его не запускает.",
+              };
+        },
+        apply: async () => {
+          await Promise.all(
+            this.readyHost
+              ?.readyScopes()
+              .map((scope) =>
+                scope.services.lookup(lspServiceToken)?.refreshConfiguration(),
+              ) ?? [],
+          );
+        },
+        restart: async () => ({
+          output:
+            "Используйте /lsp-restart в беседе: запуск сервера требует проверки разрешений.",
+          isError: true,
+        }),
+      }),
+      applySubagents: async () => {
+        const global = await loadGlobalConfig(this.configPath);
+        for (const scope of this.readyHost?.readyScopes() ?? []) {
+          const project = await import("../config/load.js").then((m) =>
+            m.loadProjectConfig(scope.workspaceRoot),
+          );
+          await scope.services
+            .lookup(subagentServiceToken)
+            ?.applyConfiguration(
+              scope.workspaceRoot,
+              effectiveSubagentConfig(global.subagents, project.subagents),
+            );
+        }
+      },
+    });
+    return this.management;
+  }
   private managers = new Map<string, McpConnectionManager>();
   private conversations = new Map<string, Conversation>();
   private approvals = new Map<
@@ -213,7 +353,10 @@ export class DesktopServer {
   private extensions(): Promise<ExtensionHost> {
     this.host ??= applicationExtensions({
       configPath: this.configPath,
-    }).then((definitions) => new ExtensionHost(definitions));
+    }).then((definitions) => {
+      this.readyHost = new ExtensionHost(definitions);
+      return this.readyHost;
+    });
     return this.host;
   }
   private async scope(root: string) {
@@ -391,6 +534,8 @@ export class DesktopServer {
           "background",
           "worktrees",
           "settings",
+          "extension-management",
+          "extension-settings",
         ],
       };
     }
@@ -400,6 +545,78 @@ export class DesktopServer {
         "Сначала согласуйте протокол с ядром.",
       );
     switch (method as Method) {
+      case "extensions/list": {
+        const p = parsed.data as z.infer<(typeof schemas)["extensions/list"]>;
+        return this.extensionManagement.list(
+          p.path ? await this.root(p.path) : undefined,
+        );
+      }
+      case "extensions/prepare":
+        return this.extensionManagement.prepare(
+          parsed.data as z.infer<(typeof schemas)["extensions/prepare"]>,
+        );
+      case "extensions/operation":
+        return this.extensionManagement.operation(
+          (parsed.data as { requestId: string }).requestId,
+        );
+      case "extensions/cancel":
+        return this.extensionManagement.cancel(
+          (parsed.data as { requestId: string }).requestId,
+        );
+      case "extensions/commit":
+        return this.extensionManagement.commit(
+          parsed.data as z.infer<(typeof schemas)["extensions/commit"]>,
+        );
+      case "extensions/setEnabled": {
+        const p = parsed.data as z.infer<
+          (typeof schemas)["extensions/setEnabled"]
+        >;
+        return this.extensionManagement.setEnabled({
+          ...p,
+          ...(p.path ? { path: await this.root(p.path) } : {}),
+        });
+      }
+      case "extensions/settings/read":
+        return this.extensionManagement.settings(
+          parsed.data as z.infer<(typeof schemas)["extensions/settings/read"]>,
+        );
+      case "extensions/settings/save": {
+        const p = parsed.data as z.infer<
+          (typeof schemas)["extensions/settings/save"]
+        >;
+        return this.extensionManagement.settings(p, p);
+      }
+      case "extensions/builtin/read": {
+        const p = parsed.data as z.infer<
+          (typeof schemas)["extensions/builtin/read"]
+        >;
+        return this.json(
+          await this.extensionManagement.builtinRead(
+            p.id,
+            await this.root(p.path),
+          ),
+        );
+      }
+      case "extensions/builtin/save": {
+        const p = parsed.data as z.infer<
+          (typeof schemas)["extensions/builtin/save"]
+        >;
+        return this.json(
+          await this.extensionManagement.builtinSave({
+            ...p,
+            path: await this.root(p.path),
+          }),
+        );
+      }
+      case "extensions/lsp/action": {
+        const p = parsed.data as z.infer<
+          (typeof schemas)["extensions/lsp/action"]
+        >;
+        return this.extensionManagement.lspAction({
+          ...p,
+          path: await this.root(p.path),
+        });
+      }
       case "system/status":
         return {
           busy: [...this.conversations.values()].some(
@@ -952,6 +1169,7 @@ export class DesktopServer {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    await this.extensionManagement.dispose();
     await Promise.allSettled(
       [...this.conversations.keys()].map((id) => this.closeConversation(id)),
     );

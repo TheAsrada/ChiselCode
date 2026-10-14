@@ -1,5 +1,9 @@
 /** Public API v1. Runtime helpers are injected by the current host into the factory. */
 export const API_VERSION = 1 as const;
+
+import type { SettingsSchema, SettingValue } from "./settings.js";
+
+export type { SettingField, SettingsSchema, SettingValue } from "./settings.js";
 export type Json =
   | null
   | boolean
@@ -20,6 +24,7 @@ export interface Manifest {
   readonly displayName: string;
   readonly description?: string;
   readonly chiselVersion?: string;
+  readonly settings?: SettingsSchema;
   readonly platforms?: readonly ("win32" | "darwin" | "linux")[];
 }
 export type Mode = "plan" | "build";
@@ -376,6 +381,11 @@ export interface ExtensionDefinition {
 export interface HostSdk {
   readonly apiVersion: 1;
   readonly chiselVersion: string;
+  /** Application-start snapshot; secrets are retrieved only inside trusted core code. */
+  readonly settings: {
+    read(): Promise<Readonly<Record<string, SettingValue>>>;
+    secret(name: string): Promise<string | undefined>;
+  };
   defineTool<Input = JsonObject>(
     definition: ToolDefinition<Input>,
   ): ToolDefinition<Input>;

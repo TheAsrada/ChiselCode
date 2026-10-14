@@ -51,6 +51,15 @@ export class CredentialStore implements CredentialStorage {
   }
 
   async set(name: string, secret: string): Promise<void> {
+    return this.change(name, secret);
+  }
+  async delete(name: string): Promise<void> {
+    return this.change(name, undefined);
+  }
+  private async change(
+    name: string,
+    secret: string | undefined,
+  ): Promise<void> {
     const file = join(this.directory ?? configDirectory(), FALLBACK_FILE);
     const task = (writes.get(file) ?? Promise.resolve())
       .catch(() => {})
@@ -68,7 +77,7 @@ export class CredentialStore implements CredentialStorage {
       if (writes.get(file) === task) writes.delete(file);
     }
   }
-  private async write(name: string, secret: string): Promise<void> {
+  private async write(name: string, secret: string | undefined): Promise<void> {
     const directory = this.directory ?? configDirectory();
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const file = join(directory, FALLBACK_FILE);
@@ -80,7 +89,8 @@ export class CredentialStore implements CredentialStorage {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    credentials[name] = secret;
+    if (secret === undefined) delete credentials[name];
+    else credentials[name] = secret;
     const temporary = `${file}.${randomUUID()}.tmp`;
     const handle = await open(temporary, "wx", 0o600);
     try {

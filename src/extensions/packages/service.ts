@@ -66,6 +66,10 @@ export interface PackagePreview {
   trustRequired: boolean;
   restartRequired: true;
   downgrade: boolean;
+  description: string;
+  entry: string;
+  compatibility: string;
+  contents: readonly { path: string; bytes: number; digest: string }[];
 }
 /** The preview is data. Only this service's private object is commit authority. */
 export interface PreparedPackage {
@@ -77,6 +81,7 @@ export interface PrepareOptions {
   allowDowngrade?: boolean;
 }
 export interface CommitOptions {
+  registryRevision?: number;
   digest?: string;
   acknowledgeProcessAccess?: boolean;
   enabled?: boolean;
@@ -372,6 +377,7 @@ export class PackageManagementService {
             location: safeExtensionText(location),
             bytes: version.bytes,
             files: version.files,
+            ...(row ? { expectedRevision: row.revision } : {}),
             sourceKind: captured.kind,
             ...(prior
               ? {
@@ -387,6 +393,15 @@ export class PackageManagementService {
             trustRequired: true,
             restartRequired: true as const,
             downgrade: !!prior && older(version.version, prior.version),
+            description: safeExtensionText(
+              candidate.manifest.description ?? "",
+            ),
+            entry: candidate.manifest.entry,
+            compatibility: candidate.manifest.chiselVersion ?? "API v1",
+            contents: candidate.contents.map((f) => ({
+              ...f,
+              path: safeExtensionText(f.path),
+            })),
           });
         },
       );
@@ -449,6 +464,11 @@ export class PackageManagementService {
       let record = await readJournal(id);
       if (record.phase === "committed" && record.result)
         return frozenClone(record.result);
+      if (
+        options.registryRevision !== undefined &&
+        options.registryRevision !== state.revision
+      )
+        conflict();
       if (record.phase !== "ready" || !record.candidate)
         throw new PackageManagementError(
           "PACKAGE_RECOVERY_REQUIRED",
@@ -764,6 +784,48 @@ export class PackageManagementService {
         enabled,
         trusted: !!version.approvedAt,
         restartRequired: changed,
+        deferred: false,
+        retainedBytes: version.bytes,
+        location: safeExtensionText(version.location),
+      });
+    });
+  }
+  /** Atomic exact-content trust for an already installed package. */
+  async trust(
+    id: string,
+    expected: PackageExpected,
+    options: CommitOptions,
+  ): Promise<Readonly<PackageOutcome>> {
+    ExternalIdSchema.parse(id);
+    return withExtensionRegistry(async (state, _assertOwned, save) => {
+      const row = state.records.find((x) => x.id === id);
+      assertCurrent(row, expected);
+      const version = selectedVersion(row)!,
+        candidate = await inspectPackage(version.location, options.signal);
+      if (
+        candidate.digest !== expected.digest ||
+        candidate.incompatible ||
+        options.digest !== expected.digest ||
+        !options.acknowledgeProcessAccess
+      )
+        throw new PackageManagementError(
+          "PACKAGE_DENIED",
+          "Доверие требует неизменный совместимый пакет и явное подтверждение точного digest.",
+        );
+      cancelled(options.signal);
+      version.approvedAt = new Date().toISOString();
+      row.enabled = options.enabled ?? row.enabled;
+      row.revision++;
+      state.revision++;
+      await save();
+      return frozenClone({
+        operationId: randomUUID(),
+        id,
+        outcome: "committed",
+        digest: version.digest,
+        enabled: row.enabled,
+        trusted: true,
+        restartRequired: true,
         deferred: false,
         retainedBytes: version.bytes,
         location: safeExtensionText(version.location),

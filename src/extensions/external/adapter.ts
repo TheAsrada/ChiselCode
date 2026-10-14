@@ -18,9 +18,19 @@ import type {
 } from "../contracts.js";
 import { frozenClone, operationSignal } from "../lifecycle.js";
 import { createServiceToken } from "../services.js";
+import { ExtensionSettingsStore } from "../settings-store.js";
 import type { ExtensionManifest } from "./manifest.js";
 
 const tokenOwners = new WeakMap<object, symbol>();
+const settingsSnapshots = new WeakMap<
+  Public.HostSdk,
+  Promise<{ revision: number }>
+>();
+export async function hostSettingsRevision(
+  sdk: Public.HostSdk,
+): Promise<number> {
+  return (await settingsSnapshots.get(sdk))?.revision ?? 0;
+}
 const publicTools = new WeakMap<object, symbol>();
 const nativeTools = new Set([
   "read_file",
@@ -161,9 +171,19 @@ function schemaValidator(schema: Public.JsonObject) {
 }
 export function createHostSdk(manifest: ExtensionManifest): Public.HostSdk {
   const owner = Symbol(manifest.id);
-  return Object.freeze({
+  const settings = new ExtensionSettingsStore(manifest).runtimeSnapshot();
+  settings.catch(() => {});
+  const sdk: Public.HostSdk = Object.freeze({
     apiVersion: 1 as const,
     chiselVersion: HOST_VERSION,
+    settings: Object.freeze({
+      read: async () => (await settings).values,
+      secret: async (name: string) => {
+        if (!manifest.settings?.fields.some((f) => f.name === name && f.secret))
+          throw new Error("Секретное поле не объявлено этим расширением.");
+        return (await settings).secrets[name];
+      },
+    }),
     defineTool<Input>(
       definition: Public.ToolDefinition<Input>,
     ): Public.ToolDefinition<Input> {
@@ -189,6 +209,8 @@ export function createHostSdk(manifest: ExtensionManifest): Public.HostSdk {
       return token as unknown as Public.ServiceToken<T>;
     },
   });
+  settingsSnapshots.set(sdk, settings);
+  return sdk;
 }
 
 import { VERSION as HOST_VERSION } from "../../version.js";

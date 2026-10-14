@@ -1,5 +1,17 @@
 export const SENSITIVE_KEY =
   /(?:secret|token|password|passwd|credential|api[-_]?key|authorization|cookie|database_url|private[-_]?key|signature|^sig$|^key$)/i;
+const processSecrets = new Set<string>();
+/** Secrets obtained by trusted extension SDK are redacted by every core boundary. */
+export function registerExtensionSecret(value: string): void {
+  if (!value) return;
+  for (const form of [
+    value,
+    encodeURIComponent(value),
+    JSON.stringify(value).slice(1, -1),
+    Buffer.from(value).toString("base64"),
+  ])
+    processSecrets.add(form);
+}
 
 /** Known credential values are removed before results, artifacts, events and storage. */
 export class SecretRedactor {
@@ -14,11 +26,13 @@ export class SecretRedactor {
   }
   /** Core stream framing only; never exposed through an extension context. */
   knownValues(): readonly string[] {
-    return [...this.values];
+    return [...new Set([...this.values, ...processSecrets])];
   }
   text(value: string): string {
     let text = value;
-    for (const secret of [...this.values].sort((a, b) => b.length - a.length))
+    for (const secret of [...this.knownValues()].sort(
+      (a, b) => b.length - a.length,
+    ))
       text = text.split(secret).join("[секрет скрыт]");
     if (this.sensitiveFields)
       text = text

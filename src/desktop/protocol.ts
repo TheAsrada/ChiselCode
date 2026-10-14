@@ -1,5 +1,128 @@
 /** Public desktop wire contract. Keep this module free of runtime/UI imports. */
-export const DESKTOP_PROTOCOL = { major: 1, minor: 0 } as const;
+export const DESKTOP_PROTOCOL = { major: 1, minor: 1 } as const;
+
+import type {
+  SettingsSchema,
+  SettingValue,
+} from "../extension-sdk/settings.js";
+
+export type {
+  SettingField,
+  SettingsSchema,
+  SettingValue,
+} from "../extension-sdk/settings.js";
+export type ExtensionAction =
+  | "enable"
+  | "disable"
+  | "trust"
+  | "settings"
+  | "update"
+  | "versions"
+  | "remove";
+export interface CatalogExtension {
+  id: string;
+  name: string;
+  description: string;
+  origin: "builtin" | "installed";
+  version: string;
+  source: string;
+  digest?: string;
+  revision: number;
+  compatible: boolean;
+  compatibility: string;
+  trusted: boolean;
+  desiredEnabled: boolean;
+  actualState: string;
+  actualLabel: string;
+  state:
+    | "saved"
+    | "working"
+    | "disabled"
+    | "not_trusted"
+    | "error"
+    | "restart_required";
+  reason?: string;
+  projectBlocked: boolean;
+  restartRequired: boolean;
+  deferredRemoval: boolean;
+  actions: ExtensionAction[];
+  settingsRoute?: "tools.lsp" | "tools.subagents" | "tools.background";
+  versions: {
+    key: string;
+    version: string;
+    digest: string;
+    selected: boolean;
+    trusted: boolean;
+    inUse: boolean;
+    location: string;
+  }[];
+}
+export interface ExtensionCatalog {
+  items: CatalogExtension[];
+  revision: number;
+}
+export interface ExtensionReview {
+  requestId: string;
+  kind: "install" | "update" | "trust" | "rollback" | "remove";
+  id: string;
+  name: string;
+  version: string;
+  digest: string;
+  revision: number;
+  oldVersion?: string;
+  oldDigest?: string;
+  location: string;
+  bytes: number;
+  files: number;
+  sourceKind?: "directory" | "zip";
+  incompatible?: string;
+  downgrade: boolean;
+  trustRequired: boolean;
+  requestedEnabled: boolean;
+  description: string;
+  entry: string;
+  compatibility: string;
+  contents: { path: string; bytes: number; digest: string }[];
+}
+export interface ExtensionResult {
+  id: string;
+  restartRequired: boolean;
+  deferred: boolean;
+  warning?: string;
+}
+export interface ExtensionOperation {
+  requestId: string;
+  phase:
+    | "preparing"
+    | "review"
+    | "committing"
+    | "completed"
+    | "cancelled"
+    | "error";
+  progress?: { phase: string; bytes: number; files: number };
+  review?: ExtensionReview;
+  result?: ExtensionResult;
+  error?: string;
+}
+export interface ExtensionSettings {
+  id: string;
+  schema: SettingsSchema;
+  revision: number;
+  values: Record<string, SettingValue>;
+  secretSet: Record<string, boolean>;
+  unknownKeys: string[];
+  issues: string[];
+  restartRequired: true;
+}
+export interface BuiltinSettings {
+  id: string;
+  global: Json;
+  project: Json;
+  effective?: Json;
+  globalRevision: string;
+  projectRevision: string;
+  status?: Json;
+}
 export type Json =
   | null
   | boolean
@@ -106,6 +229,86 @@ export interface StartTurn {
   approvalMode: PermissionMode;
 }
 export interface RequestMap {
+  "extensions/list": { params: { path?: string }; result: ExtensionCatalog };
+  "extensions/prepare": {
+    params: {
+      requestId: string;
+      kind: ExtensionReview["kind"];
+      source?: string;
+      id?: string;
+      versionKey?: string;
+    };
+    result: ExtensionReview;
+  };
+  "extensions/operation": {
+    params: { requestId: string };
+    result: ExtensionOperation;
+  };
+  "extensions/cancel": {
+    params: { requestId: string };
+    result: { ok: boolean };
+  };
+  "extensions/commit": {
+    params: {
+      requestId: string;
+      digest: string;
+      revision: number;
+      trust: boolean;
+      enable?: boolean;
+    };
+    result: ExtensionResult;
+  };
+  "extensions/setEnabled": {
+    params: {
+      id: string;
+      enabled: boolean;
+      digest: string;
+      revision: number;
+      path?: string;
+    };
+    result: ExtensionResult;
+  };
+  "extensions/settings/read": {
+    params: { id: string; digest: string; revision: number };
+    result: ExtensionSettings;
+  };
+  "extensions/settings/save": {
+    params: {
+      id: string;
+      digest: string;
+      revision: number;
+      settingsRevision: number;
+      values: Record<string, SettingValue>;
+      secrets?: Record<string, string>;
+      clearSecrets?: string[];
+      reset?: boolean;
+    };
+    result: ExtensionSettings;
+  };
+  "extensions/builtin/read": {
+    params: { id: string; path: string };
+    result: BuiltinSettings;
+  };
+  "extensions/builtin/save": {
+    params: {
+      id: string;
+      path: string;
+      scope: "global" | "project";
+      revision: string;
+      value: Json;
+    };
+    result: BuiltinSettings;
+  };
+  "extensions/lsp/action": {
+    params: {
+      path: string;
+      action: "trust" | "check" | "restart";
+      serverId: string;
+      allowed?: boolean;
+      value?: Json;
+    };
+    result: { text: string };
+  };
   "system/status": { params: Record<string, never>; result: { busy: boolean } };
   initialize: {
     params: { protocolMajor: number; clientVersion: string };

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BackgroundSettingsActions } from "../background/settings.js";
 import { ProfileIdSchema } from "../config/schema.js";
+import type { ExtensionManagementService } from "../extensions/management.js";
 import type { LspSettingsActions } from "../lsp/settings.js";
 import type {
   ProviderDefinition,
@@ -16,6 +17,7 @@ import type { WebSettingsActions } from "../web/settings.js";
 import { type Palette, THEMES, type ThemeName } from "./appearance.js";
 import { OpenTuiBackgroundSettings } from "./opentui-background-settings.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
+import { OpenTuiExtensions } from "./opentui-extensions.js";
 import {
   OpenTuiLspSettings,
   type SettingsPanelControl,
@@ -47,6 +49,7 @@ import { terminalLine } from "./terminal-text.js";
 import { FAIL_MARK } from "./theme.js";
 
 export interface OpenTuiSettingsActions {
+  extensions?: ExtensionManagementService;
   background?: BackgroundSettingsActions;
   subagents?: SubagentSettingsActions;
   web?: WebSettingsActions;
@@ -176,6 +179,14 @@ export function OpenTuiSettings({
   const [fieldTarget, setFieldTarget] = useState<string>();
   const [confirmClose, setConfirmClose] = useState(false);
   const [backgroundDirty, setBackgroundDirty] = useState(false);
+  const [extensionsDirty, setExtensionsDirty] = useState(false);
+  const extensionsControls = useRef<SettingsPanelControl | undefined>(
+    undefined,
+  );
+  const recordExtensionsDirty = useCallback(
+    (dirty: boolean) => setExtensionsDirty(dirty),
+    [],
+  );
   const backgroundControls = useRef<SettingsPanelControl | undefined>(
     undefined,
   );
@@ -282,6 +293,7 @@ export function OpenTuiSettings({
   const simpleFooter =
     navigationOnly ||
     [
+      "extensions",
       "tools.subagents",
       "tools.background",
       "tools.lsp",
@@ -533,7 +545,8 @@ export function OpenTuiSettings({
       lspDirty ||
       webDirty ||
       subagentDirty ||
-      backgroundDirty
+      backgroundDirty ||
+      extensionsDirty
     ) {
       setCloseSelection(0);
       setConfirmClose(true);
@@ -822,6 +835,7 @@ export function OpenTuiSettings({
     else if (page === "tools.lsp") lspControls.current?.save();
     else if (page === "tools.subagents") subagentControls.current?.save();
     else if (page === "tools.background") backgroundControls.current?.save();
+    else if (page === "extensions") extensionsControls.current?.save();
     else if (page === "web") webControls.current?.save();
     else if (page === "connection") {
       if (field) {
@@ -869,6 +883,7 @@ export function OpenTuiSettings({
           lspControls.current?.discard();
           subagentControls.current?.discard();
           backgroundControls.current?.discard();
+          extensionsControls.current?.discard();
           onThemePreview?.(restore.current.theme);
           onClose();
         }
@@ -945,6 +960,7 @@ export function OpenTuiSettings({
       return;
     }
     if (
+      page === "extensions" ||
       page === "tools.lsp" ||
       page === "tools.subagents" ||
       page === "tools.background"
@@ -953,11 +969,13 @@ export function OpenTuiSettings({
         key.preventDefault();
         if (
           !(
-            page === "tools.background"
-              ? backgroundControls.current
-              : page === "tools.subagents"
-                ? subagentControls.current
-                : lspControls.current
+            page === "extensions"
+              ? extensionsControls.current
+              : page === "tools.background"
+                ? backgroundControls.current
+                : page === "tools.subagents"
+                  ? subagentControls.current
+                  : lspControls.current
           )?.back()
         ) {
           if (!split) {
@@ -1212,6 +1230,7 @@ export function OpenTuiSettings({
           )}
           <box
             height={
+              page === "extensions" ||
               page === "tools.lsp" ||
               page === "tools.subagents" ||
               page === "tools.background" ||
@@ -1220,6 +1239,7 @@ export function OpenTuiSettings({
                 : bodyHeight - (page === "appearance" ? 1 : 0)
             }
             visible={
+              page !== "extensions" &&
               page !== "tools.lsp" &&
               page !== "tools.subagents" &&
               page !== "tools.background" &&
@@ -1672,6 +1692,31 @@ export function OpenTuiSettings({
               </>
             )}
           </box>
+          {actions?.extensions && (
+            <box
+              width="100%"
+              height={page === "extensions" ? bodyHeight : 0}
+              visible={page === "extensions" && !navigationOnly}
+            >
+              <OpenTuiExtensions
+                management={actions.extensions}
+                root={actions.workspaceRoot}
+                palette={palette}
+                width={innerWidth}
+                height={bodyHeight}
+                active={
+                  active &&
+                  page === "extensions" &&
+                  !navigationOnly &&
+                  !confirmClose
+                }
+                focused={shellFocus === "content"}
+                controls={extensionsControls}
+                onOpenBuiltin={changePage}
+                onDirty={recordExtensionsDirty}
+              />
+            </box>
+          )}
           {actions?.web && (
             <box
               height={page === "web" ? bodyHeight : 0}
@@ -1843,11 +1888,13 @@ export function OpenTuiSettings({
                   : surfaceWidth < 55
                     ? "Enter открыть | Ctrl+F | Esc назад"
                     : "Enter открыть | Tab фокус | Ctrl+F поиск | Esc назад"
-                : tiny
-                  ? "F2 сохр | Esc назад"
-                  : surfaceWidth < 55
-                    ? "F2 сохранить | Esc назад"
-                    : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
+                : page === "extensions"
+                  ? "I установка | PgUp/PgDn | Esc назад"
+                  : tiny
+                    ? "F2 сохр | Esc назад"
+                    : surfaceWidth < 55
+                      ? "F2 сохранить | Esc назад"
+                      : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
               surfaceWidth,
             )}
           </text>

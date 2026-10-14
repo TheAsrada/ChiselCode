@@ -9,7 +9,11 @@ import type { ChiselExtension } from "../contracts.js";
 import { abortable, frozenClone } from "../lifecycle.js";
 import { markRuntimeSnapshot } from "../packages/runtime-ownership.js";
 import { acquireVersionUse, type PackageUseLease } from "../packages/use.js";
-import { adaptDefinition, createHostSdk } from "./adapter.js";
+import {
+  adaptDefinition,
+  createHostSdk,
+  hostSettingsRevision,
+} from "./adapter.js";
 import { setApplicationResource } from "./application-resource.js";
 import { markOptional, setOptionalDiagnostic } from "./optional.js";
 import {
@@ -49,6 +53,8 @@ export interface ExtensionDiagnostic {
   state: ExternalState;
   reason?: string;
   workspaceRoot?: string;
+  packageDigest?: string;
+  settingsRevision?: number;
 }
 const redactor = new SecretRedactor();
 export function safeExtensionText(text: string): string {
@@ -123,6 +129,7 @@ interface ModuleEntry {
   settled: boolean;
 }
 const modules = new Map<string, ModuleEntry>();
+const loadedSettings = new WeakMap<ChiselExtension, number>();
 let operations = 0;
 const waiters: Array<() => void> = [];
 async function limited<T>(work: () => Promise<T>): Promise<T> {
@@ -191,7 +198,9 @@ async function loadModule(
             ),
           budget(),
         );
-        return adaptDefinition(definition, candidate.manifest, sdk);
+        const adapted = adaptDefinition(definition, candidate.manifest, sdk);
+        loadedSettings.set(adapted, await hostSettingsRevision(sdk));
+        return adapted;
       }),
     );
     cacheEntry = {
@@ -334,6 +343,7 @@ export class ExternalExtensionLoader {
         this.diagnostics.set(`${record.id}/${root}`, {
           ...diagnostic,
           workspaceRoot: root,
+          packageDigest: record.digest,
         });
       const wrapper: ChiselExtension = {
         id: record.id,
@@ -376,6 +386,11 @@ export class ExternalExtensionLoader {
               context.signal,
             );
             await lease.loaded();
+            report(context.workspaceRoot, {
+              ...diagnostic,
+              state: "loading",
+              settingsRevision: loadedSettings.get(definition),
+            });
           } catch {
             report(context.workspaceRoot, {
               ...diagnostic,
