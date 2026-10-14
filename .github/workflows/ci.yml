@@ -90,6 +90,19 @@ jobs:
         env:
           CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/background-captures
         run: bun test tests/unit/background-process.test.ts tests/integration/background-runtime.test.ts
+      - name: Extension Settings native UI and real restart lifecycle
+        timeout-minutes: 3
+        env:
+          CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
+        run: bun tests/fixtures/tui-extensions-settings.ts
+      - name: Compiled Extension Settings native UI
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          binary=dist/extension-settings-ui
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/tui-extensions-settings.ts --compile --outfile="$binary"
+          "$binary"
       - name: Test
         env:
           CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
@@ -140,19 +153,6 @@ jobs:
         env:
           CHISEL_THEME_CAPTURES: dist/theme-captures
         run: bun tests/fixtures/tui-extension-themes.ts
-      - name: Extension Settings native UI and real restart lifecycle
-        timeout-minutes: 3
-        env:
-          CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
-        run: bun tests/fixtures/tui-extensions-settings.ts
-      - name: Compiled Extension Settings native UI
-        timeout-minutes: 3
-        shell: bash
-        run: |
-          binary=dist/extension-settings-ui
-          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
-          bun build tests/fixtures/tui-extensions-settings.ts --compile --outfile="$binary"
-          "$binary"
       - name: Compile and smoke OpenTUI native binary
         shell: bash
         run: |

@@ -160,6 +160,8 @@ test("partial optional activation rolls back own registrations/resources; requir
   hosts.push(strict);
   await expect(strict.open(f.root)).rejects.toThrow("activation failed");
 });
+// Eight real command invocations include execution leases and durable checkpoints.
+// Keep their assertions and runtime deadlines, with a bounded composite test budget.
 test("external tool contexts are rebuilt and effects stay bound to the approved path; normal Plan/schema/stale/checkpoint checks apply", async () => {
   const f = await fixture(`
     let lastPlan;
@@ -248,7 +250,7 @@ test("external tool contexts are rebuilt and effects stay bound to the approved 
   expect(await readFile(join(f.root, "note.txt"), "utf8")).toBe(
     "changed during approval\n",
   );
-});
+}, 20000);
 
 test("public process port executes the same approved command once, without a nested lease or Plan grant", async () => {
   const f = await fixture(`
