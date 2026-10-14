@@ -80,7 +80,7 @@ Status показывает desired state и отдельно known version uses
 
 ## Доступность и границы
 
-Loader/SDK опубликованы в [0.6.25](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.25), темы — в [0.6.26](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.26). Описанный менеджер пакетов добавлен в текущем main; опубликованный 0.6.26 этих новых CLI operations ещё не содержит. Номер нового релиза будет указан после публикации.
+Loader/SDK опубликованы в [0.6.25](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.25), темы — в [0.6.26](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.26). Локальная установка папок/ZIP, обновление, управление версиями, включение и удаление доступны с [0.6.27](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.27).
 
 Полный Settings → Extensions добавляется отдельно. Нет marketplace, загрузки из npm/GitHub/URL, install scripts, runtime TS/JSX, native dependency resolver, hot reload или sandbox изолированного JS.
 

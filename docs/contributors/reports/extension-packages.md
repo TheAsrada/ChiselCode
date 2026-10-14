@@ -2,7 +2,7 @@
 
 [Contributor index](../README.md) · [Пользовательское руководство](../../extensions.md) · [Контракт сервиса](../../architecture/extension-packages.md) · [Loader/SDK report](external-extension-loader.md)
 
-Изменения находятся непосредственно в main; новых development branches/worktrees/PR нет. Для выпуска подготовлен 0.6.27, опубликованный 0.6.26 неизменен. Final source/CI/release сведения будут записаны после фактических проверок и публикации.
+Менеджер пакетов выпущен в [v0.6.27](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.27) **14.10.2026**. Изменения сделаны непосредственно в main; новых development branches/worktrees/PR нет. Tag/source — [6394d4f881587697a8abbd5e1e9afbfc372aa7b7](https://github.com/TheAsrada/ChiselCode/commit/6394d4f881587697a8abbd5e1e9afbfc372aa7b7), основной implementation commit — 99d58cb. Опубликованный 0.6.26 неизменен. Параллельные desktop-изменения c9e50ac сохранены в main с версией 0.6.28 и не относятся к source 0.6.27.
 
 ## Реализованное поведение
 
@@ -23,9 +23,35 @@ Application version leases защищают installed/runtime bytes до shutdow
 
 Installed npm и compiled executable выполнили новый extension-packages-cli fixture: внешний author с публичными declarations, actual folder/ZIP, trust, ordinary SDK file tool, update/rollback/disable/remove после удаления source. Общий command-packaging smoke прошёл для CLI/TUI, /btw, LSP, worktrees, subagents, background processes, UI и тем. Existing external SDK CLI regression также прошёл: real read/write/Plan, model/child/background/worktrees, modified asset refusal, raw exit и recovery.
 
-Один завершающий прогон был прерван изменением helper module во время тестов; его результаты исключены. Приведённые 1193 pass относятся к повтору на неизменных исходниках. После последнего fd-open hardening выполнен targeted package/loader regression; CI проверит окончательный commit целиком.
+Один завершающий прогон был прерван изменением helper module во время тестов; его результаты исключены. Приведённые 1193 pass относятся к повтору на неизменных исходниках. После последнего fd-open hardening выполнен targeted package/loader regression; окончательный source целиком проверен CI ниже.
 
-Platform CI нового source пока не объявлен успешным. Windows/macOS local запуск не выполнялся.
+## Платформенный CI
+
+[CI 38434556225](https://github.com/TheAsrada/ChiselCode/actions/runs/38434556225) проверяет release source 6394d4f. Все три Quality jobs завершились успешно, включая typecheck/test/lint/eval/build, реальный внешний author package, folder/ZIP install, ordinary installed npm и compiled CLI, native UI/темы и прежние runtime regressions.
+
+| Платформа | Полная suite | Assertions | Quality |
+| --- | --- | --- | --- |
+| Linux | 1193 pass / 3 skips / 0 fail | 11096 | success |
+| macOS | 1193 pass / 3 skips / 0 fail | 11102 | success |
+| Windows | 1194 pass / 2 skips / 0 fail | 11115 | success |
+
+На каждой ОС выполнено 1196 tests в 144 files. Windows также прошёл отдельные реальные crash/recovery, shell Unicode, child runtime и compiled child UI cancellation проверки. Windows/macOS local запуск не выполнялся; это результаты CI runners.
+
+Первый прогон 99d58cb ([38432481348](https://github.com/TheAsrada/ChiselCode/actions/runs/38432481348)) завершился failure на Windows: `/lsp-status` generic превысил default 5000 ms, рядом зарегистрирован EPERM при cleanup storage lock; Real Auto LSP получил WEB_TIMEOUT при загрузке Lua backend. На release source все пять `/lsp-status` сценариев прошли с сохранёнными assertions и прежним timeout; generic — 1279 ms. Причина единичного timeout не объявляется доказанной или исправленной изменением лимита.
+
+На attempt 1 release source Real Auto LSP macOS/Windows получил WEB_TIMEOUT при загрузке Bash/C# соответственно. После завершения Quality повторены только failed jobs. Итог **attempt 2 — success во всех шести Quality / Real Auto LSP jobs** Windows/macOS/Linux; macOS также проверил настоящий SourceKit с Xcode. Таймауты, assertions и перечень backend не изменены.
+
+Tag v0.6.27 адресует ровно 6394d4f. [Release 38503462415](https://github.com/TheAsrada/ChiselCode/actions/runs/38503462415), attempt 1 — **success во всех шести jobs**. Его собственный Verify release source: 1193 pass / 3 skips / 0 fail, 11096 assertions, 1196 tests / 144 files. Публичный release не draft, опубликован 14.10.2026 в 03:02 UTC. Все пять assets имеют состояние uploaded:
+
+- chiselcode-0.6.27.tgz — ordinary npm CLI и публичные SDK declarations;
+- ChiselCode-Setup-0.6.27.exe;
+- ChiselCode-Setup-0.6.27-macos-arm64.pkg;
+- ChiselCode-Setup-0.6.27-macos-x64.pkg;
+- ChiselCode-Setup-0.6.27-linux-amd64.deb.
+
+Эти результаты относятся к опубликованному source 0.6.27. CI последующего main с desktop-изменениями и документацией — отдельный прогон; успешность опубликованного выпуска не означает его успешность.
+
+Отдельный commit 6394d4f уточняет `restartRequired`: известная загруженная версия, совпадающая с desired selection, не требует restart; update/disable/unknown use требуют. Проверка этих состояний сохранена в package suite.
 
 ## Native кадры
 
@@ -37,6 +63,6 @@ Platform CI нового source пока не объявлен успешным.
 
 ## Документация и ограничения
 
-Пользовательский маршрут отделён от author package/SDK API. Добавлены отдельные package lifecycle и architecture contracts. Quickstart использует SDK 0.6.26+ для themes; chat.register возвращает void, DTO возвращает render.
+Пользовательский маршрут отделён от author package/SDK API. Добавлены отдельные package lifecycle и architecture contracts. Quickstart использует SDK 0.6.26+ для themes; chat.register возвращает void, DTO возвращает render. После обновления фактической доступности проверены 602 относительные file/anchor/image ссылки документации — 0 issues; git diff --check для изменений документации прошёл.
 
 Нет Memory, marketplace/network installer, dependency scripts, full Settings → Extensions или hot unload/sandbox. Synchronous trusted JS может завершить/заблокировать приложение. Unknown crash use сохраняется и требует проверки, не unsafe PID cleanup.
