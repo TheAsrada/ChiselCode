@@ -329,11 +329,11 @@ jobs:
             done
           done
           count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
-          test "$count" -eq 5
+          test "$count" -eq 5 || test "$count" -eq 12
           bun scripts/engine-manifest.ts
           engine_files=(dist/release-artifacts/chisel-engine-* dist/release-artifacts/chisel-desktop-sdk-* dist/release-artifacts/engine-manifest.json)
           test "${#engine_files[@]}" -eq 7
-          gh release upload "$RELEASE_TAG" "${engine_files[@]}"
+          gh release upload "$RELEASE_TAG" "${engine_files[@]}" --clobber
           count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
           test "$count" -eq 12
           gh release edit "$RELEASE_TAG" --draft=false

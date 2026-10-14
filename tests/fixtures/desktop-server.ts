@@ -209,6 +209,21 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
       )
     )
       throw new Error("Durable text history missing.");
+    const command = await start("/lsp-status");
+    await first.wait("turn.completed", command.id);
+    const commandHistory = await first.client.request("sessions/read", {
+      path: root,
+      sessionId: command.id,
+    });
+    if (
+      !commandHistory.messages.some(
+        (message) =>
+          message.role === "command" && message.text.includes("/lsp-status"),
+      )
+    )
+      throw new Error(
+        "Foreground command output disappeared after completion.",
+      );
     const edit = await start("WRITE");
     const approval = await first.wait("approval.requested", edit.id);
     const data = approval.data as Record<string, unknown>;

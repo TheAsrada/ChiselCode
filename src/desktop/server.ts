@@ -268,7 +268,46 @@ export class DesktopServer {
   private view(core: CoreSession): Session {
     const messages: Message[] = [];
     const tools = new Map<string, string>();
-    for (const [i, message] of core.messages.entries())
+    const presentations = new Map<
+      number,
+      NonNullable<CoreSession["chatPresentations"]>
+    >();
+    for (const record of core.chatPresentations ?? []) {
+      const group = presentations.get(record.afterMessage) ?? [];
+      group.push(record);
+      presentations.set(record.afterMessage, group);
+    }
+    const appendPresentations = (afterMessage: number) => {
+      for (const [index, record] of (
+        presentations.get(afterMessage) ?? []
+      ).entries()) {
+        const view = record.presentation.view;
+        const text = [
+          view.summary,
+          ...(view.cards ?? []).map((card) =>
+            [
+              card.title,
+              card.subtitle,
+              card.description,
+              card.detail,
+              card.status?.label,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+          ),
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        if (text)
+          messages.push({
+            id: `${core.id}:command:${afterMessage}:${index}`,
+            role: "command",
+            text,
+          });
+      }
+    };
+    appendPresentations(0);
+    for (const [i, message] of core.messages.entries()) {
       for (const [j, content] of message.content.entries()) {
         const id = `${core.id}:${i}:${j}`;
         if (content.type === "text" && content.text)
@@ -287,6 +326,8 @@ export class DesktopServer {
           });
         }
       }
+      appendPresentations(i + 1);
+    }
     const approvalMode: PermissionMode =
       core.approvalMode === "acceptEdits" || core.approvalMode === "dontAsk"
         ? core.approvalMode
@@ -602,24 +643,56 @@ export class DesktopServer {
         const core = await (
           await projectSessionStore(await this.root(p.path))
         ).load(p.sessionId);
+        const background = this.conversations.get(p.sessionId)?.background;
         return this.json({
           children: core.children ?? {},
-          background: core.backgroundTasks ?? {},
+          background: background
+            ? Object.fromEntries(
+                (await background.list()).map((task) => [task.id, task]),
+              )
+            : (core.backgroundTasks ?? {}),
         });
       }
       case "tasks/inspect": {
         const p = parsed.data as z.infer<(typeof schemas)["tasks/inspect"]>;
-        const controls = this.conversations.get(p.sessionId)?.children;
+        const conversation = this.conversations.get(p.sessionId);
+        const background = conversation?.background;
+        if (
+          background &&
+          (await background.list()).some((task) => task.id === p.id)
+        ) {
+          const task = await background.port.status(p.id);
+          const output = await background.port.readOutput(
+            p.id,
+            undefined,
+            64_000,
+          );
+          return {
+            text: this.redactor.text(
+              `${task.label}\n${task.state}\n\n${output.text}`,
+            ),
+          };
+        }
+        const controls = conversation?.children;
         if (!controls)
           throw new DesktopError(
             "TASK_UNAVAILABLE",
             "Просмотр живой задачи доступен в исходной беседе.",
           );
-        return controls.inspect(p.id, p.view);
+        return this.redactor.value(await controls.inspect(p.id, p.view));
       }
       case "tasks/cancel": {
         const p = parsed.data as z.infer<(typeof schemas)["tasks/cancel"]>;
-        const controls = this.conversations.get(p.sessionId)?.children;
+        const conversation = this.conversations.get(p.sessionId);
+        const background = conversation?.background;
+        if (
+          background &&
+          (await background.list()).some((task) => task.id === p.id)
+        ) {
+          await background.port.stop(p.id);
+          return { ok: true };
+        }
+        const controls = conversation?.children;
         if (!controls)
           throw new DesktopError(
             "TASK_UNAVAILABLE",

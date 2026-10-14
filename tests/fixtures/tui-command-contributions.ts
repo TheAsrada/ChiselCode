@@ -445,6 +445,25 @@ try {
   await idle();
   assert.ok(setup.captureCharFrame().includes("Отчёт расширения"));
   assert.ok(setup.captureCharFrame().includes("Файлы проекта проверены"));
+  if (process.env.CHISEL_CAPTURE_DIR) {
+    const folder = process.env.CHISEL_CAPTURE_DIR;
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "commands.txt"), setup.captureCharFrame());
+    const spans = setup.captureSpans();
+    await writeFile(
+      join(folder, "commands.json"),
+      JSON.stringify({
+        ...spans,
+        lines: spans.lines.map((line) => ({
+          spans: line.spans.map((span) => ({
+            ...span,
+            fg: span.fg.toInts(),
+            bg: span.bg.toInts(),
+          })),
+        })),
+      }),
+    );
+  }
   const reportStore = await projectSessionStore(firstRoot);
   const reportSummary = (await reportStore.list())[0];
   assert.ok(reportSummary);

@@ -535,6 +535,20 @@ async function runExtensionCommandOwned(
         afterMessage: session.messages.length,
         presentation: result.presentation,
       });
+    } else if (result.output && !result.requiresApproval) {
+      session.chatPresentations ??= [];
+      session.chatPresentations.push({
+        afterMessage: session.messages.length,
+        presentation: {
+          extensionId: prepared.command.source.extensionId,
+          view: {
+            summary: `/${prepared.command.name}\n\n${result.output}`.slice(
+              0,
+              2000,
+            ),
+          },
+        },
+      });
     }
     await tools.saveCheckpoint();
     if (subagents && !options.interactive) {
