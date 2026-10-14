@@ -333,7 +333,9 @@ export function OpenTuiExtensions({
     if (busy || review) {
       cancel();
       setView("catalog");
-      setNotice("Операция отменена; прежняя версия сохранена.");
+      setNotice(
+        "Отмена запрошена. Дождитесь результата: уже начавшееся сохранение могло завершиться.",
+      );
       return true;
     }
     if (edit) {
