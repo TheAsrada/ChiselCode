@@ -777,7 +777,7 @@ test("full agent tool path fetches evidence, edits the fixture code and runs its
   } finally {
     await env.close();
   }
-});
+}, 30000); // Six model turns, durable checkpoints and a real cold native shell.
 test("web cancellation propagates through executor without ending a session or preventing later local reads", async () => {
   const env = await environment();
   try {
