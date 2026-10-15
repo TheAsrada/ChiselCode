@@ -61,6 +61,12 @@ jobs:
           node-version: "24.19.0"
       - name: Type check
         run: bun run typecheck
+      - name: Real storage lock cancellation on Windows
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        env:
+          CHISEL_LOCK_TRACE: "1"
+        run: bun test tests/unit/session-lock.test.ts
       - name: Real background owner crash and recovery on Windows
         if: runner.os == 'Windows'
         timeout-minutes: 2

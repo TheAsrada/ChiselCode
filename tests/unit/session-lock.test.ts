@@ -2,7 +2,12 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withLock } from "../../src/sessions/lock.js";
+import { storageLockDiagnostics, withLock } from "../../src/sessions/lock.js";
+
+function trace(phase: string): void {
+  if (process.env.CHISEL_LOCK_TRACE === "1")
+    console.info(phase, storageLockDiagnostics());
+}
 
 test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-lock-cancel-"));
@@ -15,11 +20,13 @@ test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait"
     release = done;
   });
   const first = withLock(path, async () => {
+    trace("first entered");
     entered();
     await barrier;
   });
   try {
     await ready;
+    trace("first ready");
     const localAbort = new AbortController();
     const local = withLock(
       path,
@@ -28,8 +35,11 @@ test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait"
       },
       localAbort.signal,
     );
+    trace("local queued");
     localAbort.abort();
+    trace("local abort delivered");
     await expect(local).rejects.toMatchObject({ code: "CANCELLED" });
+    trace("local abort verified");
     let nextEntered = false;
     const next = withLock(path, async () => {
       nextEntered = true;
@@ -37,8 +47,10 @@ test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait"
     await Bun.sleep(25);
     expect(nextEntered).toBe(false);
     release();
+    trace("first released");
     await first;
     await next;
+    trace("next finished");
     expect(nextEntered).toBe(true);
     await mkdir(`${path}.lock`);
     await writeFile(join(`${path}.lock`, "owner"), "separate-writer");
@@ -50,9 +62,13 @@ test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait"
       },
       diskAbort.signal,
     );
+    trace("durable queued");
     await Bun.sleep(25);
+    trace("durable abort starting");
     diskAbort.abort();
+    trace("durable abort delivered");
     await expect(disk).rejects.toMatchObject({ code: "CANCELLED" });
+    trace("durable abort verified");
     expect(await readFile(join(`${path}.lock`, "owner"), "utf8")).toBe(
       "separate-writer",
     );
@@ -60,6 +76,7 @@ test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait"
     release();
     await first;
     await rm(root, { recursive: true, force: true });
+    trace("cancellation cleanup finished");
   }
 });
 
