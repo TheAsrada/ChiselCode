@@ -253,6 +253,12 @@ if (phase < 0) {
       await key("ESCAPE");
       assert.match(ui.captureCharFrame(), /Черновик перед расширениями/);
     } else if (step === "use") {
+      // React can mount `welcome` before the native frame buffer has painted.
+      // Wait for the actual restored draft; an absent draft still fails the scenario.
+      await until(
+        () => ui.captureCharFrame().includes("Черновик перед расширениями"),
+        "Перезапуск не отобразил сохранённый черновик",
+      );
       assert.match(
         ui.captureCharFrame(),
         /Черновик перед расширениями/,
