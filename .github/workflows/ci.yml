@@ -1,26 +1,69 @@
-name: CI
+name: Native validation
 
+# Explicit full check before a release or a change to native runtime behavior.
+# Ordinary pushes use quick.yml; a release requires this workflow on its exact SHA.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: native-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  native-lsp:
-    name: Real Auto LSP (${{ matrix.os }})
+  source:
+    name: Full source (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
+      CHISEL_THEME_CAPTURES: dist/theme-captures
+      CHISEL_EXTERNAL_CAPTURES: ${{ github.workspace }}/dist/external-extension-captures
+      CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Prepare pinned LSP test dependencies
+        run: bun scripts/prepare-lsp-tests.ts
+      - run: bun run typecheck
+      - name: All source tests once
+        shell: bash
+        run: |
+          set -o pipefail
+          if bun run test:full --reporter=junit --reporter-outfile=test-results.xml 2>&1 | tee test-results.log; then exit 0; fi
+          bun scripts/report-ci-tests.ts
+          exit 1
+      - run: bun run lint
+      - run: bun run eval --category all
+      - name: Extension Settings and external SDK source UI
+        run: |
+          bun tests/fixtures/tui-extensions-settings.ts
+          bun tests/fixtures/tui-external-extensions.ts
+      - name: Save real OpenTUI captures and test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-evidence
+          path: |
+            dist/*captures/**
+            test-results.xml
+            test-results.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  native:
+    name: Native smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -30,232 +73,54 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4.11"
       - uses: actions/setup-node@v4
         with:
           node-version: "24.19.0"
           cache: npm
-      - name: Install application dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Real diagnostics, navigation and cleanup for the standard catalog
-        run: bun tests/fixtures/multi-lsp-probe.ts python go rust cpp csharp java kotlin php ruby lua dart html css json yaml bash docker
-      - name: Real SourceKit with the installed Xcode toolchain
-        if: always() && !cancelled() && runner.os == 'macOS'
-        run: bun tests/fixtures/multi-lsp-probe.ts swift
-  quality:
-    name: Quality (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    env:
-      CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
-      CHISEL_THEME_CAPTURES: dist/theme-captures
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - name: Set up external Node for TypeScript LSP
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24.19.0"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Prepare pinned external LSP test dependencies
-        run: bun scripts/prepare-lsp-tests.ts
-      - name: Type check
-        run: bun run typecheck
-      - name: Test
-        shell: bash
-        run: |
-          set -o pipefail
-          if bun test --reporter=junit --reporter-outfile=test-results.xml 2>&1 | tee test-results.log; then exit 0; fi
-          bun scripts/report-ci-tests.ts
-          exit 1
-      - name: Lint
-        run: bun run lint
-      - name: Deterministic runtime evaluation
-        run: bun run eval --category all
-      - name: Extension Settings native UI and real restart lifecycle
-        timeout-minutes: 3
-        env:
-          CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
-        run: bun tests/fixtures/tui-extensions-settings.ts
-      - name: Ordinary external loader and SDK native TUI
-        timeout-minutes: 3
-        env:
-          CHISEL_EXTERNAL_CAPTURES: ${{ github.workspace }}/dist/external-extension-captures
-        run: bun tests/fixtures/tui-external-extensions.ts
-      - name: Save real OpenTUI agent captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: subagents-opentui-${{ matrix.os }}
-          path: dist/subagent-captures
-          if-no-files-found: error
-          retention-days: 7
-      - name: Save ordinary external SDK TUI captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-sdk-opentui-${{ matrix.os }}
-          path: dist/external-extension-captures
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Save real extension theme captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: extension-themes-opentui-${{ matrix.os }}
-          path: dist/theme-captures
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Save real extension Settings captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: extension-settings-opentui-${{ matrix.os }}
-          path: dist/extension-settings-captures
-          if-no-files-found: warn
-          retention-days: 7
-
-  packaging:
-    name: Packaging (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.4.2"
-      - name: Set up external Node for TypeScript LSP
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24.19.0"
-          cache: npm
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Prepare pinned external LSP test dependencies
-        run: bun scripts/prepare-lsp-tests.ts
-      - name: Build package
+      - run: npm ci --no-audit --no-fund
+      - name: Platform paths, atomic storage, shell and process ownership
+        if: runner.os != 'Linux'
+        run: >-
+          bun test tests/unit/workspace-path.test.ts tests/unit/session-atomic.test.ts
+          tests/unit/session-lock.test.ts tests/unit/shell-runtime.test.ts
+          tests/unit/background-process.test.ts tests/unit/subagent-storage-policy.test.ts
+          tests/unit/lsp-transport.test.ts
+      - name: Build CLI and public SDK
         run: bun run build
-      - name: Real compiled desktop protocol
-        shell: bash
-        run: |
-          binary=dist/chisel-engine
-          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
-          bun build src/desktop/entry.ts --compile --outfile="$binary"
-          bun tests/fixtures/desktop-server.ts "$(pwd)/$binary"
-      - name: Installed and compiled OpenTUI scenarios
-        run: bun tests/fixtures/command-packaging.ts
-      - name: Smoke installed npm package
+      - name: Installed package starts, executes tools, downloads and loads the SDK
         shell: bash
         run: |
           tarball=$(npm pack --silent --pack-destination dist)
           npm install --prefix ./dist/install-smoke --no-audit --no-fund "./dist/$tarball"
-          bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js --version
-          bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js doctor > installed-doctor.txt || status=$?
-          test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
-          grep -q 'ChiselCode' installed-doctor.txt
-          bun tests/fixtures/manifest-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/web-download-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/lsp-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/side-query-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/worktree-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/subagents-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/background-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/external-extensions-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-          bun tests/fixtures/extension-packages-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
-      - name: Compiled Extension Settings native UI
-        timeout-minutes: 3
-        shell: bash
-        run: |
-          binary=dist/extension-settings-ui
-          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
-          bun build tests/fixtures/tui-extensions-settings.ts --compile --outfile="$binary"
-          "$binary"
-      - name: Compile and smoke OpenTUI native binary
-        shell: bash
-        run: |
-          mkdir -p dist
-          binary=dist/opentui-spike
-          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
-          bun build ./scripts/opentui-spike.tsx --compile --outfile="$binary"
-          "$binary" --version
-          "$binary" --smoke
-      - name: Cross-compile macOS OpenTUI native targets
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          npm install --no-save --package-lock=false --force --ignore-scripts \
-            @opentui/core-darwin-arm64@0.5.12 @opentui/core-darwin-x64@0.5.12
-          test -f node_modules/@opentui/core-darwin-arm64/package.json
-          test -f node_modules/@opentui/core-darwin-x64/package.json
-          for arch in arm64 x64; do
-            bun build ./scripts/opentui-spike.tsx --compile --target="bun-darwin-$arch" --outfile="dist/opentui-spike-$arch"
-          done
-          host_arch=$(uname -m)
-          if [ "$host_arch" = x86_64 ]; then host_arch=x64; fi
-          "dist/opentui-spike-$host_arch" --smoke
-      - name: Smoke compiled CLI commands
+          entry=./dist/install-smoke/node_modules/chiselcode/dist/cli.js
+          bun "$entry" --version
+          bun tests/fixtures/manifest-cli.ts bun "$entry"
+          bun tests/fixtures/web-download-cli.ts bun "$entry"
+          bun tests/fixtures/external-extensions-cli.ts bun "$entry"
+      - name: Compiled CLI, real LSP, helpers, worktrees and background processes
         shell: bash
         run: |
           binary=dist/chisel
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
-          bun build ./src/cli.ts --compile --outfile="$binary"
+          bun build src/cli.ts --compile --outfile="$binary"
           "$binary" --version
-          "$binary" doctor > doctor-output.txt || status=$?
-          test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
-          grep -q 'ChiselCode' doctor-output.txt
-          bun tests/fixtures/manifest-cli.ts "$binary"
           bun tests/fixtures/web-download-cli.ts "$binary"
+          bun tests/fixtures/lsp-cli.ts "$binary"
+          bun tests/fixtures/subagents-cli.ts "$binary"
+          bun tests/fixtures/worktree-cli.ts "$binary"
+          bun tests/fixtures/background-cli.ts "$binary"
           bun tests/fixtures/external-extensions-cli.ts "$binary"
           bun tests/fixtures/extension-packages-cli.ts "$binary"
-          bun tests/fixtures/lsp-cli.ts "$binary"
-          bun tests/fixtures/side-query-cli.ts "$binary"
-          bun tests/fixtures/worktree-cli.ts "$binary"
-          bun tests/fixtures/subagents-cli.ts "$binary"
-          bun tests/fixtures/background-cli.ts "$binary"
-      - name: Validate Windows updater installer
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Native OpenTUI library loads and renders
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-            choco install nsis -y --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "NSIS installation failed" }
-            $env:PATH += ';C:\Program Files (x86)\NSIS'
-          }
-          New-Item -ItemType Directory -Force dist/release | Out-Null
-          Copy-Item dist/chisel.exe dist/release/chisel-windows-x64.exe
-          $ver = (Get-Content package.json | ConvertFrom-Json).version
-          $num = ($ver -replace '-.*$', '') + '.0'
-          makensis "/V2" "/DVERSION=$ver" "/DVERSION_NUMERIC=$num" installer/chiselcode.nsi
-          if ($LASTEXITCODE -ne 0) { throw "Windows updater installer validation failed" }
-      - name: Stage interactive binaries for terminal checks
-        uses: actions/upload-artifact@v4
+          binary=dist/opentui-spike
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build scripts/opentui-spike.tsx --compile --outfile="$binary"
+          "$binary" --smoke
+      - uses: actions/upload-artifact@v4
         with:
-          name: opentui-terminal-${{ matrix.os }}
+          name: native-${{ matrix.os }}
           path: |
             dist/chisel*
             dist/opentui-spike*

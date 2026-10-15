@@ -19,14 +19,11 @@ type CIJob = {
 };
 
 export const requiredCIJobs = [
-  "ubuntu-latest",
-  "macos-latest",
-  "windows-latest",
-].flatMap((os) => [
-  `Quality (${os})`,
-  `Packaging (${os})`,
-  `Real Auto LSP (${os})`,
-]);
+  "Full source (ubuntu-latest)",
+  ...["ubuntu-latest", "macos-latest", "windows-latest"].map(
+    (os) => `Native smoke (${os})`,
+  ),
+];
 
 /** The newest run for this source must pass; never fall back to an older green run. */
 export function selectSourceCI(runs: CIRun[], source: string): CIRun {
@@ -34,7 +31,7 @@ export function selectSourceCI(runs: CIRun[], source: string): CIRun {
     (candidate) =>
       candidate.head_sha === source &&
       candidate.head_branch === "main" &&
-      ["push", "workflow_dispatch"].includes(candidate.event) &&
+      candidate.event === "workflow_dispatch" &&
       candidate.path === ".github/workflows/ci.yml",
   );
   if (!run)

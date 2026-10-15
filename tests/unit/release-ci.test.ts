@@ -10,7 +10,7 @@ const run = {
   id: 123,
   head_sha: source,
   head_branch: "main",
-  event: "push",
+  event: "workflow_dispatch",
   path: ".github/workflows/ci.yml",
   status: "completed",
   conclusion: "success",
@@ -43,6 +43,7 @@ test("release refuses another source, PRs, non-main runs and another workflow", 
   for (const patch of [
     { head_sha: "b".repeat(40) },
     { event: "pull_request" },
+    { event: "push" },
     { head_branch: "other" },
     { path: ".github/workflows/other.yml" },
   ])
@@ -63,8 +64,10 @@ test("release cannot use an older green run while the newest source run is pendi
   }
 });
 
-test("old CI without packaging, skipped checks, duplicate jobs and mismatched job source block release", () => {
-  const oldMatrix = jobs().filter((job) => !job.name.startsWith("Packaging"));
+test("quick CI without native checks, skipped checks, duplicate jobs and mismatched job source block release", () => {
+  const oldMatrix = jobs().filter(
+    (job) => !job.name.startsWith("Native smoke"),
+  );
   expect(() => assertVerifiedSourceCI(source, run, oldMatrix)).toThrow();
   for (const patch of [
     { conclusion: "skipped" },

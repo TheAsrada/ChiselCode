@@ -1,0 +1,55 @@
+name: LSP catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      languages:
+        description: "Fixture names separated by spaces; only changed backends if possible"
+        required: true
+        default: "python go rust cpp csharp java kotlin php ruby lua dart html css json yaml bash docker"
+        type: string
+      sourcekit:
+        description: "Also check SourceKit on macOS"
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lsp-catalog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  catalog:
+    name: Real Auto LSP (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: ruby/setup-ruby@v1
+        if: contains(format(' {0} ', inputs.languages), ' ruby ')
+        with:
+          ruby-version: "3.4.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Real diagnostics, navigation and cleanup for selected backends
+        env:
+          LSP_LANGUAGES: ${{ inputs.languages }}
+        shell: bash
+        run: |
+          read -r -a languages <<< "$LSP_LANGUAGES"
+          bun tests/fixtures/multi-lsp-probe.ts "${languages[@]}"
+      - name: Real SourceKit with the installed Xcode toolchain
+        if: always() && !cancelled() && runner.os == 'macOS' && inputs.sourcekit
+        run: bun tests/fixtures/multi-lsp-probe.ts swift

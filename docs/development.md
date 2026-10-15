@@ -20,25 +20,24 @@ bun run dev
 ## Проверки
 
 ```bash
-bun scripts/prepare-lsp-tests.ts
+bun run test:fast
 bun run typecheck
-bun test
 bun run lint
-bun run eval --category all
 bun run build
 ```
 
 | Команда | Что проверяет или создаёт |
 | --- | --- |
 | `bun run typecheck` | Типы TypeScript без генерации файлов |
-| `bun test` | Unit- и integration-тесты |
+| `bun run test` / `bun run test:fast` | Быстрый профиль логики без серверов и GUI |
+| `bun test` / `bun run test:full` | Все unit- и integration-тесты; предварительно `bun scripts/prepare-lsp-tests.ts` |
 | `bun run lint` | Biome для `src`, `tests` и `evals` |
 | `bun run eval --category all` | Все deterministic offline runtime evals |
 | `bun run build` | JS-сборку в `dist/` для Bun |
 | `bun run compile` | Исполняемый файл `dist/chisel` для текущей платформы |
 | `bun run format` | Переформатирует `src` и `tests`; изменяет файлы |
 
-Основной [CI](../.github/workflows/ci.yml) запускается для push в `main`, PR в `main` и вручную, с матрицей Windows, macOS и Linux. На каждой ОС `Quality`, `Packaging` и `Real Auto LSP` работают параллельно. Полный source-набор выполняется один раз; installed/compiled smoke проверяют поставку. Локально начинайте с затронутых тестов и расширяйте проверки при необходимости. Подробности и карта сохранённого покрытия — [порядок проверок](contributors/testing.md). Biome не проверяет Markdown: ссылки и примеры документации проверяйте отдельно.
+[Quick CI](../.github/workflows/quick.yml) выполняет быстрый профиль, typecheck, lint и JS/SDK build при изменении кода в main/PR; правки только Markdown его не запускают. [Native validation](../.github/workflows/ci.yml) запускается вручную перед релизом или при изменении платформенного поведения: полный source-набор один раз на Linux и короткие native smoke на Windows/macOS/Linux. Полный [каталог LSP](../.github/workflows/lsp-catalog.yml) проверяется отдельно при изменении backends/provisioning. Локально начинайте с затронутых тестов; успешный неизменный сценарий не повторяйте без новой причины. Подробности и карта покрытия — [порядок проверок](contributors/testing.md). Biome не проверяет Markdown: ссылки и примеры документации проверяйте отдельно.
 
 ## Сборка самостоятельного исполняемого файла
 
@@ -68,7 +67,7 @@ bun tests/fixtures/manifest-cli.ts bun ./dist/install-smoke/node_modules/chiselc
 bun tests/fixtures/manifest-cli.ts ./dist/chisel
 ```
 
-Последние две команды запускаются после `npm pack`/установки и `bun run compile`. Windows compiled binary — `dist/chisel.exe`. CI matrix выполняет тот же manifest smoke для установленного пакета и compiled CLI на Windows/macOS/Linux; `--version`/`doctor` остаются отдельными проверками запуска. Harness не обращается к live LLM и не изменяет пользовательские credentials/config.
+Последние две команды запускаются после `npm pack`/установки и `bun run compile`. Windows compiled binary — `dist/chisel.exe`. Native smoke выполняет manifest smoke для установленного пакета на Windows/macOS/Linux; compiled CLI проходит отдельные download/LSP/child/worktree/background smoke; `--version`/`doctor` остаются отдельными проверками запуска. Harness не обращается к live LLM и не изменяет пользовательские credentials/config.
 
 Command acceptance fixture явно передаёт linked extension настоящему TUI application, использует OpenTUI test renderer и реальные files/executor/store. Проверяются welcome/autocomplete, exactly-once dispatch без ключа модели, approvals/Plan/guards, очередь commands/prompts, соседние вкладки, Ctrl+C, artifact и checkpoint. Один специально queued ordinary prompt использует локальный deterministic model endpoint; commands не вызывают chat. Fixture запускается из исходников и может быть собрана тем же Bun pipeline:
 
@@ -80,7 +79,7 @@ bun build tests/fixtures/tui-command-contributions.ts --compile --outfile ./dist
 ./dist/command-smoke/linked-tui
 ```
 
-Это test-only linked build, не loader установленного CLI. Не включайте `dist/command-smoke` в публикуемый package. После `bun run build` команда `bun tests/fixtures/command-packaging.ts` собирает fixture в отдельный staging package, выполняет `npm pack`/install и тот же TUI сценарий из установленного bundle, затем из compiled binary. CI запускает этот harness на Windows/macOS/Linux; он не меняет production package или lockfile. На Windows compiled fixture имеет суффикс `.exe`. Command feedback остаётся UI projection; restart не запускает callback заново.
+Это test-only linked build, не loader установленного CLI. Не включайте `dist/command-smoke` в публикуемый package. После `bun run build` команда `bun tests/fixtures/command-packaging.ts` собирает fixture в отдельный staging package, выполняет `npm pack`/install и тот же TUI сценарий из установленного bundle, затем из compiled binary. Этот расширенный harness запускайте отдельно при изменении TUI bundling или SDK; обычный CI и каждый релиз его не повторяют. Он не меняет production package или lockfile. На Windows compiled fixture имеет суффикс `.exe`. Command feedback остаётся UI projection; restart не запускает callback заново.
 
 ## Проверка помощников
 
@@ -102,7 +101,7 @@ bun tests/fixtures/command-packaging.ts
 
 ## Релизы
 
-Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Дождитесь успешных девяти Quality/Packaging/Real Auto LSP jobs на этом точном коммите по [порядку проверок](contributors/testing.md). Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
+Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Запустите Native validation вручную и дождитесь успешного Full source и трёх Native smoke jobs на этом точном коммите по [порядку проверок](contributors/testing.md). Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
 
 [Release workflow](../.github/workflows/release.yml) запускается по push тега `v*` или вручную из `main` с параметром `tag`:
 
@@ -159,7 +158,7 @@ bun tests/fixtures/lsp-cli.ts bun ./dist/cli.js
 bun tests/fixtures/command-packaging.ts
 ```
 
-CLI smoke использует локальный scripted provider endpoint, real Auto LSP schemas/wire history/tool/result/context/checkpoint без LSP section в config. Packaging harness проверяет linked commands и Auto/custom Settings scenario в installed staging package и compiled binary. Ordinary installed/compiled CLI выполняет `lsp-cli.ts` в CI на трёх OS без внешнего Node/server для Auto. `--version`/doctor недостаточно для доказательства contribution.
+CLI smoke использует локальный scripted provider endpoint, real Auto LSP schemas/wire history/tool/result/context/checkpoint без LSP section в config. Расширенный packaging harness проверяет linked commands и Auto/custom Settings scenario в installed staging package и compiled binary. Native smoke выполняет `lsp-cli.ts` для compiled CLI на трёх ОС; installed пакет проверяется более короткими runtime/SDK smoke. `--version`/doctor недостаточно для доказательства contribution.
 
 Стандартный payload содержит official TLS 6.0.1, TS 6.0.3 и их licenses/notices; воспроизводимое обновление описано в `src/lsp/backend/README.md`. Это единственный bundled backend asset (~3.6 MB gzip). Многоязычная preparation использует pinned `fflate`/`tar-stream` для bounded archives; dev TypeScript не заменяет runtime backend. Проверяйте assets при `npm pack`, работу из произвольного cwd и Bun `BUN_BE_BUN` в compiled executable. Auto не импортирует test installation.
 
@@ -175,7 +174,7 @@ Settings visual review: реальные OpenTUI frames при 120×40, 100×30,
 
 `tests/fixtures/lsp-cli.ts` вызывает ordinary npm/compiled CLI с локальным deterministic model endpoint и настоящими TS/Pyright через production default composition. Test fixture не импортируется release entry point и не требует production test flags. Packaging/TUI smoke остаётся `bun tests/fixtures/command-packaging.ts`.
 
-CI job `Real Auto LSP` выполняет `bun tests/fixtures/multi-lsp-probe.ts python go rust cpp csharp java kotlin php ruby lua dart html css json yaml bash docker` на Linux/macOS/Windows; macOS также проверяет настоящий SourceKit-LSP из Xcode. Ruby 3.4.11 SDK устанавливается только test setup. Probe требует настоящий initialize и symbols; проверяет diagnostics для заданных errors и definitions у поддерживающих их backends, затем закрывает service. Kotlin diagnostics без evidence остаются unavailable, а не фиктивным success. Для локальной проверки конкретного backend передайте его fixture name. Standard preparation не читает latest metadata: все используемые package bytes закреплены locks/integrity.
+Отдельный ручной workflow `LSP catalog` по умолчанию выполняет `bun tests/fixtures/multi-lsp-probe.ts python go rust cpp csharp java kotlin php ruby lua dart html css json yaml bash docker` на Linux/macOS/Windows; опция `sourcekit` дополнительно проверяет настоящий SourceKit-LSP из Xcode на macOS. Ruby 3.4.11 SDK устанавливается только test setup. Probe требует настоящий initialize и symbols; проверяет diagnostics для заданных errors и definitions у поддерживающих их backends, затем закрывает service. Kotlin diagnostics без evidence остаются unavailable, а не фиктивным success. Для локальной проверки конкретного backend передайте его fixture name. Standard preparation не читает latest metadata: все используемые package bytes закреплены locks/integrity.
 
 Во время первоначальной загрузки crates/VFS rust-analyzer может отклонить read request при замене snapshot. Native harness допускает не более двух повторов такого чтения с паузой 250 ms. Он сохраняет проверки настоящих diagnostics/symbols/definitions; повторные ошибки завершают job failure. Cancellation, unsupported capabilities, malformed reports и другие ошибки не получают этот retry. Runtime tool failure остаётся настоящим terminal result; harness не меняет production execution, не перезапускает сервер и не повторяет mutations.
 

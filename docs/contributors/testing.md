@@ -1,53 +1,68 @@
-# Проверки без лишних повторов
+# Быстрые и полные проверки
 
 [Материалы для участников](README.md) · [Разработка](../development.md)
 
-Цель проверок — обнаружить поломку поведения или поставки и дать понятную причину отказа. Число запусков само по себе не является показателем качества. Изменения выполняются прямо в main с сохранением посторонних изменений, без новых веток, development worktrees и PR.
+Изменения выполняются прямо в main с сохранением посторонних изменений, без новых веток, development worktrees и PR. Выбирайте проверки по изменённому поведению; число запусков само по себе не определяет качество.
 
-## Локальная работа
+## Обычные изменения
 
-Начните с теста затронутого поведения. После изменения типов запустите typecheck, после изменения кода — подходящие lint и build. Расширяйте набор при новом риске или ошибке; успешный неизменный сценарий не нужно повторять на каждом шаге. Полный набор выбранного коммита проверяет native CI. При правке только документации проверьте текст, ссылки, anchors и соответствие примеров исходникам.
+```bash
+bun run test:fast
+bun run typecheck
+bun run lint
+bun run build
+```
 
-Тест должен проверять наблюдаемый результат и существенные ошибки. Сохраняйте настоящие permissions, файловую систему, процессы и persistence там, где они определяют корректность; платную модель обычно заменяет локальный scripted HTTP endpoint. Отдельно указывайте, что такое подтверждение не проверяет качество внешней LLM.
+`bun run test` и `npm test` используют тот же быстрый профиль. Его явный список находится в [scripts/test-fast.ts](../../scripts/test-fast.ts): permissions/SSRF, конфигурация, каталог LSP, provider contracts, compaction/tool pairs, extension lifecycle и UI state без renderer. Здесь нет запуска серверов, дочерних приложений, настоящего Git или GUI. Допустимы короткие проверки с изолированными временными файлами. Не добавляйте в профиль сетевые скачивания и ожидания процессов.
 
-В UI-fixtures ожидайте фактического появления интерфейса и готовности ввода с конечным deadline. Перед первой командой установите фокус на поле. Фиксированное число кадров не подтверждает готовность на холодном Windows runner и может потерять ранний ввод; увеличение паузы лишь делает каждый успешный прогон медленнее.
+[Quick CI](../../.github/workflows/quick.yml) выполняет этот профиль, typecheck, lint, JS/SDK build и проверку запуска CLI на Linux при изменении кода в main/PR. Изменения только Markdown и docs/assets его не запускают; проверяйте текст, ссылки и примеры отдельно. Новый push отменяет устаревший run. Даже при миллисекундных тестах подготовка runner, зависимости, lint и build занимают дополнительное время.
 
-## Обязательная native CI
+При изменении поведения дополнительно выполните подходящий узкий тест. Например, `bun test tests/unit/background-process.test.ts` проверяет настоящий process ownership, а `bun test tests/integration/subagents-runtime.test.ts` — дочерний runtime. Не подменяйте их успешным быстрым профилем и не повторяйте весь набор после каждой небольшой правки.
 
-[CI workflow](../../.github/workflows/ci.yml) запускается на push/PR в main и вручную. Новый запуск той же ветки отменяет устаревший. На Windows, macOS и Linux независимо выполняются три группы — девять обязательных jobs:
+## Полный прогон
 
-| Группа | Что проверяется один раз |
+```bash
+bun scripts/prepare-lsp-tests.ts
+bun run test:full
+```
+
+`bun test` без фильтров также запускает весь набор. [Native validation](../../.github/workflows/ci.yml) запускается вручную перед выпуском или при изменении native runtime. Обязательны четыре jobs:
+
+| Job | Покрытие |
 | --- | --- |
-| `Quality (<os>)` | Полный `bun test`, typecheck, lint, deterministic evaluations; отдельные source-fixtures для настроек расширений и external TUI, у которых нет обёртки в `bun test`. Настоящие кадры сохраняются в artifacts. |
-| `Packaging (<os>)` | JS/SDK build, installed/compiled OpenTUI, standalone protocol, установленный npm-пакет и compiled CLI, native OpenTUI и Windows installer. У macOS также собираются оба native targets. |
-| `Real Auto LSP (<os>)` | Настоящие диагностика, navigation и cleanup серверов каталога; macOS дополнительно проверяет SourceKit. |
+| `Full source (ubuntu-latest)` | Все unit/integration tests один раз, typecheck/lint, deterministic evals, отдельные source UI-fixtures настроек расширений и external SDK; настоящие OpenTUI captures и JUnit в artifacts. |
+| `Native smoke (<os>)` на Linux/macOS/Windows | Installed CLI: запуск, manifest tool, download и external SDK. Compiled CLI: download, TS/Python LSP, subagents, worktree, background tasks, external loader и package management. Native OpenTUI загрузка и рендеринг. |
+| Дополнительно внутри macOS/Windows smoke | Реальные paths, atomic storage, locks, shell, background ownership, child storage/policy и LSP transport; эти source tests уже входят в Linux full run. |
 
-`Packaging` не ждёт `Quality`: сборки и runtime-сценарии выполняются на отдельных runners. Это сокращает критический путь, но не означает уменьшение runner minutes пропорционально ускорению. Общие package downloads кешируются по ОС и lockfile через `setup-node`; `node_modules`, пользовательское хранилище и тестовые сессии не кешируются.
+Все jobs независимы. Полный source-набор больше не повторяется на каждой ОС. Сложные business cases и OpenTUI просмотр помощников/worktrees остаются в полном source-наборе; поставки проверяют запуск и интеграцию без копирования всего сценария для каждого формата. Это намеренно более узкое покрытие платформ, чем полный набор на трёх ОС. При изменении поведения, зависящего от ОС, запустите соответствующий полный test file на нужной ОС.
 
-## Где осталось покрытие после удаления дублей
+Кэшируется только npm download cache по ОС и lockfile. Пользовательские данные, credentials, сессии и node_modules не кешируются. Production deadlines и защитные leases не сокращаются ради теста.
 
-| Убрано из последовательного CI | Где сохраняется проверка |
-| --- | --- |
-| Отдельные Windows запуски download/storage, shell, background crash/runtime и child runtime перед полным набором | Те же test files и fixtures выполняются в полном `bun test` на каждой ОС. |
-| Повтор source-preview тем после полного набора | `tests/integration/extension-themes.test.ts` запускает настоящий `tui-extension-themes.ts`; captures включены в env `Quality`. |
-| Отдельная compiled-проверка child UI на Windows | `command-packaging.ts` компилирует и запускает тот же `tui-subagents.ts` на каждой ОС. |
-| Четыре CLI-сценария внутри UI packaging | Side query, worktree, subagent и background CLI-fixtures остаются в installed и compiled smoke; UI packaging сохраняет собственные TUI assertions. |
-| Повтор полного source-набора в Release | Проверяется успешная native CI на точном SHA тега; вновь собранные поставки проходят короткую проверку запуска и версии. |
+## LSP и расширенные проверки поставки
 
-Не удалены проверки write/Plan/readonly, SSRF и редиректов, 429/deadline, отмены, cleanup, существующего файла, конфликтов записи, CAS/trust, миграций, compaction и сохранения истории. Их бизнес-assertions остаются в source-наборе и соответствующих smoke. Новую обязательную группу добавляйте одновременно в workflow и `requiredCIJobs` в release gate.
+Полный [LSP catalog](../../.github/workflows/lsp-catalog.yml) запускается вручную при изменении backends, каталога или provisioning. В input `languages` можно указать только затронутые fixture names, например `python lua`. По умолчанию проверяются все перечисленные backends на трёх ОС; опция `sourcekit` дополнительно проверяет SourceKit на macOS. Ruby SDK устанавливается только при выборе `ruby`. Обычная правка и каждый несвязанный релиз не требуют скачивания и запуска всего каталога. Native smoke сохраняет настоящие TS/Python diagnostics, tool execution и persistence.
+
+При изменении OpenTUI bundling/SDK отдельно запустите `bun tests/fixtures/command-packaging.ts` на затронутых ОС. Он сохраняет installed/compiled UI assertions для commands, LSP, side queries, worktrees, subagents, background tasks, UI contributions и themes. При изменении публичного engine protocol используйте `bun tests/fixtures/desktop-server.ts` с compiled engine. Эти расширенные harness не входят в каждый обычный CI или несвязанный релиз. Это проверки публичной границы ядра, без работы над приложением Desktop.
+
+## Что убрано и что сохранено
+
+- Нет повторных Windows runtime-fixtures перед теми же source tests и нет полного source-набора в Release.
+- В installed/compiled smoke больше не повторяются все девять CLI-fixtures и все UI-сценарии в обоих форматах. Для каждого формата остаются запуск и настоящая runtime-интеграция; общий runtime полностью проверяется в source.
+- Crash-тесты пакетов действительно завершают отдельный процесс. После его выхода давность только его изолированного lock задаётся через `utimes`: две проверки atomic commit boundary больше не ждут по 30 секунд. Само stale recovery не подменяется; production lock не меняется.
+- Проверки Plan/readonly, SSRF/redirects, 429/deadline, cancellation/cleanup, atomic writes/conflicts, CAS/trust, migrations, compaction и истории остаются в исходных test files. Полные файлы и расширенные fixtures доступны отдельно; быстрый профиль не объявляется полным покрытием.
 
 ## Выпуск
 
-Перед тегом дождитесь всех девяти успешных jobs на точном release source. Если CI на этом SHA ещё не запускалась, запустите её вручную на main до создания тега. Устаревший зелёный коммит не подходит.
+Перед созданием тега запустите `gh workflow run ci.yml --ref main` и дождитесь четырёх успешных jobs на точном release source. Зелёный Quick CI другого или того же source не заменяет Native validation.
 
-В [Release workflow](../../.github/workflows/release.yml) `scripts/verify-release-ci.ts` получает SHA checkout тега и читает GitHub Actions API с правом `actions: read`. Принимается последний CI run этого source из main, запущенный push или workflow_dispatch. Обязательны успешное завершение run и всех ожидаемых jobs. Отсутствие CI, другой SHA/branch/workflow, pending, failure, skipped, неоднозначные jobs или ошибка API блокируют сборку. При частичном rerun допустимы сохранённые успешные jobs того же source; старые неуспешные instances не подменяют результат `filter=latest`.
+В [Release workflow](../../.github/workflows/release.yml) `scripts/verify-release-ci.ts` получает SHA checkout тега и проверяет GitHub Actions API с правом `actions: read`. Принимается последний ручной run `ci.yml` из main на этом SHA. Отсутствие run, другой source/branch/workflow, pending/failure/skipped, неоднозначные jobs или ошибка API блокируют выпуск. Частичный rerun допускает сохранённые успешные jobs того же source через `filter=latest`.
 
-Полный source-набор в Release повторно не запускается. Workflow сверяет версию с тегом, собирает EXE/PKG/DEB и CLI/SDK archive, проверяет запуск и версию каждого нативного бинарника на ОС runner, наличие SDK declarations и точный набор пяти assets. macOS x64 на arm64 runner проверяется сборкой; запуск на Intel этим не подтверждён. Финальная проверка публикации включает metadata, размеры, SHA-256 и подходящий smoke опубликованного payload.
+Release сверяет версию с тегом, собирает четыре установщика и CLI/SDK archive, проверяет запуск/версию новых native binaries, наличие SDK declarations и точный набор пяти assets. Полный source-набор повторно не выполняется. macOS x64 на arm64 runner проверяется сборкой, запуск на Intel этим не подтверждён. Публикация дополнительно проверяется по metadata, размерам, SHA-256 и подходящему smoke опубликованного payload.
 
 ## Ошибки и измерение
 
-При сбое сохраните логи и установите, что именно не прошло. Ограниченный повтор только неуспешных jobs допустим при временном сбое; укажите attempt и исходную ошибку. Повторяющийся отказ требует диагностики. Не отключайте assertions и не увеличивайте таймауты без причины; у сетевых и процессных сценариев должна оставаться конечная временная граница.
+Сохраняйте логи и устанавливайте причину сбоя. Один повтор неуспешного job при временном отказе допустим с честной записью attempt и исходной причины; повторяющийся отказ требует исправления. Не скрывайте assertions через skip/retry и не повышайте таймауты ради зелёного статуса. UI должен ждать фактическую готовность ввода с конечным deadline и восстановлением фокуса.
 
-Native LSP probe допускает один повтор только первоначального получения диагностики при ошибке скачивания HTTP 502/503/504 с `retryable: true`. Перед повтором прежний service закрывается и создаётся новый; пауза — одна секунда. Обычные core-проверки адреса и integrity остаются в силе. Ошибки assertions, активации, протокола, прав и отмена не повторяются; постоянный отказ завершает проверку ошибкой после второй попытки. Этот механизм не обрабатывает 429 и не обходит Retry-After.
+Native LSP catalog probe повторяет только начальную подготовку при retryable HTTP 502/503/504: cleanup, одна секунда, одна новая попытка. Assertions, activation, protocol, unsafe targets, cancellation и 429 не получают этот retry. Постоянный отказ остаётся ошибкой. Обычные core policy/integrity и Retry-After не обходятся.
 
-Сравнивайте длительность jobs, время от старта до последнего результата, очередь и суммарные runner minutes отдельно. Учитывайте холодный cache, runner image и повторы. Конкретные измерения и ссылки на runs относятся к указанным source commits и хранятся в отчётах, не в пользовательских инструкциях.
+Измеряйте тесты, setup, jobs, очередь и суммарные runner minutes отдельно. Результат конкретного source и непроверенные платформы фиксируйте в [отчётах](README.md), без обещания миллисекунд для настоящего GUI/сервера.

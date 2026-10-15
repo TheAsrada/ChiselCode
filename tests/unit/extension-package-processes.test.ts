@@ -6,12 +6,16 @@ import {
   readFile,
   realpath,
   rm,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execa, type ResultPromise } from "execa";
-import { readExtensionRegistry } from "../../src/extensions/external/registry.js";
+import {
+  readExtensionRegistry,
+  registryPath,
+} from "../../src/extensions/external/registry.js";
 import { readJournal } from "../../src/extensions/packages/journal.js";
 import { PackageManagementService } from "../../src/extensions/packages/service.js";
 
@@ -177,7 +181,10 @@ for (const point of ["published", "registry_committed"] as const)
       ready = await running.ready;
     running.child.kill("SIGKILL");
     await running.child;
-    // Existing storage lock reclaims an abandoned owner after its 30s stale deadline.
+    // The worker has really exited. Age only its isolated lock, as after downtime;
+    // exercise stale-lock recovery without waiting 30 real seconds per fault point.
+    const old = new Date(Date.now() - 60000);
+    await utimes(`${await registryPath()}.lock`, old, old);
     const recovered = await f.service.recover();
     const state = await readExtensionRegistry(),
       journal = await readJournal(String(ready.operationId));

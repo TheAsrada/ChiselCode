@@ -40,7 +40,9 @@
     "opentui:spike": "bun run scripts/opentui-spike.tsx",
     "opentui:compile": "bun build ./scripts/opentui-spike.tsx --compile --outfile ./dist/opentui-spike",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun scripts/test-fast.ts",
+    "test:fast": "bun scripts/test-fast.ts",
+    "test:full": "bun test",
     "lint": "biome check src tests evals",
     "format": "biome format --write src tests",
     "eval": "bun evals/runner.ts"

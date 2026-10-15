@@ -4,7 +4,7 @@
 <p align="center"><strong>От вопроса о коде до проверяемого изменения — прямо в терминале.</strong></p>
 <p align="center">Помощник для разработки с несколькими API-провайдерами, историей проектов и просмотром изменений перед подтверждением.</p>
 <p align="center">
-  <a href="https://github.com/TheAsrada/ChiselCode/actions/workflows/ci.yml"><img src="https://github.com/TheAsrada/ChiselCode/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/TheAsrada/ChiselCode/actions/workflows/quick.yml"><img src="https://github.com/TheAsrada/ChiselCode/actions/workflows/quick.yml/badge.svg" alt="Быстрые проверки" /></a>
   <a href="https://github.com/TheAsrada/ChiselCode/releases/latest"><img src="https://img.shields.io/github/v/release/TheAsrada/ChiselCode?color=0891b2" alt="Последний релиз" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="Лицензия MIT" /></a>
 </p>
