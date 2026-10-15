@@ -83,25 +83,34 @@ if (import.meta.main) {
   }).trim();
   if (!/^[a-f0-9]{40}$/.test(source))
     throw new Error("Не удалось определить release source.");
-  const pages = (endpoint: string) =>
-    JSON.parse(
-      execFileSync("gh", ["api", "--paginate", "--slurp", endpoint], {
+  const records = (endpoint: string, collection: "workflow_runs" | "jobs") => {
+    const output = execFileSync(
+      "gh",
+      ["api", "--paginate", endpoint, "--jq", `.${collection}[] | @json`],
+      {
         encoding: "utf8",
         timeout: 30000,
         maxBuffer: 4 * 1024 * 1024,
         stdio: ["ignore", "pipe", "pipe"],
-      }),
+      },
     );
-  const runs: CIRun[] = pages(
+    return output
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  };
+  const runs: CIRun[] = records(
     `repos/${repository}/actions/workflows/ci.yml/runs?head_sha=${source}&branch=main&per_page=100`,
-  ).flatMap((page: { workflow_runs: CIRun[] }) => page.workflow_runs);
+    "workflow_runs",
+  );
   const run = selectSourceCI(runs, source);
   if (!Number.isSafeInteger(run.id) || run.id <= 0)
     throw new Error("GitHub вернул некорректный CI run ID.");
   // filter=latest includes successful jobs retained by a partial rerun on the same source.
-  const jobs: CIJob[] = pages(
+  const jobs: CIJob[] = records(
     `repos/${repository}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
-  ).flatMap((page: { jobs: CIJob[] }) => page.jobs);
+    "jobs",
+  );
   assertVerifiedSourceCI(source, run, jobs);
   console.log(
     `Release source ${source}: ${requiredCIJobs.length} обязательных jobs успешны. ${run.html_url}`,

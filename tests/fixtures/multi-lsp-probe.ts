@@ -7,6 +7,7 @@ import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
 import { LspService } from "../../src/lsp/service.js";
 import { RuntimeError } from "../../src/runtime/errors.js";
 import { WorkspacePolicy } from "../../src/security/workspace-policy.js";
+import { withLspPreparationRetry } from "../helpers/lsp-preparation.js";
 import { lspProcessTree, waitForLspProcessExit } from "./lsp-runtime.js";
 
 const examples: Record<string, [string, string, Record<string, string>?]> = {
@@ -72,11 +73,13 @@ for (const language of process.argv.slice(2)) {
   const root = await canonicalWorkspaceRoot(
     await mkdtemp(join(tmpdir(), `chisel-real-${language}-`)),
   );
-  const service = new LspService(
-    root,
-    async () => ({ global: { servers: {} }, ignorePatterns: [] }),
-    new AbortController().signal,
-  );
+  const createService = () =>
+    new LspService(
+      root,
+      async () => ({ global: { servers: {} }, ignorePatterns: [] }),
+      new AbortController().signal,
+    );
+  let service = createService();
   let descendants: number[] = [];
   try {
     await writeFile(join(root, path), text);
@@ -105,7 +108,17 @@ for (const language of process.argv.slice(2)) {
       }
     };
     const start = Date.now();
-    let diagnostic = await settledRead(() => service.diagnostics(path, port));
+    let diagnostic = await withLspPreparationRetry(
+      () => settledRead(() => service.diagnostics(path, port)),
+      async (error) => {
+        console.warn(
+          `${language}: preparation HTTP ${error.details?.status}; one retry after cleanup`,
+        );
+        await service.dispose();
+        assert.equal((await service.status()).state, "disposed");
+        service = createService();
+      },
+    );
     for (
       let attempt = 0;
       attempt < 3 && diagnostic.freshness === "unavailable";
