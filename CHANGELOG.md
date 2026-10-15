@@ -6,17 +6,12 @@
 
 ## [Unreleased]
 
-- Убрана обязательная синхронизация каждого изменения и релиза CLI с ChiselCodeDesktop. Desktop остаётся экспериментальным концептом; работа и выпуск выполняются только по отдельному явному поручению. Правила AGENTS.md и связанные инструкции согласованы с этим порядком.
-
 ## [0.6.30] - 2026-10-14
 
 - «Настройки → Расширения» в OpenTUI и публичный desktop API: общий каталог встроенных/установленных возможностей, поиск, фильтры, сведения и фактическое состояние текущего сеанса. Папка/ZIP, exact review/trust, update, версии/rollback, включение и удаление используют PackageManagementService; отмена и CAS сохраняют прежнюю версию.
 - Декларативные settings в manifest и SDK API v1: boolean/string/number/enum, defaults/validation, global per-ID значения, защищённые секреты, сохранение неизвестных полей. Изменения внешних параметров применяются после restart.
 - Desktop SDK 1.1.0 / protocol 1.1 объявляет capabilities extension-management/extension-settings и typed operations; существующие пакеты, events и session schema совместимы. Builtin формы используют прежние core stores и project ceilings.
 - Неотправленные OpenTUI drafts сохраняются в защищённом хранилище отдельно от model history и восстанавливаются при открытии беседы после restart. Добавлены реальный source/compiled TUI lifecycle и adapter/SDK regressions без model requests.
-
-- В AGENTS.md закреплена обязательная проверка документации при каждом задании: соответствие коду, единый стиль, структура по задачам читателя, оглавления, ссылки и примеры. Правила согласованы с Desktop и доступны из оглавления документации.
-- В AGENTS.md закреплены обязательная синхронизация изменений с ChiselCodeDesktop, проверки общего engine/SDK и выпуск обеих версий по просьбе владельца о релизе. Добавлен порядок работы с невыпущенными изменениями, совместимостью, установщиками и частичным сбоем публикации.
 
 ## [0.6.29] - 2026-10-14
 
@@ -251,7 +246,7 @@
 - ContextManager с token budget, output reserve, protocol-safe partitioning, structured rolling summary и context checkpoints. Compaction сохраняет полный transcript; provider context overflow допускает один recovery/retry.
 - ToolCatalog, двухфазные handlers, ToolExecutor и scheduler: четыре параллельных read workers, последовательные mixed batches, idempotency call IDs, cancellation, timeout и guard повторных failures.
 - EditingService: persistent SHA-256 revisions, stale-write protection и apply_patch с multi-hunk/multi-file create/update/delete/move, полным preflight и rollback с structured failure details.
-- Artifact store и read_tool_result для больших outputs, встроенный grep fallback при отсутствии rg, корневые AGENTS.md/CLAUDE.md с native приоритетом CHISEL.md.
+- Artifact store и read_tool_result для больших outputs, встроенный grep fallback при отсутствии rg, поддержка файлов правил проекта с приоритетом CHISEL.md.
 - Isolated eval harness, command/filesystem/trajectory graders, JSON/Markdown reports, baseline comparisons, fixtures и CI smoke без live API. Отдельный manual workflow запускает live coding trials при наличии credentials.
 
 ### Исправлено
