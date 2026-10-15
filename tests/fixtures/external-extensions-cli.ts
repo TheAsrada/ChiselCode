@@ -278,11 +278,24 @@ export async function smokeExternalCli(
       "Настоящая запись внешнего SDK\n",
     );
     let requests = 0,
+      metadataRequests = 0,
       scenario: "side" | "child" = "side";
     modelServer = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
+        if (request.url.endsWith("/models")) {
+          metadataRequests++;
+          return Response.json({
+            data: [
+              {
+                id: "fixture-model",
+                context_window: 131072,
+                max_output_tokens: 4096,
+              },
+            ],
+          });
+        }
         requests++;
         const body = (await request.json()) as {
           model: string;
@@ -297,7 +310,10 @@ export async function smokeExternalCli(
             (scenario === "side" ? 64 : 4096),
         );
         if (scenario === "side") assert.equal(body.tools?.length ?? 0, 0);
-        else assert.ok((body.tools?.length ?? 0) > 0);
+        else {
+          assert.ok((body.tools?.length ?? 0) > 0);
+          assert.equal(body.max_tokens ?? body.max_completion_tokens, 4096);
+        }
         const writing =
           scenario === "child" &&
           !body.messages?.some((message) => message.role === "tool");
@@ -472,6 +488,11 @@ export async function smokeExternalCli(
       requests,
       3,
       "One side query and two genuine child model stages",
+    );
+    assert.equal(
+      metadataRequests,
+      1,
+      "Child uses actual provider limits from the metadata endpoint",
     );
     const expectedRequests = requests;
     const before = await readFile(sentinel, "utf8");
