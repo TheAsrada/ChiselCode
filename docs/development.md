@@ -58,7 +58,7 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 Контракт services/context/guards/tools/commands и рабочий пример — в [архитектуре](architecture.md#границы-расширений). `ctx.tools.register(defineTool(...))` и `ctx.commands.register({ name, description, usage, parse, execute })` работают только во время activation. Для tools core присваивает `ext:<extensionId>:<localName>` и source. Slash head имеет отдельную identity `{ type: "extension", extensionId, name }`, без wire namespace. Built-in/skill/extension name conflicts отклоняются явно. Contributions исполняются общим executor с Plan/permissions/EditingService/artifacts. Регистрации автоматически принадлежат workspace; вручную добавлять их в `ctx.add` не нужно. `ctx.add` применяется к ресурсам/service cleanup. Prompt/command tool binding временный, borrowed workspace переживает операции.
 
-Production composition включает `defaultExtensions([], { configPath })` с manifest, LSP, побочными вопросами, рабочими копиями и помощниками; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Пользовательский JS loader/SDK пока отсутствует; trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. builtin.lsp предоставляет настоящие status/restart contributions; пользовательский loader по-прежнему отсутствует.
+Production composition включает `defaultExtensions([], { configPath })` с manifest, LSP, побочными вопросами, рабочими копиями и помощниками; custom linked definitions объединяйте явно через `defaultExtensions([example])`. Для изолированных tests можно использовать точный список или пустой `ExtensionHost([])`. Command example в архитектуре показывает регистрацию, parse без shell evaluation и `invocation.tools.execute` с canonical именем. Этот port сохраняет policy/checkpoints, не требует model API key и не даёт callback доступ к Session/catalog/approval resolver/UI. Command output не становится model message; ToolExecutionResult с error/pending/artifact следует возвращать без потери этих полей. Для пользовательских JS-пакетов используйте [публичный SDK и loader](extensions/README.md). Trusted code работает с правами процесса, callbacks обязаны соблюдать signal и не выполнять mutations в prepare. builtin.lsp предоставляет настоящие status/restart contributions.
 
 Acceptance tests используют реальные host/catalog/executor/policy/coordinator/storage и deterministic providers. Packaging harness поднимает локальный тестовый model endpoint, отправляет обычный Plan prompt и проверяет цикл model → manifest → model → checkpoint; production test flags/autoload fixtures отсутствуют:
 
@@ -106,9 +106,9 @@ bun tests/fixtures/command-packaging.ts
 
 1. Устанавливает зависимости через `npm ci`, проверяет типы, тесты и lint.
 2. Сверяет тег с версией `package.json`.
-3. Отдельными заданиями собирает EXE, два PKG и DEB.
-4. Создаёт черновик GitHub Release и загружает четыре установщика. Заметки берёт из секции версии в `CHANGELOG.md`, а при её отсутствии генерирует автоматически.
-5. Проверяет наличие всех четырёх файлов и публикует готовый релиз.
+3. Отдельными заданиями собирает EXE, два PKG, DEB и npm-пакет CLI с SDK расширений.
+4. Создаёт черновик GitHub Release и загружает четыре установщика и `chiselcode-<версия>.tgz`. Заметки берёт из секции версии в `CHANGELOG.md`, а при её отсутствии генерирует автоматически.
+5. Проверяет наличие всех пяти файлов и публикует готовый релиз. Отдельные engine binaries и служебные архивы концепта Desktop не собираются и не загружаются этим workflow.
 
 Изменение только документации не требует нового тега или публикации новой версии приложения.
 
