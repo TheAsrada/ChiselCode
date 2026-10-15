@@ -186,7 +186,13 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       );
       await Bun.sleep(30);
     });
-    await frames(6);
+    await wait(
+      () =>
+        !!setup.renderer.root.findDescendantById("welcome") &&
+        !!setup.renderer.root.findDescendantById("prompt-editor"),
+      "Application input did not become ready",
+    );
+    await click("prompt-editor");
     await command("/settings");
     await wait(
       () => !!setup.renderer.root.findDescendantById("settings-global-search"),
