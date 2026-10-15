@@ -4,12 +4,13 @@ import {
   link,
   lstat,
   mkdir,
+  mkdtemp,
   open,
   realpath,
   rename,
   rm,
 } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { chiselHomeDir } from "../paths/home.js";
@@ -95,6 +96,54 @@ async function revision(path: string): Promise<string | undefined> {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
+/** The network staging never changes project files under another operation's root lease. */
+async function verifiedPublication(
+  source: string,
+  destination: string,
+  expected: number,
+  signal: AbortSignal,
+): Promise<string> {
+  const hash = createHash("sha256");
+  let copied = 0;
+  const file = await open(destination, "wx", 0o600);
+  try {
+    for await (const chunk of createReadStream(source, { signal })) {
+      cancelled(signal);
+      if (copied + chunk.length > expected)
+        throw new RuntimeError(
+          "WEB_DOWNLOAD_FAILED",
+          "Временный файл изменился перед сохранением.",
+        );
+      for (let offset = 0; offset < chunk.length; ) {
+        cancelled(signal);
+        const written = await file.write(
+          chunk,
+          offset,
+          chunk.length - offset,
+          copied,
+        );
+        if (!written.bytesWritten)
+          throw new RuntimeError(
+            "WEB_DOWNLOAD_FAILED",
+            "Не удалось продолжить запись файла.",
+          );
+        copied += written.bytesWritten;
+        offset += written.bytesWritten;
+      }
+      hash.update(chunk);
+    }
+    if (copied !== expected)
+      throw new RuntimeError(
+        "WEB_DOWNLOAD_FAILED",
+        "Размер сохранённого файла не совпадает с принятыми данными.",
+      );
+    await file.sync();
+    cancelled(signal);
+    return hash.digest("hex");
+  } finally {
+    await file.close();
+  }
+}
 async function target(
   context: ToolContext,
   input: DownloadInput,
@@ -171,7 +220,9 @@ export function downloadTool(
         ? AbortSignal.any([context.signal, timeout.signal])
         : timeout.signal;
       const deadline = Date.now() + config.limits.downloadTimeoutMs;
+      let privateDirectory: string | undefined;
       let temporary: string | undefined;
+      let publication: string | undefined;
       let file: Awaited<ReturnType<typeof open>> | undefined;
       let received = 0,
         total: number | undefined,
@@ -199,19 +250,10 @@ export function downloadTool(
             "Каталог назначения изменился после подтверждения.",
           );
         if (input.path) await context.workspace.resolve(input.path);
-        await mkdir(dirname(destination.path), { recursive: true });
-        if (
-          (await canonicalDestination(destination.original)) !==
-          destination.path
-        )
-          throw new RuntimeError(
-            "WEB_DOWNLOAD_CONFLICT",
-            "Каталог назначения изменился.",
-          );
-        temporary = join(
-          dirname(destination.path),
-          `.${basename(destination.path)}.${randomUUID()}.download`,
-        );
+        const staging = join(chiselHomeDir(), "web-downloads");
+        await mkdir(staging, { recursive: true, mode: 0o700 });
+        privateDirectory = await mkdtemp(join(staging, "operation-"));
+        temporary = join(privateDirectory, "content");
         file = await open(temporary, "wx", 0o600);
         const options = requestOptions(context);
         let response: Awaited<ReturnType<SafeWebHttpClient["get"]>> | undefined;
@@ -298,19 +340,13 @@ export function downloadTool(
         await file.sync();
         await file.close();
         file = undefined;
-        // Verify the saved bytes before publishing, without putting binary data in context.
-        const hash = createHash("sha256");
-        let verifiedBytes = 0;
-        for await (const chunk of createReadStream(temporary, { signal })) {
-          hash.update(chunk);
-          verifiedBytes += chunk.length;
-        }
-        if (verifiedBytes !== received)
-          throw new RuntimeError(
-            "WEB_DOWNLOAD_FAILED",
-            "Размер сохранённого файла не совпадает с принятыми данными.",
-          );
-        const sha256 = hash.digest("hex");
+        let sha256 = "";
+        await context.events.emit({
+          type: "tool_progress",
+          invocationId: context.invocationId,
+          name: "web_download",
+          text: "Загрузка завершена. Проверяю и сохраняю файл…",
+        });
         const access = [
           {
             resource: (
@@ -346,12 +382,40 @@ export function downloadTool(
                   "Файл или каталог изменился во время скачивания; чужие изменения сохранены.",
                 );
               if (input.path) await context.workspace.resolve(input.path);
+              await mkdir(dirname(destination.path), { recursive: true });
+              if (
+                (await canonicalDestination(destination.original)) !==
+                destination.path
+              )
+                throw new RuntimeError(
+                  "WEB_DOWNLOAD_CONFLICT",
+                  "Каталог назначения изменился перед сохранением.",
+                );
+              publication = join(
+                dirname(destination.path),
+                `.chisel-${randomUUID()}.download`,
+              );
+              sha256 = await verifiedPublication(
+                temporary!,
+                publication,
+                received,
+                signal,
+              );
+              if (
+                (await canonicalDestination(destination.original)) !==
+                  destination.path ||
+                (await revision(destination.path)) !== destination.revision
+              )
+                throw new RuntimeError(
+                  "WEB_DOWNLOAD_CONFLICT",
+                  "Назначение изменилось во время проверки; чужие изменения сохранены.",
+                );
               await assertOwned();
               cancelled(signal);
-              if (input.overwrite) await rename(temporary!, destination.path);
+              if (input.overwrite) await rename(publication, destination.path);
               else
                 try {
-                  await link(temporary!, destination.path);
+                  await link(publication, destination.path);
                 } catch (error) {
                   if ((error as NodeJS.ErrnoException).code === "EEXIST")
                     throw new RuntimeError(
@@ -365,11 +429,19 @@ export function downloadTool(
             signal,
           );
         } finally {
-          await lease.finish();
+          // Keep a root shell excluded until every owned publication sidecar is gone.
+          try {
+            if (publication) {
+              await rm(publication, { force: true });
+              publication = undefined;
+            }
+          } finally {
+            await lease.finish();
+          }
         }
         const path = await realpath(destination.path);
         const saved = await lstat(path);
-        if (saved.size !== verifiedBytes)
+        if (saved.size !== received)
           throw new RuntimeError(
             "WEB_DOWNLOAD_CONFLICT",
             "После сохранения размер файла изменился; успех не подтверждён.",
@@ -377,7 +449,7 @@ export function downloadTool(
         await progress(true);
         const result = {
           path,
-          bytes: verifiedBytes,
+          bytes: received,
           contentType: response.contentType || "application/octet-stream",
           sha256,
           finalUrl: response.finalUrl,
@@ -404,8 +476,16 @@ export function downloadTool(
         throw error;
       } finally {
         clearTimeout(timer);
-        await file?.close();
-        if (temporary) await rm(temporary, { force: true });
+        try {
+          await file?.close();
+        } finally {
+          await Promise.all([
+            publication ? rm(publication, { force: true }) : undefined,
+            privateDirectory
+              ? rm(privateDirectory, { recursive: true, force: true })
+              : undefined,
+          ]);
+        }
       }
     },
   );

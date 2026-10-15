@@ -220,6 +220,7 @@ async function environment(
     root,
     tools,
     session,
+    events,
     client,
     config,
     counts,
@@ -299,6 +300,26 @@ test("cancellation drains a pending streaming file write before the caller can c
 test("core streaming download verifies actual binary file, redirect, path, type, SHA-256 and progress", async () => {
   const env = await environment();
   try {
+    const before = await readdir(env.root);
+    let published = false;
+    env.events.subscribe(async (event) => {
+      if (
+        event.type !== "tool_progress" ||
+        !(await Bun.file(join(env.root, "image.png")).exists())
+      )
+        return;
+      const shell = await workspaceCoordinator.acquirePlanLease([
+        { resource: env.root, mode: "write" },
+      ]);
+      try {
+        expect((await readdir(env.root)).sort()).toEqual(
+          [...before, "image.png"].sort(),
+        );
+        published = true;
+      } finally {
+        await shell.finish();
+      }
+    });
     const result = await env.download("/redirect");
     expect(result.isError, result.output).not.toBe(true);
     const saved = result.details!.web as Record<string, unknown>;
@@ -317,6 +338,7 @@ test("core streaming download verifies actual binary file, redirect, path, type,
       (await readdir(env.root)).filter((name) => name.endsWith(".download")),
     ).toEqual([]);
     await env.received;
+    expect(published).toBe(true);
   } finally {
     await env.close();
   }
@@ -408,9 +430,11 @@ test("cancellation and timeout clean partial files, and a slow network transfer 
   for (const cancel of [true, false]) {
     const env = await environment({ timeout: cancel ? 5000 : 500 });
     try {
+      const before = await readdir(env.root);
       const abort = new AbortController();
       const pending = env.download("/hold", {}, abort.signal);
       await env.received;
+      expect(await readdir(env.root)).toEqual(before);
       const lease = await workspaceCoordinator.acquirePlanLease([
         { resource: env.root, mode: "write" },
       ]);
