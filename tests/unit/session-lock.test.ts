@@ -38,7 +38,9 @@ test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait"
     trace("local queued");
     localAbort.abort();
     trace("local abort delivered");
-    await expect(local).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(await local.catch((error) => error)).toMatchObject({
+      code: "CANCELLED",
+    });
     trace("local abort verified");
     let nextEntered = false;
     const next = withLock(path, async () => {
@@ -67,7 +69,11 @@ test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait"
     trace("durable abort starting");
     diskAbort.abort();
     trace("durable abort delivered");
-    await expect(disk).rejects.toMatchObject({ code: "CANCELLED" });
+    // Bun's Windows promise matcher blocks the pending lock-poll timer. Await
+    // through the normal event loop before making the same error assertion.
+    expect(await disk.catch((error) => error)).toMatchObject({
+      code: "CANCELLED",
+    });
     trace("durable abort verified");
     expect(await readFile(join(`${path}.lock`, "owner"), "utf8")).toBe(
       "separate-writer",
