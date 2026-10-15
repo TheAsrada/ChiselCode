@@ -544,4 +544,4 @@ test("XDG localized and redirected folders are parsed as data; native OS queries
   ).toThrow();
   expect(isAbsolute(await userFolder("desktop"))).toBe(true);
   expect(isAbsolute(await userFolder("downloads"))).toBe(true);
-});
+}, 12000); // Two bounded 5-second OS queries must fit within the test budget.

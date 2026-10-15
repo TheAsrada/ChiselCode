@@ -179,7 +179,7 @@ for (const mode of ["plan", "build"] as const)
       } finally {
         await env.close();
       }
-    });
+    }, 15000); // Real parallel tool checkpoints and reload include bounded Windows filesystem IO.
 
 for (const approval of ["default", "dontAsk", "bypassPermissions"] as const)
   test(`public defaults keep SSRF blocked in ${approval} before any socket opens`, async () => {
