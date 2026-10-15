@@ -246,7 +246,7 @@
 - ContextManager с token budget, output reserve, protocol-safe partitioning, structured rolling summary и context checkpoints. Compaction сохраняет полный transcript; provider context overflow допускает один recovery/retry.
 - ToolCatalog, двухфазные handlers, ToolExecutor и scheduler: четыре параллельных read workers, последовательные mixed batches, idempotency call IDs, cancellation, timeout и guard повторных failures.
 - EditingService: persistent SHA-256 revisions, stale-write protection и apply_patch с multi-hunk/multi-file create/update/delete/move, полным preflight и rollback с structured failure details.
-- Artifact store и read_tool_result для больших outputs, встроенный grep fallback при отсутствии rg, поддержка файлов правил проекта с приоритетом CHISEL.md.
+- Artifact store и read_tool_result для больших outputs, встроенный grep fallback при отсутствии rg, корневые AGENTS.md/CLAUDE.md с native приоритетом CHISEL.md.
 - Isolated eval harness, command/filesystem/trajectory graders, JSON/Markdown reports, baseline comparisons, fixtures и CI smoke без live API. Отдельный manual workflow запускает live coding trials при наличии credentials.
 
 ### Исправлено
