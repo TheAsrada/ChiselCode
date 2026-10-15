@@ -168,6 +168,7 @@ export type StreamEvent =
       code?: ProviderErrorCode;
       usage?: TokenUsage;
       status?: number;
+      retryAfterMs?: number;
     };
 
 export interface ProviderAdapter {

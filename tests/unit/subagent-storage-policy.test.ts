@@ -13,13 +13,67 @@ import { ApprovalArbiter } from "../../src/security/approval-arbiter.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import {
   effectiveSubagentConfig,
+  ProjectSubagentConfigSchema,
   SubagentConfigSchema,
 } from "../../src/subagents/config.js";
 import { ChildToolPolicy } from "../../src/subagents/policy.js";
+import {
+  ChildReceiptSchema,
+  SubagentRecordSchema,
+} from "../../src/subagents/schema.js";
 import { SubagentSettingsStore } from "../../src/subagents/settings.js";
 import { SubagentRecordStore } from "../../src/subagents/storage.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import { childFixture } from "../helpers/subagent.js";
+
+test("legacy quota configs and saved child receipts migrate without retaining token limits or losing spend", () => {
+  const old = {
+    enabled: true,
+    childTokens: 1,
+    ownerTokens: 1,
+    inputTokens: 1,
+    outputTokens: 1,
+  };
+  expect(SubagentConfigSchema.parse(old)).toEqual({
+    enabled: true,
+    maxActive: 2,
+    deadlineMs: 600000,
+  });
+  expect(ProjectSubagentConfigSchema.parse(old)).toEqual({ enabled: true });
+  expect(() =>
+    SubagentConfigSchema.parse({ enabled: true, unexpected: 1 }),
+  ).toThrow();
+  const fixture = childFixture();
+  fixture.spend.usage.inputTokens = 1000000;
+  const prior = {
+    ...fixture,
+    limits: { ...fixture.limits, tokens: 1 },
+    consumption: { ...fixture.consumption, accountedTokens: 1000000 },
+    attempts: [
+      {
+        id: "prior",
+        purpose: "generation",
+        reserved: 999,
+        accounted: 1000000,
+        usage: { inputTokens: 1000000, outputTokens: 0 },
+        usageSource: "observed",
+        completed: true,
+      },
+    ],
+  };
+  const migrated = SubagentRecordSchema.parse(prior);
+  expect(migrated.limits).not.toHaveProperty("tokens");
+  expect(migrated.consumption).not.toHaveProperty("accountedTokens");
+  expect(migrated.attempts[0]).not.toHaveProperty("reserved");
+  expect(migrated.spend.usage.inputTokens).toBe(1000000);
+  expect(
+    ChildReceiptSchema.parse({
+      revision: 1,
+      child: prior,
+      spend: fixture.spend,
+    }).child.limits,
+  ).not.toHaveProperty("tokens");
+});
 
 test("child and side patches survive stale parent saves, duplicate receipts and interrupted recovery; no child resume authority", async () => {
   const temp = await mkdtemp(join(tmpdir(), "chisel-child-store-"));

@@ -32,7 +32,9 @@ export interface ConversationSource {
 export function captureConversation(
   session?: Session,
   acceptedPrompt?: string,
+  options: { bounded?: boolean } = {},
 ): ConversationCapture {
+  const bounded = options.bounded !== false;
   const capturedAt = new Date().toISOString();
   const checkpoint = session?.context?.activeCheckpoint;
   const messages = session?.messages ?? [];
@@ -90,10 +92,10 @@ export function captureConversation(
     : "";
   const selected: typeof groups = [];
   let used = Buffer.byteLength(summary, "utf8");
-  let truncated = used > MODEL_REQUEST_LIMITS.snapshotBytes;
+  let truncated = bounded && used > MODEL_REQUEST_LIMITS.snapshotBytes;
   for (const group of [...groups].reverse()) {
     const bytes = Buffer.byteLength(group.text, "utf8") + 2;
-    if (used + bytes > MODEL_REQUEST_LIMITS.snapshotBytes) {
+    if (bounded && used + bytes > MODEL_REQUEST_LIMITS.snapshotBytes) {
       truncated = true;
       continue;
     }
@@ -101,15 +103,18 @@ export function captureConversation(
     used += bytes;
   }
   const text =
-    utf8Prefix(summary, MODEL_REQUEST_LIMITS.snapshotBytes) +
-    selected.map((group) => group.text).join("\n\n");
+    (bounded
+      ? utf8Prefix(summary, MODEL_REQUEST_LIMITS.snapshotBytes)
+      : summary) + selected.map((group) => group.text).join("\n\n");
   return frozenClone({
     text,
     units: [
       ...(summary
         ? [
             {
-              text: utf8Prefix(summary, MODEL_REQUEST_LIMITS.snapshotBytes),
+              text: bounded
+                ? utf8Prefix(summary, MODEL_REQUEST_LIMITS.snapshotBytes)
+                : summary,
               source: "context_summary",
             },
           ]

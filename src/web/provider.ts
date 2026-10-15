@@ -5,6 +5,7 @@ import { defineTool } from "../tools/handler.js";
 import type { ToolContext, ToolHandler, ToolProvider } from "../tools/types.js";
 import { AutoSearchBackend } from "./auto-search.js";
 import { type WebSessionCache, webSessionCache } from "./cache.js";
+import { downloadTool } from "./download.js";
 import { ExaSearchBackend } from "./exa.js";
 import { WebFetchService } from "./fetch.js";
 import { SafeWebHttpClient, type WebHttpOptions } from "./http-client.js";
@@ -80,6 +81,7 @@ export class WebToolProvider implements ToolProvider {
       };
     };
     this.handlers = [
+      downloadTool(http, config, requestOptions),
       defineTool(
         {
           ...spec,

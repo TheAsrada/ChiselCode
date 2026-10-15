@@ -259,6 +259,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         message: formatAnthropicError(error),
         code: failure.code,
         status: failure.status,
+        retryAfterMs: failure.retryAfterMs,
         usage: usage ? normalizeAnthropicUsage(usage) : undefined,
       };
     }

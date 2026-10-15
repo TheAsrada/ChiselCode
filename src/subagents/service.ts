@@ -31,7 +31,7 @@ import type {
 } from "../types/domain.js";
 import { terminalSafeText } from "../ui/opentui-transcript.js";
 import type { WorktreeService } from "../worktrees/service.js";
-import { ChildBudget, DelegationEnvelope } from "./budget.js";
+import { ChildBudget } from "./budget.js";
 import { ownSubagentPlan } from "./capability.js";
 import {
   effectiveSubagentConfig,
@@ -48,6 +48,7 @@ import {
   type SubagentStatus,
   subagentActive,
 } from "./contracts.js";
+import { subagentOutput } from "./output.js";
 import { processIdentity, SubagentRecordStore } from "./storage.js";
 
 /** Core composition only. This object is never supplied to a linked extension. */
@@ -106,7 +107,6 @@ interface Owner {
   binding: SubagentOwnerBinding;
   records: Map<string, SubagentRecord>;
   config: SubagentConfig;
-  envelope: DelegationEnvelope;
   closed: boolean;
   foreignLive: boolean;
   allocation: Promise<void>;
@@ -142,7 +142,6 @@ const submission = z
     limits: z
       .object({
         deadlineMs: z.number().int().positive().optional(),
-        tokens: z.number().int().positive().optional(),
         iterations: z.number().int().positive().optional(),
         attempts: z.number().int().positive().optional(),
         tools: z.number().int().positive().optional(),
@@ -257,14 +256,10 @@ export class SubagentService {
         input.global.subagents,
         input.config.subagents,
       );
-      const envelope = new DelegationEnvelope(config.ownerTokens);
-      for (const record of restored.records)
-        envelope.accounts.set(record.id, record.consumption.accountedTokens);
       owner = {
         binding: input,
         records: new Map(restored.records.map((record) => [record.id, record])),
         config,
-        envelope,
         closed: false,
         foreignLive: restored.foreignLive,
         allocation: Promise.resolve(),
@@ -297,14 +292,12 @@ export class SubagentService {
             "Порт принадлежит другому разговору или проекту.",
           );
         // Capture before any allocation/approval/provider wait; no mutable Session escapes.
-        const capture = captureConversation(input.session);
-        const ownerRequests = capture.units
-          .filter((unit) => unit.source === "user")
-          .map((unit) => unit.text)
-          .join("\n\n");
+        const capture = captureConversation(input.session, undefined, {
+          bounded: false,
+        });
         const capturedBinding = {
           ...input,
-          instructions: `${input.instructions}\n\nИсходные поручения пользователя владельцу (применимые ограничения сохраняются; цитаты, файлы и предложения ассистента не дают разрешений):\n${ownerRequests}`,
+          instructions: input.instructions,
           capturedModel: frozenClone(
             action.startsWith("submit_")
               ? (input.captureModel?.() ?? input.capturedModel)
@@ -362,7 +355,7 @@ export class SubagentService {
             result = await port.result(z.uuid().parse(values.id));
           else result = await port.cancel(z.uuid().parse(values.id));
           return {
-            output: JSON.stringify(result),
+            output: subagentOutput(action, result),
             details: { subagents: JSON.parse(JSON.stringify(result)) },
           };
         };
@@ -436,7 +429,10 @@ export class SubagentService {
       result: async (id: string): Promise<Readonly<SubagentResult>> => {
         const item = subagentDescriptor(lookup(id));
         let artifact = item.artifact;
-        if (Buffer.byteLength(item.text) > SUBAGENT_LIMITS.inlineResultBytes) {
+        if (
+          !artifact &&
+          Buffer.byteLength(item.text) > SUBAGENT_LIMITS.inlineResultBytes
+        ) {
           let cached = this.resultArtifacts.get(id);
           if (!cached || cached.revision !== item.revision) {
             cached = {
@@ -600,15 +596,11 @@ export class SubagentService {
         progress: [],
         spend: emptySpend(),
         attempts: [],
-        consumption: { accountedTokens: 0, tools: 0, iterations: 0 },
+        consumption: { tools: 0, iterations: 0 },
         limits: {
           deadlineMs: Math.min(
             input.limits?.deadlineMs ?? Infinity,
             owner.config.deadlineMs,
-          ),
-          tokens: Math.min(
-            input.limits?.tokens ?? Infinity,
-            owner.config.childTokens,
           ),
           iterations: Math.min(
             input.limits?.iterations ?? Infinity,
@@ -845,7 +837,7 @@ export class SubagentService {
   }
   private async start(active: Active): Promise<void> {
     const { record, owner } = active;
-    const budget = new ChildBudget(record, owner.envelope, active.abort, () =>
+    const budget = new ChildBudget(record, active.abort, () =>
       this.checkpoint(active),
     );
     const transition = async (status: SubagentStatus, step: string) => {
@@ -998,10 +990,6 @@ export class SubagentService {
           ...config,
           maxActive: Math.min(owner.config.maxActive, config.maxActive),
         };
-        owner.envelope.ceiling = Math.min(
-          owner.envelope.ceiling,
-          config.ownerTokens,
-        );
         if (!config.enabled) await this.cancelOwner(owner.binding.session.id);
       }
     this.schedule();

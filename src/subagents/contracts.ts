@@ -32,7 +32,6 @@ export interface SubagentInput {
   context?: "conversation" | "none";
   limits?: {
     deadlineMs?: number;
-    tokens?: number;
     iterations?: number;
     attempts?: number;
     tools?: number;
@@ -41,8 +40,6 @@ export interface SubagentInput {
 export interface SubagentAttempt {
   id: string;
   purpose: "generation" | "compaction" | "count_tokens";
-  reserved: number;
-  accounted: number;
   usage?: TokenUsage;
   usageSource: "observed" | "partial" | "unknown";
   completed: boolean;
@@ -94,10 +91,9 @@ export interface SubagentDescriptor {
   progress: SubagentProgress[];
   spend: ModelSpend;
   attempts: SubagentAttempt[];
-  consumption: { accountedTokens: number; tools: number; iterations: number };
+  consumption: { tools: number; iterations: number };
   limits: {
     deadlineMs: number;
-    tokens: number;
     iterations: number;
     attempts: number;
     tools: number;

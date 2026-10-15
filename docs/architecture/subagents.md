@@ -26,13 +26,17 @@ Coding start использует отдельную техническую Sess
 
 `recovery: new_child` запрещает исполнение начальных pending protocol blocks. Просмотр сохранённого child и обычный CLI resume не начинают новый unrestricted runtime. После crash допускается только изучение результата и новое явное поручение.
 
-## Ceiling, approvals и budgets
+## Права, подтверждения и ограничения
 
 `ChildToolPolicy` сначала проверяет mode, фактический handler identity и sealed spec fingerprint; затем пересекает frozen parent policy с live origin/user/child policy. Проверки выполняются перед prepare и execute. Plan запрещает coding независимо от Bypass/JSON. Readonly не получает shell/write/delegation; coding получает workspace edits и разрешаемый run_shell, но не shared Git writes, lifecycle worktrees, skills writes, MCP или произвольные extension tools. Web redirects перепроверяют обе network policies, а не только первый URL.
 
 Application ApprovalArbiter не вытесняет активный запрос. Среди ожидающих foreground получает приоритет, после двух foreground admissions доступен следующий child. Address включает root owner, child/session/invocation/generation/mode/cwd. Session grants не расширяют frozen ceiling. Noninteractive approval завершает задачу честным approval_unavailable, без зависания и replay.
 
-Все defaults находятся в `src/subagents/config.ts`. ChildBudget атомарно резервирует estimated input плюс clamped output в child и owner envelope до каждого generation/compaction request. Observed usage заменяет резерв ровно один раз; unknown/ambiguous outcome сохраняет резерв. Transport использует настоящие drivers с SDK retries 0, compatibility fallback disabled и strict terminal validation. Единственный retry layer допускает максимум три attempts после явного 429/5xx до text; каждый attempt входит в общий предел 24. После partial/network ambiguity повтор всего поручения отсутствует. Native count_tokens заменён локальным подсчётом; это estimated planning, не provider billing.
+Все operation defaults находятся в `src/subagents/config.ts`. ChildBudget ограничивает только число инструментов и HTTP attempts; token reservations, per-child/owner envelopes и отдельные входные/выходные квоты удалены. Actual usage и стоимость идемпотентно суммируются из attempt receipts, а unknown usage/cost сохраняются как неизвестные, без фиктивного резерва. Старые config/record/receipt поля отбрасываются при lazy migration.
+
+Model capabilities передаются без уменьшения до искусственных потолков. Обычный ContextManager с auto-compaction обрабатывает историю родителя отдельно от закреплённого актуального поручения. Handoff не проходит через display clipping; полный большой результат сохраняется в родительский artifact store, preview ограничивается отдельно. Tool calls/results остаются атомарными units. Реальное переполнение обязательного контекста возвращает штатную ошибку окна модели.
+
+Transport использует настоящие drivers с SDK retries 0, compatibility fallback disabled и strict terminal validation. Единственный retry layer допускает максимум три attempts после явного 429/5xx до text, соблюдает Retry-After и общий deadline; каждый attempt входит в предел 24. После partial/network ambiguity повтор всего поручения отсутствует. Native count_tokens заменён локальным подсчётом; это estimated planning, не provider billing.
 
 ## Запись и расходы
 

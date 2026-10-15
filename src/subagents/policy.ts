@@ -74,7 +74,13 @@ export class ChildToolPolicy implements ToolExecutionConstraint {
           (spec.effect === "process" && spec.name === "run_shell"))
       );
     }
-    if (spec.source?.type === "web") return spec.effect === "external_read";
+    if (spec.source?.type === "web")
+      return (
+        spec.effect === "external_read" ||
+        (this.mode === "coding" &&
+          spec.name === "web_download" &&
+          spec.effect === "workspace_write")
+      );
     return (
       spec.source?.type === "extension" &&
       spec.effect === "read" &&

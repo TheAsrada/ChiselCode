@@ -1,3 +1,4 @@
+import { retryAfterMs } from "../network/retry.js";
 export type ProviderErrorCode =
   | "context_overflow"
   | "rate_limit"
@@ -25,6 +26,7 @@ export class ProviderError extends Error {
       "unavailable",
       "transport",
     ].includes(code),
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "ProviderError";
@@ -40,6 +42,7 @@ export function normalizeProviderError(
     code?: string;
     name?: string;
     message?: string;
+    headers?: Headers | Record<string, string>;
   };
   const message = object?.message ?? String(error);
   const code: ProviderErrorCode =
@@ -66,5 +69,16 @@ export function normalizeProviderError(
                       : (object?.status ?? 0) >= 500
                         ? "unavailable"
                         : "unknown";
-  return new ProviderError(code, message, object?.status);
+  const headers = object?.headers;
+  const retry =
+    headers && typeof (headers as Headers).get === "function"
+      ? (headers as Headers).get("retry-after")
+      : (headers as Record<string, string> | undefined)?.["retry-after"];
+  return new ProviderError(
+    code,
+    message,
+    object?.status,
+    undefined,
+    retryAfterMs(retry),
+  );
 }

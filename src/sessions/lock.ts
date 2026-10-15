@@ -10,6 +10,8 @@ import {
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { cancelled } from "../runtime/errors.js";
+
 const STALE_MS = 30_000;
 // Wait long enough for a newly abandoned lock to expire in the same request.
 const WAIT_MS = 35_000;
@@ -89,7 +91,9 @@ export function storageLockDiagnostics(): ReadonlyArray<{
 export async function withLock<T>(
   path: string,
   action: (assertOwned: () => Promise<void>) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  cancelled(signal);
   const canonical = resolve(path);
   const key =
     process.platform === "win32" ? canonical.toLowerCase() : canonical;
@@ -107,9 +111,21 @@ export async function withLock<T>(
   };
   pendingLocks.add(diagnostic);
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   try {
     await Promise.race([
       previous,
+      new Promise<never>((_, reject) => {
+        onAbort = () => {
+          try {
+            cancelled(signal);
+          } catch (error) {
+            reject(error);
+          }
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      }),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(
           () => reject(new Error(`Хранилище занято: ${path}`)),
@@ -118,10 +134,16 @@ export async function withLock<T>(
       }),
     ]);
     if (timeout) clearTimeout(timeout);
-    return await withFileLock(path, action, (phase) => {
-      diagnostic.phase = phase;
-    });
+    return await withFileLock(
+      path,
+      action,
+      (phase) => {
+        diagnostic.phase = phase;
+      },
+      signal,
+    );
   } finally {
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
     if (timeout) clearTimeout(timeout);
     release();
     pendingLocks.delete(diagnostic);
@@ -136,6 +158,7 @@ async function withFileLock<T>(
   path: string,
   action: (assertOwned: () => Promise<void>) => Promise<T>,
   progress: (phase: string) => void,
+  signal?: AbortSignal,
 ): Promise<T> {
   progress("file_lock");
   const lock = `${path}.lock`;
@@ -143,6 +166,7 @@ async function withFileLock<T>(
   const owner = join(lock, "owner");
   const deadline = Date.now() + WAIT_MS;
   while (true) {
+    cancelled(signal);
     try {
       await mkdir(lock);
       break;

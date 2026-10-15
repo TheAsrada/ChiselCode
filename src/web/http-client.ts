@@ -3,7 +3,7 @@ import type {
   IncomingMessage,
   RequestOptions,
 } from "node:http";
-import { Transform } from "node:stream";
+import { Transform, Writable } from "node:stream";
 import { checkServerIdentity } from "node:tls";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import {
@@ -15,6 +15,7 @@ import {
   type NetworkRequestOptions,
   networkRequest,
 } from "../network/request.js";
+import { retryAfterMs as parseRetryAfter } from "../network/retry.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { NetworkAuthorization } from "../security/network-policy.js";
 import type { WebLimits } from "./schema.js";
@@ -38,6 +39,13 @@ export interface WebHttpOptions {
   method?: "GET" | "POST" | "DELETE";
   body?: string;
   acceptHttpErrors?: boolean;
+  /** Core streaming consumer; never supplied by tool input. */
+  bodySink?: {
+    maxBytes: number;
+    start?(total?: number): void;
+    write(chunk: Buffer): Promise<void>;
+  };
+  timeoutMs?: number;
 }
 /** Narrow transport seam for deterministic local-server fixtures. */
 export type PinnedRequest = (
@@ -101,7 +109,7 @@ export class SafeWebHttpClient {
     const timeout = new AbortController();
     const timer = setTimeout(
       () => timeout.abort(),
-      this.limits.requestTimeoutMs,
+      options.timeoutMs ?? this.limits.requestTimeoutMs,
     );
     const signal = options.signal
       ? AbortSignal.any([options.signal, timeout.signal])
@@ -169,7 +177,7 @@ export class SafeWebHttpClient {
               {
                 status: response.status,
                 retryable: response.status === 429 || response.status >= 500,
-                ...(response.retryAfterMs
+                ...(response.retryAfterMs !== undefined
                   ? { retryAfterMs: response.retryAfterMs }
                   : {}),
               },
@@ -232,6 +240,8 @@ export class SafeWebHttpClient {
       let response: IncomingMessage | undefined;
       let decoder: Transform | undefined;
       let encoded: Transform | undefined;
+      let receiver: Writable | undefined;
+      let writing: Promise<void> | undefined;
       let request: ReturnType<typeof httpRequest> | undefined;
       let connectTimer: ReturnType<typeof setTimeout> | undefined;
       const cleanup = () => {
@@ -246,6 +256,7 @@ export class SafeWebHttpClient {
         setImmediate(() => {
           response?.unpipe();
           encoded?.unpipe();
+          receiver?.destroy();
           decoder?.destroy();
           encoded?.destroy();
           if (response) {
@@ -256,7 +267,10 @@ export class SafeWebHttpClient {
             if (!request?.socket) pendingConnection.abort();
             request?.destroy();
           }
-          settle();
+          // A disk write can outlive the socket. Do not let a retry truncate staging
+          // or cleanup close its file while the previous consumer is still writing.
+          if (writing) void writing.then(settle, settle);
+          else settle();
         });
       };
       const fail = (error: unknown) => {
@@ -323,6 +337,15 @@ export class SafeWebHttpClient {
           (incoming) => {
             response = incoming;
             incoming.on("error", fail);
+            incoming.once("aborted", () =>
+              fail(
+                new RuntimeError(
+                  "WEB_PROTOCOL_ERROR",
+                  "Ответ сервера оборвался.",
+                  { retryable: true },
+                ),
+              ),
+            );
             if (connectTimer) clearTimeout(connectTimer);
             const status = incoming.statusCode ?? 0;
             const contentType = String(incoming.headers["content-type"] ?? "");
@@ -339,15 +362,7 @@ export class SafeWebHttpClient {
             const retryAfter = incoming.headers["retry-after"];
             const retryAfterMs =
               typeof retryAfter === "string"
-                ? Math.min(
-                    60000,
-                    Math.max(
-                      0,
-                      /^\d+$/.test(retryAfter)
-                        ? Number(retryAfter) * 1000
-                        : Date.parse(retryAfter) - Date.now(),
-                    ),
-                  )
+                ? parseRetryAfter(retryAfter)
                 : undefined;
             if (status < 200 || status >= 300) {
               done({
@@ -363,7 +378,8 @@ export class SafeWebHttpClient {
             const length = Number(incoming.headers["content-length"]);
             if (
               Number.isFinite(length) &&
-              length > this.limits.maxResponseBytes
+              length >
+                (options.bodySink?.maxBytes ?? this.limits.maxResponseBytes)
             ) {
               fail(
                 new RuntimeError(
@@ -392,7 +408,8 @@ export class SafeWebHttpClient {
               transform: (chunk: Buffer, _encoding, callback) => {
                 wireBytes += chunk.length;
                 callback(
-                  wireBytes > this.limits.maxResponseBytes
+                  wireBytes >
+                    (options.bodySink?.maxBytes ?? this.limits.maxResponseBytes)
                     ? new RuntimeError(
                         "WEB_TOO_LARGE",
                         "Web response exceeds the wire byte limit.",
@@ -417,28 +434,48 @@ export class SafeWebHttpClient {
             decoder.on("error", fail);
             const chunks: Buffer[] = [];
             let size = 0;
-            decoder.on("data", (chunk: Buffer) => {
-              size += chunk.length;
-              if (size > this.limits.maxDecompressedBytes) {
-                fail(
-                  new RuntimeError(
-                    "WEB_TOO_LARGE",
-                    "Web response exceeds the decompressed byte limit.",
-                  ),
-                );
-                return;
-              }
-              chunks.push(chunk);
+            options.bodySink?.start?.(
+              Number.isFinite(length) ? length : undefined,
+            );
+            receiver = new Writable({
+              write: (chunk: Buffer, _encoding, callback) => {
+                size += chunk.length;
+                if (
+                  size >
+                  (options.bodySink?.maxBytes ??
+                    this.limits.maxDecompressedBytes)
+                ) {
+                  callback(
+                    new RuntimeError(
+                      "WEB_TOO_LARGE",
+                      "Web response exceeds the decompressed byte limit.",
+                    ),
+                  );
+                  return;
+                }
+                if (options.bodySink) {
+                  writing = Promise.resolve().then(() =>
+                    options.bodySink!.write(chunk),
+                  );
+                  writing.then(() => callback(), callback);
+                } else {
+                  chunks.push(chunk);
+                  callback();
+                }
+              },
             });
-            decoder.on("end", () =>
+            receiver.on("error", fail);
+            receiver.on("finish", () =>
               done({
                 status,
                 contentType,
-                bytes: Buffer.concat(chunks, size),
+                bytes: options.bodySink
+                  ? new Uint8Array()
+                  : Buffer.concat(chunks, size),
                 headers: responseHeaders,
               }),
             );
-            incoming.pipe(encoded).pipe(decoder);
+            incoming.pipe(encoded).pipe(decoder).pipe(receiver);
           },
         );
         request.on("error", (error) => fail(error));

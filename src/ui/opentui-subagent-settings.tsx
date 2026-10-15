@@ -75,20 +75,8 @@ export function OpenTuiSubagentSettings({
     };
   }, [actions]);
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
-  const fields = [
-    "enabled",
-    "maxActive",
-    "deadlineMs",
-    "childTokens",
-    "ownerTokens",
-  ] as const;
-  const names = [
-    "Помощники",
-    "Одновременно",
-    "Время, мс",
-    "Токены помощника",
-    "Токены группы",
-  ];
+  const fields = ["enabled", "maxActive", "deadlineMs"] as const;
+  const names = ["Помощники", "Одновременно", "Время, мс"];
   const save = () => {
     if (!state || busy) return;
     const validated = project
@@ -174,7 +162,7 @@ export function OpenTuiSubagentSettings({
       if (project && draft.enabled === true) delete next.enabled;
       else next.enabled = draft.enabled === undefined ? false : !draft.enabled;
       setDraft(next);
-    } else if (selected <= 5) {
+    } else if (selected <= fields.length) {
       setInput(
         String(
           draft[fields[selected - 1]!] ??
@@ -198,7 +186,10 @@ export function OpenTuiSubagentSettings({
     if (key.name === "up" || key.name === "down") {
       key.preventDefault();
       setSelected((index) =>
-        Math.max(0, Math.min(6, index + (key.name === "up" ? -1 : 1))),
+        Math.max(
+          0,
+          Math.min(fields.length + 1, index + (key.name === "up" ? -1 : 1)),
+        ),
       );
     } else if (key.name === "return") {
       key.preventDefault();
@@ -267,7 +258,7 @@ export function OpenTuiSubagentSettings({
                   next.enabled =
                     draft.enabled === undefined ? false : !draft.enabled;
                 setDraft(next);
-              } else if (index <= 5) {
+              } else if (index <= fields.length) {
                 setInput(
                   String(
                     draft[fields[index - 1]!] ??
@@ -293,9 +284,9 @@ export function OpenTuiSubagentSettings({
         </text>
         <text fg={palette.muted}>
           До {SUBAGENT_LIMITS.activePerApplication} на приложение; очередь 8,
-          задачи 32, шаги 12, запросы 24, инструменты 100. Ввод 16000 / ответ
-          2048 токенов. Проект может только сузить ограничения. Цена без тарифа
-          неизвестна.
+          задачи 32, шаги 12, запросы 24, инструменты 100. Контекст и ответ
+          определяются моделью. Проект может только сузить ограничения. Цена без
+          тарифа неизвестна.
         </text>
       </TerminalScrollbox>
       <text height={1} fg={notice ? palette.yellow : palette.muted}>

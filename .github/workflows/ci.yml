@@ -137,6 +137,7 @@ jobs:
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' installed-doctor.txt
           bun tests/fixtures/manifest-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
+          bun tests/fixtures/web-download-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/lsp-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/side-query-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun tests/fixtures/worktree-cli.ts bun ./dist/install-smoke/node_modules/chiselcode/dist/cli.js
@@ -187,6 +188,7 @@ jobs:
           test "${status:-0}" -eq 0 -o "${status:-0}" -eq 2
           grep -q 'ChiselCode' doctor-output.txt
           bun tests/fixtures/manifest-cli.ts "$binary"
+          bun tests/fixtures/web-download-cli.ts "$binary"
           bun tests/fixtures/external-extensions-cli.ts "$binary"
           bun tests/fixtures/extension-packages-cli.ts "$binary"
           bun tests/fixtures/lsp-cli.ts "$binary"

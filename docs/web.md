@@ -1,8 +1,8 @@
-# Web Search / Web Fetch
+# Поиск, чтение страниц и скачивание
 
 [Документация](README.md) · [Настройки](configuration.md) · [Безопасность](security.md)
 
-Агент может найти актуальную публичную документацию, открыть нужные страницы, проверить API и продолжить работу над кодом. Web доступен в Plan и Build; изменение файлов по-прежнему требует Build и действующих разрешений.
+Агент может найти актуальную публичную документацию, открыть нужные страницы, проверить API и продолжить работу над кодом. Поиск и чтение доступны в Plan и Build; [скачивание файлов](downloads.md) через встроенный `web_download` требует Build и разрешения на запись.
 
 ```text
 Найди актуальную официальную документацию React по Server Actions,
@@ -78,7 +78,7 @@ Cache хранит извлечённый текст в пределах сес�
 
 Native fetch всегда блокирует localhost, private/reserved IPv4/IPv6, link-local, metadata, `.local`, нестандартные protocols и порты, embedded credentials и чувствительные URL parameters. Допускаются публичные HTTP/HTTPS на 80/443. DNS проверяется целиком, соединение открывается к проверенному IP с проверкой TLS для исходного hostname. Каждый redirect проверяется заново. Bypass не отключает эту защиту; unsafe/local-network режима нет.
 
-Default пределы: 8 секунд ожидания соединения/headers, 30 секунд полного запроса, 5 redirects, 2 MiB скачанных и 4 MiB распакованных данных, 100000 извлечённых символов. Нормализованные URL, включая redirects и результаты поиска, ограничены 4096 символами. Fetch обычно запрашивает до 30000 символов. DOM ограничен по числу узлов и глубине, очень длинные строки сокращаются. Параллельность — 3 web requests, process rate — до 120/min с интервалом между стартами, turn budget — 24 calls/requests. Ctrl+C отменяет ожидание и socket текущего запроса. [Все настройки](configuration.md#native-web).
+Default пределы текстового Fetch: 8 секунд ожидания соединения/headers, 30 секунд полного запроса, 5 redirects, 2 MiB скачанных и 4 MiB распакованных данных, 100000 извлечённых символов. Нормализованные URL, включая redirects и результаты поиска, ограничены 4096 символами. Fetch обычно запрашивает до 30000 символов. DOM ограничен по числу узлов и глубине, очень длинные строки сокращаются. Параллельность — 3 web requests, process rate — до 120/min с интервалом между стартами, turn budget — 24 calls/requests. Ctrl+C отменяет ожидание и socket текущего запроса. [Все настройки](configuration.md#native-web).
 
 Web policy относится к native Web tools, не является OS firewall и не изменяет отдельные полномочия shell/MCP.
 
@@ -109,4 +109,4 @@ chisel web configure --disable
 | `WEB_RATE_LIMITED`, `WEB_REQUEST_LIMIT` | Продолжите с собранными источниками, повторите позже или выберите собственный Brave; лимиты Exa/Parallel/Brave учитываются отдельно |
 | `WEB_PROTOCOL_ERROR` | Ответ сервера повреждён/оборван или backend вернул неверный JSON |
 
-Fetch не запускает Chromium, Playwright, login forms или JavaScript. Корпоративные HTTP/HTTPS proxy, дополнительные CA и scoped mTLS поддерживаются: [настройка](network.md). Web использует CONNECT к проверенному IP, а не доверяет proxy повторное разрешение model-selected hostname. Proxy, допускающий CONNECT только к именам хостов, должен разрешить проверенные публичные IP; небезопасного fallback с повторным DNS нет. SOCKS, NTLM/Kerberos и PDF не поддерживаются.
+Fetch не запускает Chromium, Playwright, login forms или JavaScript. Корпоративные HTTP/HTTPS proxy, дополнительные CA и scoped mTLS поддерживаются: [настройка](network.md). Web использует CONNECT к проверенному IP, а не доверяет proxy повторное разрешение model-selected hostname. Proxy, допускающий CONNECT только к именам хостов, должен разрешить проверенные публичные IP; небезопасного fallback с повторным DNS нет. SOCKS и NTLM/Kerberos не поддерживаются. Fetch не извлекает текст PDF; сам файл можно сохранить через [web_download](downloads.md).

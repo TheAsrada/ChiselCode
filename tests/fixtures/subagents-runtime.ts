@@ -159,9 +159,7 @@ const server = Bun.serve({
       // Hold on explicit events, not an assumption about relative disk/network speed.
       markChildRequest();
       await foregroundHeld;
-      assert.ok(
-        (body.max_completion_tokens ?? body.max_tokens ?? Infinity) <= 2048,
-      );
+      assert.ok((body.max_completion_tokens ?? body.max_tokens) === 4096);
       assert.ok(
         !body.tools?.some((tool) =>
           /submit_|git_commit|worktree|create_skill/.test(tool.function.name),

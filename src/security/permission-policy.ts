@@ -38,6 +38,19 @@ export class PermissionPolicy {
     effect: string,
     approvalMode = this.approvalMode,
   ): PermissionDecision {
+    if (request.network && effect !== "external_read") {
+      const network = this.decide(request, "external_read", approvalMode);
+      const write = this.decide(
+        { ...request, network: undefined },
+        effect,
+        approvalMode,
+      );
+      return network === "deny" || write === "deny"
+        ? "deny"
+        : network === "ask" || write === "ask"
+          ? "ask"
+          : "allow";
+    }
     if (request.network) {
       const current = networkDecision(
         request.network,

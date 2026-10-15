@@ -98,7 +98,7 @@ export const SessionRuntimeSchema = z.object({
           }),
           z.object({
             type: z.literal("web"),
-            operation: z.enum(["search", "fetch"]),
+            operation: z.enum(["search", "fetch", "download"]),
           }),
           z.object({
             type: z.literal("mcp"),

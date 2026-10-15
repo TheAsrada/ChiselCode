@@ -8,6 +8,7 @@
 
 | Возможность | Справка | Материалы реализации |
 | --- | --- | --- |
+| Скачивание и контекст помощников | [Скачать файл](../downloads.md) · [Помощники](../subagents.md) | [Реализация и проверки](reports/internet-subagents.md) |
 | Внешние расширения | [Подключение и доверие](../extensions.md) | [Loader/SDK: реализация и проверки](reports/external-extension-loader.md) |
 | Пакеты расширений | [Установка и версии](../extensions.md) | [Транзакции, leases и проверки](reports/extension-packages.md) |
 | Настройки расширений | [Каталог и действия](../extensions.md#настройки--расширения) | [Интеграция обеих оболочек и кадры](reports/extension-settings.md) |

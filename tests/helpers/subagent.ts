@@ -47,10 +47,9 @@ export function childFixture(
     ],
     spend: emptySpend(),
     attempts: [],
-    consumption: { accountedTokens: 0, tools: 0, iterations: 0 },
+    consumption: { tools: 0, iterations: 0 },
     limits: {
       deadlineMs: SUBAGENT_LIMITS.deadlineMs,
-      tokens: SUBAGENT_LIMITS.childTokens,
       iterations: 12,
       attempts: 24,
       tools: 100,

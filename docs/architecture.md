@@ -80,6 +80,8 @@ Manager разделяет lifecycle соединения и cancellation каж
 
 `WebToolProvider` регистрирует `web_search` и `web_fetch` через общий ToolCatalog. Их effect — `external_read`, permission — `network`, workspaceAccess — `none`. Поэтому Plan разрешает их, read scheduler запускает параллельно, а ожидание сети не удерживает workspace lock. AgentRuntime и UI не содержат HTTP-кода.
 
+Встроенный `web_download` того же provider имеет effect `workspace_write`: PermissionPolicy пересекает сетевое разрешение Fetch с разрешением записи, Plan/readonly не получают handler. SafeWebHttpClient передаёт поток в core sink с backpressure; общий deadline включает не более трёх попыток и Retry-After. Каталоги Desktop/Downloads разрешаются через Windows Known Folder API, Foundation или XDG, а не по предположению модели. Проверенный staging публикуется под короткими destination lease и межпроцессным lock: hard link без перезаписи либо rename с проверкой прежней revision. Сеть не удерживает workspace/Git lease; обычный shell сохраняет свою защиту. [Скачивание файлов и ограничения](downloads.md).
+
 `ExaSearchBackend` и `ParallelSearchBackend` используют общий `HostedMcpSearchClient`: официальный SDK/Streamable HTTP согласует протокол и вызывает только фиксированный search tool через SafeWebHttpClient. SDK не может сменить endpoint, выполнить иной tool или получить автоматический sampling/elicitation. Адаптеры отдельно валидируют payload и нормализуют title/URL/domain/snippet; schema сервера и protocol envelopes не попадают в каталог модели. Parallel использует только `web_search`, страницы читает native fetch.
 
 `AutoSearchBackend` — обычный WebSearchBackend с фиксированной цепочкой Exa → Parallel или Brave → Exa → Parallel при наличии ключа. В tool preview объявлены все кандидаты. PermissionPolicy выдаёт capability только для перечисленных и разрешённых hosts, повторно проверяя deny перед соединением. Роутер использует эти destinations, делит единый timeout между попытками и пробует каждый сервис не более одного раза при quota/outage/HTTP 401 или неверном результате/отсутствующей search capability. Для последнего RuntimeError содержит доверенную локальную phase; никакие повреждённые данные не становятся evidence. Deny, HTTP 403, SSRF, смена protocol endpoint, отмена и shared limits не вызывают failover. Result сохраняет реальный provider и routing.attempted; успешный пустой результат не меняет сервис. Явный provider не использует этот роутер.
@@ -94,8 +96,11 @@ flowchart TD
   Policy --> Web[WebToolProvider]
   Web --> Search[WebSearchBackend: Auto / Exa / Parallel / Brave]
   Web --> Fetch[WebFetchService: session cache]
+  Web --> Download[Core web_download: streamed staging]
   Search --> HTTP[SafeWebHttpClient]
   Fetch --> HTTP
+  Download --> HTTP
+  Download --> Publish[Verified SHA-256 / destination lease / atomic publish]
   HTTP --> URL[UrlPolicy: DNS and IP validation]
   HTTP --> Network[Shared networkRequest: proxy / CA / scoped mTLS]
   Fetch --> Extract[LinkeDOM / Readability / bounded Markdown]

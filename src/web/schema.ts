@@ -44,6 +44,13 @@ export const WebLimitsSchema = z
   .strictObject({
     connectTimeoutMs: z.number().int().min(100).max(30000).default(8000),
     requestTimeoutMs: z.number().int().min(100).max(60000).default(30000),
+    downloadTimeoutMs: z.number().int().min(100).max(300000).default(120000),
+    maxDownloadBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(1024 * 1024 * 1024)
+      .default(128 * 1024 * 1024),
     maxRedirects: z.number().int().min(0).max(10).default(5),
     maxResponseBytes: z
       .number()
@@ -64,6 +71,8 @@ export const WebLimitsSchema = z
   .default(() => ({
     connectTimeoutMs: 8000,
     requestTimeoutMs: 30000,
+    downloadTimeoutMs: 120000,
+    maxDownloadBytes: 128 * 1024 * 1024,
     maxRedirects: 5,
     maxResponseBytes: 2 * 1024 * 1024,
     maxDecompressedBytes: 4 * 1024 * 1024,
@@ -101,6 +110,8 @@ export const WebConfigSchema = z
     limits: {
       connectTimeoutMs: 8000,
       requestTimeoutMs: 30000,
+      downloadTimeoutMs: 120000,
+      maxDownloadBytes: 128 * 1024 * 1024,
       maxRedirects: 5,
       maxResponseBytes: 2 * 1024 * 1024,
       maxDecompressedBytes: 4 * 1024 * 1024,

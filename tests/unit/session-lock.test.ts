@@ -1,8 +1,67 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withLock } from "../../src/sessions/lock.js";
+
+test("lock cancellation leaves FIFO intact and can interrupt an OS-visible wait", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-lock-cancel-"));
+  const path = join(root, "state");
+  let release!: () => void, entered!: () => void;
+  const ready = new Promise<void>((done) => {
+    entered = done;
+  });
+  const barrier = new Promise<void>((done) => {
+    release = done;
+  });
+  const first = withLock(path, async () => {
+    entered();
+    await barrier;
+  });
+  try {
+    await ready;
+    const localAbort = new AbortController();
+    const local = withLock(
+      path,
+      async () => {
+        throw new Error("Cancelled local writer entered");
+      },
+      localAbort.signal,
+    );
+    localAbort.abort();
+    await expect(local).rejects.toMatchObject({ code: "CANCELLED" });
+    let nextEntered = false;
+    const next = withLock(path, async () => {
+      nextEntered = true;
+    });
+    await Bun.sleep(25);
+    expect(nextEntered).toBe(false);
+    release();
+    await first;
+    await next;
+    expect(nextEntered).toBe(true);
+    await mkdir(`${path}.lock`);
+    await writeFile(join(`${path}.lock`, "owner"), "separate-writer");
+    const diskAbort = new AbortController();
+    const disk = withLock(
+      path,
+      async () => {
+        throw new Error("Cancelled durable writer entered");
+      },
+      diskAbort.signal,
+    );
+    await Bun.sleep(25);
+    diskAbort.abort();
+    await expect(disk).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(await readFile(join(`${path}.lock`, "owner"), "utf8")).toBe(
+      "separate-writer",
+    );
+  } finally {
+    release();
+    await first;
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("concurrent local writers preserve FIFO and release only their owned durable lock", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-lock-fifo-"));

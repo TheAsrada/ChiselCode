@@ -137,9 +137,7 @@ const server = Bun.serve({
     requests.push(body);
     const system = String(body.messages[0]?.content);
     if (system.includes("Поручение выполняется отдельным помощником.")) {
-      assert.ok(
-        (body.max_completion_tokens ?? body.max_tokens ?? Infinity) <= 2048,
-      );
+      assert.ok((body.max_completion_tokens ?? body.max_tokens) === 4096);
       assert.ok(
         !body.tools?.some((tool) =>
           /submit_|git_commit|worktree|create_skill/.test(tool.function.name),

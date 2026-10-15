@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { RuntimeError } from "../../runtime/errors.js";
 import { executeSubagentPlan } from "../../subagents/capability.js";
+import { subagentOutput } from "../../subagents/output.js";
 import type { SubagentService } from "../../subagents/service.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ChiselExtension } from "../contracts.js";
@@ -29,7 +30,6 @@ const submit = z
     limits: z
       .object({
         deadlineMs: z.number().int().positive().optional(),
-        tokens: z.number().int().positive().optional(),
         iterations: z.number().int().positive().optional(),
         attempts: z.number().int().positive().optional(),
         tools: z.number().int().positive().optional(),
@@ -202,7 +202,7 @@ export function createSubagentExtension(
           if (output === undefined)
             throw new Error("Control action cannot start a task");
           return {
-            output: JSON.stringify(output),
+            output: subagentOutput(input.action, output),
             details: { subagents: output, subagentAction: input.action },
           };
         },

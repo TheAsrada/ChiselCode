@@ -75,8 +75,6 @@ export const SubagentDescriptorSchema = z.object({
       z.object({
         id: z.string(),
         purpose: z.enum(["generation", "compaction", "count_tokens"]),
-        reserved: z.number().nonnegative(),
-        accounted: z.number().nonnegative(),
         usage: SessionUsageSchema.optional(),
         usageSource: z.enum(["observed", "partial", "unknown"]),
         completed: z.boolean(),
@@ -84,13 +82,11 @@ export const SubagentDescriptorSchema = z.object({
     )
     .max(24),
   consumption: z.object({
-    accountedTokens: z.number().nonnegative(),
     tools: z.number().int().nonnegative(),
     iterations: z.number().int().nonnegative(),
   }),
   limits: z.object({
     deadlineMs: z.number().int().min(1).max(600000),
-    tokens: z.number().int().min(1).max(100000),
     iterations: z.number().int().min(1).max(12),
     attempts: z.number().int().min(1).max(24),
     tools: z.number().int().min(1).max(100),

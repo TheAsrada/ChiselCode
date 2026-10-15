@@ -6,7 +6,6 @@ import { SecretRedactor } from "../../src/security/redaction.js";
 import {
   boundedChildProvider,
   ChildBudget,
-  DelegationEnvelope,
 } from "../../src/subagents/budget.js";
 import type { ProviderRequest, StreamEvent } from "../../src/types/domain.js";
 import { childFixture } from "../helpers/subagent.js";
@@ -18,51 +17,58 @@ const request = (): ProviderRequest => ({
   tools: [],
   maxTokens: 20,
 });
-test("parallel token reservations are atomic and ambiguous spend is retained; observed receipts deduplicate", async () => {
-  const group = new DelegationEnvelope(100);
-  const a = childFixture();
-  const b = childFixture();
-  const first = new ChildBudget(
-    a,
-    group,
-    new AbortController(),
-    async () => {},
-  );
-  const second = new ChildBudget(
-    b,
-    group,
-    new AbortController(),
-    async () => {},
-  );
-  const attempt = await first.reserve({ ...request(), maxTokens: 70 });
-  expect(group.used).toBe(attempt.reserved);
-  await expect(second.reserve({ ...request(), maxTokens: 70 })).rejects.toThrow(
-    "бюджет",
-  );
-  await first.complete(attempt);
-  expect(group.used).toBe(attempt.reserved);
-  expect(a.spend.unknownUsage).toBe(true);
-  const third = new ChildBudget(
-    childFixture(),
-    new DelegationEnvelope(10000),
-    new AbortController(),
-    async () => {},
-  );
-  const observed = await third.reserve(request());
-  await third.complete(
-    observed,
-    { inputTokens: 12, outputTokens: 2 },
-    true,
-    builtinDefinitions[0],
-  );
-  await third.complete(
-    observed,
-    { inputTokens: 12, outputTokens: 2 },
-    true,
-    builtinDefinitions[0],
-  );
-  expect(third.record.spend.usage.inputTokens).toBe(12);
-  expect(third.record.consumption.accountedTokens).toBe(14);
+test("child requests have no token quotas; unknown and observed spend remain honest and idempotent", async () => {
+  const record = childFixture();
+  const budget = new ChildBudget(record, new AbortController(), async () => {});
+  const large = {
+    ...request(),
+    system: "Контекст ".repeat(30000),
+    maxTokens: 64000,
+  };
+  const unknown = await budget.start(large);
+  expect(large.maxTokens).toBe(64000);
+  expect(unknown).not.toHaveProperty("reserved");
+  await budget.complete(unknown);
+  expect(record.spend.unknownUsage).toBe(true);
+  const attempt = await budget.start(request());
+  const usage = { inputTokens: 1000000, outputTokens: 100000 };
+  await budget.complete(attempt, usage, true, builtinDefinitions[0]);
+  await budget.complete(attempt, usage, true, builtinDefinitions[0]);
+  expect(record.spend.usage.inputTokens).toBe(1000000);
+  expect(record.spend.usage.outputTokens).toBe(100000);
+  expect(record.spend.unknownUsage).toBe(true);
+  expect(() => budget.assert()).not.toThrow();
+});
+test("child metadata keeps actual provider limits and cancellation does not wait for a pending lookup", async () => {
+  const abort = new AbortController();
+  const provider = boundedChildProvider({
+    adapter: {
+      providerId: "openai",
+      async getCapabilities(model) {
+        if (model === "pending") return new Promise(() => {});
+        return {
+          contextWindow: 262144,
+          maxOutputTokens: 65536,
+          tokenCounting: "local_estimate",
+        };
+      },
+      async *streamChat() {},
+    },
+    definition: builtinDefinitions[0]!,
+    capabilities: { contextWindow: 8192, tokenCounting: "local_estimate" },
+    budget: new ChildBudget(childFixture(), abort, async () => {}),
+    signal: abort.signal,
+    deadline: Date.now() + 10000,
+    redactor: new SecretRedactor(),
+    beforeRequest: async () => {},
+  });
+  expect(await provider.getCapabilities!("actual")).toMatchObject({
+    contextWindow: 262144,
+    maxOutputTokens: 65536,
+  });
+  const pending = provider.getCapabilities!("pending");
+  abort.abort();
+  await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
 });
 for (const protocol of ["openai", "anthropic"] as const)
   test(`real ${protocol} HTTP attempts include bounded retries, split-secret redaction and strict terminal validation`, async () => {
@@ -157,12 +163,7 @@ for (const protocol of ["openai", "anthropic"] as const)
         adapter,
         definition: builtinDefinitions.find((def) => def.id === protocol)!,
         capabilities: { tokenCounting: "local_estimate" },
-        budget: new ChildBudget(
-          record,
-          new DelegationEnvelope(10000),
-          abort,
-          async () => {},
-        ),
+        budget: new ChildBudget(record, abort, async () => {}),
         signal: abort.signal,
         deadline: Date.now() + 10000,
         redactor,

@@ -39,10 +39,23 @@ export async function smokeSubagentCli(command: string, prefix: string[]) {
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
+      if (request.url.endsWith("/models"))
+        return Response.json({
+          data: [
+            {
+              id: "fixture-model",
+              context_window: 131072,
+              max_output_tokens: 4096,
+            },
+          ],
+        });
       const body = (await request.json()) as {
         messages: Array<{ role: string; content: string }>;
         tools: Array<{ function: { name: string } }>;
+        max_tokens?: number;
+        max_completion_tokens?: number;
       };
+      assert.equal(body.max_tokens ?? body.max_completion_tokens, 4096);
       assert.ok(
         String(body.messages[0]?.content).includes(
           "Поручение выполняется отдельным помощником.",

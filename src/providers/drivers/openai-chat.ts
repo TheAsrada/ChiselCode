@@ -263,6 +263,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         message: formatOpenAIError(error),
         code: failure.code,
         status: failure.status,
+        retryAfterMs: failure.retryAfterMs,
         usage: observedUsage,
       };
     }

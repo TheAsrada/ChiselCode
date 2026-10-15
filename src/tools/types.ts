@@ -30,7 +30,7 @@ export interface ToolSpec extends Omit<ToolDefinition, "requiresApproval"> {
 
 export type McpToolCategory = "read" | "write" | "destructive" | "unknown";
 export type ToolSource =
-  | { type: "web"; operation: "search" | "fetch" }
+  | { type: "web"; operation: "search" | "fetch" | "download" }
   | { type: "local" }
   | { type: "skill" }
   | {

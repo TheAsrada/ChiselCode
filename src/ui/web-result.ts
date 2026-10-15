@@ -10,6 +10,8 @@ export function webResultSummary(
   if (!web || typeof web !== "object") return;
   const data = web as Record<string, unknown>;
   const suffix = result.artifact ? " · полный текст в artifact" : "";
+  if (data.action === "download")
+    return `Файл сохранён · ${Number(data.bytes ?? 0).toLocaleString("ru-RU")} байт · ${terminalSafeText(String(data.contentType ?? ""), 160)}\n  ${terminalSafeText(String(data.path ?? ""), 4096)}\n  SHA-256: ${terminalSafeText(String(data.sha256 ?? ""), 64)}`;
   if (data.action === "search" && Array.isArray(data.results)) {
     const routing =
       data.routing && typeof data.routing === "object"

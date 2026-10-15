@@ -42,6 +42,7 @@ test("explicit Parallel is keyless even with a saved Brave credential; Auto stay
   expect(handler.spec.effect).toBe("external_read");
   expect(handler.spec.permission).toBe("network");
   expect((await provider.listTools()).map((spec) => spec.name)).toEqual([
+    "web_download",
     "web_search",
     "web_fetch",
   ]);

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { requestTokens } from "../context/tokenizer.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { abortable } from "../extensions/lifecycle.js";
 import { addTokenUsage, emptySpend } from "../models/accounting.js";
 import { StreamingModelRedactor } from "../models/redaction.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
@@ -17,43 +18,16 @@ import type {
 import { SUBAGENT_LIMITS } from "./config.js";
 import type { SubagentAttempt, SubagentRecord } from "./contracts.js";
 
-export class DelegationEnvelope {
-  readonly accounts = new Map<string, number>();
-  constructor(public ceiling: number) {}
-  get used(): number {
-    return [...this.accounts.values()].reduce((a, b) => a + b, 0);
-  }
-  reserve(id: string, amount: number): void {
-    if (this.used + amount > this.ceiling)
-      throw new RuntimeError(
-        "SUBAGENT_BUDGET_EXHAUSTED",
-        "Общий бюджет помощников исчерпан.",
-      );
-    this.accounts.set(id, (this.accounts.get(id) ?? 0) + amount);
-  }
-  reconcile(id: string, before: number, after: number): void {
-    this.accounts.set(
-      id,
-      Math.max(0, (this.accounts.get(id) ?? 0) - before + after),
-    );
-  }
-}
 export class ChildBudget {
   private ended = false;
   constructor(
     readonly record: SubagentRecord,
-    private readonly envelope: DelegationEnvelope,
     private readonly abort: AbortController,
     private readonly checkpoint: () => Promise<void>,
   ) {}
   assert(): void {
     cancelled(this.abort.signal);
-    if (
-      this.ended ||
-      this.record.consumption.accountedTokens >= this.record.limits.tokens ||
-      this.envelope.used > this.envelope.ceiling
-    )
-      this.exhaust("Бюджет помощника исчерпан.");
+    if (this.ended) this.exhaust("Лимит операций помощника исчерпан.");
   }
   private exhaust(message: string): never {
     this.ended = true;
@@ -67,46 +41,18 @@ export class ChildBudget {
     this.record.consumption.tools++;
     await this.checkpoint();
   }
-  async reserve(request: ProviderRequest): Promise<SubagentAttempt> {
+  async start(request: ProviderRequest): Promise<SubagentAttempt> {
     this.assert();
     if (this.record.attempts.length >= this.record.limits.attempts)
       this.exhaust("Лимит запросов модели исчерпан.");
-    const input = requestTokens(
-      request.system,
-      request.messages,
-      request.tools,
-    );
-    if (input > SUBAGENT_LIMITS.inputTokens)
-      this.exhaust(
-        "Контекст помощника не помещается в допустимый ввод модели.",
-      );
-    const remaining = Math.min(
-      this.record.limits.tokens - this.record.consumption.accountedTokens,
-      this.envelope.ceiling - this.envelope.used,
-    );
-    if (input + 1 > remaining)
-      this.exhaust("Не хватает бюджета для следующего запроса модели.");
-    request.maxTokens = Math.max(
-      1,
-      Math.min(
-        request.maxTokens ?? SUBAGENT_LIMITS.outputTokens,
-        SUBAGENT_LIMITS.outputTokens,
-        remaining - input,
-      ),
-    );
-    const reserved = input + request.maxTokens;
-    this.envelope.reserve(this.record.id, reserved);
     const attempt: SubagentAttempt = {
       id: randomUUID(),
       purpose:
         request.purpose === "context_summary" ? "compaction" : "generation",
-      reserved,
-      accounted: reserved,
       usageSource: "unknown",
       completed: false,
     };
     this.record.attempts.push(attempt);
-    this.record.consumption.accountedTokens += reserved;
     this.record.spend.unknownUsage = true;
     this.record.spend.unknownCost = true;
     await this.checkpoint();
@@ -123,15 +69,6 @@ export class ChildBudget {
     if (usage) {
       attempt.usage = { ...usage };
       attempt.usageSource = observed ? "observed" : "partial";
-      const accounted =
-        (usage.contextInputTokens ??
-          usage.inputTokens +
-            (usage.cacheReadTokens ?? 0) +
-            (usage.cacheCreationTokens ?? 0)) + usage.outputTokens;
-      const before = attempt.accounted;
-      attempt.accounted = accounted;
-      this.record.consumption.accountedTokens += accounted - before;
-      this.envelope.reconcile(this.record.id, before, accounted);
     }
     const spend = emptySpend();
     for (const current of this.record.attempts) {
@@ -152,11 +89,6 @@ export class ChildBudget {
     }
     this.record.spend = spend;
     await this.checkpoint();
-    if (
-      this.record.consumption.accountedTokens > this.record.limits.tokens ||
-      this.envelope.used > this.envelope.ceiling
-    )
-      this.exhaust("Провайдер сообщил расход сверх оставшегося бюджета.");
   }
 }
 
@@ -173,17 +105,13 @@ export function boundedChildProvider(input: {
 }): ProviderAdapter {
   return {
     providerId: input.adapter.providerId,
-    getCapabilities: async () => ({
+    getCapabilities: async (model) => ({
       ...input.capabilities,
+      ...(await abortable(
+        () => input.adapter.getCapabilities?.(model),
+        input.signal,
+      )),
       tokenCounting: "local_estimate",
-      maxInputTokens: Math.min(
-        input.capabilities.maxInputTokens ?? Infinity,
-        SUBAGENT_LIMITS.inputTokens,
-      ),
-      maxOutputTokens: Math.min(
-        input.capabilities.maxOutputTokens ?? Infinity,
-        SUBAGENT_LIMITS.outputTokens,
-      ),
     }),
     // Local counting avoids an unbounded auxiliary SDK request; accounting remains estimated.
     async *streamChat(raw) {
@@ -206,7 +134,7 @@ export function boundedChildProvider(input: {
             validateTerminal: true,
           },
         };
-        const attempt = await input.budget.reserve(request);
+        const attempt = await input.budget.start(request);
         const redaction = new StreamingModelRedactor(input.redactor);
         let usage: TokenUsage | undefined;
         let observed = false;
@@ -214,7 +142,6 @@ export function boundedChildProvider(input: {
         let terminal:
           | Extract<StreamEvent, { type: "turn_complete" }>
           | undefined;
-        let bytes = 0;
         let error: Extract<StreamEvent, { type: "error" }> | undefined;
         try {
           for await (const event of input.adapter.streamChat(request)) {
@@ -232,12 +159,6 @@ export function boundedChildProvider(input: {
             }
             if (event.type === "text_delta") {
               delivered = true;
-              bytes += Buffer.byteLength(event.text, "utf8");
-              if (bytes > SUBAGENT_LIMITS.resultBytes)
-                throw new ProviderError(
-                  "output_truncated",
-                  "Ответ помощника превысил лимит текста.",
-                );
               const text = redaction.push(event.text);
               if (text) yield { type: "text_delta", text };
             } else if (event.type === "turn_complete") {
@@ -250,14 +171,6 @@ export function boundedChildProvider(input: {
                 ...event,
                 message: input.redactor.value(event.message),
               };
-              if (
-                Buffer.byteLength(JSON.stringify(terminal.message), "utf8") >
-                128 * 1024
-              )
-                throw new ProviderError(
-                  "output_truncated",
-                  "Ответ с инструментами слишком большой.",
-                );
             } else if (event.type === "tool_call") {
               if (
                 Buffer.byteLength(JSON.stringify(event.call.input), "utf8") >
@@ -289,8 +202,13 @@ export function boundedChildProvider(input: {
               retry < 2 &&
               error.status &&
               (error.status === 429 || error.status >= 500)
-            )
-              continue;
+            ) {
+              const wait = error.retryAfterMs ?? 250 * 2 ** retry;
+              if (wait < input.deadline - Date.now()) {
+                await delay(wait, undefined, { signal: request.signal });
+                continue;
+              }
+            }
             const partial = redaction.flush();
             if (partial) yield { type: "text_delta", text: partial };
             yield { ...error, message: input.redactor.text(error.message) };
