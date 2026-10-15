@@ -62,7 +62,9 @@ export async function userFolder(
           "powershell.exe",
         ),
         ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
-        { signal, timeout: 5000, windowsHide: true, maxBuffer: 16384 },
+        // The first Windows PowerShell/C# startup may take several seconds on
+        // a cold host. This read-only OS query stays bounded and cancellable.
+        { signal, timeout: 15000, windowsHide: true, maxBuffer: 16384 },
       )
     ).stdout.trim();
   } else if (process.platform === "darwin") {
