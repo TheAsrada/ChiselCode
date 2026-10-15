@@ -13,6 +13,11 @@ on:
 
 permissions:
   contents: write
+  actions: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -32,20 +37,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
-      - name: Install dependencies
-        run: npm ci
-      - name: Set up external Node for LSP verification
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24.19.0"
-      - name: Prepare pinned external LSP test dependencies
-        run: bun scripts/prepare-lsp-tests.ts
-      - name: Type check
-        run: bun run typecheck
-      - name: Test
-        run: bun test
-      - name: Lint
-        run: bun run lint
       - name: Verify tag version
         shell: bash
         run: |
@@ -53,6 +44,8 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             test "$GITHUB_REF" = refs/heads/main
           fi
+      - name: Require successful native CI on exact release source
+        run: bun scripts/verify-release-ci.ts
 
   installer-windows:
     name: Build Windows installer
@@ -76,6 +69,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist/release | Out-Null
           bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/release/chisel-windows-x64.exe
+          if ($LASTEXITCODE -ne 0) { throw "Windows binary build failed" }
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $actual = & ./dist/release/chisel-windows-x64.exe --version
+          if ($LASTEXITCODE -ne 0 -or $actual.Trim() -ne $ver) { throw "Windows binary version smoke failed" }
       - name: Ensure NSIS
         shell: pwsh
         run: |
@@ -135,6 +132,10 @@ jobs:
             mkdir -p "pkg/macos-$arch/skills"
             cp -R skills/bundled "pkg/macos-$arch/skills/"
           done
+          host_arch=$(uname -m)
+          if [ "$host_arch" = x86_64 ]; then host_arch=x64; fi
+          ver=$(node -p "require('./package.json').version")
+          test "$("pkg/macos-$host_arch/chisel" --version)" = "$ver"
       - name: Build packages
         shell: bash
         run: |
@@ -174,6 +175,7 @@ jobs:
           mkdir -p "$root/DEBIAN" "$root/usr/bin"
           bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile="$root/usr/bin/chisel"
           chmod 0755 "$root/usr/bin/chisel"
+          test "$("$root/usr/bin/chisel" --version)" = "$ver"
           mkdir -p "$root/usr/bin/skills"
           cp -R skills/bundled "$root/usr/bin/skills/"
           cat > "$root/DEBIAN/control" <<EOF
@@ -213,6 +215,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/release
+          test "$(bun dist/cli.js --version)" = "$(node -p "require('./package.json').version")"
           npm pack --pack-destination dist/release
           tar -tzf dist/release/chiselcode-*.tgz > "$RUNNER_TEMP/chisel-sdk-files.txt"
           grep -Fqx 'package/dist/extension-sdk/index.d.ts' "$RUNNER_TEMP/chisel-sdk-files.txt"

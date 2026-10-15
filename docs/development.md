@@ -38,7 +38,7 @@ bun run build
 | `bun run compile` | Исполняемый файл `dist/chisel` для текущей платформы |
 | `bun run format` | Переформатирует `src` и `tests`; изменяет файлы |
 
-Основной [CI](../.github/workflows/ci.yml) запускается для push в `main` и PR в `main`, с матрицей Windows, macOS и Linux. Biome в текущем скрипте не проверяет Markdown: ссылки и примеры документации проверяйте отдельно.
+Основной [CI](../.github/workflows/ci.yml) запускается для push в `main`, PR в `main` и вручную, с матрицей Windows, macOS и Linux. На каждой ОС `Quality`, `Packaging` и `Real Auto LSP` работают параллельно. Полный source-набор выполняется один раз; installed/compiled smoke проверяют поставку. Локально начинайте с затронутых тестов и расширяйте проверки при необходимости. Подробности и карта сохранённого покрытия — [порядок проверок](contributors/testing.md). Biome не проверяет Markdown: ссылки и примеры документации проверяйте отдельно.
 
 ## Сборка самостоятельного исполняемого файла
 
@@ -102,12 +102,12 @@ bun tests/fixtures/command-packaging.ts
 
 ## Релизы
 
-Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Дождитесь успешных шести Quality/Real Auto LSP jobs на этом точном коммите. Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
+Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Дождитесь успешных девяти Quality/Packaging/Real Auto LSP jobs на этом точном коммите по [порядку проверок](contributors/testing.md). Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
 
 [Release workflow](../.github/workflows/release.yml) запускается по push тега `v*` или вручную из `main` с параметром `tag`:
 
-1. Устанавливает зависимости через `npm ci`, проверяет типы, тесты и lint.
-2. Сверяет тег с версией `package.json`.
+1. Сверяет тег с версией `package.json` и требует успешную native CI-матрицу на точном SHA checkout тега через GitHub API. Повторный полный source-набор не запускается.
+2. В сборочных jobs устанавливает зависимости через `npm ci`; проверяет запуск и версию собранных бинарников на ОС runner и наличие SDK declarations.
 3. Отдельными заданиями собирает EXE, два PKG, DEB и npm-пакет CLI с SDK расширений.
 4. Создаёт черновик GitHub Release и загружает четыре установщика и `chiselcode-<версия>.tgz`. Заметки берёт из секции версии в `CHANGELOG.md`, а при её отсутствии генерирует автоматически.
 5. Проверяет наличие всех пяти файлов и публикует готовый релиз. Отдельные engine binaries и служебные архивы концепта Desktop не собираются и не загружаются этим workflow.

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
 
-// Test-only linked composition: ordinary package/release builds never contain this fixture.
+// Test-only UI/bundle composition: ordinary package/release builds never contain this fixture.
+// CLI scenarios run once per shipped format in the Packaging job, not in this UI harness.
 const root = resolve(import.meta.dir, "../..");
 const staging = await mkdtemp(join(tmpdir(), "chisel-command-package-"));
 const packageRoot = join(staging, "package");
@@ -192,17 +193,8 @@ try {
       ])
     ).includes(sideMarker),
   );
-  assert.ok(
-    (
-      await run(process.execPath, [
-        "tests/fixtures/side-query-cli.ts",
-        process.execPath,
-        join(distribution, "cli.js"),
-      ])
-    ).includes("Side query CLI:"),
-  );
   process.stdout.write(
-    "Installed builtin /btw CLI and parallel floating TUI scenario passed.\n",
+    "Installed builtin /btw parallel floating TUI scenario passed.\n",
   );
   process.stdout.write("Installed linked TUI command scenario passed.\n");
   assert.ok(
@@ -212,17 +204,8 @@ try {
       ])
     ).includes("Worktree TUI: real detached"),
   );
-  assert.ok(
-    (
-      await run(process.execPath, [
-        "tests/fixtures/worktree-cli.ts",
-        process.execPath,
-        join(distribution, "cli.js"),
-      ])
-    ).includes("Worktree CLI:"),
-  );
   process.stdout.write(
-    "Installed production worktree CLI/TUI with real Git/LSP passed.\n",
+    "Installed production worktree TUI with real Git/LSP passed.\n",
   );
   const lspMarker =
     "LSP Settings: Auto, custom setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
@@ -241,17 +224,8 @@ try {
       ])
     ).includes("Subagents TUI: production delegation"),
   );
-  assert.ok(
-    (
-      await run(process.execPath, [
-        "tests/fixtures/subagents-cli.ts",
-        process.execPath,
-        join(distribution, "cli.js"),
-      ])
-    ).includes("Subagents CLI:"),
-  );
   process.stdout.write(
-    "Установленный пакет: настоящий цикл помощника, правое дерево и CLI проверены.\n",
+    "Установленный пакет: настоящий цикл помощника и правое дерево проверены.\n",
   );
   assert.ok(
     (
@@ -259,15 +233,6 @@ try {
         join(distribution, "background-smoke/tui-background.js"),
       ])
     ).includes("Background Tasks TUI:"),
-  );
-  assert.ok(
-    (
-      await run(process.execPath, [
-        "tests/fixtures/background-cli.ts",
-        process.execPath,
-        join(distribution, "cli.js"),
-      ])
-    ).includes("Background Tasks CLI:"),
   );
   const uiMarker = "UI contributions: production slots";
   assert.ok(
