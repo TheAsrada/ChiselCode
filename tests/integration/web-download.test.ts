@@ -11,6 +11,7 @@ import {
 import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { gzipSync } from "node:zlib";
 import {
   DEFAULT_PROJECT_CONFIG,
   loadGlobalConfig,
@@ -107,6 +108,16 @@ async function environment(
     if (path === "/huge") {
       res.writeHead(200);
       res.end(Buffer.alloc(8192));
+      return;
+    }
+    if (path === "/gzip") {
+      const compressed = gzipSync(image);
+      res.writeHead(200, {
+        "Content-Type": "image/png",
+        "Content-Encoding": "gzip",
+        "Content-Length": compressed.length,
+      });
+      res.end(compressed);
       return;
     }
     res.writeHead(200, {
@@ -306,6 +317,37 @@ test("core streaming download verifies actual binary file, redirect, path, type,
       (await readdir(env.root)).filter((name) => name.endsWith(".download")),
     ).toEqual([]);
     await env.received;
+  } finally {
+    await env.close();
+  }
+});
+test("encoded downloads verify the decoded file and do not claim compressed wire length as saved-file progress", async () => {
+  const env = await environment();
+  try {
+    const chunks: Buffer[] = [];
+    let total: number | undefined;
+    const response = await env.client.get("https://images.example/gzip", {
+      authorization: { assertDestination() {} },
+      bodySink: {
+        maxBytes: 1000,
+        start(value) {
+          total = value;
+        },
+        async write(chunk) {
+          chunks.push(chunk);
+        },
+      },
+    });
+    expect(total).toBeUndefined();
+    expect(Buffer.concat(chunks)).toEqual(image);
+    expect(response.bytes.length).toBe(0);
+    const download = await env.download("/gzip");
+    expect(download.isError, download.output).not.toBe(true);
+    expect(await readFile(join(env.root, "image.png"))).toEqual(image);
+    expect(download.details!.web).toMatchObject({
+      bytes: image.length,
+      sha256: createHash("sha256").update(image).digest("hex"),
+    });
   } finally {
     await env.close();
   }

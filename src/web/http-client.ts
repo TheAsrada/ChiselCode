@@ -435,7 +435,9 @@ export class SafeWebHttpClient {
             const chunks: Buffer[] = [];
             let size = 0;
             options.bodySink?.start?.(
-              Number.isFinite(length) ? length : undefined,
+              encoding === "identity" && Number.isFinite(length)
+                ? length
+                : undefined,
             );
             receiver = new Writable({
               write: (chunk: Buffer, _encoding, callback) => {
