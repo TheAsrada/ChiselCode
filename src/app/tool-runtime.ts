@@ -1,3 +1,4 @@
+import type { BackgroundOwnerBinding } from "../background/service.js";
 import { backgroundServiceToken } from "../extensions/builtins/background.js";
 import { worktreeServiceToken } from "../extensions/builtins/worktrees.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
@@ -165,31 +166,31 @@ export async function createSessionToolRuntime(input: {
       ...(mcp?.redactor.knownValues() ?? []),
     ])
       redactor.add(value);
+    const backgroundBinding: BackgroundOwnerBinding = {
+      session,
+      store,
+      root: scope.workspaceRoot,
+      scope,
+      config,
+      global,
+      conversationId:
+        owner?.conversationId ?? session.subagent?.ownerId ?? session.id,
+      generation: input.approvalOwner?.generation ?? owner?.generation ?? 0,
+      signal: owner?.signal ?? signal,
+      assertAvailable: owner?.assertAvailable ?? (() => scope.assertUsable()),
+      configPath: options.configPath,
+      interactive: options.interactive === true,
+      redactor,
+      currentMode: () => session.mode ?? mode,
+      onEvent: input.onBackground,
+      ...input.backgroundOwner,
+    };
     const background = backgrounds
-      ? await backgrounds.bind({
-          session,
-          store,
-          root: scope.workspaceRoot,
-          scope,
-          config,
-          global,
-          conversationId:
-            owner?.conversationId ?? session.subagent?.ownerId ?? session.id,
-          generation: input.approvalOwner?.generation ?? owner?.generation ?? 0,
-          signal: owner?.signal ?? signal,
-          assertAvailable:
-            owner?.assertAvailable ?? (() => scope.assertUsable()),
-          configPath: options.configPath,
-          interactive: options.interactive === true,
-          redactor,
-          currentMode: () => session.mode ?? mode,
-          onEvent: input.onBackground,
-          ...input.backgroundOwner,
-        })
+      ? await backgrounds.bind(backgroundBinding)
       : undefined;
     if (backgrounds && !session.subagent)
       input.onBackgroundControls?.(
-        backgrounds.controls(session.id, owner?.generation ?? 0),
+        backgrounds.controls(session.id, backgroundBinding.generation),
       );
     const skills = loadSkills(root);
     const tools = createLocalToolRuntime(

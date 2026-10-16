@@ -81,6 +81,20 @@ bun build tests/fixtures/tui-command-contributions.ts --compile --outfile ./dist
 
 Это test-only linked build, не loader установленного CLI. Не включайте `dist/command-smoke` в публикуемый package. После `bun run build` команда `bun tests/fixtures/command-packaging.ts` собирает fixture в отдельный staging package, выполняет `npm pack`/install и тот же TUI сценарий из установленного bundle, затем из compiled binary. Этот расширенный harness запускайте отдельно при изменении TUI bundling или SDK; обычный CI и каждый релиз его не повторяют. Он не меняет production package или lockfile. На Windows compiled fixture имеет суффикс `.exe`. Command feedback остаётся UI projection; restart не запускает callback заново.
 
+## Проверка владельца фоновых задач
+
+```bash
+bun test tests/unit/background-owner.test.ts
+bun test tests/integration/background-runtime.test.ts
+CHISEL_CAPTURE_DIR=dist/background-owner-captures bun tests/fixtures/tui-background-owner.ts
+```
+
+Быстрый тест проверяет канонический root, поколение controls, конфликт одновременных подключений и отмену при чтении записей. Интеграционный файл дополнительно запускает настоящий процесс, проверяет сохранение его вывода и resource fence при подключении через ссылку, затем продолжает восстановленную сессию в OpenTUI двумя запросами к локальному model endpoint. Команда из истории запускается ровно один раз. В Windows fixture использует junction и путь в другом регистре. TXT/JSON кадр последнего ответа сохраняется в `CHISEL_CAPTURE_DIR`.
+
+Этот unit-файл входит в быстрый профиль и в платформенные проверки Native validation на Windows/macOS; интеграционный сценарий входит в полный source-набор. Проверки установленного и compiled CLI с настоящей shell-командой доступны через `bun tests/fixtures/background-cli.ts bun dist/cli.js` и `bun tests/fixtures/background-cli.ts ./dist/chisel` после соответствующей сборки. Linux-прогон не подтверждает поведение Windows: для него выполните затронутые тестовые файлы на Windows по [порядку проверок](contributors/testing.md#выбор-основной-ос-и-границы-покрытия).
+
+Диагностика shell проверяется отдельно командой `bun test tests/unit/shell-runtime.test.ts`. Файл запускает настоящий fallback executor с упавшей проверкой и сверяет полный traceback и exit code; pure-проверки CMD воспроизводят `;`, Unix pipeline и нечитаемый текст ошибки без подмены оболочки. Windows-only сценарии CMD/Python и UTF-8 выполняются только на Windows и уже входят в её Native validation.
+
 ## Проверка помощников
 
 [Внутренний контракт помощников](architecture/subagents.md) описывает привязанные к владельцу порты, дочерний runtime, ограничения и независимые записи расходов. Это внутренний linked-code API, а не внешний SDK.

@@ -5,6 +5,7 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,6 +20,7 @@ import { backgroundServiceToken } from "../../src/extensions/builtins/background
 import { defaultExtensions } from "../../src/extensions/composition.js";
 import { ExtensionHost } from "../../src/extensions/host.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
+import { SecretRedactor } from "../../src/security/redaction.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
@@ -206,6 +208,39 @@ try {
     ),
   );
   assert.equal((await controls.port.status(serverId)).state, "running");
+  // A UI/history path alias must retain the live backend, logs and resource fence.
+  const alias = join(directory, "ссылка на работающий проект");
+  await symlink(root, alias, process.platform === "win32" ? "junction" : "dir");
+  const rebound = await scope.services.get(backgroundServiceToken).bind({
+    session,
+    store,
+    scope,
+    root: alias,
+    conversationId: session.id,
+    generation: 0,
+    signal: owner.signal,
+    assertAvailable: () => scope.assertUsable(),
+    config: await loadProjectConfig(root),
+    global: await loadGlobalConfig(),
+    interactive: true,
+    redactor: new SecretRedactor(),
+    onEvent: (event) => {
+      events.push(event);
+      for (const listener of observers) listener();
+    },
+  });
+  assert.equal((await rebound.port.status(serverId)).state, "running");
+  assert.match((await rebound.port.readOutput(serverId)).text, /READY/);
+  const stillBusy = await tools.executor.execute({
+    id: "alias-keeps-resource-fence",
+    name: "read_file",
+    input: { path: "server.cjs" },
+  });
+  assert.equal(
+    stillBusy.errorCode,
+    "BACKGROUND_RESOURCE_BUSY",
+    stillBusy.output,
+  );
   const liveStatus = await tools.executor.execute({
     id: "live-status-checkpoint",
     name: "ext:builtin.background:status",

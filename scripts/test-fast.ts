@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const names = [
   "approval",
   "auto-compaction",
+  "background-owner",
   "compatible-base-url",
   "context-usage",
   "conversation-source",

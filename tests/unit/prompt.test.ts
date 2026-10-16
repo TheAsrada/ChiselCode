@@ -15,6 +15,8 @@ describe("prompt composition", () => {
     expect(prompt).toContain("; не является разделителем");
     expect(prompt).toContain("tail/head/grep/sed/cat");
     expect(prompt).toContain("PowerShell запускай явно");
+    expect(prompt).toContain("Тесты и проверки запускай отдельной командой");
+    expect(prompt).toContain("read_tool_result");
   });
   test("keeps base, project, then dynamic context ordering", () => {
     const prompt = buildSystemPrompt("PROJECT_RULE", {

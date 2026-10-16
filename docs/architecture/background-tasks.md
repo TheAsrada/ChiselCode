@@ -4,6 +4,14 @@
 
 `BackgroundTaskService` принадлежит application/repository composition. `builtin.background` предоставляет инструменты управления, `/tasks`, форматтеры и context provider; scheduler и процессы принадлежат core. Lookup, activation, autocomplete, Settings и render не запускают команды. Runtime AI-помощников остаётся отдельным.
 
+## Идентичность и подключение владельца
+
+Владелец определяется ID сессии, conversation ID, поколением и каноническим root. `bind` приводит входной путь через общий `canonicalWorkspaceRoot` и проверяет соответствие `WorkspaceExtensionScope`: регистр Windows, разделители, symlink и junction одного каталога не создают нового владельца. Восстановление OpenTUI передаёт root открытого scope; следующий runtime и controls используют то же поколение. Смена пути к той же папке не останавливает backend и не пересоздаёт записи задач.
+
+Подключения сериализуются отдельно по корневому ID сессии, включая подключения её помощников. Проверка существующего владельца, чтение записей и публикация нового владельца составляют одну последовательную операцию. После асинхронного чтения повторно проверяются signal, доступность scope и сервиса: отменённое восстановление не регистрирует владельца. Ошибка подключения не блокирует следующую попытку.
+
+Другая папка, conversation ID или поколение живого владельца по-прежнему отклоняются с `BACKGROUND_OWNER_CLOSED`. Наличие только завершённых записей не разрешает чужой вкладке захватить владельца; обычное закрытие выполняет прежний cleanup. Приведение путей не снимает resource fences, не даёт права убивать сохранённые PID и не перезапускает команды.
+
 ## Принятие и исполнение
 
 `run_shell` по умолчанию выполняется foreground. Необязательные поля: `background`, `taskKind`, `label`, `deadlineMs`, `outputBytes`, `readySignal`, `targetWorktreeId`, `retryOf`. Произвольный cwd вне разрешённого root или чужая копия не выбираются аргументом.
@@ -25,6 +33,8 @@ Owned detached target выбирается через P2.1 worktree port, от c
 ## Общий процессный backend
 
 Foreground и background используют `ManagedProcess` и одинаковый approved shell path. В packaged/compiled приложении supervisor исполняется встроенным Bun runtime через `-e`; это helper процесса, не второй model/application executor и не daemon. Stdin команды закрыт; stdout/stderr backpressured, без unlimited execa `all` buffer.
+
+Foreground и fallback `run_shell` передают диагностический текст без фильтра по словам `error`/`failed`: traceback, строки исходника и итог тестов остаются вместе. Ограничение inline-результата и перенос большого вывода выполняет общий `ToolResultStore`. Подсказка CMD дополняет результат, не переписывает команду, не повторяет её и не меняет реальный exit code; для Unix-утилит она учитывает команду и границы pipeline, а не только язык сообщения ОС.
 
 Core фиксирует `ShellRuntime` до spawn: CMD на Windows, `/bin/sh` на Linux/macOS. `collectDynamicContext` и описание `run_shell` сообщают модели тот же диалект, включая child loop. Windows backend запускает CMD с `/d /s /c`, отключая AutoRun; Python получает UTF-8 defaults. Неверный `;`/отсутствующая команда объясняются после настоящего failed result; replay и подмена exit code отсутствуют.
 

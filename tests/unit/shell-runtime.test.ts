@@ -2,8 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_PROJECT_CONFIG } from "../../src/config/load.js";
 import { hostShell, shellFailureHint } from "../../src/processes/shell.js";
+import { ApprovalGate } from "../../src/security/approval.js";
 import { HostSandboxExecutor } from "../../src/security/sandbox.js";
+import { createSession } from "../../src/sessions/store.js";
+import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import { quoteShellArg } from "../helpers/shell.js";
 
 const roots: string[] = [];
@@ -110,3 +114,63 @@ test("CMD errors explain semicolons and missing programs without interpreting qu
     shellFailureHint("python test.py", "AssertionError: expected 0", cmd),
   ).toBeUndefined();
 });
+
+test("CMD diagnoses a Unix pipeline even when localized output cannot be read", () => {
+  const cmd = hostShell("win32", {});
+  expect(
+    shellFailureHint("python -m pytest tests -q 2>&1 | tail -30", "����", cmd),
+  ).toContain("tail");
+  expect(
+    shellFailureHint("python -c \"print('tail')\"", "AssertionError", cmd),
+  ).toBeUndefined();
+  expect(shellFailureHint("echo tail", "error", cmd)).toBeUndefined();
+});
+
+test("fallback run_shell preserves failing test file, line, assertion and real exit code", async () => {
+  const cwd = await root();
+  const traceback = [
+    "ERROR: test_menu_animation_is_stable (test_ui.AppTests)",
+    "Traceback (most recent call last):",
+    '  File "tests/test_ui.py", line 75, in test_menu_animation_is_stable',
+    '    self.assertTrue(self.app.menu.find_withtag("anim"))',
+    "AttributeError: 'ArcadeApp' object has no attribute 'menu'",
+    "FAIL: test_arrow_navigation_moves_selection (test_ui.AppTests)",
+    '  File "tests/test_ui.py", line 85, in test_arrow_navigation_moves_selection',
+    "    self.assertEqual(self.app.selected, (start + 1) % count)",
+    "AssertionError: 0 != 1",
+    "Ran 95 tests in 2.980s",
+    "FAILED (failures=2, errors=1)",
+  ].join("\n");
+  const script = join(cwd, "failing-tests.cjs");
+  await writeFile(
+    script,
+    `process.stderr.write(${JSON.stringify(traceback)});process.exitCode=1;`,
+  );
+  const runtime = createLocalToolRuntime(
+    cwd,
+    [],
+    new ApprovalGate(
+      DEFAULT_PROJECT_CONFIG,
+      {
+        autoApprove: false,
+        nonInteractive: true,
+        allowedTools: new Set(["run_shell"]),
+      },
+      { requestApproval: async () => "unavailable" },
+    ),
+    createSession(cwd, "fixture", "model"),
+    [],
+    { mode: "build", artifactDirectory: join(cwd, "artifacts") },
+  );
+  const result = await runtime.executor.execute({
+    id: "failing-tests",
+    name: "run_shell",
+    input: {
+      command: `${quoteShellArg(process.execPath)} ${quoteShellArg(script)}`,
+    },
+  });
+  expect(result.isError).toBe(true);
+  expect(result.errorCode).toBe("TOOL_EXECUTION_FAILURE");
+  expect(result.details?.exitCode).toBe(1);
+  expect(result.output).toContain(traceback);
+}, 15000);

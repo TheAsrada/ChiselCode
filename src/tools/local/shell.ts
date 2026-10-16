@@ -48,23 +48,13 @@ export function shellHandler() {
           ...plan.data,
           signal: context.signal,
         });
-        const errors = result.output
-          .split("\n")
-          .filter((line) =>
-            /error|failed|\bFAIL\b|TS\d{4}|exception/i.test(line),
-          )
-          .slice(0, 30)
-          .join("\n")
-          .slice(0, 6000);
         const hint =
           result.exitCode !== 0
             ? shellFailureHint(plan.data.command, result.output)
             : undefined;
         return {
-          output:
-            result.exitCode !== 0
-              ? `Команда завершилась с кодом ${result.exitCode}.\n${errors || result.output.slice(-4000)}${hint ? `\n${hint}` : ""}`
-              : result.output,
+          // Keep traceback context; the shared result store bounds large output.
+          output: `${result.output}${hint ? `\n${hint}` : ""}`,
           rawOutput: result.output,
           isError: result.exitCode !== 0,
           errorCode:

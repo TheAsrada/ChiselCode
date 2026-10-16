@@ -505,7 +505,7 @@ async function runApplication(
         await service.bind({
           session,
           store: await projectSessionStore(root),
-          root,
+          root: scope.workspaceRoot,
           conversationId: controller.conversationId,
           generation,
           signal: controller.ownerSignal,
@@ -560,7 +560,7 @@ async function runApplication(
     const binding = {
       session,
       store: await projectSessionStore(root),
-      root,
+      root: scope.workspaceRoot,
       conversationId: controller.conversationId,
       generation,
       signal: controller.ownerSignal,

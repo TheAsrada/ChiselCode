@@ -3,7 +3,10 @@ import { hostname } from "node:os";
 import { basename } from "node:path";
 import { loadGlobalConfig, loadProjectConfig } from "../config/load.js";
 import type { Disposable } from "../extensions/contracts.js";
-import type { WorkspaceExtensionScope } from "../extensions/host.js";
+import {
+  canonicalWorkspaceRoot,
+  type WorkspaceExtensionScope,
+} from "../extensions/host.js";
 import { frozenClone } from "../extensions/lifecycle.js";
 import {
   commonGitResource,
@@ -139,6 +142,7 @@ function deferred() {
 export class BackgroundTaskService {
   readonly storage = new BackgroundTaskStore();
   private owners = new Map<string, Owner>();
+  private ownerBindings = new Map<string, Promise<BackgroundToolBinding>>();
   private bindings = new Map<string, BackgroundOwnerBinding>();
   private bindingDetachers = new Map<string, () => void>();
   private contextCache = new Map<string, { boundary: string; text?: string }>();
@@ -165,6 +169,20 @@ export class BackgroundTaskService {
   constructor(readonly worktrees: WorktreeService) {}
 
   async bind(binding: BackgroundOwnerBinding): Promise<BackgroundToolBinding> {
+    const ownerId = binding.session.subagent?.ownerId ?? binding.session.id;
+    const prior = this.ownerBindings.get(ownerId);
+    const next = (
+      prior ? prior.catch(() => undefined) : Promise.resolve()
+    ).then(() => this.bindOwner(binding));
+    this.ownerBindings.set(ownerId, next);
+    try {
+      return await next;
+    } finally {
+      if (this.ownerBindings.get(ownerId) === next)
+        this.ownerBindings.delete(ownerId);
+    }
+  }
+  private assertBinding(binding: BackgroundOwnerBinding): void {
     binding.assertAvailable();
     cancelled(binding.signal);
     if (this.closed)
@@ -172,6 +190,21 @@ export class BackgroundTaskService {
         "BACKGROUND_OWNER_CLOSED",
         "Сервис фоновых задач закрыт.",
       );
+  }
+  private async bindOwner(
+    binding: BackgroundOwnerBinding,
+  ): Promise<BackgroundToolBinding> {
+    this.assertBinding(binding);
+    // Persisted/UI paths may differ by symlink, separator or Windows casing.
+    // Ownership uses the same canonical identity as the extension scope.
+    const root = await canonicalWorkspaceRoot(binding.root);
+    if (root !== binding.scope.workspaceRoot)
+      throw new RuntimeError(
+        "BACKGROUND_OWNER_CLOSED",
+        "Папка владельца фоновых задач не соответствует текущему проекту.",
+      );
+    binding = { ...binding, root };
+    this.assertBinding(binding);
     const ownerId = binding.session.subagent?.ownerId ?? binding.session.id;
     let owner = this.owners.get(ownerId);
     if (owner?.closed)
@@ -189,6 +222,7 @@ export class BackgroundTaskService {
         ...(await this.storage.list(ownerId)),
         ...(await this.storage.listForeground(ownerId)),
       ];
+      this.assertBinding(binding);
       owner = {
         binding,
         records: new Map(
@@ -241,6 +275,7 @@ export class BackgroundTaskService {
               "Предыдущее освобождение ресурсов не подтверждено. Сохранённый код выхода не снимает блокировку.";
             await this.persist(owner, record, "terminal");
           }
+        this.assert(ownerId, binding.generation);
       } catch (error) {
         owner.detach();
         this.owners.delete(ownerId);

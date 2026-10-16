@@ -1,5 +1,19 @@
 import { expect, test } from "bun:test";
 
+test("a restored OpenTUI conversation continues with a path alias without replaying its background history", async () => {
+  const child = Bun.spawn(
+    [process.execPath, "tests/fixtures/tui-background-owner.ts"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [output, error, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(code, error).toBe(0);
+  expect(output).toContain("Background owner TUI:");
+}, 45000);
+
 test("a real application crash retains history and fences without replay or reconnect", async () => {
   const child = Bun.spawn(
     [process.execPath, "tests/fixtures/background-crash.ts"],
