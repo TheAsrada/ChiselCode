@@ -39,9 +39,19 @@
 
 Первый compiled-запуск fixture выявил конфликт порядка инициализации Zod при статическом объединении серверного SDK с клиентским runtime. Fixture загружает свой тестовый server SDK динамически, после инициализации приложения; production CLI не импортирует этот dev SDK. Проверка сохранена в CI. Исправление tiny-фона также проверено прежними assertions курсора и черновиков: изменение прозрачности не меняет структуру native inputs.
 
-Первый native run [38915223491](https://github.com/TheAsrada/ChiselCode/actions/runs/38915223491) на `1ac8978` завершился с успешным Linux source (1237 passed, 3 skipped; 1240 тестов в 162 файлах), Linux smoke и macOS smoke (246 passed, 3 skipped; 249 тестов в 33 файлах). Windows нашёл два сбоя: `EPERM` при атомарной замене config во время параллельного чтения и таймаут существующего shell-теста с `EBUSY` при cleanup. Первый сбой исправлен общим ограниченным atomic replace для config/MCP/session; чтение с диска и проверка сохранённого правила в fixture сохранены. Shell-тест, его deadline и assertions не изменены; повторный native run проверит его целиком на Windows. Локально после исправления прошли 20 тестов atomic storage, MCP storage и provider config.
+Первый native run [38915223491](https://github.com/TheAsrada/ChiselCode/actions/runs/38915223491) на `1ac8978` завершился с успешным Linux source (1237 passed, 3 skipped; 1240 тестов в 162 файлах), Linux smoke и macOS smoke (246 passed, 3 skipped; 249 тестов в 33 файлах). Windows нашёл два сбоя: `EPERM` при атомарной замене config во время параллельного чтения и таймаут существующего shell-теста с `EBUSY` при cleanup. Первый сбой исправлен общим ограниченным atomic replace для config/MCP/session; чтение с диска и проверка сохранённого правила в fixture сохранены. Shell-тест, его deadline и assertions не изменены; в итоговом run весь файл прошёл на Windows, сам сценарий занял 1,56 с. Первоначальный таймаут в этом прогоне не воспроизвёлся. Локально после исправления прошли 20 тестов atomic storage, MCP storage и provider config.
 
-Итоговые native CI привязываются к исправленному source. Проверки renderer не подтверждают ручную работу во всех физических терминалах или поддержку конкретных шрифтов.
+Итоговый source: `ec0eada7e84d5278fa61585f717e6ca60373209c`. [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38916337889) и все четыре job [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/38916348393) завершились успешно.
+
+| Проверка | Фактический результат |
+| --- | --- |
+| Полный source Linux | 1237 passed, 3 skipped, 0 failed; 1240 тестов в 162 файлах |
+| macOS ARM64: platform/UI/storage | 246 passed, 3 skipped, 0 failed; 249 тестов в 33 файлах |
+| Windows x64: platform/UI/storage | 248 passed, 1 skipped, 0 failed; 249 тестов в 33 файлах; MCP в двух темах и полный shell-файл успешны |
+| Installed/compiled Linux, macOS ARM64, Windows x64 | CLI/SDK, настоящий runtime, OpenTUI и новый compiled Settings smoke успешны |
+| TypeScript, lint, eval | Успешны; 14/14 eval, lint с warnings/info |
+
+В source полный сценарий проверяется один раз на Linux; Windows/macOS выполняют целиком затронутые test files. Новый compiled smoke ограничен загрузкой UI, bundled skills, MCP handshake и возвратом черновика. Он не повторяет полную матрицу форм и размеров. Документация и ссылки проверены отдельно; опубликованный 0.6.33 не изменён. Физические терминалы, шрифты conhost/SSH и запуск на macOS Intel здесь не проверялись.
 
 Воспроизведение:
 
