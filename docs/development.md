@@ -85,6 +85,8 @@ bun build tests/fixtures/tui-command-contributions.ts --compile --outfile ./dist
 
 Сводки действий проверяются через `bun test tests/unit/tool-actions.test.ts` и `bun test tests/integration/tool-actions-tui.test.ts`. Первый файл входит в быстрый профиль, второй — в полный source-набор с настоящим OpenTUI/executor. Для кадров задайте `CHISEL_CAPTURE_DIR=dist/tool-actions-captures`; [сценарии и кадры](contributors/reports/tool-actions.md). Дорогой UI-fixture не добавляется в быстрый профиль. Затронутые unit/UI-файлы также входят в платформенные проверки Native validation на Windows/macOS; Linux выполняет их в общем source-наборе.
 
+Перед платформенными тестами Native validation подготавливает закреплённые внешние зависимости LSP на Windows/macOS, как и полный source job на Linux. Проверки transport не полагаются на запуск более позднего compiled smoke.
+
 ## Проверка владельца фоновых задач
 
 ```bash

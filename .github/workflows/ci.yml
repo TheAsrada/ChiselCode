@@ -78,6 +78,9 @@ jobs:
           node-version: "24.19.0"
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Prepare pinned LSP dependencies for platform tests
+        if: runner.os != 'Linux'
+        run: bun scripts/prepare-lsp-tests.ts
       - name: Platform paths, atomic storage, shell and process ownership
         if: runner.os != 'Linux'
         run: >-
