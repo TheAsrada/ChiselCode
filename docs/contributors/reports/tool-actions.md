@@ -4,7 +4,7 @@
 
 ## Исходники
 
-Работа выполняется прямо в `main`, без веток, development worktrees и PR. База сводок — `d005b38`, с сохранёнными исправлениями background owner и shell. Подготавливается CLI 0.6.32; OpenTUI остаётся 0.5.12. Результаты release source и native CI фиксируются после фактического завершения.
+Работа выполнена прямо в `main`, без веток, development worktrees и PR. База сводок — `d005b38`, с сохранёнными исправлениями background owner и shell. [CLI 0.6.32 опубликован](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.32) 16 октября 2026 года. Release source — `ee79111e3b09a558858d8f8f929f2f17ec2b9e2c`; OpenTUI остаётся 0.5.12.
 
 ## Сценарии
 
@@ -38,3 +38,34 @@ python scripts/render-terminal-captures.py dist/tool-actions-captures
 Подготовка и обязательные проверки выпуска выполняются по [порядку проверок](../testing.md). Linux source и native installed/compiled smoke имеют разное покрытие; результаты не переносятся на непроверенные платформы.
 
 Первый native run `38849485457` выявил ошибку подготовки macOS CI: платформенные LSP transport tests запускались до установки закреплённых внешних зависимостей (9 fail). Восемь новых UI-сценариев на macOS прошли. Перед платформенным набором добавлена та же явная подготовка LSP, которая уже выполнялась в Linux source job; assertions и состав проверок сохранены. Устаревшие прогоны отменены при обновлении release source, до создания тега.
+
+## Проверки release source
+
+[Native validation 38849777815](https://github.com/TheAsrada/ChiselCode/actions/runs/38849777815) прошёл на точном `ee79111`. Все четыре обязательных job успешны; повтор того же source не потребовался. [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38849777746) также успешен.
+
+| Job | Результат | Время job |
+|---|---|---|
+| Full source, Linux | 1248 pass, 3 skip, 0 fail; typecheck/lint; 14/14 deterministic evals; UI расширений | 6 мин 24 с |
+| Native smoke, Linux | Installed/compiled CLI, настоящий LSP, инструменты, helpers/worktree/background, SDK, native OpenTUI | 1 мин 56 с |
+| Native smoke, macOS arm64 | 59 pass, 3 skip, 0 fail в платформенном наборе; installed/compiled smoke | 2 мин 52 с |
+| Native smoke, Windows x64 | 61 pass, 1 skip, 0 fail в платформенном наборе; installed/compiled smoke | 5 мин 57 с |
+
+Восьмёрка новых UI-сценариев прошла целиком на Linux, Windows и macOS. Общая длительность от старта run до завершения последнего job — 6 мин 52 с; сумма runner time четырёх jobs — 17 мин 9 с. Это разные измерения, с учётом очереди и параллельного выполнения. Сам полный Linux test process занял 322,58 с.
+
+Три skip Linux: нативный clipboard без desktop session и два Windows-only CMD/Python сценария. Оба Windows-сценария выполнены на Windows. В macOS/Windows дополнительно пропущен Linux-only detached orphan; полное покрытие всех source-файлов на этих ОС не заявляется. Интерактивная проверка системного clipboard и запуск macOS Intel остаются вне этого прогона.
+
+## Опубликованная поставка
+
+[Release 38850407614](https://github.com/TheAsrada/ChiselCode/actions/runs/38850407614) завершился успешно. Тег `v0.6.32` создан после native CI и указывает на проверенный `ee79111`; GitHub Release опубликован, не draft/prerelease, и является `latest`. Опубликованы ровно четыре установщика и npm-архив CLI/SDK.
+
+Все пять файлов скачаны из публичного выпуска: размеры и SHA-256 совпали с GitHub API. Проверены форматы EXE/PKG/DEB и версия npm/DEB; SDK declarations присутствуют в tarball. Извлечённый Linux DEB и установленный из опубликованного tarball пакет показали `0.6.32` и прошли настоящие manifest/model/tool/persistence и external SDK/trust/read/write/Plan/refusal/exit/recovery smoke.
+
+| Asset | Размер, байт | SHA-256 |
+|---|---:|---|
+| `chiselcode-0.6.32.tgz` | 5798078 | `4a11c1ce728adc78fde7ce53436302ab3c9a7f20317102c2c4771ce08d39fb02` |
+| `ChiselCode-Setup-0.6.32-linux-amd64.deb` | 36962150 | `d706280172d6d21b9a16ab573baa7aba8295500d5a8022e3f24487e67e390293` |
+| `ChiselCode-Setup-0.6.32-macos-arm64.pkg` | 33298440 | `0b59d5e220a941ce7d059cbf7b146d85aaa88b93e9c60c2552931bea8c0e08bd` |
+| `ChiselCode-Setup-0.6.32-macos-x64.pkg` | 35886842 | `ee81240c52215b8fbb613ab7e0faf9e52cbf2ff950aa86550bbabd1cb407f6c4` |
+| `ChiselCode-Setup-0.6.32.exe` | 38683526 | `dbbc8d2c6ef9e1fb17be5625553cce487fd2b6884d630673f6c17a7cac8eb7d7` |
+
+Release проверил запуск новых Windows x64, Linux x64 и macOS arm64 binaries. macOS x64 собран на arm64 runner и не запускался на Intel. Windows/macOS установщики не подписаны; системный GUI установки локально не запускался. Документация после публикации зафиксирована отдельным коммитом `main`, тег и assets сохранены неизменными.
