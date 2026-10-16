@@ -1,8 +1,9 @@
+import { resolve } from "node:path";
 import {
   type ExtensionDiagnostic,
   ExternalExtensionLoader,
 } from "./external/loader.js";
-import { inspectPackage } from "./external/package.js";
+import { canonicalPath, inspectPackage } from "./external/package.js";
 import { extensionRecords } from "./external/registry.js";
 import {
   canonicalWorkspaceRoot,
@@ -14,6 +15,7 @@ type Mount = { host: ExtensionHost; scope: WorkspaceExtensionScope };
 /** Live UI mounts have per-extension lifetimes, independent of core services and other mods. */
 export class UiExtensionRuntime {
   private roots = new Set<string>();
+  private aliases = new Map<string, string>();
   private mounts = new Map<string, Promise<Mount>>();
   private scopes = new Map<string, WorkspaceExtensionScope>();
   private listeners = new Set<() => void>();
@@ -48,6 +50,7 @@ export class UiExtensionRuntime {
     await this.refreshing;
     const canonical = await canonicalWorkspaceRoot(root);
     if (this.closed || signal?.aborted) return [];
+    this.aliases.set(canonicalPath(resolve(root)), canonical);
     this.roots.add(canonical);
     const records = await extensionRecords();
     const ids = (
@@ -104,6 +107,10 @@ export class UiExtensionRuntime {
     }
   }
   diagnostics(root?: string): readonly ExtensionDiagnostic[] {
+    const canonical = root
+      ? (this.aliases.get(canonicalPath(resolve(root))) ??
+        canonicalPath(resolve(root)))
+      : undefined;
     return [
       ...[...this.scopes.values()].flatMap((scope) => {
         try {
@@ -113,7 +120,9 @@ export class UiExtensionRuntime {
         }
       }),
       ...this.failures.values(),
-    ].filter((diagnostic) => !root || diagnostic.workspaceRoot === root);
+    ].filter(
+      (diagnostic) => !canonical || diagnostic.workspaceRoot === canonical,
+    );
   }
   private async closeMount(key: string, pending: Promise<Mount>) {
     this.mounts.delete(key);
@@ -175,9 +184,13 @@ export class UiExtensionRuntime {
     return (isUi && this.canApply(id)) || !record?.enabled;
   }
   async closeWorkspace(root: string) {
-    const canonical = await canonicalWorkspaceRoot(root);
+    const canonical =
+      this.aliases.get(canonicalPath(resolve(root))) ??
+      (await canonicalWorkspaceRoot(root));
     const closing = this.refreshing.then(async () => {
       this.roots.delete(canonical);
+      for (const [alias, target] of this.aliases)
+        if (target === canonical) this.aliases.delete(alias);
       const results = await Promise.allSettled(
         [...this.mounts]
           .filter(([key]) => (JSON.parse(key) as string[])[0] === canonical)
@@ -194,6 +207,7 @@ export class UiExtensionRuntime {
     await this.refreshing;
     this.listeners.clear();
     this.roots.clear();
+    this.aliases.clear();
     const results = await Promise.allSettled(
       [...this.mounts].map(([key, pending]) => this.closeMount(key, pending)),
     );

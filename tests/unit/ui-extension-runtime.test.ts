@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExternalExtensionLoader } from "../../src/extensions/external/loader.js";
@@ -62,6 +69,17 @@ test("live UI reload is isolated by extension/root, ordinary boot excludes UI, f
     const core = await ordinary.open(firstRoot);
     const first = await runtime.open(firstRoot),
       second = await runtime.open(secondRoot);
+    const alias = join(directory, "alias");
+    await symlink(
+      firstRoot,
+      alias,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    expect(await runtime.open(alias)).toEqual(first);
+    expect(
+      runtime.diagnostics(alias).find((item) => item.id === "personal.invalid")
+        ?.state,
+    ).toBe("activation_failed");
     expect(first).toHaveLength(3);
     expect(second).toHaveLength(3);
     const find = (scopes: typeof first, id: string) =>
@@ -93,7 +111,7 @@ test("live UI reload is isolated by extension/root, ordinary boot excludes UI, f
     const live = await runtime.open(firstRoot);
     expect(find(live, "personal.second")).toBe(firstB);
     expect(live).toHaveLength(2);
-    await runtime.closeWorkspace(firstRoot);
+    await runtime.closeWorkspace(alias);
     expect(firstB.signal.aborted).toBe(true);
     expect(secondB.signal.aborted).toBe(false);
     const denied = new UiExtensionRuntime(true);

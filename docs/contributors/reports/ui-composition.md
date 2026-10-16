@@ -37,7 +37,9 @@
 - Точечные source tests: порядок нескольких слоёв; normal и structural updates с сохранением cursor/draft; ошибки и циклические DTO; foreign actions; lifecycle нескольких пакетов/проектов; readonly boot и `--no-external-extensions`; Plan/guards и отмена UI approval; отказ/повтор/разрешение записи; защита путей, JS syntax/import closure и неизменность уже установленного пакета.
 - Production OpenTUI fixture: автоматический `load_skill` → `create_extension` → отключённый пакет без import → пользовательский review/trust → live UI; mouse Settings и клавиатурные кнопки; native approval; свежий settings snapshot без повторного выполнения ESM module; отключение и checkpoints. Выполнены Obsidian/ASCII и Paper/Unicode, включая 46×25.
 - Тот же сценарий выполнен compiled binary `chisel-ui-creator` с установленными рядом bundled skills. Имя соответствует runtime detection установленного `chisel-*`.
-- `typecheck`, `lint`, CLI/SDK build прошли. Lint сохраняет существующие warnings/info; ошибок нет. Проверка npm-поставки подтверждает три bundled skill и открывает их из собранного пакета; прежний `/skill-creator` проверен на русском и английском.
+- `typecheck`, `lint`, CLI/SDK build прошли. Lint сохраняет warnings/info; ошибок нет. Проверка npm-поставки подтверждает три bundled skill и открывает их из собранного пакета; прежний `/skill-creator` проверен на русском и английском.
+
+Первый macOS-прогон выявил несовпадение `/var` и `/private/var` при фильтрации UI-диагностик. Runtime теперь использует cached alias → canonical workspace identity; добавлена проверка symlink/junction и закрытия через alias. Повторная проверка выполняет весь затронутый platform-набор.
 
 Полный Linux source и native-проверки Windows/macOS запускаются отдельно через Native validation на source commit; результаты CI фиксируются после завершения. Новые platform tests проверяют authoring paths и UI lifetime, compiled fixture — поставку навыка и настоящий renderer. Полный source-набор повторно в installed/compiled форматах не запускается.
 
