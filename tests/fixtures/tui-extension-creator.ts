@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { ScrollBoxRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import { extensionRecords } from "../../src/extensions/external/registry.js";
@@ -167,10 +168,39 @@ async function key(
 }
 async function click(id: string) {
   await until(() => !!ui.renderer.root.findDescendantById(id), `Missing ${id}`);
+  const node = ui.renderer.root.findDescendantById(id)!;
+  let parent = node.parent;
+  while (parent) {
+    if (parent instanceof ScrollBoxRenderable) {
+      const scroll = parent;
+      await act(async () => {
+        scroll.scrollChildIntoView(id);
+        await ui.renderOnce();
+      });
+    }
+    parent = parent.parent;
+  }
+  await until(() => {
+    let ancestor = node.parent;
+    while (ancestor) {
+      if (
+        ancestor instanceof ScrollBoxRenderable &&
+        (node.y < ancestor.viewport.y ||
+          node.y >= ancestor.viewport.y + ancestor.viewport.height)
+      )
+        return false;
+      ancestor = ancestor.parent;
+    }
+    return (
+      node.width > 0 &&
+      node.height > 0 &&
+      node.y >= 0 &&
+      node.y < ui.renderer.height
+    );
+  }, `Target is not visible: ${id}`);
   await act(async () => {
     await ui.renderOnce();
-    const node = ui.renderer.root.findDescendantById(id)!;
-    await ui.mockMouse.click(node.x + 1, node.y);
+    await ui.mockMouse.click(node.x + Math.min(1, node.width - 1), node.y);
   });
 }
 async function send(text: string) {

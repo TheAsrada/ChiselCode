@@ -39,7 +39,9 @@
 - Тот же сценарий выполнен compiled binary `chisel-ui-creator` с установленными рядом bundled skills. Имя соответствует runtime detection установленного `chisel-*`.
 - `typecheck`, `lint`, CLI/SDK build прошли. Lint сохраняет warnings/info; ошибок нет. Проверка npm-поставки подтверждает три bundled skill и открывает их из собранного пакета; прежний `/skill-creator` проверен на русском и английском.
 
-Первый macOS-прогон выявил несовпадение `/var` и `/private/var` при фильтрации UI-диагностик. Runtime теперь использует cached alias → canonical workspace identity; добавлена проверка symlink/junction и закрытия через alias. Повторная проверка выполняет весь затронутый platform-набор.
+Первый macOS-прогон выявил несовпадение `/var` и `/private/var` при фильтрации UI-диагностик. Runtime теперь использует cached alias → canonical workspace identity; добавлена проверка symlink/junction и закрытия через alias. Повторная проверка выполняет весь затронутый platform-набор. На Windows в первом прогоне также один раз превысилось ожидание прежнего scripted shell fixture; следующий полный platform-набор прошёл без изменения его таймаутов.
+
+В compiled macOS-сценарии длинный путь переносил кнопку настроек за viewport. Исправлен test harness: перед mouse click он прокручивает ближайшие scrollboxes и ожидает видимую геометрию. Source-сценарий отдельно воспроизведён с длинным временным путём; таймауты не менялись.
 
 Полный Linux source и native-проверки Windows/macOS запускаются отдельно через Native validation на source commit; результаты CI фиксируются после завершения. Новые platform tests проверяют authoring paths и UI lifetime, compiled fixture — поставку навыка и настоящий renderer. Полный source-набор повторно в installed/compiled форматах не запускается.
 
