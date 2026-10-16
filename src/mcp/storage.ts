@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -10,6 +10,7 @@ import {
 } from "../config/load.js";
 import { RuntimeError } from "../runtime/errors.js";
 import { canonicalInput } from "../tools/invocation.js";
+import { replaceAtomicFile } from "../utils/atomic-file.js";
 import {
   type McpPermissions,
   McpPermissionsSchema,
@@ -69,7 +70,7 @@ export async function writeMcpJson(path: string, data: unknown): Promise<void> {
     await handle.close();
   }
   try {
-    await rename(temp, path);
+    await replaceAtomicFile(temp, path);
   } finally {
     await rm(temp, { force: true });
   }

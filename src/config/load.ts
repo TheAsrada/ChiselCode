@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { ProjectBackgroundConfigSchema } from "../background/config.js";
@@ -10,6 +10,7 @@ import { McpConfigSchema } from "../mcp/schema.js";
 import { withLock } from "../sessions/lock.js";
 import { ProjectSubagentConfigSchema } from "../subagents/config.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
+import { replaceAtomicFile } from "../utils/atomic-file.js";
 import { ProjectWebConfigSchema } from "../web/schema.js";
 import {
   migrateConfig,
@@ -195,7 +196,7 @@ export async function saveGlobalConfig(
     await handle.close();
   }
   try {
-    await rename(temporary, path);
+    await replaceAtomicFile(temporary, path);
   } catch (error) {
     await rm(temporary, { force: true });
     throw error;
