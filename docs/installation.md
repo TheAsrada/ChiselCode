@@ -6,6 +6,8 @@
 
 Скачивайте пакеты из [GitHub Releases](https://github.com/TheAsrada/ChiselCode/releases/latest). Замените `<версия>` в примерах на номер скачанного релиза. Каждый выпуск содержит четыре установщика и архив `chiselcode-<версия>.tgz` с npm-пакетом CLI и SDK расширений. Отдельные бинарники и служебные архивы концепта Desktop не публикуются.
 
+Текущий выпуск — [CLI 0.6.33](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.33). [Проверки source и опубликованных файлов](contributors/reports/ui-composition.md#выпуск-cli-0633) включают контрольные суммы всех пяти assets.
+
 | Система | Файл | Куда устанавливается программа |
 | --- | --- | --- |
 | Windows x64 | `ChiselCode-Setup-<версия>.exe` | `%LOCALAPPDATA%\ChiselCode` |

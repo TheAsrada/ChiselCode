@@ -2,7 +2,7 @@
 
 [Материалы для участников](../README.md) · [Пользовательское руководство](../../ui-mods.md) · [SDK](../../extensions/ui-composition.md) · [Архитектурное решение и источники Claude mods](../../architecture/ui-contributions.md#композиция-и-live-ui)
 
-Работа в `main`, Unreleased после 0.6.32. Это реализация CLI/OpenTUI; Desktop в эту задачу не входит. Новая версия и релиз не создавались.
+Реализация выполнена в `main` после 0.6.32 и вошла в CLI 0.6.33. Ниже сохранены первичные проверки реализации и отдельные результаты выпуска на точном release source. Desktop в эту задачу не входит.
 
 ## Реализация
 
@@ -68,3 +68,30 @@ CHISEL_CAPTURE_THEME=paper CHISEL_CAPTURE_UNICODE=1 CHISEL_CAPTURE_DIR=docs/asse
 python3 scripts/render-terminal-captures.py docs/assets/ui-composition
 python3 scripts/render-terminal-captures.py docs/assets/ui-composition/paper-unicode
 ```
+
+## Выпуск CLI 0.6.33
+
+[CLI 0.6.33](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.33) опубликован 16 октября 2026 года и проверен как latest, не draft/prerelease. Annotated tag `v0.6.33` указывает на release source [`d6e4567`](https://github.com/TheAsrada/ChiselCode/commit/d6e4567263933f5dd7f2135e199c899ec8895f3a). Тег создан после успешных [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38903051415) и всех четырёх jobs [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/38903062886) именно на этом source; повтор того же source не потребовался. Production `verify-release-ci.ts` подтвердил допуск до создания тега, затем Release повторно проверил его.
+
+| Проверка release source | Результат |
+| --- | --- |
+| Полный Linux source | 1258 passed, 3 skipped, 0 failed; 1261 тест в 160 файлах, 323,83 с |
+| Все категории evals | 14 из 14 сценариев успешны |
+| macOS platform-набор | 63 passed, 3 skipped, 0 failed |
+| Windows platform-набор | 65 passed, 1 skipped, 0 failed |
+| Native smoke Linux/macOS/Windows | Installed/compiled CLI, SDK, LSP, помощники/worktrees/фоновые процессы, native OpenTUI и compiled creator успешны |
+| Typecheck, lint, CLI/SDK build | Успешны; lint с warnings/info |
+
+[Release workflow](https://github.com/TheAsrada/ChiselCode/actions/runs/38903957740) завершился успешно и опубликовал ровно четыре установщика и npm-архив CLI/SDK. Полный source-набор при выпуске не дублировался.
+
+Все пять файлов скачаны из публичного выпуска: размеры и SHA-256 совпали с GitHub API; форматы EXE/PKG/DEB и версия npm/DEB проверены. Извлечённый DEB и пакет, установленный из опубликованного tarball, показали `0.6.33` и прошли реальные manifest/model/tool/persistence и external SDK/trust/read/write/Plan/refusal/exit/recovery smoke. Опубликованный SDK экспортирует 29 UI surfaces, содержит declarations; все три bundled skill в DEB/npm побайтово совпадают с release source.
+
+| Asset | Размер, байт | SHA-256 |
+| --- | ---: | --- |
+| `chiselcode-0.6.33.tgz` | 5859853 | `3c0621cf500a7ba6b2231f1164540fc81fdbdc662d87cb42c0fa16d29426865b` |
+| `ChiselCode-Setup-0.6.33-linux-amd64.deb` | 36992136 | `3fe67976c3b11741bd651b4a6de56e9ac823d3e966a8cb5b0a293ce7d0c92148` |
+| `ChiselCode-Setup-0.6.33-macos-arm64.pkg` | 33355801 | `80493ee25a12d0453188d266ce5bc9766263debbaf95eeec8bafe8511295b3e2` |
+| `ChiselCode-Setup-0.6.33-macos-x64.pkg` | 35942231 | `677c5885b3466a24f83c19721931298bafbcb42b055ae00ca176bf3eb7cabe24` |
+| `ChiselCode-Setup-0.6.33.exe` | 38726199 | `0708d8402212b83ffbfea5fabfc80a29903ff58249904010ba829bc10a33594b` |
+
+Release проверил запуск Windows x64 и Linux x64; на macOS запуск проверен для архитектуры runner. macOS x64 собран; запуск на Intel не проверялся. Windows/macOS установщики не подписаны; системные GUI установки локально не запускались. Полный source-набор выполнен на Linux, macOS/Windows имеют указанное platform/smoke-покрытие. Документация после публикации зафиксирована отдельным коммитом main; тег и assets не изменялись.
