@@ -16,6 +16,8 @@
 
 Это `captureSpans()` настоящего OpenTUI с production renderer/controller/executor и реальным managed store; PNG получены скриптом экспорта терминальных кадров без изменения содержимого. Provider в сценарии scripted: он подтверждает передачу bundled skill и authoring tool, не оценивает качество произвольной модели.
 
+Сценарий использует пример `workbench`, добавляя собственный инструмент записи и провайдер с управляемым сбоем для проверки разрешений и восстановления UI. Эти проверки не входят в обычный пример. Кадры обновлены на source `c75e0e0`.
+
 | Сценарий | Кадр | Исходный capture |
 | --- | --- | --- |
 | Агент создал выключенный пакет | [PNG](../../assets/ui-composition/created-disabled.png) | [JSON](../../assets/ui-composition/created-disabled.json) |
@@ -43,7 +45,18 @@
 
 В compiled macOS-сценарии длинный путь переносил кнопку настроек за viewport. Исправлен test harness: перед mouse click он прокручивает ближайшие scrollboxes и ожидает видимую геометрию. Source-сценарий отдельно воспроизведён с длинным временным путём; таймауты не менялись.
 
-Полный Linux source и native-проверки Windows/macOS запускаются отдельно через Native validation на source commit; результаты CI фиксируются после завершения. Новые platform tests проверяют authoring paths и UI lifetime, compiled fixture — поставку навыка и настоящий renderer. Полный source-набор повторно в installed/compiled форматах не запускается.
+Итоговый CI от 16 октября 2026 года проверил source [`c75e0e0`](https://github.com/TheAsrada/ChiselCode/commit/c75e0e0011b3aee79567f2e546548e84b7092254), Bun 1.4.2 и Node 24.19.0. [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38897064007) и все четыре jobs [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/38897066836) завершились успешно:
+
+| Проверка | Результат |
+| --- | --- |
+| Полный source-набор, Linux | 1258 passed, 3 skipped, 0 failed; 1261 тест в 160 файлах |
+| Evals, все категории | 14 из 14 сценариев успешны |
+| Затронутый platform-набор, macOS | 63 passed, 3 skipped, 0 failed |
+| Затронутый platform-набор, Windows | 65 passed, 1 skipped, 0 failed |
+| Installed и compiled, Linux/macOS/Windows | Успешны smoke, настоящий OpenTUI и compiled creator с защищёнными действиями |
+| Typecheck, lint, CLI/SDK build | Успешны; lint с warnings/info |
+
+Новые platform tests проверяют authoring paths и UI lifetime, compiled fixture — поставку навыка и настоящий renderer. Полный source-набор выполнен один раз на Linux; на macOS/Windows проверен затронутый platform-набор, полный source-набор там не запускался. В installed/compiled форматах полный source-набор не дублировался.
 
 Дополнительный regression подтвердил, что Bun `transformSync` и `scan` способны исполнять macro imports. Authoring теперь использует пассивный Acorn AST parser; macro imports отклоняются до approval. Тест проверяет отсутствие marker-файла и запроса разрешений, сохраняя проверки default export, синтаксиса и import closure.
 

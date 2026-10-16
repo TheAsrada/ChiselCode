@@ -34,7 +34,7 @@
 
 ## Пример настоящего интерфейса
 
-Пакет [workbench](../examples/extensions/workbench/) меняет логотип, оформление ответов, добавляет панель и окно сведений. [Отчёт с проверками и кадрами](contributors/reports/ui-composition.md) содержит также исходные terminal captures.
+Пакет [workbench](../examples/extensions/workbench/) меняет логотип, оформление ответов, добавляет панель и окно сведений. Кадры ниже получены в проверочном сценарии, который добавляет к примеру кнопку записи для проверки разрешений. [Отчёт с проверками и кадрами](contributors/reports/ui-composition.md) содержит также исходные terminal captures.
 
 ![Панель и оформление ответов после включения](assets/ui-composition/live-workbench.png)
 
