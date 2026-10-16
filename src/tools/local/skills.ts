@@ -38,7 +38,16 @@ export function skillHandlers(skills: readonly Skill[]) {
           (item) => item.name === data.name && !item.disableModelInvocation,
         );
         return skill
-          ? { output: skill.instructions }
+          ? {
+              output: skill.instructions,
+              details: {
+                skill: {
+                  name: skill.name,
+                  description: skill.description,
+                  source: skill.source,
+                },
+              },
+            }
           : {
               output: `Skill "${data.name}" is not available for automatic loading.`,
               isError: true,

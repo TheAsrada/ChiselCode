@@ -81,6 +81,7 @@ import {
   OpenTuiTranscript,
   TRANSCRIPT_WINDOW,
   terminalSafeText,
+  visibleTranscriptWindow,
 } from "./opentui-transcript.js";
 import { OpenTuiUpdate, updateNotice } from "./opentui-update.js";
 import {
@@ -106,6 +107,11 @@ import {
   UnicodeDecorationContext,
 } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
+import {
+  actionTargets,
+  createActionPresentation,
+  groupToolActions,
+} from "./tool-actions.js";
 import type { TuiApprovalResolver } from "./tui-contract.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
@@ -582,14 +588,42 @@ function OpenTuiScreen({
       projectPath: view.projectPath,
     };
   }, [view.sessionId, view.projectPath]);
-  const [sideRecordIndex, setSideRecordIndex] = useState<number | undefined>();
-  const sideRecordIds = view.transcript.flatMap((entry) =>
-    entry.sideOperationId ? [entry.sideOperationId] : [],
+  const [transcriptTargetId, setTranscriptTargetId] = useState<
+    string | undefined
+  >();
+  const fallbackActions = useRef(createActionPresentation());
+  const actions = controller?.presentation.actions ?? fallbackActions.current;
+  const actionRows = React.useMemo(
+    () => groupToolActions(view.transcript),
+    [view.transcript],
   );
-  const focusedSideId =
-    focus === "transcript" && sideRecordIndex !== undefined
-      ? sideRecordIds[Math.min(sideRecordIndex, sideRecordIds.length - 1)]
+  const transcriptTargets = actionTargets(
+    visibleTranscriptWindow(actionRows, windowEnd).entries,
+    actions,
+  );
+  const focusedTarget =
+    focus === "transcript"
+      ? transcriptTargets.find((target) => target.id === transcriptTargetId)
       : undefined;
+  const focusedSideId =
+    focusedTarget && !focusedTarget.group && !focusedTarget.action
+      ? focusedTarget.id
+      : undefined;
+  const focusedActionId =
+    focusedTarget && !focusedSideId ? focusedTarget.id : undefined;
+  useLayoutEffect(() => {
+    if (focus === "transcript" && focusedActionId)
+      transcript.current?.scrollChildIntoView(
+        focusedActionId.startsWith("action-group:")
+          ? `${focusedActionId}-toggle`
+          : focusedActionId,
+      );
+  }, [focus, focusedActionId]);
+  const activateTranscriptTarget = () => {
+    if (!focusedTarget) return;
+    if (focusedSideId) controller?.openSide(focusedSideId);
+    else controller?.activateAction(focusedTarget);
+  };
   useLayoutEffect(() => {
     if (
       sideActive ||
@@ -728,7 +762,7 @@ function OpenTuiScreen({
   };
 
   const shiftWindow = (direction: "up" | "down") => {
-    const total = view.transcript.length;
+    const total = actionRows.length;
     const current = windowEnd ?? total;
     if (direction === "up" && current > TRANSCRIPT_WINDOW)
       setWindowEnd(
@@ -1190,19 +1224,26 @@ function OpenTuiScreen({
         return;
       }
     }
-    if (focusedSideId && (key.name === "return" || key.name === "enter")) {
+    if (
+      focusedTarget &&
+      (key.name === "return" || key.name === "enter" || key.name === "space")
+    ) {
       key.preventDefault();
       key.stopPropagation();
-      controller?.openSide(focusedSideId);
+      activateTranscriptTarget();
       return;
     }
-    if (focusedSideId && ["up", "down"].includes(key.name)) {
+    if (focusedTarget && ["up", "down"].includes(key.name)) {
       key.preventDefault();
       key.stopPropagation();
-      setSideRecordIndex(
-        (index) =>
-          ((index ?? 0) + (key.name === "up" ? -1 : 1) + sideRecordIds.length) %
-          sideRecordIds.length,
+      const index = transcriptTargets.findIndex(
+        (target) => target.id === focusedTarget.id,
+      );
+      setTranscriptTargetId(
+        transcriptTargets[
+          (index + (key.name === "up" ? -1 : 1) + transcriptTargets.length) %
+            transcriptTargets.length
+        ]?.id,
       );
       return;
     }
@@ -1224,21 +1265,27 @@ function OpenTuiScreen({
     }
     if (key.name === "tab" && !contextOnly) {
       key.preventDefault();
-      if (focus === "transcript" && sideRecordIndex !== undefined) {
-        const index = sideRecordIndex + (key.shift ? -1 : 1);
-        if (index >= 0 && index < sideRecordIds.length)
-          setSideRecordIndex(index);
+      if (focus === "transcript" && transcriptTargetId !== undefined) {
+        const current = transcriptTargets.findIndex(
+          (target) => target.id === transcriptTargetId,
+        );
+        const index = current + (key.shift ? -1 : 1);
+        if (index >= 0 && index < transcriptTargets.length)
+          setTranscriptTargetId(transcriptTargets[index]?.id);
         else {
-          setSideRecordIndex(undefined);
+          setTranscriptTargetId(undefined);
           if (index < 0) {
             setFocus("editor");
             controller?.setFocus("composer");
+          } else {
+            setFocus(showSidebar ? "sidebar" : "editor");
+            controller?.setFocus(showSidebar ? "sidebar" : "composer");
           }
         }
         return;
       }
-      setSideRecordIndex(
-        focus === "editor" && sideRecordIds.length ? 0 : undefined,
+      setTranscriptTargetId(
+        focus === "editor" ? transcriptTargets[0]?.id : undefined,
       );
       const next =
         focus === "editor"
@@ -2060,6 +2107,12 @@ function OpenTuiScreen({
                             : dispatchCoreChat(controller, target));
                       }}
                       focusedSideId={focusedSideId}
+                      focusedActionId={focusedActionId}
+                      actionPresentation={actions}
+                      onActionSelect={(target) => {
+                        controller?.activateAction(target);
+                        if (focus === "editor") editor.current?.focus();
+                      }}
                       entries={view.transcript}
                       contentWidth={composerWidth - 2}
                       expandedIds={expandedDiffIds}
@@ -2127,7 +2180,10 @@ function OpenTuiScreen({
                   ref={transcript}
                   height={feedHeight}
                   stickyScroll={
-                    !home && expandedDiffIds.size === 0 && !expanded
+                    !home &&
+                    expandedDiffIds.size === 0 &&
+                    !expanded &&
+                    actions.expanded.size === 0
                   }
                   stickyStart={home ? "top" : "bottom"}
                   viewportCulling
@@ -2167,13 +2223,21 @@ function OpenTuiScreen({
                             : dispatchCoreChat(controller, target));
                       }}
                       focusedSideId={focusedSideId}
+                      focusedActionId={focusedActionId}
+                      actionPresentation={actions}
+                      onActionSelect={(target) => {
+                        controller?.activateAction(target);
+                        if (focus === "editor") editor.current?.focus();
+                      }}
                       entries={
                         classic
-                          ? expanded
-                            ? view.transcript.filter(
-                                (entry) => entry.id === newestDiffId,
-                              )
-                            : []
+                          ? focus === "transcript"
+                            ? view.transcript
+                            : expanded
+                              ? view.transcript.filter(
+                                  (entry) => entry.id === newestDiffId,
+                                )
+                              : []
                           : view.transcript
                       }
                       contentWidth={textWidth - 2}

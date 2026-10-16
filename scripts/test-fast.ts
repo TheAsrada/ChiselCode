@@ -35,6 +35,7 @@ const names = [
   "subagent-output",
   "terminal-text",
   "tool-guidance",
+  "tool-actions",
   "tui-controller",
   "tui-tab-execution",
   "tui-workspace",

@@ -1664,23 +1664,24 @@ async function runApplication(
               onEvent: (event) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
+                controller.trackToolEvent(event);
                 if (event.type === "checkpoint_saved")
                   controller.setSessionId(event.sessionId);
-                if (event.type === "tool_progress")
+                if (event.type === "tool_progress" && !event.invocationId)
                   controller.setToolActivity(
                     `${event.name ?? "MCP"} · ${event.text ?? "Выполняется"}`,
                   );
               },
-              onToolStart: (name, input, source) => {
+              onToolStart: (name, input, source, invocationId) => {
                 if (controller.isCurrent(requestGeneration) && !signal.aborted)
-                  tools.onToolStart?.(name, input, source);
+                  tools.onToolStart?.(name, input, source, invocationId);
               },
-              onToolResult: (name, result) => {
+              onToolResult: (name, result, invocationId) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
                 if (result.presentation)
                   presentedToolResults.add(JSON.stringify(result.presentation));
-                tools.onToolResult?.(name, result);
+                tools.onToolResult?.(name, result, invocationId);
                 if (result.diffs?.length || result.fileDiff)
                   for (const tab of workspace.tabs)
                     tab.controller.refreshGitChanges();
@@ -1799,9 +1800,10 @@ async function runApplication(
             onEvent: (event) => {
               if (!controller.isCurrent(requestGeneration) || signal.aborted)
                 return;
+              controller.trackToolEvent(event);
               if (event.type === "checkpoint_saved")
                 controller.setSessionId(event.sessionId);
-              if (event.type === "tool_progress")
+              if (event.type === "tool_progress" && !event.invocationId)
                 controller.setToolActivity(
                   `${event.name ?? "MCP"} · ${event.text ?? "Выполняется"}${event.total ? ` ${Math.min(100, Math.round(((event.progress ?? 0) / event.total) * 100))}%` : ""}`,
                 );
@@ -1850,15 +1852,15 @@ async function runApplication(
               hasText = true;
             },
             onThinking: () => {},
-            onToolStart: (name, input, source) => {
+            onToolStart: (name, input, source, invocationId) => {
               if (!controller.isCurrent(requestGeneration) || signal.aborted)
                 return;
-              tools.onToolStart?.(name, input, source);
+              tools.onToolStart?.(name, input, source, invocationId);
             },
-            onToolResult: (name, outcome) => {
+            onToolResult: (name, outcome, invocationId) => {
               if (!controller.isCurrent(requestGeneration) || signal.aborted)
                 return;
-              tools.onToolResult?.(name, outcome);
+              tools.onToolResult?.(name, outcome, invocationId);
               if (
                 [
                   "write_file",

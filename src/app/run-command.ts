@@ -246,12 +246,17 @@ async function runExtensionCommandOwned(
         event.name ?? "",
         event.input ?? {},
         event.toolSource,
+        event.invocationId,
       );
     if (
       (event.type === "tool_completed" || event.type === "tool_failed") &&
       event.result
     )
-      handlers.onToolResult?.(event.name ?? "", event.result);
+      handlers.onToolResult?.(
+        event.name ?? "",
+        event.result,
+        event.invocationId,
+      );
   });
   const outstanding = new Set<Promise<ToolExecutionResult>>();
   let blocked: ToolExecutionResult | undefined;

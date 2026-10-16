@@ -373,24 +373,32 @@ test("model schemas, actual execution, checkpoint save/load, replay and complete
   const view = new TuiController(path);
   replaySessionIntoTranscript(view, resumed);
   expect(
-    view.snapshot.transcript.some((entry) =>
-      entry.text.includes("[extension] fixture · read"),
+    view.snapshot.transcript.some(
+      (entry) =>
+        entry.toolAction?.source?.type === "extension" &&
+        entry.toolAction.source.extensionId === "fixture" &&
+        entry.toolAction.result?.output.includes("Actual extension read"),
     ),
   ).toBe(true);
   const live = new TuiController(path);
   const rendering = toolTranscriptHandlers(() => live);
   rendering.onToolStart?.(
     "ext:fixture:read",
-    {},
+    { path: "file.txt" },
     resumed.runtime?.invocations.read?.toolSource,
+    "read",
   );
   rendering.onToolResult?.(
     "ext:fixture:read",
     resumed.runtime?.invocations.read?.result ?? { output: "" },
+    "read",
   );
   expect(
-    live.snapshot.transcript.some((entry) =>
-      entry.text.includes("[extension] fixture · read"),
+    live.snapshot.transcript.some(
+      (entry) =>
+        entry.toolAction?.source?.type === "extension" &&
+        entry.toolAction.source.extensionId === "fixture" &&
+        entry.toolAction.result?.output.includes("Actual extension read"),
     ),
   ).toBe(true);
   const legacy = SessionV3Schema.parse({ ...resumed, runtime: undefined });

@@ -28,6 +28,16 @@ export async function normalizeResult(
   )
     return normalized;
   const artifact = await store.put(raw, result.contentTrust);
+  // A short failure must remain visible even when its traceback is in the artifact.
+  const lines = result.isError ? raw.split(/\r?\n/) : [];
+  const failureReason = lines
+    .find((line) =>
+      /\b\w*(?:Error|Exception)\b|\b(?:FAILED|denied)\b|ошибк|отказ/i.test(
+        line,
+      ),
+    )
+    ?.trim()
+    .slice(0, 400);
   const suffix = `\nOutput offloaded. Full output: ${artifact.uri}\nUse read_tool_result with a line range.`;
   let preview = Buffer.from(result.output)
     .subarray(
@@ -39,6 +49,9 @@ export async function normalizeResult(
     preview = preview.slice(0, -1);
   return {
     ...normalized,
+    ...(failureReason
+      ? { details: { ...normalized.details, failureReason } }
+      : {}),
     output: preview + suffix,
     artifact,
   };

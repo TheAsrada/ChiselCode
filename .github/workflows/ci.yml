@@ -84,6 +84,7 @@ jobs:
           bun test tests/unit/workspace-path.test.ts tests/unit/session-atomic.test.ts
           tests/unit/session-lock.test.ts tests/unit/shell-runtime.test.ts
           tests/unit/background-process.test.ts tests/unit/background-owner.test.ts
+          tests/unit/tool-actions.test.ts tests/integration/tool-actions-tui.test.ts
           tests/unit/subagent-storage-policy.test.ts
           tests/unit/lsp-transport.test.ts
       - name: Build CLI and public SDK

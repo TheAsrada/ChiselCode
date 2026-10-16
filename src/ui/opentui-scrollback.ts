@@ -3,6 +3,12 @@ import stringWidth from "string-width";
 import { type Palette, THEMES } from "./appearance.js";
 import { diffColors, diffPreviewText } from "./file-diff-preview.js";
 import { terminalSafeText } from "./terminal-text.js";
+import {
+  actionFailed,
+  actionReason,
+  actionRunning,
+  groupToolActions,
+} from "./tool-actions.js";
 import type { TranscriptEntry, TuiController } from "./tui-controller.js";
 
 const COMMIT_BATCH = 64;
@@ -40,12 +46,33 @@ export function attachTranscriptScrollback(
     previousFirstId = state.transcript[0]?.id;
 
     const pending: TranscriptEntry[] = [];
-    for (let index = state.transcript.length - 1; index >= 0; index--) {
-      const entry = state.transcript[index];
-      if (!entry || entry.id <= lastId) break;
-      pending.push(entry);
+    const rows = groupToolActions(state.transcript);
+    for (const [index, entry] of rows.entries()) {
+      const group = entry.actionGroup;
+      const endId = group
+        ? (state.transcript.find(
+            (item) => item.toolAction?.id === group.items.at(-1)?.id,
+          )?.id ?? entry.id)
+        : entry.id;
+      if (endId <= lastId) continue;
+      if (
+        group &&
+        state.busy &&
+        (group.items.some(actionRunning) || index === rows.length - 1)
+      )
+        break;
+      const error = group?.items.find(actionFailed);
+      pending.push(
+        group
+          ? {
+              ...entry,
+              id: endId,
+              text: `${group.kind === "skills" ? "Навыки" : "Действия агента"} · ${group.items.length}\n${error ? actionReason(error) : group.kind === "skills" ? group.items.map((item) => String(item.input.name ?? item.name)).join(", ") : "Готово"}`,
+              tone: error ? "error" : "tool",
+            }
+          : entry,
+      );
     }
-    pending.reverse();
     for (let index = 0; index < pending.length; index += COMMIT_BATCH) {
       const batch = pending.slice(index, index + COMMIT_BATCH);
       renderer.writeToScrollback(({ width, renderContext }) => {

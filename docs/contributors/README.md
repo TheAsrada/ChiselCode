@@ -12,6 +12,7 @@
 
 | Возможность | Справка | Материалы реализации |
 | --- | --- | --- |
+| Действия и навыки в чате | [Сводки и подробности](../agent-actions.md) | [Проверки и кадры](reports/tool-actions.md) |
 | Скачивание и контекст помощников | [Скачать файл](../downloads.md) · [Помощники](../subagents.md) | [Реализация и проверки](reports/internet-subagents.md) |
 | Внешние расширения | [Подключение и доверие](../extensions.md) | [Loader/SDK: реализация и проверки](reports/external-extension-loader.md) |
 | Пакеты расширений | [Установка и версии](../extensions.md) | [Транзакции, leases и проверки](reports/extension-packages.md) |

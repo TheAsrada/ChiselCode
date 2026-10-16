@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { ConversationSourceBridge } from "../app/conversation-source.js";
 import type { SubagentControls } from "../app/subagent-binding.js";
 import type { BackgroundControls } from "../background/binding.js";
@@ -9,6 +9,7 @@ import {
   type BackgroundTask,
   backgroundActive,
 } from "../background/contracts.js";
+import { ToolResultStore } from "../context/tool-result-store.js";
 import type { ContextCompactionRecord } from "../context/types.js";
 import {
   aggregateSpend,
@@ -22,6 +23,7 @@ import {
   type ModelSpend,
   type SideQueryRecord,
 } from "../models/contracts.js";
+import { sessionsRootDir } from "../paths/home.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { catalogModelLimits } from "../providers/model-metadata.js";
 import { type AgentMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
@@ -48,6 +50,17 @@ import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
 import type { ModelSelection } from "./opentui-models.js";
 import { requestCompletion } from "./request-timing.js";
 import { sideStatus } from "./side-query-state.js";
+import {
+  type ActionTarget,
+  actionIsSeparate,
+  actionLabel,
+  actionRunning,
+  activateActionTarget,
+  createActionPresentation,
+  mergeToolAction,
+  type ToolAction,
+  type ToolActionUpdate,
+} from "./tool-actions.js";
 import type { TranscriptTone, TuiTranscript } from "./tui-contract.js";
 
 export interface TranscriptEntry {
@@ -57,6 +70,9 @@ export interface TranscriptEntry {
   fileDiff?: FileDiff;
   sideOperationId?: string;
   chatCard?: OwnedChatCard;
+  toolAction?: ToolAction;
+  /** A standalone invocation remains a grouping boundary even before its card arrives. */
+  toolBoundary?: string;
 }
 
 export interface TuiViewState {
@@ -198,6 +214,7 @@ export class TuiController implements TuiTranscript {
     draftSelection: undefined as { start: number; end: number } | undefined,
   };
   readonly presentation = {
+    actions: createActionPresentation(),
     history: createEditorState(),
     windowEnd: undefined as number | undefined,
     expanded: false,
@@ -282,6 +299,93 @@ export class TuiController implements TuiTranscript {
     });
   }
 
+  upsertToolAction(update: ToolActionUpdate): boolean {
+    const index = this.state.transcript.findIndex(
+      (entry) =>
+        entry.toolAction?.id === update.id || entry.toolBoundary === update.id,
+    );
+    if (actionIsSeparate(update.name, update.result)) {
+      const transcript =
+        index >= 0 ? [...this.state.transcript] : [...this.withStreaming()];
+      const boundary: TranscriptEntry = {
+        id: this.state.transcript[index]?.id ?? this.serial++,
+        text: "",
+        tone: "tool",
+        toolBoundary: update.id,
+      };
+      if (index >= 0) transcript[index] = boundary;
+      else transcript.push(boundary);
+      this.update({ transcript, ...(index >= 0 ? {} : { streaming: "" }) });
+      return false;
+    }
+    const previous = this.state.transcript[index];
+    const toolAction = mergeToolAction(previous?.toolAction, update);
+    const transcript = previous
+      ? [...this.state.transcript]
+      : [...this.withStreaming()];
+    const entry: TranscriptEntry = {
+      id: previous?.id ?? this.serial++,
+      text: actionLabel(toolAction),
+      tone: "tool",
+      toolAction,
+    };
+    if (previous) transcript[index] = entry;
+    else transcript.push(entry);
+    this.update({ transcript, ...(previous ? {} : { streaming: "" }) });
+    return true;
+  }
+  refreshActionPresentation(): void {
+    this.update({});
+  }
+  activateAction(target: ActionTarget): void {
+    const generation = this.currentGeneration;
+    const sessionId = this.state.sessionId;
+    void activateActionTarget(
+      this.presentation.actions,
+      target,
+      () => {
+        if (this.isCurrent(generation)) this.update({});
+      },
+      async (action, offset) => {
+        if (
+          !sessionId ||
+          !this.isCurrent(generation) ||
+          !this.state.transcript.some(
+            (entry) =>
+              entry.toolAction?.id === action.id &&
+              entry.toolAction.result?.artifact?.uri ===
+                action.result?.artifact?.uri,
+          )
+        )
+          throw new Error("Результат не принадлежит открытому разговору.");
+        if (!action.result?.artifact) return action.result?.output ?? "";
+        return new ToolResultStore(
+          join(sessionsRootDir(), "artifacts", sessionId),
+        ).read(action.result.artifact.uri, offset, 100);
+      },
+      this.ownerSignal,
+    );
+  }
+
+  trackToolEvent(event: import("../runtime/events.js").RuntimeEvent): void {
+    if (!event.invocationId || !event.name) return;
+    const state =
+      event.type === "tool_queued"
+        ? "queued"
+        : event.type === "tool_approval_requested"
+          ? "awaiting_approval"
+          : undefined;
+    if (state || event.type === "tool_progress")
+      this.upsertToolAction({
+        id: event.invocationId,
+        name: event.name,
+        ...(event.input ? { input: event.input } : {}),
+        ...(event.toolSource ? { source: event.toolSource } : {}),
+        ...(state ? { state } : {}),
+        ...(event.text ? { progress: event.text } : {}),
+      });
+  }
+
   /** Progress updates the original task card without committing the main stream. */
   upsertCard(extensionId: string, card: ChatCard): void {
     if (this.ownerSignal.aborted) return;
@@ -356,6 +460,8 @@ export class TuiController implements TuiTranscript {
       tone?: TranscriptTone;
       fileDiff?: FileDiff;
       chatCard?: OwnedChatCard;
+      toolAction?: ToolAction;
+      toolBoundary?: string;
     }>,
   ): void {
     this.update({
@@ -377,6 +483,7 @@ export class TuiController implements TuiTranscript {
   }
 
   clear(): void {
+    this.presentation.actions = createActionPresentation();
     this.compactionNotices.clear();
     this.update({
       transcript: [],
@@ -431,11 +538,24 @@ export class TuiController implements TuiTranscript {
   ): void {
     if (this.state.requestStartedAt === undefined) return;
     const text = requestCompletion(status, elapsedMs);
+    const transcript = this.withStreaming().map((entry) =>
+      entry.toolAction &&
+      actionRunning(entry.toolAction) &&
+      entry.toolAction.state !== "awaiting_approval"
+        ? {
+            ...entry,
+            toolAction: {
+              ...entry.toolAction,
+              state:
+                status === "cancelled"
+                  ? ("cancelled" as const)
+                  : ("interrupted" as const),
+            },
+          }
+        : entry,
+    );
     this.update({
-      transcript: [
-        ...this.withStreaming(),
-        { id: this.serial++, text, tone: "dim" },
-      ],
+      transcript: [...transcript, { id: this.serial++, text, tone: "dim" }],
       streaming: "",
       toolActivity: undefined,
       requestStartedAt: undefined,
@@ -633,6 +753,7 @@ export class TuiController implements TuiTranscript {
     this.sidebarPresentation.menuIndex = 0;
     this.sidebarPresentation.menuKey = undefined;
     this.uiPresentation.clear();
+    this.presentation.actions = createActionPresentation();
     this.generation++;
     this.compactionNotices.clear();
     this.presentation.windowEnd = undefined;
@@ -708,8 +829,35 @@ export class TuiController implements TuiTranscript {
         (a, b) => a.ordinal - b.ordinal,
       ),
     });
-    if (event.presentation?.extensionId === "builtin.background")
-      appendChatPresentation(this, event.presentation);
+    if (event.presentation?.extensionId === "builtin.background") {
+      if (event.task.foreground) {
+        const card = event.presentation.view.cards?.[0];
+        if (card)
+          this.upsertToolAction({
+            id: event.task.invocationId,
+            name: "run_shell",
+            foreground: { extensionId: "builtin.background", card },
+          });
+      } else {
+        const transcript = this.state.transcript.map((entry) =>
+          entry.toolAction?.id === event.task.invocationId
+            ? {
+                id: entry.id,
+                text: "",
+                tone: "tool" as const,
+                toolBoundary: event.task.invocationId,
+              }
+            : entry,
+        );
+        if (
+          transcript.some(
+            (entry, index) => entry !== this.state.transcript[index],
+          )
+        )
+          this.update({ transcript });
+        appendChatPresentation(this, event.presentation);
+      }
+    }
     const viewer = this.state.backgroundView;
     if (
       viewer?.visible &&

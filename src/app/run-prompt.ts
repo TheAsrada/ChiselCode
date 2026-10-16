@@ -92,8 +92,13 @@ export interface RunEventHandlers {
     name: string,
     input: Record<string, unknown>,
     source?: import("../tools/types.js").ToolSource,
+    invocationId?: string,
   ): void;
-  onToolResult?(name: string, result: ToolExecutionResult): void;
+  onToolResult?(
+    name: string,
+    result: ToolExecutionResult,
+    invocationId?: string,
+  ): void;
 }
 
 export interface RunOptions {
@@ -622,12 +627,17 @@ async function runPromptInWorkspace(
     if (event.type === "provider_text_delta") onText(event.text ?? "");
     if (event.type === "provider_thinking_delta") onThinking(event.text ?? "");
     if (event.type === "tool_started")
-      onToolStart(event.name ?? "", event.input ?? {}, event.toolSource);
+      onToolStart(
+        event.name ?? "",
+        event.input ?? {},
+        event.toolSource,
+        event.invocationId,
+      );
     if (
       (event.type === "tool_completed" || event.type === "tool_failed") &&
       event.result
     )
-      onToolResult(event.name ?? "", event.result);
+      onToolResult(event.name ?? "", event.result, event.invocationId);
   });
   let result: AgentResult | undefined;
   let runtimeFailure: unknown;

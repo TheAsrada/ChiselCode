@@ -13,6 +13,12 @@ import { extensionResultLabel, extensionToolLabel } from "./extension-tool.js";
 import { fileDiffStats, fileDiffTitle } from "./file-diff-model.js";
 import { requestCompletion } from "./request-timing.js";
 import { FAIL_MARK, formatToolSummary } from "./theme.js";
+import {
+  actionIsSeparate,
+  actionLabel,
+  mergeToolAction,
+  type ToolAction,
+} from "./tool-actions.js";
 import type { TuiTranscript } from "./tui-contract.js";
 import { webResultSummary } from "./web-result.js";
 
@@ -69,8 +75,19 @@ export function toolTranscriptHandlers(
   getView: () => TuiTranscript | undefined,
 ): AgentEventHandlers {
   return {
-    onToolStart: (name, input, source) => {
+    onToolStart: (name, input, source, invocationId) => {
       const view = getView();
+      if (
+        invocationId &&
+        view?.upsertToolAction?.({
+          id: invocationId,
+          name,
+          input,
+          source,
+          state: "running",
+        })
+      )
+        return;
       const label = toolChatLabel(source, input);
       if (label) view?.setToolActivity(label);
       else if (extensionToolLabel(source))
@@ -89,10 +106,15 @@ export function toolTranscriptHandlers(
         view?.setToolActivity(`[chisel] ${name} ${String(input.path ?? "")}`);
       else view?.append(`[chisel] ${formatToolSummary(name, input)}`, "tool");
     },
-    onToolResult: (name, result) => {
+    onToolResult: (name, result, invocationId) => {
       const view = getView();
       if (!view) return;
       view.setToolActivity();
+      if (
+        invocationId &&
+        view.upsertToolAction?.({ id: invocationId, name, result })
+      )
+        return;
       appendToolResult(view, name, result);
     },
   };
@@ -107,6 +129,28 @@ export function replaySessionIntoTranscript(
 ): void {
   const entries: Parameters<NonNullable<TuiTranscript["replace"]>>[0] = [];
   const collector: TuiTranscript = {
+    upsertToolAction: (update) => {
+      const index = entries.findIndex(
+        (entry) =>
+          entry.toolAction?.id === update.id ||
+          entry.toolBoundary === update.id,
+      );
+      if (actionIsSeparate(update.name, update.result)) {
+        const boundary = { text: "", toolBoundary: update.id };
+        if (index >= 0) entries[index] = boundary;
+        else entries.push(boundary);
+        return false;
+      }
+      const toolAction = mergeToolAction(entries[index]?.toolAction, update);
+      const entry = {
+        text: actionLabel(toolAction),
+        tone: "tool" as const,
+        toolAction,
+      };
+      if (index >= 0) entries[index] = entry;
+      else entries.push(entry);
+      return true;
+    },
     append: (text, tone, fileDiff) => {
       entries.push({ text, tone, fileDiff });
     },
@@ -212,8 +256,9 @@ export function replaySessionIntoTranscript(
           target.append(text, message.role === "user" ? "user" : "assistant");
       } else if (block.type === "tool_use") {
         const legacy = /^ext:(.+):([^:]+)$/.exec(block.name);
+        const invocation = session.runtime?.invocations[block.id];
         const source =
-          session.runtime?.invocations[block.id]?.toolSource ??
+          invocation?.toolSource ??
           (legacy
             ? {
                 type: "extension" as const,
@@ -238,6 +283,22 @@ export function replaySessionIntoTranscript(
           source?.type === "web" ||
           source?.type === "extension"
         )
+          if (!target.upsertToolAction) continue;
+        if (
+          target.upsertToolAction?.({
+            id: block.id,
+            name: block.name,
+            input: block.input,
+            source,
+            state:
+              invocation &&
+              ["succeeded", "failed", "denied", "cancelled"].includes(
+                invocation.state,
+              )
+                ? invocation.state
+                : "interrupted",
+          })
+        )
           continue;
         if (!session.fileDiffs?.[block.id])
           target.append(
@@ -258,6 +319,7 @@ export function replaySessionIntoTranscript(
               }
             : undefined);
         const result = {
+          ...saved?.result,
           output: block.content,
           isError: block.isError,
           details:
@@ -293,10 +355,18 @@ export function replaySessionIntoTranscript(
                 result,
               )
             : undefined);
-        appendToolResult(target, name, {
+        const restoredResult = {
           ...result,
           ...(presentation ? { presentation } : {}),
-        });
+        };
+        if (
+          !target.upsertToolAction?.({
+            id: block.toolUseId,
+            name,
+            result: restoredResult,
+          })
+        )
+          appendToolResult(target, name, restoredResult);
       }
     }
     appendTimings(start + index + 1);

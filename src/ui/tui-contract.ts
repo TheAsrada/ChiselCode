@@ -33,6 +33,9 @@ export interface TuiTranscriptLine {
   fileDiff?: FileDiff;
 }
 export interface TuiTranscript {
+  upsertToolAction?(
+    update: import("./tool-actions.js").ToolActionUpdate,
+  ): boolean;
   append(line: string, tone?: TranscriptTone, fileDiff?: FileDiff): void;
   upsertCard?(extensionId: string, card: ChatCard): void;
   setToolActivity(text?: string): void;
@@ -43,6 +46,8 @@ export interface TuiTranscript {
       tone?: TranscriptTone;
       fileDiff?: FileDiff;
       chatCard?: OwnedChatCard;
+      toolAction?: import("./tool-actions.js").ToolAction;
+      toolBoundary?: string;
     }>,
   ): void;
   clear(): void;

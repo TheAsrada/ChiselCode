@@ -7,15 +7,23 @@ import { ChatCard } from "./opentui-chat-card.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { FormattedMessage } from "./opentui-message.js";
+import { ToolActions } from "./opentui-tool-actions.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
+import {
+  type ActionPresentation,
+  type ActionTarget,
+  activateActionTarget,
+  createActionPresentation,
+  groupToolActions,
+} from "./tool-actions.js";
 import type { TranscriptEntry } from "./tui-controller.js";
 
 export { terminalSafeText } from "./terminal-text.js";
 
 export const TRANSCRIPT_WINDOW = 240;
 
-export function visibleTranscriptWindow(
-  entries: readonly TranscriptEntry[],
+export function visibleTranscriptWindow<T extends TranscriptEntry>(
+  entries: readonly T[],
   requestedEnd?: number,
 ) {
   const end = Math.max(
@@ -41,6 +49,9 @@ export function OpenTuiTranscript({
   onToggleDiff,
   windowEnd,
   palette = THEMES.obsidian,
+  actionPresentation,
+  onActionSelect,
+  focusedActionId,
 }: {
   entries: readonly TranscriptEntry[];
   onOpenSide?(operationId: string): void;
@@ -59,8 +70,15 @@ export function OpenTuiTranscript({
   onToggleDiff?: (id: number) => void;
   windowEnd?: number;
   palette?: Palette;
+  actionPresentation?: ActionPresentation;
+  onActionSelect?(target: ActionTarget): void;
+  focusedActionId?: string;
 }) {
-  const visible = visibleTranscriptWindow(entries, windowEnd);
+  const fallback = React.useRef(createActionPresentation());
+  const [, refresh] = React.useState(0);
+  const actions = actionPresentation ?? fallback.current;
+  const rows = React.useMemo(() => groupToolActions(entries), [entries]);
+  const visible = visibleTranscriptWindow(rows, windowEnd);
   let latestDiffId: number | undefined;
   for (let index = entries.length - 1; index >= 0; index--) {
     if (entries[index]?.fileDiff) {
@@ -76,6 +94,25 @@ export function OpenTuiTranscript({
         </text>
       )}
       {visible.entries.map((entry) => {
+        if (entry.actionGroup)
+          return (
+            <ToolActions
+              key={entry.actionGroup.id}
+              group={entry.actionGroup}
+              state={actions}
+              width={contentWidth}
+              palette={palette}
+              focusedId={focusedActionId}
+              onCardAction={onCardAction}
+              onSelect={(target) =>
+                onActionSelect
+                  ? onActionSelect(target)
+                  : void activateActionTarget(actions, target, () =>
+                      refresh((value) => value + 1),
+                    )
+              }
+            />
+          );
         if (entry.chatCard)
           return (
             <ChatCard
@@ -214,9 +251,9 @@ export function OpenTuiTranscript({
           />
         );
       })}
-      {visible.end < entries.length && (
+      {visible.end < rows.length && (
         <text fg={palette.muted}>
-          Down Ещё {entries.length - visible.end} сообщений | PgDn / колесо
+          Down Ещё {rows.length - visible.end} сообщений | PgDn / колесо
         </text>
       )}
     </React.Fragment>

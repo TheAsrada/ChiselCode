@@ -17,8 +17,13 @@ export interface AgentEventHandlers {
     name: string,
     input: Record<string, unknown>,
     source?: import("../tools/types.js").ToolSource,
+    invocationId?: string,
   ): void;
-  onToolResult?(name: string, result: ToolExecutionResult): void;
+  onToolResult?(
+    name: string,
+    result: ToolExecutionResult,
+    invocationId?: string,
+  ): void;
 }
 export type AgentLoopOptions = RuntimeOptions;
 /** Legacy API adapter. The application uses AgentRuntime directly. */
@@ -42,12 +47,17 @@ export class AgentLoop {
           event.name ?? "",
           event.input ?? {},
           event.toolSource,
+          event.invocationId,
         );
       if (
         (event.type === "tool_completed" || event.type === "tool_failed") &&
         event.result
       )
-        this.handlers.onToolResult?.(event.name ?? "", event.result);
+        this.handlers.onToolResult?.(
+          event.name ?? "",
+          event.result,
+          event.invocationId,
+        );
     });
     const local = this.tools.runtime;
     if (local) {

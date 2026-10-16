@@ -81,6 +81,10 @@ bun build tests/fixtures/tui-command-contributions.ts --compile --outfile ./dist
 
 Это test-only linked build, не loader установленного CLI. Не включайте `dist/command-smoke` в публикуемый package. После `bun run build` команда `bun tests/fixtures/command-packaging.ts` собирает fixture в отдельный staging package, выполняет `npm pack`/install и тот же TUI сценарий из установленного bundle, затем из compiled binary. Этот расширенный harness запускайте отдельно при изменении TUI bundling или SDK; обычный CI и каждый релиз его не повторяют. Он не меняет production package или lockfile. На Windows compiled fixture имеет суффикс `.exe`. Command feedback остаётся UI projection; restart не запускает callback заново.
 
+## Проверка сводок действий
+
+Сводки действий проверяются через `bun test tests/unit/tool-actions.test.ts` и `bun test tests/integration/tool-actions-tui.test.ts`. Первый файл входит в быстрый профиль, второй — в полный source-набор с настоящим OpenTUI/executor. Для кадров задайте `CHISEL_CAPTURE_DIR=dist/tool-actions-captures`; [сценарии и кадры](contributors/reports/tool-actions.md). Дорогой UI-fixture не добавляется в быстрый профиль. Затронутые unit/UI-файлы также входят в платформенные проверки Native validation на Windows/macOS; Linux выполняет их в общем source-наборе.
+
 ## Проверка владельца фоновых задач
 
 ```bash

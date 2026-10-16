@@ -1471,7 +1471,10 @@ export class BackgroundTaskService {
           ...(record.state !== "completed"
             ? { errorCode: "TOOL_EXECUTION_FAILURE" }
             : {}),
-          details: { exitCode: record.exitCode ?? 1 },
+          details: {
+            exitCode: record.exitCode ?? 1,
+            foregroundTaskId: record.id,
+          },
           ...(record.presentation ? { presentation: record.presentation } : {}),
           sandboxed: false,
         };
