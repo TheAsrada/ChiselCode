@@ -58,6 +58,7 @@ import {
   activateActionTarget,
   createActionPresentation,
   mergeToolAction,
+  preserveActionExpansion,
   type ToolAction,
   type ToolActionUpdate,
 } from "./tool-actions.js";
@@ -315,6 +316,11 @@ export class TuiController implements TuiTranscript {
       };
       if (index >= 0) transcript[index] = boundary;
       else transcript.push(boundary);
+      preserveActionExpansion(
+        this.presentation.actions,
+        this.state.transcript,
+        transcript,
+      );
       this.update({ transcript, ...(index >= 0 ? {} : { streaming: "" }) });
       return false;
     }
@@ -331,6 +337,11 @@ export class TuiController implements TuiTranscript {
     };
     if (previous) transcript[index] = entry;
     else transcript.push(entry);
+    preserveActionExpansion(
+      this.presentation.actions,
+      this.state.transcript,
+      transcript,
+    );
     this.update({ transcript, ...(previous ? {} : { streaming: "" }) });
     return true;
   }
@@ -853,8 +864,14 @@ export class TuiController implements TuiTranscript {
           transcript.some(
             (entry, index) => entry !== this.state.transcript[index],
           )
-        )
+        ) {
+          preserveActionExpansion(
+            this.presentation.actions,
+            this.state.transcript,
+            transcript,
+          );
           this.update({ transcript });
+        }
         appendChatPresentation(this, event.presentation);
       }
     }

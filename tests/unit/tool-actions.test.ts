@@ -318,6 +318,11 @@ test("parallel standalone calls and pending approval keep grouping boundaries", 
   tools.onToolStart?.("write_file", { path: "new" }, undefined, "diff");
   tools.onToolStart?.("vendor.report", {}, undefined, "report");
   tools.onToolStart?.("read_file", { path: "b" }, undefined, "b");
+  const changing = groupToolActions(view.snapshot.transcript).at(
+    -1,
+  )?.actionGroup;
+  if (!changing) throw new Error("Missing parallel group");
+  view.activateAction({ id: changing.id, group: changing });
   tools.onToolResult?.(
     "vendor.report",
     {
@@ -338,6 +343,10 @@ test("parallel standalone calls and pending approval keep grouping boundaries", 
   );
   tools.onToolResult?.("read_file", { output: "b" }, "b");
   tools.onToolResult?.("read_file", { output: "a" }, "a");
+  expect(view.presentation.actions.expanded.has("action-group:actions:b")).toBe(
+    true,
+  );
+  expect(view.presentation.actions.expanded.has(changing.id)).toBe(false);
   expect(
     groupToolActions(view.snapshot.transcript).flatMap((row) =>
       row.actionGroup ? [row.actionGroup.items.map((item) => item.id)] : [],

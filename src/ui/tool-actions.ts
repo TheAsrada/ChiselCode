@@ -227,6 +227,34 @@ export interface ActionTarget {
   page?: -1 | 1;
   more?: boolean;
 }
+/** A late standalone presentation can split a group while its details are open. */
+export function preserveActionExpansion(
+  state: ActionPresentation,
+  previous: readonly TranscriptEntry[],
+  next: readonly TranscriptEntry[],
+): void {
+  if (!state.expanded.size) return;
+  const expandedItems = new Map<string, number>();
+  for (const row of groupToolActions(previous)) {
+    const group = row.actionGroup;
+    if (!group || !state.expanded.has(group.id)) continue;
+    for (const item of group.items)
+      expandedItems.set(item.id, state.limits.get(group.id) ?? ACTION_PAGE);
+    state.expanded.delete(group.id);
+  }
+  for (const row of groupToolActions(next)) {
+    const group = row.actionGroup;
+    if (!group) continue;
+    const limits = group.items.flatMap((item) => {
+      const limit = expandedItems.get(item.id);
+      return limit === undefined ? [] : [limit];
+    });
+    if (limits.length) {
+      state.expanded.add(group.id);
+      state.limits.set(group.id, Math.max(...limits));
+    }
+  }
+}
 export async function activateActionTarget(
   state: ActionPresentation,
   target: ActionTarget,
