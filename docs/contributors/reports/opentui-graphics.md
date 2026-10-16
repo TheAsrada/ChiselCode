@@ -16,6 +16,8 @@ Alternate-screen и split-footer остаются способами разме�
 
 Production `runOpenTuiAgent` запускается со старым конфигом `unicodeDecorations: false`. Кадры получены настоящими `captureCharFrame()`/`captureSpans()`; PNG экспортированы скриптом проекта без изменения содержимого.
 
+Кадры пересняты на исправленном source `59219ef`.
+
 | Сценарий | Кадр | Исходный capture |
 | --- | --- | --- |
 | Obsidian, главная 120×36 | [PNG](../../assets/opentui-graphics/obsidian-home-120x36.png) | [JSON](../../assets/opentui-graphics/obsidian-home-120x36.json) |
@@ -29,9 +31,20 @@ Production `runOpenTuiAgent` запускается со старым конфи
 
 Typecheck, lint без ошибок и CLI/SDK build прошли; lint сохраняет warnings/info. Новый production-сценарий выполнен также compiled binary `chisel-graphics` с установленными рядом навыками. Проверены 15 изменённых Markdown и 250 локальных ссылок/anchors/изображений.
 
-Native validation выполняет полный source-набор один раз на Linux, installed/compiled smoke на трёх ОС, а на macOS/Windows — целиком затронутые UI/config test files и новый production-сценарий. Результаты точного source добавляются после завершения CI.
+На точном source [`59219ef`](https://github.com/TheAsrada/ChiselCode/commit/59219efcb597c6b4aa9674e831b6db7231700843) успешно завершились [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/38908909494) и все четыре jobs [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/38908917627), Bun 1.4.2 / Node 24.19.0:
 
-Первый source-прогон `09374f7` показал 1224 passed, 3 skipped и 9 failed. Восемь assertions Web/Markdown ожидали ASCII или удаляли только `|` при проверке перенесённого текста; они обновлены для графических рамок с сохранением проверок содержимого и пустых строк. Проверка clipboard нашла наложение двухстрочного compact header на сообщение: строки заголовка теперь имеют фиксированную высоту и не сжимаются. Тот же mouse selection/copy/cancel сценарий проходит с неизменными проверками текста. Все 34 теста трёх файлов прошли локально; файлы добавлены целиком в macOS/Windows-набор. Native smoke первого source прошли на всех трёх ОС; исправленный source проверяется отдельно.
+| Проверка | Результат |
+| --- | --- |
+| Полный source-набор, Linux | 1233 passed, 3 skipped, 0 failed; 1236 тестов в 161 файле, 291,02 с |
+| Evals, все категории | 14 из 14 сценариев успешны |
+| macOS platform/UI/config | 211 passed, 3 skipped, 0 failed; 214 тестов в 29 файлах |
+| Windows platform/UI/config | 213 passed, 1 skipped, 0 failed; 214 тестов в 29 файлах |
+| Native smoke Linux/macOS/Windows | Installed/compiled CLI и SDK, нативный OpenTUI, compiled creator и защищённые действия успешны |
+| Typecheck, lint, CLI/SDK build | Успешны; lint с warnings/info |
+
+Полный source-набор выполнен один раз на Linux; на macOS/Windows проверены целиком затронутые UI/config test files и новый production-сценарий. Smoke поставки не подменяет полный source-прогон этих ОС. Физические терминалы, шрифты conhost/SSH и системный GUI здесь вручную не проверялись. Опубликованный выпуск 0.6.33 не изменялся.
+
+Первый source-прогон `09374f7` показал 1224 passed, 3 skipped и 9 failed. Восемь проверок Web/Markdown ожидали ASCII или удаляли только `|` при проверке перенесённого текста; они обновлены для графических рамок с сохранением проверок содержимого и пустых строк. Проверка clipboard нашла наложение двухстрочного compact header на сообщение: строки заголовка теперь имеют фиксированную высоту и не сжимаются. Тот же mouse selection/copy/cancel сценарий проходит с неизменными проверками текста. Все 34 теста трёх файлов прошли локально; файлы добавлены целиком в macOS/Windows-набор. Native smoke первого source прошли на всех трёх ОС; исправленный source прошёл отдельный итоговый run выше, без повторов на том же source.
 
 Воспроизведение кадров:
 
