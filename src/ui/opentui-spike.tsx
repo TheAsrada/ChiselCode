@@ -2264,17 +2264,24 @@ function OpenTuiScreen({
                       <UiSurface name="Header">
                         {showLogo &&
                           COMPACT_LOGO.map((row) => (
-                            <text key={row} fg={palette.accent}>
+                            <text
+                              key={row}
+                              fg={palette.accent}
+                              height={1}
+                              flexShrink={0}
+                            >
                               {row}
                             </text>
                           ))}
-                        <text fg={palette.accent}>
+                        <text fg={palette.accent} height={1} flexShrink={0}>
                           {onSubmit
                             ? `[i] ${showLogo ? "" : "ChiselCode  |  "}${terminalLine(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  |  ${palette.label}`
                             : `[i] ChiselCode | probe | ${width}x${height} | ${palette.label}`}
                         </text>
                         <box
                           width="100%"
+                          height={1}
+                          flexShrink={0}
                           flexDirection="row"
                           justifyContent="space-between"
                         >

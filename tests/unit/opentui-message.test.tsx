@@ -66,10 +66,8 @@ for (const width of [16, 40, 80, 120]) {
     try {
       const rows = await render(setup);
       expect(rows.filter((row) => row.includes("•"))).toHaveLength(4);
-      expect(rows.every((row) => !!row.replace(/^\|\s*/, "").trim())).toBe(
-        true,
-      );
-      const body = rows.join("").replace(/[\s|•]/g, "");
+      expect(rows.every((row) => !!row.replace(/^│\s*/, "").trim())).toBe(true);
+      const body = rows.join("").replace(/[\s│•]/g, "");
       expect(body).toContain(word.repeat(2));
       expect(body).toContain("nested");
       expect(body).toContain("👩‍💻汉字é");
@@ -124,7 +122,7 @@ test("blank lines and Markdown-looking characters inside code are preserved", as
     expect(
       rows
         .slice(start, start + 4)
-        .map((row) => row.replace(/^\|\s?/, "").trim()),
+        .map((row) => row.replace(/^│\s?/, "").trim()),
     ).toEqual(["const first = 1;", "", "", "* literal bullet"]);
     expect(rows.at(-1)).toBe("Последний абзац");
   } finally {
@@ -142,7 +140,7 @@ for (const width of [16, 40, 80, 120]) {
       const native = findTable(setup);
       expect(!!native).toBe(width >= 40);
       if (native) {
-        expect(rows.every((row) => !!row.replace(/^\|\s*/, "").trim())).toBe(
+        expect(rows.every((row) => !!row.replace(/^│\s*/, "").trim())).toBe(
           true,
         );
         const cells = native.content.map((row) =>

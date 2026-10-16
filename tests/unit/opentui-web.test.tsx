@@ -108,7 +108,7 @@ for (const [width, height] of [
     try {
       await frame(setup);
       expect(setup.captureCharFrame()).toContain("Web");
-      expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
+      expect(setup.captureCharFrame()).toContain("╭");
       expect(setup.captureCharFrame()).toContain("Разрешено");
       expect(setup.captureCharFrame()).toContain("Авто");
       await click(setup, "settings-web-row-1");

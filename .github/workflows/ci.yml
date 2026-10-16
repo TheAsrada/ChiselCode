@@ -98,6 +98,8 @@ jobs:
           tests/unit/opentui-update.test.tsx tests/unit/opentui-sidebar.test.tsx
           tests/unit/opentui-background.test.tsx tests/unit/opentui-subagents.test.tsx
           tests/unit/opentui-side-query.test.tsx tests/unit/opentui-chat-card.test.tsx
+          tests/unit/opentui-web.test.tsx tests/unit/opentui-message.test.tsx
+          tests/unit/opentui-clipboard.test.tsx
           tests/integration/graphics-runtime.test.ts
       - name: Build CLI and public SDK
         run: bun run build

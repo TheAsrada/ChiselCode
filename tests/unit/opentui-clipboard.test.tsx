@@ -248,7 +248,7 @@ test("chat mouse selection copies Unicode, right-click copies and Ctrl+C still c
     await frame(setup);
     const lines = setup.captureCharFrame().split("\n");
     const y = lines.findIndex((line) => line.includes("Привет мир"));
-    expect(y).toBeGreaterThanOrEqual(0);
+    expect(y, setup.captureCharFrame()).toBeGreaterThanOrEqual(0);
     const x = (lines[y] ?? "").indexOf("Привет мир");
     await act(async () => {
       await setup.mockMouse.drag(x, y, x + 5, y);
