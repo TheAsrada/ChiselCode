@@ -100,10 +100,20 @@ test("live UI reload is isolated by extension/root, ordinary boot excludes UI, f
     expect(await denied.open(firstRoot)).toEqual([]);
     expect(await denied.changed("personal.second")).toBe(false);
     await denied.dispose();
-    const blocked = new UiExtensionRuntime(false, () => false);
+    const bootIdentity = new ExtensionHost(
+      ["personal.first", "personal.second", "personal.invalid"].map((id) => ({
+        id,
+        activate() {},
+      })),
+    );
+    const blocked = new UiExtensionRuntime(
+      false,
+      (id) => !bootIdentity.hasDefinition(id),
+    );
     expect(await blocked.open(firstRoot)).toEqual([]);
     expect(await blocked.changed("personal.second")).toBe(false);
     await blocked.dispose();
+    await bootIdentity.dispose();
     expect((await readFile(marker, "utf8")).trim().split("\n").sort()).toEqual([
       "personal.first",
       "personal.invalid",

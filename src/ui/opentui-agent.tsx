@@ -157,24 +157,7 @@ async function runApplication(
   const webSettingsStore = new WebSettingsStore(options.configPath);
   const uiRuntime = new UiExtensionRuntime(
     options.externalExtensions === false,
-    (id) =>
-      !extensionHost
-        .readyScopes()
-        .some((scope) =>
-          scope
-            .externalDiagnostics()
-            .some(
-              (diagnostic) =>
-                diagnostic.id === id &&
-                [
-                  "active",
-                  "loading",
-                  "load_failed",
-                  "activation_failed",
-                  "cleanup_failed",
-                ].includes(diagnostic.state),
-            ),
-        ),
+    (id) => !extensionHost.hasDefinition(id),
   );
   const extensionManagement = new ExtensionManagementService({
     applyUi: (id) => uiRuntime.changed(id),

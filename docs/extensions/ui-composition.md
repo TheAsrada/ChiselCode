@@ -80,4 +80,4 @@ UI-пакеты регистрируют UI/views, chat formatters, собств
 
 UI scopes принадлежат паре workspace/package. Изменение одного не останавливает core или соседний пакет. Factory UI-пакета получает новый settings snapshot при изменении settings revision; JS-модуль импортируется по canonical path без cache-busting. Mutable state храните внутри activation с учётом conversation ID. Headless runtime UI-пакеты не активирует.
 
-Если обновление переводит уже загруженный standard-пакет в `kind: ui`, сначала нужен перезапуск: host не монтирует новый UI поверх старого кода с тем же ID. Неудачный cleanup также сохраняет требование перезапуска.
+Если обновление переводит standard-пакет, уже известный текущему boot plan в `kind: ui`, сначала нужен перезапуск: host не монтирует новый UI поверх старого кода с тем же ID. Неудачный cleanup также сохраняет требование перезапуска.

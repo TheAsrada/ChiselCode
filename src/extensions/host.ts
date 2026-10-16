@@ -389,6 +389,10 @@ export class ExtensionHost implements Disposable {
       return captured;
     });
   }
+  /** Boot identity exists before activation; live UI must not shadow a standard definition. */
+  hasDefinition(id: string): boolean {
+    return this.definitions.some((definition) => definition.id === id);
+  }
   async open(root: string): Promise<WorkspaceExtensionScope> {
     if (this.closed)
       throw new ExtensionLifecycleError("Extension host is closed.");
