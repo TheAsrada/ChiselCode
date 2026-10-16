@@ -11,25 +11,39 @@ import {
 } from "../../src/providers/profiles.js";
 import { createBuiltinProviderRegistry } from "../../src/providers/runtime.js";
 
-test("terminal graphics default off and persist without replacing other UI preferences", async () => {
+test("retired graphics preference is stripped while other and future UI settings survive", async () => {
   const dir = await mkdtemp(join(tmpdir(), "chisel-glyph-config-"));
   const path = join(dir, "config.json");
   try {
-    const original = await loadGlobalConfig(path);
-    expect(original.ui?.unicodeDecorations ?? false).toBe(false);
     for (const unicodeDecorations of [true, false]) {
-      await saveGlobalConfig(
-        {
-          ...original,
-          ui: { theme: "paper", sidebarMode: "hide", unicodeDecorations },
-        },
-        path,
-      );
-      expect((await loadGlobalConfig(path)).ui).toEqual({
+      const ui = {
         theme: "paper",
         sidebarMode: "hide",
+        accent: "#abcdef",
         unicodeDecorations,
+        future: { keep: true },
+      } as const;
+      await writeFile(
+        path,
+        JSON.stringify({
+          schemaVersion: 2,
+          profiles: {},
+          ui,
+          future: { keep: true },
+        }),
+      );
+      const loaded = await loadGlobalConfig(path);
+      const { unicodeDecorations: _removed, ...expected } = ui;
+      expect(loaded.ui).toEqual(expected);
+      await saveGlobalConfig(loaded, path);
+      expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+        ui: expected,
+        future: { keep: true },
       });
+      expect(JSON.parse(await readFile(path, "utf8")).ui).not.toHaveProperty(
+        "unicodeDecorations",
+      );
+      expect(migrateConfig({ providers: {}, ui }).ui).toEqual(expected);
     }
   } finally {
     await rm(dir, { recursive: true, force: true });

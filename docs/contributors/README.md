@@ -30,3 +30,5 @@
 - [Темы расширений: сценарии, кадры и проверки](reports/extension-themes.md)
 
 - [Композиция интерфейса, встроенный extension-creator и live UI: реализация и кадры](reports/ui-composition.md)
+
+- [Единое графическое оформление OpenTUI: удаление ASCII, совместимость конфигурации и кадры](reports/opentui-graphics.md)

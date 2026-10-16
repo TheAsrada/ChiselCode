@@ -43,12 +43,13 @@ export const GlobalConfigV2Schema = z.looseObject({
             ),
         ])
         .optional(),
-      unicodeDecorations: z.boolean().optional(),
       accent: z
         .string()
         .regex(/^#[0-9a-fA-F]{6}$/)
         .optional(),
     })
+    // Retire the old toggle on load/save without dropping future UI preferences.
+    .transform(({ unicodeDecorations: _removed, ...ui }) => ui)
     .optional(),
 });
 export const LegacyConfigSchema = z.looseObject({

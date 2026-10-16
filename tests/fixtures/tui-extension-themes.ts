@@ -37,7 +37,7 @@ await writeFile(
     profiles: {},
     ui: {
       theme: "obsidian",
-      unicodeDecorations: process.env.CHISEL_CAPTURE_UNICODE === "1",
+
       accent: "#a286f6",
     },
     lsp: { mode: "off", servers: {} },

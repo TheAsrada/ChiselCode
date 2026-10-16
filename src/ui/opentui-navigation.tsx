@@ -2,14 +2,9 @@
 import type { ReactNode } from "react";
 import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
-import {
-  ASCII_LOGO,
-  ASCII_LOGO_WIDTH,
-  LOGO_WIDTH,
-  renderLogoRows,
-} from "./logo.js";
+import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import { UiSurface } from "./opentui-composition.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine } from "./terminal-text.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
 
@@ -26,7 +21,6 @@ function TabAction({
   palette: Palette;
   onSelect: () => void;
 }) {
-  const { borderChars } = useTerminalDecoration();
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Tab controls have keyboard equivalents.
     <box
@@ -36,7 +30,6 @@ function TabAction({
       flexShrink={0}
       border
       borderStyle="rounded"
-      customBorderChars={borderChars}
       borderColor={palette.border}
       backgroundColor={palette.surface}
       alignItems="center"
@@ -62,7 +55,6 @@ export function SessionTabs({
   width: number;
   palette: Palette;
 }) {
-  const { borderChars } = useTerminalDecoration();
   if (!workspace.tabs.length) return null;
   const overflow = workspace.tabs.length * 20 + 5 > width;
   const controls = overflow ? 11 : 5;
@@ -127,7 +119,6 @@ export function SessionTabs({
             flexShrink={0}
             border
             borderStyle="rounded"
-            customBorderChars={borderChars}
             borderColor={
               awaitingApproval
                 ? palette.yellow
@@ -219,9 +210,8 @@ export function OpenTuiHome({
   updateNotice?: string;
   onUpdate?: () => void;
 }) {
-  const { unicode } = useTerminalDecoration();
-  const logoWidth = unicode ? LOGO_WIDTH : ASCII_LOGO_WIDTH;
-  const logoRows = unicode ? renderLogoRows() : ASCII_LOGO;
+  const logoWidth = LOGO_WIDTH;
+  const logoRows = renderLogoRows();
   const fullLogo = width >= logoWidth + 4 && height >= 18;
   const contentWidth = Math.max(1, Math.min(86, width - (width >= 40 ? 4 : 0)));
   return (

@@ -9,9 +9,7 @@ import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 import { childFixture } from "../helpers/subagent.js";
 
-for (const [index, theme] of (
-  ["obsidian", "paper", "graphite", "ember"] as const
-).entries())
+for (const theme of ["obsidian", "paper", "graphite", "ember"] as const)
   test(`extension chat cards update, open the addressed task and fit narrow windows in ${theme}`, async () => {
     const controller = new TuiController(process.cwd());
     const child = childFixture();
@@ -67,11 +65,7 @@ for (const [index, theme] of (
     let setup!: Awaited<ReturnType<typeof testRender>>;
     await act(async () => {
       setup = await testRender(
-        <OpenTuiSpike
-          controller={controller}
-          initialTheme={theme}
-          initialUnicodeDecorations={index % 2 === 1}
-        />,
+        <OpenTuiSpike controller={controller} initialTheme={theme} />,
         { width: 160, height: 46 },
       );
     });

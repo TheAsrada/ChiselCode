@@ -7,7 +7,7 @@ import {
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
 import { UiSurface } from "./opentui-composition.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine } from "./terminal-text.js";
 import { ENTER_KEY } from "./theme.js";
 
@@ -47,7 +47,6 @@ export function OpenTuiPrompt({
   onSubmit: () => void;
   compact?: boolean;
 }) {
-  const { borderChars } = useTerminalDecoration();
   if (compact)
     return (
       <box
@@ -81,7 +80,6 @@ export function OpenTuiPrompt({
       flexShrink={0}
       border
       borderStyle="rounded"
-      customBorderChars={borderChars}
       borderColor={focused ? modeColor : palette.border}
       backgroundColor={palette.surface}
       title={hasDraft ? " Черновик " : " Сообщение "}

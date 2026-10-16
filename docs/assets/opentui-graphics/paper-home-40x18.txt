@@ -1,0 +1,18 @@
+                                        
+                                        
+                                        
+             <i> ChiselCode             
+                                        
+  ╭─ Черновик ───────────────────────╮  
+  │                                  │  
+  │  Черновик 👩‍💻 汉字 é              │  
+  │                                  │  
+  │   Build   Manual v       Enter   │  
+  │  claude-opus-5 v                 │  
+  ╰──────────────────────────────────╯  
+  Shift+Tab режим | F4                  
+                                        
+                                        
+                                        
+                                        
+ /tmp/chisel-gra...   ChiselCode 0.6.33 

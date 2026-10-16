@@ -11,7 +11,7 @@ import { lexer, type Token, type Tokens } from "marked";
 import type React from "react";
 import { useMemo } from "react";
 import type { Palette } from "./appearance.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
 declare module "@opentui/react" {
@@ -170,7 +170,6 @@ export function FormattedMessage({
   streaming?: boolean;
 }) {
   const available = Math.max(1, width - 1);
-  const { borderChars } = useTerminalDecoration();
   const colors = useMemo(
     () =>
       Object.fromEntries(
@@ -220,7 +219,6 @@ export function FormattedMessage({
             flexShrink={0}
             backgroundColor={palette.surface}
             border={depth ? false : ["left"]}
-            customBorderChars={borderChars}
             borderColor={palette.border}
             paddingLeft={1}
             paddingRight={1}
@@ -279,7 +277,6 @@ export function FormattedMessage({
             flexShrink={0}
             backgroundColor={palette.surface}
             border={["left"]}
-            customBorderChars={borderChars}
             borderColor={palette.border}
           >
             {available >= table.header.length * 14 ? (
@@ -345,7 +342,6 @@ export function FormattedMessage({
             flexShrink={0}
             backgroundColor={palette.surface}
             border={["left"]}
-            customBorderChars={borderChars}
             borderColor={palette.border}
             paddingLeft={1}
             paddingRight={1}
@@ -374,7 +370,6 @@ export function FormattedMessage({
             flexDirection="column"
             flexShrink={0}
             border={["left"]}
-            customBorderChars={borderChars}
             borderColor={palette.accent}
             paddingLeft={1}
           >
@@ -387,7 +382,6 @@ export function FormattedMessage({
             width="100%"
             height={1}
             border={["top"]}
-            customBorderChars={borderChars}
             borderColor={palette.border}
           />
         );

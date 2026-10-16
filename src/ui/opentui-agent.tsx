@@ -2084,17 +2084,6 @@ async function runApplication(
         initialMode: config.ui?.sidebarMode ?? "auto",
         initialTheme: currentTheme,
         themeCatalog: extensionHost.themes,
-        initialUnicodeDecorations: config.ui?.unicodeDecorations === true,
-        onUnicodeDecorationsChange: (unicodeDecorations) => {
-          const saved = pendingSave.then(async () => {
-            await updateGlobalConfig(options.configPath, (current) => ({
-              ...current,
-              ui: { ...current.ui, unicodeDecorations },
-            }));
-          });
-          pendingSave = saved.catch(() => {});
-          return saved;
-        },
         accent: config.ui?.accent,
         onThemeChange: (theme) => {
           const saved = pendingSave.then(async () => {

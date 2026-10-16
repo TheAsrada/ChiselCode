@@ -2,7 +2,7 @@
 import type { ChatCard } from "../types/chat-presentation.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import {
   ACTION_PAGE,
@@ -38,7 +38,6 @@ export function ToolActions({
     extensionId?: string,
   ): void;
 }) {
-  const { unicode } = useTerminalDecoration();
   const open = state.expanded.has(group.id);
   const running = group.items.filter(actionRunning);
   const errors = group.items.filter(actionFailed);
@@ -98,7 +97,7 @@ export function ToolActions({
           active={focusedId === group.id}
           tone={tone}
           label={terminalLine(
-            `${open ? (unicode ? "▾" : "v") : unicode ? "▸" : ">"} ${title}`,
+            `${open ? "▾" : "▸"} ${title}`,
             Math.max(1, width - 2 - buttonWidth),
           )}
           onSelect={() => onSelect({ id: group.id, group })}

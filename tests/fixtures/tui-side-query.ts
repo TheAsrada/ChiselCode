@@ -123,7 +123,7 @@ await writeFile(
     },
     lsp: { mode: "off", servers: {} },
     web: { enabled: false },
-    ui: { unicodeDecorations: true },
+    ui: {},
   }),
 );
 const setup = await createTestRenderer({

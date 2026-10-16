@@ -54,7 +54,7 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       schemaVersion: 2,
       profiles: {},
       web: { enabled: false },
-      ui: { theme: "graphite", sidebarMode: "hide", unicodeDecorations: false },
+      ui: { theme: "graphite", sidebarMode: "hide" },
     }),
   );
   await writeFile(

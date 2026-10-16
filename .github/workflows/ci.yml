@@ -92,6 +92,13 @@ jobs:
           tests/unit/lsp-transport.test.ts
           tests/unit/extension-authoring.test.ts tests/unit/ui-extension-runtime.test.ts
           tests/integration/ui-extension-tools.test.ts
+          tests/unit/provider-config.test.ts tests/unit/lsp-config.test.ts
+          tests/unit/opentui-terminal-compatibility.test.tsx tests/unit/opentui-settings.test.tsx
+          tests/unit/opentui-navigation.test.tsx tests/unit/opentui-file-diff.test.tsx
+          tests/unit/opentui-update.test.tsx tests/unit/opentui-sidebar.test.tsx
+          tests/unit/opentui-background.test.tsx tests/unit/opentui-subagents.test.tsx
+          tests/unit/opentui-side-query.test.tsx tests/unit/opentui-chat-card.test.tsx
+          tests/integration/graphics-runtime.test.ts
       - name: Build CLI and public SDK
         run: bun run build
       - name: Installed package starts, executes tools, downloads and loads the SDK

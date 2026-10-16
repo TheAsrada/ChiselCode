@@ -28,10 +28,7 @@ import {
 } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
-import {
-  TerminalScrollbox,
-  useTerminalDecoration,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 
 export const MCP_STATE_LABELS: Record<McpConnectionState, string> = {
@@ -97,7 +94,6 @@ export function OpenTuiMcp({
   palette?: Palette;
   onClose: () => void;
 }) {
-  const { borderChars, unicode } = useTerminalDecoration();
   const [screen, setScreen] = useState<Screen>("servers");
   const [version, setVersion] = useState(0);
   const [serverId, setServerId] = useState("");
@@ -951,7 +947,6 @@ export function OpenTuiMcp({
             </text>
             <box
               border
-              customBorderChars={borderChars}
               borderColor={palette.accent}
               paddingLeft={1}
               paddingRight={1}
@@ -1000,7 +995,6 @@ export function OpenTuiMcp({
             </text>
             <box
               border
-              customBorderChars={borderChars}
               borderColor={palette.accent}
               paddingLeft={1}
               paddingRight={1}
@@ -1129,7 +1123,7 @@ export function OpenTuiMcp({
                 >
                   <text height={1} fg={active ? palette.accent : palette.text}>
                     {row.color ? (
-                      <span fg={row.color}>{unicode ? "●" : "*"} </span>
+                      <span fg={row.color}>{"●"} </span>
                     ) : (
                       `${active ? ">" : " "} `
                     )}
@@ -1269,7 +1263,7 @@ export function OpenTuiMcp({
         <text fg={palette.muted} height={1}>
           {terminalLine(
             screen === "servers"
-              ? `${servers.filter((item) => item.state === "connected").length}/${servers.length} подключено · ${unicode ? "↑ ↓" : "Up Down"} выбор · Enter открыть`
+              ? `${servers.filter((item) => item.state === "connected").length}/${servers.length} подключено · ↑ ↓ выбор · Enter открыть`
               : screen === "permissions" || screen === "preview"
                 ? "Enter выбор / правило · Ctrl+S сохранить"
                 : screen === "form"

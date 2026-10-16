@@ -261,3 +261,9 @@ bun tests/fixtures/command-packaging.ts
 ## UI-композиция и создание расширений
 
 [Публичный контракт](extensions/ui-composition.md) и [архитектурное решение](architecture/ui-contributions.md#композиция-и-live-ui) доступны начиная с 0.6.33. Пример `examples/extensions/workbench` не требует сборки. `bun tests/fixtures/tui-extension-creator.ts` проверяет scripted-provider → load_skill/create_extension → managed install → реальный Settings trust/live enable → UI actions/permissions → settings/disable. Это проверка runtime и поставки, не оценка качества произвольной модели. [Кадры и фактические проверки](contributors/reports/ui-composition.md).
+
+## Единое графическое оформление OpenTUI
+
+В Unreleased после 0.6.33 удалены ASCII-ветки, context переключения оформления и соответствующая настройка. `TerminalScrollbox` задаёт общие defaults нативного ползунка. `GlobalConfigV2Schema` отбрасывает прежнее поле `ui.unicodeDecorations`, сохраняя неизвестные поля и остальные настройки. Alternate-screen и split-footer используют один renderer и это оформление.
+
+`bun test tests/integration/graphics-runtime.test.ts` запускает production `runOpenTuiAgent` с прежним `false`, проверяет тёмную/светлую темы, настройки, черновик, фокус и resize до 24×8. Для кадров: `CHISEL_GRAPHICS_CAPTURES=docs/assets/opentui-graphics bun tests/fixtures/tui-graphics.ts`; для Paper добавьте `CHISEL_CAPTURE_THEME=paper`. [Решение, кадры и фактические проверки](contributors/reports/opentui-graphics.md).

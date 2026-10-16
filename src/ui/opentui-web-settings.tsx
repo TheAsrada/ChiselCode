@@ -11,10 +11,7 @@ import type { SettingsPanelControl } from "./opentui-lsp-settings.js";
 import { SettingsSecretInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
-import {
-  TerminalScrollbox,
-  useTerminalDecoration,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 
 export function OpenTuiWebSettings({
   actions,
@@ -33,7 +30,6 @@ export function OpenTuiWebSettings({
   controls?: MutableRefObject<SettingsPanelControl | undefined>;
   onDirty?(dirty: boolean): void;
 }) {
-  const { borderChars } = useTerminalDecoration();
   const [state, setState] = useState<WebSettingsState>();
   const [saved, setSaved] = useState<WebSettingsState>();
   const [pendingKey, setPendingKey] = useState<string>();
@@ -304,7 +300,6 @@ export function OpenTuiWebSettings({
             <box
               border={["left"]}
               borderColor={palette.border}
-              customBorderChars={borderChars}
               paddingLeft={1}
               flexDirection="column"
             >

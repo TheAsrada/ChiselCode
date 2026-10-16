@@ -4,7 +4,7 @@ import stringWidth from "string-width";
 import type { ChatCard as CardData } from "../types/chat-presentation.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine } from "./terminal-text.js";
 
 export function ChatCard({
@@ -22,7 +22,6 @@ export function ChatCard({
   onAction?(action: NonNullable<CardData["actions"]>[number]): void;
   onOpen?(target: NonNullable<CardData["target"]>): void;
 }) {
-  const { unicode, borderChars } = useTerminalDecoration();
   const inner = Math.max(1, width - 4);
   const narrow = inner < 48;
   const status = card.status;
@@ -34,8 +33,7 @@ export function ChatCard({
     error: palette.red,
   };
   const color = status ? colors[status.tone] : palette.accent;
-  const marker =
-    status?.tone === "success" ? (unicode ? "✓" : "+") : unicode ? "●" : "*";
+  const marker = status?.tone === "success" ? "✓" : "●";
   const statusWidth = status
     ? Math.min(inner, stringWidth(status.label) + 4)
     : 0;
@@ -49,7 +47,6 @@ export function ChatCard({
       flexShrink={0}
       border
       borderStyle="rounded"
-      customBorderChars={borderChars}
       borderColor={palette.border}
       backgroundColor={palette.surface}
       paddingLeft={1}

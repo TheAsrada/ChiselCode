@@ -168,7 +168,6 @@ const server = Bun.serve({
 });
 const configPath = join(directory, "selected-config.json");
 const theme = process.env.CHISEL_TEST_THEME === "paper" ? "paper" : "obsidian";
-const unicode = process.env.CHISEL_TEST_UNICODE === "1";
 const config = {
   schemaVersion: 2,
   defaultProfileId: "fixture",
@@ -184,7 +183,7 @@ const config = {
     mode: "custom",
     servers: { fixture: { ...installation, trustedWorkspaces: [root] } },
   },
-  ui: { theme, unicodeDecorations: unicode, sidebarMode: "auto" },
+  ui: { theme, sidebarMode: "auto" },
 };
 await writeFile(configPath, JSON.stringify(config));
 const setup = await createTestRenderer({
@@ -236,7 +235,7 @@ const capture = async (state: string) => {
   await mkdir(captures, { recursive: true });
   await frame();
   const spans = setup.captureSpans();
-  const name = `${theme}-${unicode ? "unicode" : "ascii"}-${state}`;
+  const name = `${theme}-graphics-${state}`;
   await writeFile(join(captures, `${name}.txt`), setup.captureCharFrame());
   await writeFile(
     join(captures, `${name}.json`),

@@ -24,7 +24,7 @@ await writeFile(
   JSON.stringify({
     schemaVersion: 2,
     profiles: {},
-    ui: { theme, unicodeDecorations: true },
+    ui: { theme },
     lsp: { mode: "off", servers: {} },
     web: { enabled: false },
     subagents: {

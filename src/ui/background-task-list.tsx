@@ -9,10 +9,7 @@ import { DialogAction } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { elapsedSeconds } from "./request-timing.js";
 import { useElapsedClock } from "./subagent-elapsed.js";
-import {
-  TerminalScrollbox,
-  useTerminalDecoration,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine, terminalTextRows } from "./terminal-text.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 export function BackgroundTaskList({
@@ -32,7 +29,6 @@ export function BackgroundTaskList({
   focused: boolean;
   onBack(): void;
 }) {
-  const { unicode } = useTerminalDecoration();
   const renderer = useRenderer();
   const tiny = height < 12 || width < 30;
   const pressed = useRef<string | undefined>(undefined);
@@ -400,7 +396,7 @@ export function BackgroundTaskList({
                       {terminalLine(
                         tiny
                           ? `${picked ? ">" : " "} ${terminalLine(task.label, Math.max(3, width - 14))} ${backgroundStateLabels[task.state]}`
-                          : `${picked ? (unicode ? "▸" : ">") : " "} ${task.kind === "service" ? "[Сервис]" : "[Проверка]"} ${task.label}`,
+                          : `${picked ? "▸" : " "} ${task.kind === "service" ? "[Сервис]" : "[Проверка]"} ${task.label}`,
                         width,
                       )}
                     </text>

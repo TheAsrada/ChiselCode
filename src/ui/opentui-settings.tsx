@@ -41,10 +41,7 @@ import {
   sortModelOptions,
   type TuiSettingsValues,
 } from "./settings-values.js";
-import {
-  TerminalScrollbox,
-  useTerminalDecoration,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import { FAIL_MARK } from "./theme.js";
 
@@ -126,8 +123,6 @@ export function OpenTuiSettings({
   themeCatalog,
   onThemePreview,
   onThemeChange,
-  unicodeDecorations = false,
-  onUnicodeDecorationsChange,
   allowBypassPermissions = false,
   onBypassAvailabilityChange,
   setup = false,
@@ -145,16 +140,12 @@ export function OpenTuiSettings({
   themeCatalog?: ThemeCatalog;
   onThemePreview?: (theme: ThemeName) => void;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
-  unicodeDecorations?: boolean;
-  onUnicodeDecorationsChange?: (value: boolean) => Promise<void>;
   allowBypassPermissions?: boolean;
   onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   setup?: boolean;
   active?: boolean;
   onOpenIntegration?: (route: "tools.mcp" | "tools.skills") => void;
 }) {
-  const { borderChars } = useTerminalDecoration();
-  const [decorative, setDecorative] = useState(unicodeDecorations);
   const [values, setValues] = useState<TuiSettingsValues>({
     provider: "",
     model: "",
@@ -656,21 +647,6 @@ export function OpenTuiSettings({
       );
     });
   };
-  const toggleDecoration = () => {
-    if (!onUnicodeDecorationsChange) return;
-    const next = !decorative;
-    run("theme", async (valid) => {
-      await onUnicodeDecorationsChange(next);
-      if (!valid()) return;
-      setDecorative(next);
-      setMessage(
-        next
-          ? "Графический логотип и рамки включены"
-          : "Совместимое оформление включено",
-        "success",
-      );
-    });
-  };
   const open = (next: Screen) => {
     setCompactDetail(true);
     setShellFocus("content");
@@ -1014,11 +990,6 @@ export function OpenTuiSettings({
       }
       return;
     }
-    if (page === "appearance" && key.ctrl && name === "g") {
-      key.preventDefault();
-      toggleDecoration();
-      return;
-    }
     if (key.ctrl && name === "t") {
       key.preventDefault();
       changePage("appearance");
@@ -1216,18 +1187,6 @@ export function OpenTuiSettings({
               </text>
             </box>
           )}
-          {page === "appearance" && (
-            <box height={1} flexShrink={0} flexDirection="row">
-              <DialogAction
-                id="settings-decoration-toggle"
-                label={`Графика: [${decorative ? "x" : " "}] Ctrl+G`}
-                palette={palette}
-                active={decorative}
-                disabled={!!busy || !onUnicodeDecorationsChange}
-                onSelect={toggleDecoration}
-              />
-            </box>
-          )}
           <box
             height={
               page === "extensions" ||
@@ -1236,7 +1195,7 @@ export function OpenTuiSettings({
               page === "tools.background" ||
               page === "web"
                 ? 0
-                : bodyHeight - (page === "appearance" ? 1 : 0)
+                : bodyHeight
             }
             visible={
               page !== "extensions" &&
@@ -1427,9 +1386,8 @@ export function OpenTuiSettings({
                         Завершённые действия
                       </text>
                       <text marginTop={1} fg={palette.muted}>
-                        {decorative
-                          ? "Coder Mini и округлые рамки. Шрифт должен поддерживать графические символы."
-                          : "ASCII-логотип и рамки совместимы с обычными шрифтами. Графика включается отдельно."}
+                        Coder Mini и округлые рамки. Шрифт должен поддерживать
+                        графические символы.
                       </text>
                       <text marginTop={1} fg={palette.muted}>
                         Стрелки показывают тему во всём интерфейсе. Примените
@@ -1453,7 +1411,6 @@ export function OpenTuiSettings({
                   marginTop={roomy ? 1 : 0}
                   border={roomy ? true : []}
                   borderStyle="rounded"
-                  customBorderChars={borderChars}
                   borderColor={palette.accent}
                   backgroundColor={palette.raised}
                   paddingLeft={1}

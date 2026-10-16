@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 import type { Palette } from "./appearance.js";
 import type { SettingsSearchResult } from "./settings-catalog.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine } from "./terminal-text.js";
 
 export function SettingsNavigation({
@@ -27,7 +27,6 @@ export function SettingsNavigation({
   onMove(index: number): void;
   separated?: boolean;
 }) {
-  const { borderChars, unicode } = useTerminalDecoration();
   const contentWidth = Math.max(1, width - (separated ? 3 : 0));
   const availableRows = Math.max(1, height - (separated ? 3 : 0));
   const rows: Array<{
@@ -72,7 +71,6 @@ export function SettingsNavigation({
       backgroundColor={separated ? palette.bg : palette.surface}
       border={separated ? ["right"] : []}
       borderColor={palette.border}
-      customBorderChars={borderChars}
       paddingLeft={separated ? 1 : 0}
       paddingRight={separated ? 1 : 0}
       onMouseScroll={(event) => {
@@ -142,7 +140,7 @@ export function SettingsNavigation({
       {separated && <box flexGrow={1} minHeight={0} />}
       {separated && (
         <text height={1} fg={palette.muted}>
-          {unicode ? "↑↓ · Enter открыть" : "Up/Down · Enter"}
+          {"↑↓ · Enter открыть"}
         </text>
       )}
     </box>

@@ -5,7 +5,7 @@ import { backgroundStateLabels } from "../background/presentation.js";
 import type { Palette } from "./appearance.js";
 import { BackgroundTaskList } from "./background-task-list.js";
 import { dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine } from "./terminal-text.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 export function OpenTuiBackgroundTasks({
@@ -23,7 +23,6 @@ export function OpenTuiBackgroundTasks({
 }) {
   const layout = dialogLayout(width, height);
   const tiny = height < 12 || width < 30;
-  const { unicode } = useTerminalDecoration();
   const inner = Math.max(1, layout.popupWidth - (layout.tiny ? 2 : 4));
   const contentHeight = Math.max(
     1,
@@ -104,9 +103,7 @@ export function OpenTuiBackgroundTasks({
                 )}
               </text>
               <text height={1} fg={color}>
-                {task
-                  ? `${unicode ? "●" : "*"} ${backgroundStateLabels[task.state]}`
-                  : ""}
+                {task ? `● ${backgroundStateLabels[task.state]}` : ""}
               </text>
               <box height={1} />
               <text height={1} fg={palette.muted}>
@@ -135,11 +132,9 @@ export function OpenTuiBackgroundTasks({
                 СОХРАНЁННЫЙ ВЫВОД
               </text>
               <text height={1} fg={palette.accent}>
-                {(unicode ? "━" : "#").repeat(Math.round(used * barWidth))}
+                {"━".repeat(Math.round(used * barWidth))}
                 <span fg={palette.border}>
-                  {(unicode ? "─" : "-").repeat(
-                    barWidth - Math.round(used * barWidth),
-                  )}
+                  {"─".repeat(barWidth - Math.round(used * barWidth))}
                 </span>
               </text>
               <text height={1} fg={palette.muted}>

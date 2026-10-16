@@ -10,10 +10,7 @@ import {
 } from "./opentui-dialog.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
-import {
-  TerminalScrollbox,
-  useTerminalDecoration,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import { ENTER_KEY, SKILL_MARK } from "./theme.js";
 
@@ -60,7 +57,6 @@ export function OpenTuiSkills({
   onCreate?: () => void;
   onEdit?: (skill: Skill) => void;
 }) {
-  const { borderChars } = useTerminalDecoration();
   const { skills, error: loadError } = useMemo(
     () => readCatalog(actions),
     [actions],
@@ -195,7 +191,6 @@ export function OpenTuiSkills({
         marginTop={roomy ? 1 : 0}
         border={roomy ? true : []}
         borderStyle="rounded"
-        customBorderChars={borderChars}
         borderColor={instructions ? palette.border : palette.accent}
         backgroundColor={palette.raised}
         paddingLeft={1}

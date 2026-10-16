@@ -222,7 +222,6 @@ test("sidebar drawer anchors to the right, restores scroll and uses the full nar
         controller={controller}
         onExit={() => {}}
         onSubmit={async () => {}}
-        initialUnicodeDecorations
       />,
       { width: 100, height: 22 },
     );

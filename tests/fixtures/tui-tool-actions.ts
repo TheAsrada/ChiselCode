@@ -144,7 +144,6 @@ await writeFile(
     },
     ui: {
       theme: process.env.CHISEL_CAPTURE_THEME ?? "obsidian",
-      unicodeDecorations: process.env.CHISEL_CAPTURE_UNICODE === "1",
     },
     lsp: { mode: "off", servers: {} },
     web: { enabled: false },
@@ -224,7 +223,7 @@ async function capture(name: string) {
   const folder = process.env.CHISEL_CAPTURE_DIR;
   if (!folder) return;
   await mkdir(folder, { recursive: true });
-  const prefix = `${process.env.CHISEL_CAPTURE_THEME ?? "obsidian"}-${process.env.CHISEL_CAPTURE_UNICODE === "1" ? "unicode" : "ascii"}`;
+  const prefix = `${process.env.CHISEL_CAPTURE_THEME ?? "obsidian"}-graphics`;
   await writeFile(join(folder, `${prefix}-${name}.txt`), ui.captureCharFrame());
   const spans = ui.captureSpans();
   await writeFile(

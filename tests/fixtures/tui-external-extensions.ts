@@ -42,7 +42,6 @@ await writeFile(
     profiles: {},
     ui: {
       theme: process.env.CHISEL_CAPTURE_THEME ?? "obsidian",
-      unicodeDecorations: process.env.CHISEL_CAPTURE_UNICODE === "1",
     },
     lsp: { mode: "off", servers: {} },
     web: { enabled: false },

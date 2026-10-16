@@ -15,28 +15,27 @@ import type { TuiSettingsValues } from "../../src/ui/settings.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
 
-test("graphics toggle saves, redraws and survives tab changes while preserving the composer", async () => {
+test("graphics are always enabled and settings preserve the composer across tab changes", async () => {
   const workspace = new TuiWorkspace(process.cwd());
-  const persisted: boolean[] = [];
   const setup = await testRender(
     <OpenTuiSpike
       workspace={workspace}
       onExit={() => {}}
       onSubmit={async () => {}}
-      onUnicodeDecorationsChange={async (value) => {
-        persisted.push(value);
-      }}
     />,
     { width: 120, height: 36 },
   );
   try {
     await frame(setup);
-    expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
+    expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
     await paste(setup, "черновик 😀");
     const editor = setup.renderer.currentFocusedEditor;
     await key(setup, "t", true);
+    expect(setup.captureCharFrame()).toContain("╭");
+    expect(
+      setup.renderer.root.findDescendantById("settings-decoration-toggle"),
+    ).toBeUndefined();
     await key(setup, "g", true);
-    expect(persisted).toEqual([true]);
     expect(setup.captureCharFrame()).toContain("╭");
     await key(setup, "ESCAPE");
     expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
@@ -48,42 +47,9 @@ test("graphics toggle saves, redraws and survives tab changes while preserving t
     });
     await frame(setup);
     expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
-    await key(setup, "t", true);
-    await click(setup, "settings-decoration-toggle");
-    expect(persisted).toEqual([true, false]);
-    await key(setup, "ESCAPE");
-    expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
   } finally {
     destroy(setup);
     workspace.dispose();
-  }
-});
-
-test("failed graphics persistence keeps compatible borders and an unsent draft", async () => {
-  const setup = await testRender(
-    <OpenTuiSpike
-      onExit={() => {}}
-      onSubmit={async () => {}}
-      onUnicodeDecorationsChange={async () => {
-        throw new Error("Save failed");
-      }}
-    />,
-    { width: 40, height: 12 },
-  );
-  try {
-    await frame(setup);
-    await paste(setup, "черновик");
-    const editor = setup.renderer.currentFocusedEditor;
-    await key(setup, "t", true);
-    await click(setup, "settings-decoration-toggle");
-    expect(setup.captureCharFrame()).toContain("Save failed");
-    expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
-    await key(setup, "ESCAPE");
-    await key(setup, "ESCAPE");
-    expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
-    expect(editor?.plainText).toBe("черновик");
-  } finally {
-    destroy(setup);
   }
 });
 

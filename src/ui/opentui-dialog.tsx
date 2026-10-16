@@ -4,7 +4,7 @@ import { useRenderer } from "@opentui/react";
 import { type ReactNode, useRef } from "react";
 import { type Palette, THEMES } from "./appearance.js";
 import { uiInputStamp } from "./overlay-input.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalSafeText } from "./terminal-text.js";
 
 export function dialogLayout(
@@ -55,7 +55,6 @@ export function OpenTuiDialog({
   shadow?: boolean;
 }) {
   const renderer = useRenderer();
-  const { borderChars } = useTerminalDecoration();
   const dismiss = useRef(false);
   const { popupWidth, popupHeight, left, top, roomy, tiny } = dialogLayout(
     width,
@@ -116,7 +115,6 @@ export function OpenTuiDialog({
         height={popupHeight}
         border={tiny ? [] : true}
         borderStyle="rounded"
-        customBorderChars={borderChars}
         borderColor={palette.border}
         backgroundColor={palette.surface}
         paddingLeft={1}

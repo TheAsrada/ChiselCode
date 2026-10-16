@@ -234,7 +234,6 @@ export interface GlobalConfig {
       | "ember"
       | "paper"
       | `extension:${string}:${string}`;
-    unicodeDecorations?: boolean;
     accent?: string;
   };
 }

@@ -1,0 +1,8 @@
+     <i> ChiselCode     
+╭─ Черновик ───────────╮
+│                      │
+│  Черновик 👩‍💻 汉字 é  │
+│   Build   Manual v  En
+│  claude-opus...      │
+╰──────────────────────╯
+Shift+Tab режим | F4    

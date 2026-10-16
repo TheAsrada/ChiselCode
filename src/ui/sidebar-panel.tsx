@@ -5,7 +5,7 @@ import { type ReactNode, useRef, useState } from "react";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine } from "./terminal-text.js";
 
 export type SidebarTab = "menu" | "context" | "agents";
@@ -50,7 +50,6 @@ export function SidebarPanel({
   onHide(): void;
   children: ReactNode;
 }) {
-  const { unicode } = useTerminalDecoration();
   const [hovered, setHovered] = useState<SidebarTab>();
   const pressed = useRef<SidebarTab | undefined>(undefined);
   const chrome = sidebarChrome(height);
@@ -124,7 +123,7 @@ export function SidebarPanel({
           </text>
           <DialogAction
             id="sidebar-hide"
-            label={unicode ? "×" : "x"}
+            label={"×"}
             palette={palette}
             onSelect={onHide}
           />
@@ -208,9 +207,7 @@ export function SidebarPanel({
                     width={tabWidth}
                     selectable={false}
                     fg={active ? palette.accent : palette.border}
-                    content={(unicode ? (active ? "━" : "─") : "-").repeat(
-                      tabWidth,
-                    )}
+                    content={(active ? "━" : "─").repeat(tabWidth)}
                   />
                 )}
               </box>

@@ -94,7 +94,6 @@ await writeFile(
     schemaVersion: 2,
     ui: {
       theme: process.env.CHISEL_CAPTURE_THEME ?? "obsidian",
-      unicodeDecorations: process.env.CHISEL_CAPTURE_UNICODE === "1",
     },
     defaultProfileId: "fixture",
     profiles: {
@@ -165,7 +164,7 @@ async function capture(name: string) {
   await writeFile(
     join(
       folder,
-      `${process.env.CHISEL_CAPTURE_THEME ?? "obsidian"}-${process.env.CHISEL_CAPTURE_UNICODE === "1" ? "unicode" : "ascii"}-${name}.txt`,
+      `${process.env.CHISEL_CAPTURE_THEME ?? "obsidian"}-graphics-${name}.txt`,
     ),
     ui.captureCharFrame(),
   );
@@ -173,7 +172,7 @@ async function capture(name: string) {
   await writeFile(
     join(
       folder,
-      `${process.env.CHISEL_CAPTURE_THEME ?? "obsidian"}-${process.env.CHISEL_CAPTURE_UNICODE === "1" ? "unicode" : "ascii"}-${name}.json`,
+      `${process.env.CHISEL_CAPTURE_THEME ?? "obsidian"}-graphics-${name}.json`,
     ),
     JSON.stringify({
       ...spans,

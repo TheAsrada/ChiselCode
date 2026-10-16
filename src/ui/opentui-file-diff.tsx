@@ -18,7 +18,7 @@ import {
   emptyDiffMessage,
   hiddenDiffChanges,
 } from "./file-diff-preview.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
 /** OpenTUI 0.5's percentage code width includes the gutter in its measurement.
@@ -115,7 +115,6 @@ export function FileDiffCard({
   onToggle?: () => void;
   palette?: Palette;
 }) {
-  const { borderChars } = useTerminalDecoration();
   const preview = diffPreview(diff);
   const colors = diffColors(palette);
   const innerWidth = Math.max(1, width - 2);
@@ -150,7 +149,6 @@ export function FileDiffCard({
       flexShrink={0}
       border
       borderStyle="rounded"
-      customBorderChars={borderChars}
       borderColor={palette.border}
       backgroundColor={palette.surface}
       marginTop={1}

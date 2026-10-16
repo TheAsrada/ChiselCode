@@ -12,7 +12,7 @@ import {
   type ModelOption,
   sortModelOptions,
 } from "./settings-values.js";
-import { useTerminalDecoration } from "./terminal-decoration.js";
+
 import { terminalLine } from "./terminal-text.js";
 import { WARN_MARK } from "./theme.js";
 
@@ -63,7 +63,6 @@ export function OpenTuiModels({
   onSettings(): void;
 }) {
   const layout = dialogLayout(width, height, 26);
-  const { borderChars } = useTerminalDecoration();
   const wide = layout.innerWidth >= 76 && layout.roomy;
   const [current, setCurrent] = useState<ModelSelection>();
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
@@ -350,7 +349,6 @@ export function OpenTuiModels({
       <box
         border={layout.roomy ? true : []}
         borderStyle="rounded"
-        customBorderChars={borderChars}
         borderColor={palette.border}
         height={layout.roomy ? 3 : 1}
         flexShrink={0}
@@ -488,7 +486,6 @@ export function OpenTuiModels({
             width={28}
             paddingLeft={2}
             border={["left"]}
-            customBorderChars={borderChars}
             borderColor={palette.border}
             flexDirection="column"
           >

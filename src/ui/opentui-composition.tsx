@@ -15,10 +15,7 @@ import { uiNodeInfo } from "../extensions/ui-types.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { DialogAction, OpenTuiDialog } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
-import {
-  TerminalScrollbox,
-  useTerminalDecoration,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalSafeText } from "./terminal-text.js";
 
 type Composition = {
@@ -60,7 +57,6 @@ function Element({
   values: Values;
 }) {
   const context = useContext(Context);
-  const { borderChars } = useTerminalDecoration();
   const fg = color(context.palette, "tone" in node ? node.tone : undefined);
   switch (node.type) {
     case "native":
@@ -106,7 +102,6 @@ function Element({
           padding={node.padding ?? 0}
           border={node.border ?? false}
           borderStyle="rounded"
-          customBorderChars={borderChars}
           borderColor={fg}
         >
           {node.children.map((child, index) => (

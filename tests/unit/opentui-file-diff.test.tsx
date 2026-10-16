@@ -8,10 +8,7 @@ import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { THEMES } from "../../src/ui/appearance.js";
 import { FileDiffCard } from "../../src/ui/opentui-file-diff.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
-import {
-  TerminalScrollbox,
-  UnicodeDecorationContext,
-} from "../../src/ui/terminal-decoration.js";
+import { TerminalScrollbox } from "../../src/ui/terminal-decoration.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
 
@@ -24,7 +21,7 @@ async function frame(setup: Setup) {
 
 for (const [name, palette] of Object.entries(THEMES)) {
   for (const width of [40, 120]) {
-    test(`diff card fits ${width} columns in ${name}, with font-safe decoration`, async () => {
+    test(`diff card fits ${width} columns in ${name}, with graphical borders`, async () => {
       const diff = buildFileDiff(
         "src/очень-длинная-папка/пример.ts",
         "const title = 'old';\n",
@@ -50,8 +47,8 @@ for (const [name, palette] of Object.entries(THEMES)) {
         expect(output).toContain("old");
         expect(output).toContain("new");
         expect(output).toContain("Ctrl+D");
-        expect(output).toContain("+---");
-        expect(output).not.toContain("╭");
+        expect(output).toContain("╭─");
+        expect(output).toContain("╰─");
         expect(
           setup.renderer.root.findDescendantById("test-card-full"),
         ).toBeUndefined();
@@ -65,9 +62,7 @@ for (const [name, palette] of Object.entries(THEMES)) {
 test("Unicode decoration uses the same layout with rounded borders", async () => {
   const diff = buildFileDiff("empty.txt", null, "");
   const setup = await testRender(
-    <UnicodeDecorationContext value={true}>
-      <FileDiffCard id="test-card" width={60} diff={diff} />
-    </UnicodeDecorationContext>,
+    <FileDiffCard id="test-card" width={60} diff={diff} />,
     { width: 60, height: 10 },
   );
   try {

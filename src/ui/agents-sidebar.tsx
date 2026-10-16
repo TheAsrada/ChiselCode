@@ -8,10 +8,7 @@ import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { SubagentElapsed } from "./subagent-elapsed.js";
-import {
-  TerminalScrollbox,
-  useTerminalDecoration,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiController, TuiViewState } from "./tui-controller.js";
 
@@ -42,7 +39,6 @@ export function AgentsSidebar({
   onOpen(id: string): void;
   onStop(id: string): void;
 }) {
-  const { unicode } = useTerminalDecoration();
   const body = useRef<ScrollBoxRenderable>(null);
   const pressed = useRef<string | undefined>(undefined);
   const [action, setAction] = useState(0);
@@ -268,13 +264,7 @@ export function AgentsSidebar({
           const chosen = child.id === selected?.id;
           const duplicates =
             children.filter((item) => item.label === child.label).length > 1;
-          const line = unicode
-            ? i === visible.length - 1
-              ? "└─"
-              : "├─"
-            : i === visible.length - 1
-              ? "`-"
-              : "|-";
+          const line = i === visible.length - 1 ? "└─" : "├─";
           return (
             // biome-ignore lint/a11y/noStaticElementInteractions: The whole row selects; Enter opens independently.
             <box

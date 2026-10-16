@@ -10,7 +10,7 @@ import {
 import { type ThemeName, themePalette } from "../../src/ui/appearance.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { OpenTuiUpdate, updateNotice } from "../../src/ui/opentui-update.js";
-import { UnicodeDecorationContext } from "../../src/ui/terminal-decoration.js";
+
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
 import { UpdateController } from "../../src/ui/update-controller.js";
 
@@ -100,59 +100,53 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as ThemeName[]) {
     [80, 24],
     [120, 36],
   ]) {
-    for (const unicode of [false, true]) {
-      test(`update popup: ${theme}, ${width}x${height}, unicode=${unicode}`, async () => {
-        const api = fixture();
-        await api.updater.check();
-        let closed = false;
-        const setup = await testRender(
-          <UnicodeDecorationContext value={unicode}>
-            <OpenTuiUpdate
-              updater={api.updater}
-              width={width ?? 80}
-              height={height ?? 24}
-              palette={themePalette(theme)}
-              onClose={() => {
-                closed = true;
-              }}
-            />
-          </UnicodeDecorationContext>,
-          { width, height },
-        );
-        try {
-          await frame(setup);
-          expect(setup.captureCharFrame()).toContain("0.6.12");
-          expect(setup.captureCharFrame()).toContain("Скачать");
-          if (!unicode)
-            expect(setup.captureCharFrame()).not.toMatch(/[\u2500-\u259f]/u);
-          await key(setup, "RETURN");
-          act(() => api.halfway());
-          await frame(setup);
-          expect(setup.captureCharFrame()).toContain("50%");
-          expect(setup.captureCharFrame()).toContain("16,0 / 32,0 МБ");
-          expect(api.launches).toBe(0);
-          await act(async () => api.finish());
-          await frame(setup);
-          expect(setup.captureCharFrame()).toContain("Перезапустить");
-          expect(api.launches).toBe(0);
-          const popup = setup.renderer.root.findDescendantById("update-popup");
-          const primary =
-            setup.renderer.root.findDescendantById("update-primary");
-          expect(popup).toBeTruthy();
-          expect(primary).toBeTruthy();
-          if (popup && primary) {
-            expect(primary.x).toBeGreaterThanOrEqual(popup.x);
-            expect(primary.y).toBeLessThan(popup.y + popup.height);
-          }
-          await click(setup, "update-primary");
-          expect(api.launches).toBe(1);
-          expect(closed).toBe(false);
-        } finally {
-          act(() => setup.renderer.destroy());
-          await api.updater.dispose();
+    test(`update popup: ${theme}, ${width}x${height}, graphics`, async () => {
+      const api = fixture();
+      await api.updater.check();
+      let closed = false;
+      const setup = await testRender(
+        <OpenTuiUpdate
+          updater={api.updater}
+          width={width ?? 80}
+          height={height ?? 24}
+          palette={themePalette(theme)}
+          onClose={() => {
+            closed = true;
+          }}
+        />,
+        { width, height },
+      );
+      try {
+        await frame(setup);
+        expect(setup.captureCharFrame()).toContain("0.6.12");
+        expect(setup.captureCharFrame()).toContain("Скачать");
+        await key(setup, "RETURN");
+        act(() => api.halfway());
+        await frame(setup);
+        expect(setup.captureCharFrame()).toContain("50%");
+        expect(setup.captureCharFrame()).toContain("16,0 / 32,0 МБ");
+        expect(api.launches).toBe(0);
+        await act(async () => api.finish());
+        await frame(setup);
+        expect(setup.captureCharFrame()).toContain("Перезапустить");
+        expect(api.launches).toBe(0);
+        const popup = setup.renderer.root.findDescendantById("update-popup");
+        const primary =
+          setup.renderer.root.findDescendantById("update-primary");
+        expect(popup).toBeTruthy();
+        expect(primary).toBeTruthy();
+        if (popup && primary) {
+          expect(primary.x).toBeGreaterThanOrEqual(popup.x);
+          expect(primary.y).toBeLessThan(popup.y + popup.height);
         }
-      });
-    }
+        await click(setup, "update-primary");
+        expect(api.launches).toBe(1);
+        expect(closed).toBe(false);
+      } finally {
+        act(() => setup.renderer.destroy());
+        await api.updater.dispose();
+      }
+    });
   }
 }
 

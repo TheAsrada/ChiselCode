@@ -108,10 +108,7 @@ import {
   sidebarChrome,
 } from "./sidebar-panel.js";
 import { skillCommandDraft, skillEditDraft } from "./skill-draft.js";
-import {
-  TerminalScrollbox,
-  UnicodeDecorationContext,
-} from "./terminal-decoration.js";
+import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import {
   actionTargets,
@@ -144,9 +141,6 @@ export function OpenTuiSpike(
     [props.themeCatalog],
   );
   const [mode, setMode] = useState(props.initialMode ?? "auto");
-  const [unicodeDecorations, setUnicodeDecorations] = useState(
-    props.initialUnicodeDecorations ?? false,
-  );
   const [setupOpen, setSetupOpen] = useState(props.initialSettingsOpen);
   const [bypassAllowed, setBypassAllowed] = useState(
     props.allowBypassPermissions ?? false,
@@ -164,58 +158,51 @@ export function OpenTuiSpike(
     props.initialSettingsOpen ? currentScreenKey : undefined,
   );
   return (
-    <UnicodeDecorationContext value={unicodeDecorations}>
-      <OpenTuiClipboard
-        palette={
-          props.themeCatalog?.palette(previewTheme ?? theme, props.accent) ??
-          themePalette(previewTheme ?? theme, props.accent)
+    <OpenTuiClipboard
+      palette={
+        props.themeCatalog?.palette(previewTheme ?? theme, props.accent) ??
+        themePalette(previewTheme ?? theme, props.accent)
+      }
+      clipboard={props.clipboard}
+    >
+      <OpenTuiScreen
+        key={settingsOwnerKey ?? currentScreenKey}
+        {...props}
+        onSettingsVisibility={(open) =>
+          setSettingsOwnerKey(open ? currentScreenKey : undefined)
         }
-        clipboard={props.clipboard}
-      >
-        <OpenTuiScreen
-          key={settingsOwnerKey ?? currentScreenKey}
-          {...props}
-          onSettingsVisibility={(open) =>
-            setSettingsOwnerKey(open ? currentScreenKey : undefined)
-          }
-          controller={controller}
-          approvalResolver={
-            props.approvalResolver ??
-            (controller
-              ? props.workspace?.execution(controller).approvalResolver
-              : undefined)
-          }
-          onThemePreview={setPreviewTheme}
-          initialTheme={theme}
-          initialUnicodeDecorations={unicodeDecorations}
-          onUnicodeDecorationsChange={async (next) => {
-            await props.onUnicodeDecorationsChange?.(next);
-            setUnicodeDecorations(next);
-          }}
-          initialMode={mode}
-          initialSettingsOpen={setupOpen}
-          allowBypassPermissions={bypassAllowed}
-          onBypassAvailabilityChange={
-            props.onBypassAvailabilityChange
-              ? async (allowed) => {
-                  await props.onBypassAvailabilityChange?.(allowed);
-                  setBypassAllowed(allowed);
-                }
-              : undefined
-          }
-          onInitialSettingsComplete={() => setSetupOpen(false)}
-          onThemeChange={async (next) => {
-            await props.onThemeChange?.(next);
-            setTheme(next);
-            setPreviewTheme(undefined);
-          }}
-          onModeChange={(next) => {
-            setMode(next);
-            props.onModeChange?.(next);
-          }}
-        />
-      </OpenTuiClipboard>
-    </UnicodeDecorationContext>
+        controller={controller}
+        approvalResolver={
+          props.approvalResolver ??
+          (controller
+            ? props.workspace?.execution(controller).approvalResolver
+            : undefined)
+        }
+        onThemePreview={setPreviewTheme}
+        initialTheme={theme}
+        initialMode={mode}
+        initialSettingsOpen={setupOpen}
+        allowBypassPermissions={bypassAllowed}
+        onBypassAvailabilityChange={
+          props.onBypassAvailabilityChange
+            ? async (allowed) => {
+                await props.onBypassAvailabilityChange?.(allowed);
+                setBypassAllowed(allowed);
+              }
+            : undefined
+        }
+        onInitialSettingsComplete={() => setSetupOpen(false)}
+        onThemeChange={async (next) => {
+          await props.onThemeChange?.(next);
+          setTheme(next);
+          setPreviewTheme(undefined);
+        }}
+        onModeChange={(next) => {
+          setMode(next);
+          props.onModeChange?.(next);
+        }}
+      />
+    </OpenTuiClipboard>
   );
 }
 
@@ -254,8 +241,6 @@ function OpenTuiScreen({
   accent,
   onThemeChange,
   onThemePreview,
-  initialUnicodeDecorations = false,
-  onUnicodeDecorationsChange,
 }: {
   onExit: () => void;
   onCancel?: () => void;
@@ -291,8 +276,6 @@ function OpenTuiScreen({
   accent?: string;
   onThemeChange?: (theme: ThemeName) => void | Promise<void>;
   onThemePreview?: (theme: ThemeName) => void;
-  initialUnicodeDecorations?: boolean;
-  onUnicodeDecorationsChange?: (value: boolean) => Promise<void>;
 }) {
   const { width, height } = useTerminalDimensions();
   const nativeRenderer = useRenderer();
@@ -1655,8 +1638,6 @@ function OpenTuiScreen({
         onThemePreview?.(next);
       }}
       onThemeChange={onThemeChange}
-      unicodeDecorations={initialUnicodeDecorations}
-      onUnicodeDecorationsChange={onUnicodeDecorationsChange}
       allowBypassPermissions={bypassAllowed}
       onBypassAvailabilityChange={
         onBypassAvailabilityChange ? changeBypassAvailability : undefined
@@ -2282,10 +2263,7 @@ function OpenTuiScreen({
                     {!workspace && (
                       <UiSurface name="Header">
                         {showLogo &&
-                          (initialUnicodeDecorations
-                            ? COMPACT_LOGO
-                            : ["<i> ChiselCode"]
-                          ).map((row) => (
+                          COMPACT_LOGO.map((row) => (
                             <text key={row} fg={palette.accent}>
                               {row}
                             </text>
