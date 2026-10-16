@@ -418,7 +418,7 @@ Core `BackgroundTaskService` владеет локальными команда�
 
 ## UI contributions
 
-В `Unreleased` после 0.6.32 добавлены именованные render sites, декларативные деревья и отдельные live UI mounts без перезапуска core. [Пользовательский сценарий](ui-mods.md), [SDK](extensions/ui-composition.md), [архитектурное решение и исследование Claude mods](architecture/ui-contributions.md#композиция-и-live-ui).
+В 0.6.33 добавлены именованные render sites, декларативные деревья и отдельные live UI mounts без перезапуска core. [Пользовательский сценарий](ui-mods.md), [SDK](extensions/ui-composition.md), [архитектурное решение и исследование Claude mods](architecture/ui-contributions.md#композиция-и-live-ui).
 
 Workspace extension scope владеет staged UI registry. Linked consumers объявляют status/context/menu и named details; core привязывает cache к owner, рисует native surfaces и передаёт effects обычному executor. LSP использует passive service cache; Background Tasks и помощники открывают прежние owned views. [API, binding, action contracts и limits](architecture/ui-contributions.md).
 

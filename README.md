@@ -103,7 +103,7 @@ chisel --cwd ./my-project --profile openai-work "Объясни структур
 | [Решение проблем](docs/troubleshooting.md) | [Навыки](docs/skills.md) | [CLI и автоматизация](docs/cli.md) |
 | [Побочные вопросы](docs/side-questions.md) | [Изолированные рабочие копии](docs/worktrees.md) | [Материалы для участников](docs/contributors/README.md) |
 
-Настройка интерфейса расширениями и встроенный `/extension-creator` описаны в [руководстве UI-модов](docs/ui-mods.md) (Unreleased после 0.6.32).
+Настройка интерфейса расширениями и встроенный `/extension-creator` описаны в [руководстве UI-модов](docs/ui-mods.md) (начиная с 0.6.33).
 
 Полный указатель, включая сессии и устройство diff: **[docs/README.md](docs/README.md)**.
 

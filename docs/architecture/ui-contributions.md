@@ -10,7 +10,7 @@
 
 `ctx.ui.register(contribution)` и `ctx.ui.registerView(view)` входят в существующий staged lifecycle `WorkspaceExtensionScope`. Identity — canonical workspace, scope instance, host-assigned extension ID и local ID. Local ID соответствует `[a-z][a-z0-9_-]{0,63}`. Метаданные и ссылки функций захватываются при регистрации; поздние регистрации, дубликаты и ошибочная metadata отклоняются. Публикация происходит после общего seal. Rollback и reverse disposal продолжают cleanup остальных ресурсов после ошибки.
 
-Четыре slots: `status`, `context_section`, `menu_entry`, `render` (последний в Unreleased после 0.6.32). Menu group ограничен `conversation`, `project`, `extensions`; core groups остаются первыми. Порядок стабилен по order, extension ID и local ID. Идентичные local IDs разных расширений разрешены. Renderer выбирает Palette, размеры, размещение и input ownership.
+Четыре slots: `status`, `context_section`, `menu_entry`, `render` (последний начиная с 0.6.33). Menu group ограничен `conversation`, `project`, `extensions`; core groups остаются первыми. Порядок стабилен по order, extension ID и local ID. Идентичные local IDs разных расширений разрешены. Renderer выбирает Palette, размеры, размещение и input ownership.
 
 ```ts
 import type { ChiselExtension, UiSnapshot } from "../../src/extensions/index.js";
@@ -88,7 +88,7 @@ Generic renderer использует shared Dialog, Palette, scrollbox и captu
 
 ## Композиция и live UI
 
-Решение для `Unreleased` после 0.6.32: расширить существующий registry декларативным `slot: render`, а не передавать расширению React/OpenTUI или второй UI runtime. Публичные `UiNode`/`UiSurface` определены в `extension-sdk/ui-composition.ts`; core schema проверяет plain DTO, глубину, объём, уникальные keys и единственное native-встраивание. SDK v1 остаётся совместимым со старыми пакетами.
+Решение для 0.6.33: расширить существующий registry декларативным `slot: render`, а не передавать расширению React/OpenTUI или второй UI runtime. Публичные `UiNode`/`UiSurface` определены в `extension-sdk/ui-composition.ts`; core schema проверяет plain DTO, глубину, объём, уникальные keys и единственное native-встраивание. SDK v1 остаётся совместимым со старыми пакетами.
 
 `UiSurface` собирает отсортированные cache patches вокруг штатного узла. `native` относится к предыдущему слою. Источники и инструменты не исполняются в paint path. Ошибка дерева/источника оставляет native, уведомление рисуется вне композиции. Root/input/error owners сохраняются один раз; защищённые dialogs не являются render sites. Высота ленты распределяется flex-layout после добавленных панелей. При перестройке wrapper host восстанавливает cursor и scroll; стабильные keys сохраняют обычные обновления без remount.
 
