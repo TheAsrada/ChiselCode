@@ -106,6 +106,14 @@ test("authoring rejects escapes, missing modules, syntax errors and reserved IDs
         })
       ).isError,
     ).toBe(true);
+    const macroMarker = join(directory, "unapproved-macro.txt");
+    const macro = `import { writeFileSync } from 'node:fs' with { type: 'macro' }; export default writeFileSync(${JSON.stringify(macroMarker)}, 'unapproved execution');`;
+    const macroResult = await tools.execute("create_extension", {
+      files: { ...files, "index.mjs": macro },
+    });
+    expect(macroResult.isError).toBe(true);
+    expect(macroResult.output).toContain("macros");
+    expect(await Bun.file(macroMarker).exists()).toBe(false);
     expect(requests).toHaveLength(0);
     expect((await tools.execute("create_extension", { files })).isError).toBe(
       true,

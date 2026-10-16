@@ -45,6 +45,8 @@
 
 Полный Linux source и native-проверки Windows/macOS запускаются отдельно через Native validation на source commit; результаты CI фиксируются после завершения. Новые platform tests проверяют authoring paths и UI lifetime, compiled fixture — поставку навыка и настоящий renderer. Полный source-набор повторно в installed/compiled форматах не запускается.
 
+Дополнительный regression подтвердил, что Bun `transformSync` и `scan` способны исполнять macro imports. Authoring теперь использует пассивный Acorn AST parser; macro imports отклоняются до approval. Тест проверяет отсутствие marker-файла и запроса разрешений, сохраняя проверки default export, синтаксиса и import closure.
+
 Воспроизведение кадров:
 
 ```bash

@@ -96,7 +96,7 @@ Generic renderer использует shared Dialog, Palette, scrollbox и captu
 
 `UiSubscriptions` объединяет представления по attested identity, сохраняя исходный scope каждого view/action. UI tool получает private receipt с base scope, handler и UI lifetime. `runExtensionCommand` прикрепляет этот handler к обычному core runtime: guards основного workspace остаются обязательными. Сигнал UI mount включён в общий signal, в том числе при ожидании подтверждения. JSON не создаёт receipt. Перезагрузка одного пакета не отменяет чужой UI tool или фоновые процессы. Неподтверждённый cleanup блокирует повторный mount до перезапуска и отражается в каталоге.
 
-`create_extension` — обычный `library_write` tool. Prepare проверяет manifest, пути и JavaScript без исполнения. Execute создаёт private temporary source и вызывает прежний PackageManagementService; atomic commit всегда выключен и без trust receipt. Агент не пишет registry, не активирует пакет и не подтверждает его digest. Встроенный `extension-creator` объясняет контракт и завершается указанием на Settings review.
+`create_extension` — обычный `library_write` tool. Prepare проверяет manifest, пути и JavaScript пассивным Acorn parser. Он не вызывает Bun transpiler, import или macro expansion; macro imports отклоняются до разрешений. AST даёт default export и известные imports без исполнения исходника. Execute создаёт private temporary source и вызывает прежний PackageManagementService; atomic commit всегда выключен и без trust receipt. Агент не пишет registry, не активирует пакет и не подтверждает его digest. Встроенный `extension-creator` объясняет контракт и завершается указанием на Settings review.
 
 ### Сопоставление с Claude Code mods
 

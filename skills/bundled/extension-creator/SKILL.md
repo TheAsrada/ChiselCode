@@ -33,9 +33,10 @@ These instructions are in English; generated extensions need not be.
    native input, and has a useful empty/error state. Do not create placeholders.
 6. Call `create_extension` with a `files` object containing the complete
    `chisel-extension.json`, `index.mjs`, and optional README/assets/modules.
-   This parses JavaScript and validates paths/import closure, then uses the
+   This passively parses JavaScript and validates paths/import closure, then uses the
    atomic managed installer. It does **not** execute the factory, enable code,
-   or grant trust. Do not write directly to the registry, approval receipts or
+   or grant trust. Bundle any macros before delivery; the tool rejects macro
+   imports and never invokes a compiler on unapproved source. Do not write directly to the registry, approval receipts or
    managed store. Do not execute an unapproved package to "test" it.
 7. Report the installed extension name and Settings → Extensions → Trust and
    enable. The user's enable review is the remaining step. Do not run approve,
