@@ -46,6 +46,8 @@ Linux выбран базовой средой ради скорости и ра
 
 Кэшируется только npm download cache по ОС и lockfile. Пользовательские данные, credentials, сессии и node_modules не кешируются. Production deadlines и защитные leases не сокращаются ради теста.
 
+Для встроенных разделов MCP/навыков source-сценарий `settings-tools-runtime.test.ts` входит в полный набор Linux и в затронутые UI-файлы Windows/macOS. Compiled smoke отдельно проверяет загрузку нативного UI, bundled skills, настоящий MCP handshake и возврат черновика; полный сценарий форм, фокуса, ошибок и размеров в compiled не дублируется.
+
 ## LSP и расширенные проверки поставки
 
 Полный [LSP catalog](../../.github/workflows/lsp-catalog.yml) запускается вручную при изменении backends, каталога или provisioning. В input `languages` можно указать только затронутые fixture names, например `python lua`. По умолчанию проверяются все перечисленные backends на трёх ОС; опция `sourcekit` дополнительно проверяет SourceKit на macOS. Ruby SDK устанавливается только при выборе `ruby`. Обычная правка и каждый несвязанный релиз не требуют скачивания и запуска всего каталога. Native smoke сохраняет настоящие TS/Python diagnostics, tool execution и persistence.

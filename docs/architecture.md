@@ -364,7 +364,9 @@ Diagnostics имеют pending/current/observed/stale/unavailable. Matching vers
 
 Budgets: initialize 15 s; request 10 s; diagnostics wait 3 s; shutdown 2 s + tree termination; collect 250 ms. Frame 8 MiB/header 8 KiB, stderr 64 KiB, pending 32/server, ingress burst 256. Document 512000 bytes, 64 tracked/16 MiB cache, diagnostics 100/file, navigation/symbols 200, provider 8 KiB/20 diagnostics. Нет silent source truncation: oversized/binary/invalid UTF-8 дают controlled failure; result truncation отмечается и использует общий artifact pipeline.
 
-Settings descriptor catalog задаёт stable routes, groups, descriptions и metadata-only field search. Shell управляет route/search/focus, independent navigation/content scrolling, wide/compact layout и contextual actions; native Connection/Appearance/Permissions, Web/LSP panels и controlled MCP/Skills adapters сохраняют drafts. UI не получает mutable extension scope/process/DI container. Captured app actions соблюдают configPath, origin root/controller/generation; queued restart исполняется тем же command/tool path, а закрытие формы не dispose shared service. Config save patch/revision и atomic storage сохраняют unrelated sections и не запускают process.
+Settings descriptor catalog задаёт stable routes, groups, descriptions и metadata-only field search. Shell управляет route/search/focus, independent navigation/content scrolling, wide/compact layout и contextual actions; native Connection/Appearance/Permissions, Web/LSP panels и embedded MCP/Skills panels сохраняют drafts. UI не получает mutable extension scope/process/DI container. Captured app actions соблюдают configPath, origin root/controller/generation; queued restart исполняется тем же command/tool path, а закрытие формы не dispose shared service. Config save patch/revision и atomic storage сохраняют unrelated sections и не запускают process.
+
+MCP и навыки в Settings используют те же компоненты и контроллеры, что их отдельные command dialogs. [Решение о размещении, фокусе и владельце](architecture/settings-tools.md); [кадры и проверки](contributors/reports/settings-tools.md).
 
 LSP panel показывает Auto / Своя настройка / Выключено, project inheritance/override и advanced custom path/argv/trust controls. Core prompt рекомендует доступную LSP навигацию и diagnostics после правок, сохраняя read-before-write и tests. Это доверенное правило core, а не extension guidance или поднятие diagnostics в system authority.
 
@@ -431,3 +433,4 @@ Workspace extension scope владеет staged UI registry. Linked consumers о
 Общий сервис захватывает папку/ZIP без исполнения JS, хранит immutable версии и exact trust, атомарно меняет desired selection. Loader удерживает application version leases; update/disable/remove требуют restart и не стирают used/unknown bytes. [Транзакции, migration, quota и recovery](architecture/extension-packages.md), [пользовательские команды](extensions.md).
 
 В Unreleased после 0.6.33 графическое оформление OpenTUI стало единственным. [Решение, совместимость конфигурации и проверки](contributors/reports/opentui-graphics.md).
+

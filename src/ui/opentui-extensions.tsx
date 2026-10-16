@@ -20,12 +20,12 @@ import type {
 import type { ExtensionManagementService } from "../extensions/management.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import type { SettingsPanelControl } from "./opentui-lsp-settings.js";
 import {
   cleanSettingsInput,
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 

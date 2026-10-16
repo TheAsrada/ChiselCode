@@ -187,7 +187,7 @@ test("/mcp opens a native popup, preserves the conversation and shows server hea
     expect(view).toContain("Центр подключений");
     expect(view).toContain("GitHub");
     expect(view).toContain("Подключён");
-    expect(view).toContain("24 tools");
+    expect(view).toContain("Инструменты: 24");
     expect(submitted).toEqual([]);
     expect(workspace.controller.snapshot.overlay).toBe("mcp");
     await press(setup, "ESCAPE");

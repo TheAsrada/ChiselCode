@@ -959,29 +959,55 @@ async function runApplication(
       },
     };
   };
+  const getSkillsActions = (
+    controller = currentController(),
+  ): OpenTuiSkillsActions => {
+    const generation = controller.currentGeneration;
+    const assertOwner = () => {
+      if (!controller.isCurrent(generation))
+        throw new Error(
+          "Беседа навыков уже изменилась. Откройте библиотеку заново.",
+        );
+    };
+    return {
+      load: () => {
+        assertOwner();
+        return loadSkills(controller.snapshot.projectPath);
+      },
+      activeNames: () => {
+        assertOwner();
+        return [...activeSkills(controller)];
+      },
+      toggle: (name) => {
+        assertOwner();
+        const activeSkillNames = activeSkills(controller);
+        if (activeSkillNames.has(name)) activeSkillNames.delete(name);
+        else activeSkillNames.add(name);
+        controller.append(
+          `Скилл /${name} ${activeSkillNames.has(name) ? "закреплён для этой вкладки" : "откреплён"}`,
+          "info",
+        );
+      },
+      editSource: (name) => {
+        assertOwner();
+        const skill = loadSkills(controller.snapshot.projectPath).find(
+          (item) => item.name === name && item.source === "user",
+        );
+        if (!skill)
+          throw new Error("Пользовательский скилл больше не доступен.");
+        const file = join(skill.dir, "SKILL.md");
+        const info = lstatSync(file);
+        if (!info.isFile() || info.isSymbolicLink())
+          throw new Error("Не удалось безопасно открыть инструкции скилла.");
+        return readFileSync(file, "utf8");
+      },
+    };
+  };
   const skillsActions: OpenTuiSkillsActions = {
-    load: () => loadSkills(currentController().snapshot.projectPath),
-    activeNames: () => [...activeSkills()],
-    toggle: (name) => {
-      const activeSkillNames = activeSkills();
-      if (activeSkillNames.has(name)) activeSkillNames.delete(name);
-      else activeSkillNames.add(name);
-      currentController().append(
-        `Скилл /${name} ${activeSkillNames.has(name) ? "закреплён для этой вкладки" : "откреплён"}`,
-        "info",
-      );
-    },
-    editSource: (name) => {
-      const skill = loadSkills(currentController().snapshot.projectPath).find(
-        (item) => item.name === name && item.source === "user",
-      );
-      if (!skill) throw new Error("Пользовательский скилл больше не доступен.");
-      const file = join(skill.dir, "SKILL.md");
-      const info = lstatSync(file);
-      if (!info.isFile() || info.isSymbolicLink())
-        throw new Error("Не удалось безопасно открыть инструкции скилла.");
-      return readFileSync(file, "utf8");
-    },
+    load: () => getSkillsActions().load(),
+    activeNames: () => getSkillsActions().activeNames(),
+    toggle: (name) => getSkillsActions().toggle(name),
+    editSource: (name) => getSkillsActions().editSource?.(name) ?? "",
   };
   const statusText = async (
     controller: TuiController,
@@ -2027,6 +2053,7 @@ async function runApplication(
           return saved;
         },
         skillsActions,
+        getSkillsActions,
         commandActions,
         getMcpActions: (root) =>
           getMcpController(root ?? currentController().snapshot.projectPath),

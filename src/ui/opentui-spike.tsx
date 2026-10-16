@@ -234,6 +234,7 @@ function OpenTuiScreen({
   onSetupComplete,
   onInitialSettingsComplete,
   skillsActions,
+  getSkillsActions,
   commandActions,
   getMcpActions,
   initialTheme = "obsidian",
@@ -269,6 +270,7 @@ function OpenTuiScreen({
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
+  getSkillsActions?: () => OpenTuiSkillsActions;
   commandActions?: WorkspaceCommandsPort;
   getMcpActions?: (root?: string) => OpenTuiMcpActions;
   initialTheme?: ThemeName;
@@ -318,7 +320,19 @@ function OpenTuiScreen({
   const [capturedSettingsActions, setCapturedSettingsActions] = useState(
     () => getSettingsActions?.() ?? settingsActions,
   );
-  const settingsIntegration = useRef(false);
+  const settingsOrigin = useRef({
+    controller,
+    generation: controller?.currentGeneration,
+  });
+  const [settingsSkills, setSettingsSkills] = useState(
+    () => getSkillsActions?.() ?? skillsActions,
+  );
+  const settingsMcpFactory = React.useMemo(() => {
+    const factory = getMcpActions;
+    return factory
+      ? () => factory(capturedSettingsActions?.workspaceRoot)
+      : undefined;
+  }, [getMcpActions, capturedSettingsActions]);
   const [settingsSelection, setSettingsSelection] = useState(0);
   const [settingsPage, setSettingsPage] = useState<
     "connection" | "appearance" | "permissions" | "web"
@@ -949,6 +963,11 @@ function OpenTuiScreen({
   ) => {
     editor.current?.blur();
     setCapturedSettingsActions(getSettingsActions?.() ?? settingsActions);
+    setSettingsSkills(getSkillsActions?.() ?? skillsActions);
+    settingsOrigin.current = {
+      controller,
+      generation: controller?.currentGeneration,
+    };
     setSettingsSelection(selection);
     setSettingsPage(page);
     setSettingsOpen(true);
@@ -1615,16 +1634,37 @@ function OpenTuiScreen({
     <OpenTuiSettings
       actions={capturedSettingsActions}
       active={!approval && !mcpActions && !skillsOpen}
-      onOpenIntegration={(route) => {
-        settingsIntegration.current = true;
-        if (route === "tools.mcp" && getMcpActions) {
-          setMcpActions(getMcpActions(capturedSettingsActions?.workspaceRoot));
-          controller?.setOverlay("mcp");
-        } else if (route === "tools.skills" && skillsActions) {
-          setSkillsOpen(true);
-          controller?.setOverlay("skills");
-        }
-      }}
+      getMcpActions={settingsMcpFactory}
+      skillsActions={settingsSkills}
+      onChooseSkill={(skill) =>
+        prepareSettingsSkill(() =>
+          skillCommandDraft(skill.name, draft, settingsSkills?.load() ?? []),
+        )
+      }
+      onCreateSkill={
+        settingsSkills
+          ? () =>
+              prepareSettingsSkill(() =>
+                skillCommandDraft(
+                  "skill-creator",
+                  draft,
+                  settingsSkills.load(),
+                ),
+              )
+          : undefined
+      }
+      onEditSkill={
+        settingsSkills?.editSource
+          ? (skill) =>
+              prepareSettingsSkill(() =>
+                skillEditDraft(
+                  skill.name,
+                  settingsSkills.editSource?.(skill.name) ?? "",
+                  draft,
+                ),
+              )
+          : undefined
+      }
       width={width}
       height={height}
       palette={palette}
@@ -1643,7 +1683,6 @@ function OpenTuiScreen({
         onBypassAvailabilityChange ? changeBypassAvailability : undefined
       }
       onClose={(outcome) => {
-        settingsIntegration.current = false;
         if (setupPending && outcome === "saved") onSetupComplete?.();
         onInitialSettingsComplete?.();
         setSetupPending(false);
@@ -1656,16 +1695,8 @@ function OpenTuiScreen({
   ) : undefined;
   const closeSkills = () => {
     setSkillsOpen(false);
-    controller?.setOverlay(
-      settingsIntegration.current ? "settings" : undefined,
-    );
-    controller?.setFocus(
-      settingsIntegration.current
-        ? "modal"
-        : focus === "editor"
-          ? "composer"
-          : focus,
-    );
+    controller?.setOverlay();
+    controller?.setFocus(focus === "editor" ? "composer" : focus);
   };
   const prepareSkill = (value: string) => {
     acceptedCompletion.current = value;
@@ -1677,6 +1708,25 @@ function OpenTuiScreen({
     closeSkills();
     setFocus("editor");
     controller?.setFocus("composer");
+  };
+
+  const prepareSettingsSkill = (createDraft: () => string) => {
+    const origin = settingsOrigin.current;
+    if (
+      origin.controller !== controller ||
+      (origin.controller && !origin.controller.isCurrent(origin.generation!))
+    ) {
+      controller?.append(
+        "Беседа изменилась. Откройте навыки заново для текущей беседы.",
+        "error",
+      );
+      return;
+    }
+    try {
+      prepareSkill(createDraft());
+    } catch (cause) {
+      controller?.append(terminalSafeText(String(cause)), "error");
+    }
   };
 
   const loadAgent = (id: string, section: "history" | "changes") => {
@@ -2771,16 +2821,8 @@ function OpenTuiScreen({
             palette={palette}
             onClose={() => {
               setMcpActions(undefined);
-              controller?.setOverlay(
-                settingsIntegration.current ? "settings" : undefined,
-              );
-              controller?.setFocus(
-                settingsIntegration.current
-                  ? "modal"
-                  : focus === "editor"
-                    ? "composer"
-                    : focus,
-              );
+              controller?.setOverlay();
+              controller?.setFocus(focus === "editor" ? "composer" : focus);
             }}
           />
         )}

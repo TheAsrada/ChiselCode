@@ -21,13 +21,15 @@ import {
 } from "../mcp/schema.js";
 import { mcpTrustPreview } from "../mcp/trust-preview.js";
 import { type Palette, THEMES } from "./appearance.js";
-import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
+import { DialogAction } from "./opentui-dialog.js";
 import {
   cleanSettingsInput,
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
+import { OpenTuiToolPane, toolPaneLayout } from "./opentui-tool-pane.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import type { EmbeddedSettingsPanel } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 
@@ -87,7 +89,12 @@ export function OpenTuiMcp({
   height,
   palette = THEMES.obsidian,
   onClose,
-}: {
+  embedded = false,
+  active = true,
+  focused = true,
+  controls,
+  onDirty,
+}: EmbeddedSettingsPanel & {
   actions: OpenTuiMcpActions;
   width: number;
   height: number;
@@ -148,9 +155,10 @@ export function OpenTuiMcp({
           : screen === "remove"
             ? 16
             : 30;
-  const { innerWidth, popupHeight, roomy, tiny } = dialogLayout(
+  const { innerWidth, popupHeight, roomy, tiny } = toolPaneLayout(
     width,
     height,
+    embedded,
     preferredHeight,
     102,
   );
@@ -237,15 +245,12 @@ export function OpenTuiMcp({
       void actions.discard().catch(() => {});
     };
   }, [actions]);
-  const back = () => {
+  const backStep = (): boolean => {
     if (busy) {
       lifetime.current.abort?.abort();
-      return;
+      return true;
     }
-    if (screen === "servers") {
-      onClose();
-      return;
-    }
+    if (screen === "servers") return false;
     if (screen === "server" || screen === "add") go("servers");
     else if (screen === "edit")
       go(field === "env-name" || field === "env-value" ? "env" : "form");
@@ -256,6 +261,10 @@ export function OpenTuiMcp({
     else if (screen === "form") go("add");
     else if (screen === "tool") go("tools");
     else go("server");
+    return true;
+  };
+  const back = () => {
+    if (!backStep()) onClose();
   };
   const edit = (next: Field, value: string) => {
     setField(next);
@@ -362,7 +371,7 @@ export function OpenTuiMcp({
           : !item.trusted
             ? palette.yellow
             : statusColor(item.state),
-        hint: `${item.toolsCount} tools · ${item.scope === "global" ? "Для всех проектов" : "Этот проект"}${item.lastError ? ` · ${item.lastError.message}` : ""}`,
+        hint: `Инструменты: ${item.toolsCount} · ${item.scope === "global" ? "Для всех проектов" : "Этот проект"}${item.lastError ? ` · ${item.lastError.message}` : ""}`,
         action: () => {
           setServerId(item.id);
           go(item.configurationError ? "logs" : "server");
@@ -686,9 +695,9 @@ export function OpenTuiMcp({
   const bodyHeight = Math.max(
     1,
     popupHeight -
-      (roomy ? 9 : tiny ? 3 : 6) -
-      (screen === "server" || screen === "preview" ? 3 : 0) -
-      (notice || busy ? 1 : 0),
+      (embedded ? (tiny ? 2 : roomy ? 6 : 4) : roomy ? 9 : tiny ? 3 : 6) -
+      (screen === "server" || screen === "preview" ? (roomy ? 3 : 2) : 0) -
+      (notice || busy ? Math.min(3, notice.split("\n").length || 1) : 0),
   );
   const rowHeight = roomy ? 2 : 1;
   const visibleCount = Math.max(1, Math.floor(bodyHeight / rowHeight));
@@ -736,6 +745,12 @@ export function OpenTuiMcp({
       await actions.remove(serverId);
       go("servers");
     });
+  const authenticate = () =>
+    void work("Авторизую…", async (signal) => {
+      await actions.authenticate(serverId, editing, signal);
+      setEditing("");
+      go("server");
+    });
   const changeToolPermission = () => {
     if (entry)
       void work("Сохраняю правило…", async () => {
@@ -760,6 +775,9 @@ export function OpenTuiMcp({
       });
   };
   useUiKeyboard((key) => {
+    if (!active || !focused) return;
+    if (embedded && ["escape", "tab", "f2"].includes(key.name)) return;
+    if (embedded && key.ctrl && ["f", "s"].includes(key.name)) return;
     if (key.ctrl && key.name === "c") {
       lifetime.current.abort?.abort();
       return;
@@ -846,7 +864,11 @@ export function OpenTuiMcp({
                 : (entry?.config.label ?? serverId);
   const hint =
     screen === "servers"
-      ? "Внешние инструменты под контролем ваших разрешений"
+      ? embedded
+        ? servers.length
+          ? `Подключено: ${servers.filter((item) => item.state === "connected").length} / ${servers.length} · Настройте сервер или добавьте новый`
+          : "Добавьте сервер по URL или локальную команду"
+        : "Внешние инструменты под контролем ваших разрешений"
       : screen === "preview"
         ? "Выберите правила и сохраните подключение"
         : screen === "permissions"
@@ -867,9 +889,52 @@ export function OpenTuiMcp({
           entry.config.transport.args,
         )
       : entry?.config.transport.url;
+  const formDirty =
+    [
+      "form",
+      "env",
+      "edit",
+      "credentials",
+      "preview",
+      "preview-tools",
+      "preview-tool",
+      "preview-logs",
+    ].includes(screen) &&
+    !!(id || source || cwd || token || Object.keys(env).length || editing);
+  const permissionDirty =
+    screen === "permissions" &&
+    JSON.stringify(permissions) !== JSON.stringify(entry?.permissions);
+  useEffect(() => {
+    onDirty?.(formDirty || permissionDirty || !!busy);
+  }, [formDirty, permissionDirty, busy, onDirty]);
+  if (controls)
+    controls.current = {
+      save() {
+        if (screen === "permissions" || screen === "preview") save();
+        else if (screen === "credentials") authenticate();
+        else if (["form", "env", "edit"].includes(screen))
+          setNotice(
+            "Сначала проверьте подключение (Ctrl+R), затем сохраните результат проверки.",
+          );
+      },
+      back: backStep,
+      discard() {
+        lifetime.current.abort?.abort();
+        setToken("");
+        setSecrets({});
+        setEnv({});
+        setId("");
+        setSource("");
+        setCwd("");
+        setEditing("");
+        go("servers");
+        void actions.discard().catch(() => {});
+      },
+    };
   void version;
   return (
-    <OpenTuiDialog
+    <OpenTuiToolPane
+      embedded={embedded}
       id="mcp"
       width={width}
       height={height}
@@ -884,7 +949,13 @@ export function OpenTuiMcp({
         </text>
         <DialogAction
           id="mcp-close"
-          label="Esc x"
+          label={
+            embedded
+              ? screen === "servers"
+                ? "‹ Разделы"
+                : "‹ Назад"
+              : "Esc x"
+          }
           palette={palette}
           onSelect={back}
         />
@@ -936,6 +1007,7 @@ export function OpenTuiMcp({
       <box
         flexGrow={1}
         minHeight={0}
+        overflow="hidden"
         flexDirection="column"
         marginTop={roomy ? 1 : 0}
       >
@@ -953,14 +1025,9 @@ export function OpenTuiMcp({
             >
               <SettingsSecretInput
                 value={editing}
+                active={active && focused}
                 onChange={setEditing}
-                onSubmit={() =>
-                  void work("Авторизую…", async (signal) => {
-                    await actions.authenticate(serverId, editing, signal);
-                    setEditing("");
-                    go("server");
-                  })
-                }
+                onSubmit={authenticate}
                 palette={palette}
               />
             </box>
@@ -1003,6 +1070,7 @@ export function OpenTuiMcp({
               (field === "env-value" && envType === "secret") ? (
                 <SettingsSecretInput
                   value={editing}
+                  active={active && focused}
                   onChange={setEditing}
                   onSubmit={confirmEdit}
                   palette={palette}
@@ -1010,7 +1078,7 @@ export function OpenTuiMcp({
               ) : (
                 <input
                   id="mcp-input"
-                  focused
+                  focused={active && focused}
                   value={editing}
                   onInput={(value) => setEditing(cleanSettingsInput(value))}
                   onSubmit={confirmEdit}
@@ -1025,13 +1093,21 @@ export function OpenTuiMcp({
             <text fg={palette.muted}>Enter подтвердить · Esc отменить</text>
           </box>
         ) : screen === "trust" && entry ? (
-          <TerminalScrollbox flexGrow={1} minHeight={0} focused>
+          <TerminalScrollbox
+            flexGrow={1}
+            minHeight={0}
+            focused={active && focused}
+          >
             <text fg={palette.text}>
               {terminalSafeText(mcpTrustPreview(entry), 1_200_000)}
             </text>
           </TerminalScrollbox>
         ) : screen === "doctor" ? (
-          <TerminalScrollbox flexGrow={1} minHeight={0} focused>
+          <TerminalScrollbox
+            flexGrow={1}
+            minHeight={0}
+            focused={active && focused}
+          >
             {reports.flatMap((report) => [
               <text key={report.id} fg={palette.accent}>
                 <strong>{report.label}</strong>
@@ -1047,7 +1123,11 @@ export function OpenTuiMcp({
             ])}
           </TerminalScrollbox>
         ) : screen === "logs" || screen === "preview-logs" ? (
-          <TerminalScrollbox flexGrow={1} minHeight={0} focused>
+          <TerminalScrollbox
+            flexGrow={1}
+            minHeight={0}
+            focused={active && focused}
+          >
             <text fg={palette.text}>
               {safe(
                 (screen === "preview-logs"
@@ -1064,7 +1144,11 @@ export function OpenTuiMcp({
             </text>
           </TerminalScrollbox>
         ) : (screen === "tool" || screen === "preview-tool") && tool ? (
-          <TerminalScrollbox flexGrow={1} minHeight={0} focused>
+          <TerminalScrollbox
+            flexGrow={1}
+            minHeight={0}
+            focused={active && focused}
+          >
             <text fg={palette.accent}>{tool.tool.title ?? tool.tool.name}</text>
             <text fg={palette.muted}>
               {screen === "preview-tool" ? testedDraft?.id : serverId}.
@@ -1279,6 +1363,6 @@ export function OpenTuiMcp({
           )}
         </text>
       )}
-    </OpenTuiDialog>
+    </OpenTuiToolPane>
   );
 }

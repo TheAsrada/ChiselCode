@@ -10,6 +10,7 @@ import {
   SETTINGS_SECTIONS,
   searchSettings,
 } from "../../src/ui/settings-catalog.js";
+import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
 import { WebConfigSchema } from "../../src/web/schema.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
@@ -371,3 +372,108 @@ test("subagent Settings popup edits global/project limits through native input a
     await rm(temp, { recursive: true, force: true });
   }
 }, 20000);
+
+test("choosing a Settings skill waits for dirty forms; staying cancels the pending choice", async () => {
+  const { actions } = api();
+  let prompts = 0;
+  const skill = {
+    name: "review",
+    description: "Проверка",
+    instructions: "Проверь код",
+    source: "bundled" as const,
+    dir: process.cwd(),
+  };
+  const setup = await testRender(
+    <OpenTuiSpike
+      settingsActions={actions}
+      skillsActions={{
+        load: () => [skill],
+        activeNames: () => [],
+        toggle() {},
+      }}
+      onExit={() => {}}
+      onSubmit={async () => {
+        prompts++;
+      }}
+    />,
+    { width: 120, height: 40 },
+  );
+  try {
+    await frame(setup);
+    await paste(setup, "основной черновик");
+    await key(setup, "t", true);
+    await click(setup, "settings-route-tools.web");
+    await click(setup, "settings-web-row-0");
+    await key(setup, "f", true);
+    await paste(setup, "навыки");
+    await key(setup, "ENTER");
+    await key(setup, "ENTER");
+    expect(
+      setup.renderer.root.findDescendantById("settings-stay"),
+    ).toBeDefined();
+    await click(setup, "settings-stay");
+    await click(setup, "settings-close");
+    await click(setup, "settings-discard");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+      "основной черновик",
+    );
+    await key(setup, "t", true);
+    await key(setup, "f", true);
+    await paste(setup, "навыки");
+    await key(setup, "ENTER");
+    await key(setup, "ENTER");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+      "/review основной черновик",
+    );
+    expect(prompts).toBe(0);
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
+
+test("a Settings skill choice cannot write to a replaced conversation generation", async () => {
+  const { actions } = api();
+  const workspace = new TuiWorkspace(process.cwd());
+  const setup = await testRender(
+    <OpenTuiSpike
+      workspace={workspace}
+      settingsActions={actions}
+      skillsActions={{
+        load: () => {
+          return [
+            {
+              name: "review",
+              description: "Проверка",
+              instructions: "Проверь код",
+              source: "bundled",
+              dir: process.cwd(),
+            },
+          ];
+        },
+        activeNames: () => [],
+        toggle() {},
+      }}
+      onExit={() => {}}
+    />,
+    { width: 120, height: 40 },
+  );
+  try {
+    await frame(setup);
+    await key(setup, "t", true);
+    await key(setup, "f", true);
+    await paste(setup, "навыки");
+    await key(setup, "ENTER");
+    await act(async () =>
+      workspace.controller.switchSession(undefined, process.cwd()),
+    );
+    await frame(setup);
+    await key(setup, "ENTER");
+    expect(setup.renderer.currentFocusedEditor?.plainText).not.toContain(
+      "/review",
+    );
+    expect(setup.captureCharFrame()).toContain("Беседа изменилась");
+  } finally {
+    act(() => setup.renderer.destroy());
+    workspace.dispose();
+  }
+});

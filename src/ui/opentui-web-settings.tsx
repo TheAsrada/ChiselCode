@@ -7,10 +7,10 @@ import { effectiveSearchBackend } from "../web/search.js";
 import type { WebSettingsActions, WebSettingsState } from "../web/settings.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import type { SettingsPanelControl } from "./opentui-lsp-settings.js";
 import { SettingsSecretInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 
 export function OpenTuiWebSettings({

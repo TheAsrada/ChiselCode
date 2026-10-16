@@ -73,7 +73,7 @@ export function OpenTuiDialog({
       height={height}
       zIndex={100}
       backgroundColor={
-        shadow
+        shadow && !tiny
           ? RGBA.fromInts(
               0,
               0,

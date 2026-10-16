@@ -316,6 +316,9 @@ test("empty search and discovery errors keep the popup usable", async () => {
     load: () => {
       throw new Error("Skill discovery failed");
     },
+    activeNames: () => {
+      throw new Error("Conversation expired");
+    },
   };
   const failure = await testRender(
     <OpenTuiSpike onExit={() => {}} skillsActions={failed} />,

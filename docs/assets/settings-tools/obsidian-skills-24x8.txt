@@ -1,0 +1,8 @@
+  Библиотека навыков    
+   code-review          
+    * /code-review      
+    Review a sp...      
+                        
+                        
+  Enter Открепить       
+  Tab фокус | Alt...    

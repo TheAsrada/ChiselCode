@@ -1,15 +1,13 @@
 /** @jsxImportSource @opentui/react */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Skill } from "../skills/skills.js";
 import { type Palette, THEMES } from "./appearance.js";
-import {
-  DialogAction as Action,
-  dialogLayout,
-  OpenTuiDialog,
-} from "./opentui-dialog.js";
+import { DialogAction as Action } from "./opentui-dialog.js";
+import { OpenTuiToolPane, toolPaneLayout } from "./opentui-tool-pane.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import type { EmbeddedSettingsPanel } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import { ENTER_KEY, SKILL_MARK } from "./theme.js";
@@ -47,21 +45,42 @@ export function OpenTuiSkills({
   onChoose,
   onCreate,
   onEdit,
-}: {
+  embedded = false,
+  active: enabled = true,
+  focused = true,
+  controls,
+}: EmbeddedSettingsPanel & {
   actions: OpenTuiSkillsActions;
   width: number;
   height: number;
   palette?: Palette;
   onClose: () => void;
-  onChoose: (skill: Skill) => void;
+  onChoose?: (skill: Skill) => void;
   onCreate?: () => void;
   onEdit?: (skill: Skill) => void;
 }) {
+  const [revision, refresh] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Explicit refresh invalidates the filesystem catalog.
   const { skills, error: loadError } = useMemo(
     () => readCatalog(actions),
-    [actions],
+    [actions, revision],
   );
-  const [active, setActive] = useState(() => actions.activeNames());
+  const [active, setActive] = useState<string[]>(() => {
+    try {
+      return actions.activeNames();
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (enabled) {
+      try {
+        setActive(actions.activeNames());
+      } catch (cause) {
+        setError(String(cause));
+      }
+    }
+  }, [enabled, actions]);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [page, setPage] = useState<"library" | "pin">("library");
@@ -102,11 +121,37 @@ export function OpenTuiSkills({
         actions.toggle(current.name);
         setActive(actions.activeNames());
       });
-    else if (current.userInvocable !== false) run(() => onChoose(current));
+    else if (current.userInvocable !== false && onChoose)
+      run(() => onChoose(current));
   };
+  if (controls)
+    controls.current = {
+      save() {},
+      discard() {},
+      back() {
+        if (instructions) {
+          setInstructions(false);
+          return true;
+        }
+        return false;
+      },
+    };
   useUiKeyboard((key) => {
+    if (!enabled || !focused) return;
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;
+    if (embedded && ["escape", "tab", "f2"].includes(name)) return;
+    if (embedded && key.ctrl && ["f", "s"].includes(name)) return;
+    if (embedded && key.ctrl && name === "r") {
+      key.preventDefault();
+      refresh((value) => value + 1);
+      return;
+    }
+    if (embedded && (key.meta || key.option) && ["1", "2"].includes(name)) {
+      key.preventDefault();
+      changePage(name === "1" ? "library" : "pin");
+      return;
+    }
     if (name === "escape") {
       key.preventDefault();
       if (instructions) setInstructions(false);
@@ -142,10 +187,16 @@ export function OpenTuiSkills({
     }
   });
 
-  const { popupWidth, popupHeight, roomy, tiny } = dialogLayout(width, height);
-  const innerWidth = Math.max(1, popupWidth - 4);
+  const { innerWidth, popupHeight, roomy, tiny } = toolPaneLayout(
+    width,
+    height,
+    embedded,
+  );
   const wide = innerWidth >= 70 && roomy;
-  const bodyHeight = Math.max(1, popupHeight - (roomy ? 16 : 7));
+  const bodyHeight = Math.max(
+    1,
+    popupHeight - (embedded ? (tiny ? 3 : roomy ? 12 : 5) : roomy ? 16 : 7),
+  );
   const listWidth = wide
     ? Math.min(36, Math.floor(innerWidth * 0.43))
     : innerWidth;
@@ -159,10 +210,12 @@ export function OpenTuiSkills({
         : "Закрепить"
       : "Применить к задаче";
   const disabled =
-    !current || (page === "library" && current.userInvocable === false);
+    !current ||
+    (page === "library" && (current.userInvocable === false || !onChoose));
 
   return (
-    <OpenTuiDialog
+    <OpenTuiToolPane
+      embedded={embedded}
       id="skills"
       width={width}
       height={height}
@@ -175,10 +228,17 @@ export function OpenTuiSkills({
         flexDirection="row"
         justifyContent="space-between"
       >
-        <text fg={palette.accent}>
-          <strong>{SKILL_MARK} Скиллы</strong>
+        <text fg={palette.accent} height={1}>
+          <strong>
+            {terminalLine(
+              embedded ? "Библиотека навыков" : `${SKILL_MARK} Скиллы`,
+              Math.max(1, innerWidth - (embedded ? 0 : 7)),
+            )}
+          </strong>
         </text>
-        <Action label="Esc x" palette={palette} onSelect={onClose} />
+        {!embedded && (
+          <Action label="Esc x" palette={palette} onSelect={onClose} />
+        )}
       </box>
       {roomy && (
         <text fg={palette.muted} height={1}>
@@ -199,7 +259,7 @@ export function OpenTuiSkills({
         <input
           id="skills-search"
           value={query}
-          focused={!instructions}
+          focused={enabled && focused && !instructions}
           placeholder="Поиск по названию или описанию..."
           backgroundColor={palette.raised}
           focusedBackgroundColor={palette.raised}
@@ -221,21 +281,31 @@ export function OpenTuiSkills({
           gap={1}
         >
           <Action
+            id="skills-library-tab"
             label={`Библиотека ${skills.length}`}
             active={page === "library"}
             palette={palette}
             onSelect={() => changePage("library")}
           />
           <Action
+            id="skills-pins-tab"
             label={`Закрепление ${active.length}`}
             active={page === "pin"}
             palette={palette}
             onSelect={() => changePage("pin")}
           />
+          {embedded && innerWidth >= 60 && (
+            <Action
+              id="skills-refresh"
+              label="↻ Обновить"
+              palette={palette}
+              onSelect={() => refresh((value) => value + 1)}
+            />
+          )}
         </box>
       )}
       <box
-        height={tiny ? Math.max(1, popupHeight - 4) : bodyHeight}
+        height={bodyHeight}
         flexShrink={0}
         marginTop={roomy ? 1 : 0}
         flexDirection="row"
@@ -248,10 +318,25 @@ export function OpenTuiSkills({
             <TerminalScrollbox
               id="skills-instructions"
               flexGrow={1}
-              focused
+              focused={enabled && focused}
               viewportCulling
               scrollbarOptions={{ visible: false }}
             >
+              {embedded && (
+                <>
+                  <text fg={palette.muted}>
+                    {current.source === "bundled"
+                      ? "Встроенный"
+                      : "Пользовательский"}{" "}
+                    · {invocationLabel(current)}
+                    {"\n"}
+                    {terminalSafeText(current.dir)}
+                  </text>
+                  <text fg={palette.text} marginBottom={1}>
+                    {terminalSafeText(current.description)}
+                  </text>
+                </>
+              )}
               <text fg={palette.text} selectable>
                 {terminalSafeText(current.instructions)}
               </text>
@@ -371,6 +456,14 @@ export function OpenTuiSkills({
                       : "Пользовательский"}{" "}
                     | {invocationLabel(current)}
                   </text>
+                  {embedded && (
+                    <text fg={palette.muted} height={1}>
+                      {terminalLine(
+                        current.dir,
+                        Math.max(1, innerWidth - listWidth - 4),
+                      )}
+                    </text>
+                  )}
                   <TerminalScrollbox
                     flexGrow={1}
                     marginTop={1}
@@ -435,10 +528,16 @@ export function OpenTuiSkills({
             {terminalLine(
               error ||
                 (page === "pin"
-                  ? "На каждое сообщение этой вкладки | Tab библиотека | Esc закрыть"
+                  ? embedded
+                    ? "Для текущей беседы · Alt+1 библиотека"
+                    : "На каждое сообщение этой вкладки | Tab библиотека | Esc закрыть"
                   : roomy
-                    ? `Up/Down выбрать | Tab закрепление | Ctrl+O инструкции | ${filtered.length} найдено`
-                    : "Up/Down выбрать | Tab закрепление | Ctrl+O текст"),
+                    ? embedded
+                      ? `Alt+2 закрепление · Ctrl+O текст · ${filtered.length} найдено`
+                      : `Up/Down выбрать | Tab закрепление | Ctrl+O инструкции | ${filtered.length} найдено`
+                    : embedded
+                      ? "Alt+2 закрепление · Ctrl+O текст"
+                      : "Up/Down выбрать | Tab закрепление | Ctrl+O текст"),
               innerWidth,
             )}
           </text>
@@ -446,9 +545,9 @@ export function OpenTuiSkills({
       )}
       {tiny && (
         <text height={1} fg={palette.muted}>
-          Enter выбрать | Esc закрыть
+          {terminalLine(`Enter ${primary}`, innerWidth)}
         </text>
       )}
-    </OpenTuiDialog>
+    </OpenTuiToolPane>
   );
 }

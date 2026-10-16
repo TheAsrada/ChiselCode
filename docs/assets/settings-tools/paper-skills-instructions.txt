@@ -1,0 +1,36 @@
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+        ╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮        
+        │                                                                                                      │        
+        │ Настройки ChiselCode                                                                          Esc x  │        
+        │ Поиск настроек · Ctrl+F                                                                              │        
+        │  Разделы                 │ Инструменты > Навыки                                                      │        
+        │                          │ Библиотека, инструкции и закрепление для беседы                           │        
+        │  Модель и подключение    │ Библиотека навыков                                                        │        
+        │    Подключение           │ Агент сам подбирает подходящий навык                                      │        
+        │                          │                                                                           │        
+        │  Внешний вид             │ ╭───────────────────────────────────────────────────────────────────────╮ │        
+        │    Тема                  │ │ code-review                                                           │ │        
+        │                          │ ╰───────────────────────────────────────────────────────────────────────╯ │        
+        │  Разрешения              │                                                                           │        
+        │    Доступ и Bypass       │  Библиотека 3   Закрепление 1   ↻ Обновить                                │        
+        │                          │                                                                           │        
+        │  Расширения              │ Инструкции | /code-review                                                 │        
+        │    Расширения            │ Встроенный · Автовыбор                                                    │        
+        │                          │ /tmp/chisel-settings-tools-LsD8XO/home/chiselcode/skills/bundled/code-    │        
+        │  Инструменты             │ review                                                                    │        
+        │    Фоновые задачи        │ Review a specific set of code changes for correctness, regressions,       │        
+        │    Субагенты             │ security vulnerabilities, data loss, error handling, API compatibility,   │        
+        │    Анализ кода (LSP)     │ concurrency, credible performance problems and missing tests that could   │        
+        │    MCP                   │ hide real failures. Use when asked to review or audit a diff, PR, commit, │        
+        │    Web                   │ branch, staged or uncommitted changes, find bugs in changes, or assess    │        
+        │  | Навыки                │                                                                           │        
+        │                          │  Enter | Открепить   Ctrl+N Создать                                       │        
+        │  ↑↓ · Enter открыть      │ Для текущей беседы · Alt+1 библиотека                                     │        
+        │ Tab фокус | Alt+1/2 вкладки | Ctrl+O текст | Esc назад                                               │        
+        │                                                                                                      │        
+        ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯        
+                                                                                                                        
+                                                                                                                        
+ /tmp/chisel-settings-tools-LsD8XO/workspace                                                          ChiselCode 0.6.33 

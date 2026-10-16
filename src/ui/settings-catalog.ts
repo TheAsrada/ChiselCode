@@ -208,8 +208,8 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
   {
     id: "tools.skills",
     group: "Инструменты",
-    title: "Скиллы",
-    description: "Установленные инструкции и доступные скиллы",
+    title: "Навыки",
+    description: "Библиотека, инструкции и закрепление для беседы",
     keywords: ["skills", "скиллы", "навыки"],
     fields: [],
   },

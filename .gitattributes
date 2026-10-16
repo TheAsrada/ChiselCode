@@ -18,3 +18,5 @@ docs/assets/extension-settings-paper/*.txt whitespace=-blank-at-eol,-blank-at-eo
 docs/assets/internet-subagents/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/ui-composition/**/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/opentui-graphics/*.txt whitespace=-blank-at-eol,-blank-at-eof
+
+docs/assets/settings-tools/*.txt whitespace=-blank-at-eol,-blank-at-eof

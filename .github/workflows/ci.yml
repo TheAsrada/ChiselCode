@@ -101,6 +101,8 @@ jobs:
           tests/unit/opentui-web.test.tsx tests/unit/opentui-message.test.tsx
           tests/unit/opentui-clipboard.test.tsx
           tests/integration/graphics-runtime.test.ts
+          tests/unit/settings-shell.test.tsx tests/unit/opentui-mcp.test.tsx
+          tests/unit/opentui-skills.test.tsx tests/integration/settings-tools-runtime.test.ts
       - name: Build CLI and public SDK
         run: bun run build
       - name: Installed package starts, executes tools, downloads and loads the SDK
@@ -145,6 +147,13 @@ jobs:
           cp -R skills/bundled dist/skills/
           bun build tests/fixtures/tui-extension-creator.ts --compile --outfile="$binary"
           "$binary"
+      - name: Compiled Settings embeds MCP and bundled skills
+        shell: bash
+        run: |
+          binary=dist/chisel-settings-tools
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/tui-settings-tools.ts --compile --outfile="$binary"
+          CHISEL_SETTINGS_TOOLS_SMOKE=1 "$binary"
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.os }}

@@ -18,13 +18,9 @@ import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import type { SettingsPanelControl } from "./settings-panel.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
-export interface SettingsPanelControl {
-  save(): void;
-  back(): boolean;
-  discard(): void;
-}
 interface ServerDraft {
   id: string;
   backend: "typescript" | "generic";

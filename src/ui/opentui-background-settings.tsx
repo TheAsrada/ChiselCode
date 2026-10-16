@@ -19,8 +19,8 @@ import type {
 } from "../background/settings.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
-import type { SettingsPanelControl } from "./opentui-lsp-settings.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 export function OpenTuiBackgroundSettings({
   actions,

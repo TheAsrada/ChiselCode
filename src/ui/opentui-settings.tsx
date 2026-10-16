@@ -5,11 +5,13 @@ import type { BackgroundSettingsActions } from "../background/settings.js";
 import { ProfileIdSchema } from "../config/schema.js";
 import type { ExtensionManagementService } from "../extensions/management.js";
 import type { LspSettingsActions } from "../lsp/settings.js";
+import type { OpenTuiMcpActions } from "../mcp/controller.js";
 import type {
   ProviderDefinition,
   ProviderProfile,
 } from "../providers/contracts.js";
 import { createBuiltinProviderRegistry } from "../providers/runtime.js";
+import type { Skill } from "../skills/skills.js";
 import type { SubagentSettingsActions } from "../subagents/settings.js";
 import { ThemeCatalog } from "../themes/catalog.js";
 import type { ProviderId } from "../types/domain.js";
@@ -18,14 +20,13 @@ import { type Palette, THEMES, type ThemeName } from "./appearance.js";
 import { OpenTuiBackgroundSettings } from "./opentui-background-settings.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { OpenTuiExtensions } from "./opentui-extensions.js";
-import {
-  OpenTuiLspSettings,
-  type SettingsPanelControl,
-} from "./opentui-lsp-settings.js";
+import { OpenTuiLspSettings } from "./opentui-lsp-settings.js";
+import { OpenTuiMcp } from "./opentui-mcp.js";
 import {
   cleanSettingsInput,
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
+import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSubagentSettings } from "./opentui-subagent-settings.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
@@ -36,6 +37,7 @@ import {
   searchSettings,
 } from "./settings-catalog.js";
 import { SettingsNavigation } from "./settings-navigation.js";
+import type { SettingsPanelControl } from "./settings-panel.js";
 import {
   type ModelListResult,
   sortModelOptions,
@@ -52,7 +54,6 @@ export interface OpenTuiSettingsActions {
   web?: WebSettingsActions;
   lsp?: LspSettingsActions;
   workspaceRoot?: string;
-  openIntegration?(route: "tools.mcp" | "tools.skills"): void;
   catalog?(): Promise<{
     providers: ProviderDefinition[];
     profiles: Record<string, ProviderProfile>;
@@ -127,7 +128,11 @@ export function OpenTuiSettings({
   onBypassAvailabilityChange,
   setup = false,
   active = true,
-  onOpenIntegration,
+  getMcpActions,
+  skillsActions,
+  onChooseSkill,
+  onCreateSkill,
+  onEditSkill,
 }: {
   actions?: OpenTuiSettingsActions;
   width: number;
@@ -144,7 +149,11 @@ export function OpenTuiSettings({
   onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   setup?: boolean;
   active?: boolean;
-  onOpenIntegration?: (route: "tools.mcp" | "tools.skills") => void;
+  getMcpActions?: () => OpenTuiMcpActions;
+  skillsActions?: OpenTuiSkillsActions;
+  onChooseSkill?: (skill: Skill) => void;
+  onCreateSkill?: () => void;
+  onEditSkill?: (skill: Skill) => void;
 }) {
   const [values, setValues] = useState<TuiSettingsValues>({
     provider: "",
@@ -169,6 +178,34 @@ export function OpenTuiSettings({
   );
   const [fieldTarget, setFieldTarget] = useState<string>();
   const [confirmClose, setConfirmClose] = useState(false);
+  const afterClose = useRef<(() => void) | undefined>(undefined);
+  const completeClose = (outcome?: "saved") => {
+    const next = afterClose.current;
+    afterClose.current = undefined;
+    onClose(outcome);
+    next?.();
+  };
+  const [mcp, setMcp] = useState<OpenTuiMcpActions>();
+  const [mcpDirty, setMcpDirty] = useState(false);
+  const recordMcpDirty = useCallback(
+    (value: boolean) => setMcpDirty(value),
+    [],
+  );
+  const mcpControls = useRef<SettingsPanelControl | undefined>(undefined);
+  const skillsControls = useRef<SettingsPanelControl | undefined>(undefined);
+  const [skillsVisited, setSkillsVisited] = useState(
+    initialPage === "tools.skills",
+  );
+  useEffect(() => {
+    if (page === "tools.skills") setSkillsVisited(true);
+    if (page === "tools.mcp" && !mcp && getMcpActions) {
+      try {
+        setMcp(getMcpActions());
+      } catch (cause) {
+        setNotice(String(cause));
+      }
+    }
+  }, [page, mcp, getMcpActions]);
   const [backgroundDirty, setBackgroundDirty] = useState(false);
   const [extensionsDirty, setExtensionsDirty] = useState(false);
   const extensionsControls = useRef<SettingsPanelControl | undefined>(
@@ -523,13 +560,14 @@ export function OpenTuiSettings({
   useEffect(() => {
     if (page === "appearance" && names.length) onThemePreview?.(currentTheme);
   }, [page, currentTheme]);
-  const close = () => {
+  const close = (next?: () => void) => {
     if (
       lifetime.current.busy === "save" ||
       lifetime.current.busy === "theme" ||
       lifetime.current.busy === "permissions"
     )
       return;
+    afterClose.current = next;
     if (
       dirty ||
       currentTheme !== savedTheme ||
@@ -537,7 +575,8 @@ export function OpenTuiSettings({
       webDirty ||
       subagentDirty ||
       backgroundDirty ||
-      extensionsDirty
+      extensionsDirty ||
+      mcpDirty
     ) {
       setCloseSelection(0);
       setConfirmClose(true);
@@ -545,7 +584,7 @@ export function OpenTuiSettings({
     }
     cancelWork();
     onThemePreview?.(restore.current.theme);
-    onClose();
+    completeClose();
   };
   const changePage = (next: Page) => {
     if (
@@ -603,7 +642,7 @@ export function OpenTuiSettings({
         baseline.current = JSON.stringify(saved);
         setHasKey(true);
         setMessage("Подключение сохранено", "success");
-        if (setup) onClose("saved");
+        if (setup) completeClose("saved");
       } else setMessage("Добавьте API-ключ для выбранного сервиса", "error");
     });
   };
@@ -813,6 +852,7 @@ export function OpenTuiSettings({
     else if (page === "tools.background") backgroundControls.current?.save();
     else if (page === "extensions") extensionsControls.current?.save();
     else if (page === "web") webControls.current?.save();
+    else if (page === "tools.mcp") mcpControls.current?.save();
     else if (page === "connection") {
       if (field) {
         const next = acceptField();
@@ -830,8 +870,6 @@ export function OpenTuiSettings({
       if (item.section.id === "connection") open(item.field as Screen);
       else setFieldTarget(item.field);
     }
-    if (item.section.id === "tools.mcp" || item.section.id === "tools.skills")
-      (onOpenIntegration ?? actions?.openIntegration)?.(item.section.id);
   };
   useUiKeyboard((key) => {
     if (!active) return;
@@ -844,14 +882,19 @@ export function OpenTuiSettings({
     }
     if (confirmClose) {
       key.preventDefault();
-      if (name === "escape") setConfirmClose(false);
-      else if (["up", "down", "tab"].includes(name))
+      if (name === "escape") {
+        afterClose.current = undefined;
+        setConfirmClose(false);
+      } else if (["up", "down", "tab"].includes(name))
         setCloseSelection(
           (i) => (i + (name === "up" || key.shift ? 2 : 1)) % 3,
         );
       else if (name === "return") {
-        if (closeSelection === 0) setConfirmClose(false);
-        else if (closeSelection === 1) {
+        if (closeSelection === 0) {
+          afterClose.current = undefined;
+          setConfirmClose(false);
+        } else if (closeSelection === 1) {
+          afterClose.current = undefined;
           setConfirmClose(false);
           saveCurrent();
         } else {
@@ -860,8 +903,9 @@ export function OpenTuiSettings({
           subagentControls.current?.discard();
           backgroundControls.current?.discard();
           extensionsControls.current?.discard();
+          mcpControls.current?.discard();
           onThemePreview?.(restore.current.theme);
-          onClose();
+          completeClose();
         }
       }
       return;
@@ -936,6 +980,8 @@ export function OpenTuiSettings({
       return;
     }
     if (
+      page === "tools.mcp" ||
+      page === "tools.skills" ||
       page === "extensions" ||
       page === "tools.lsp" ||
       page === "tools.subagents" ||
@@ -945,13 +991,17 @@ export function OpenTuiSettings({
         key.preventDefault();
         if (
           !(
-            page === "extensions"
-              ? extensionsControls.current
-              : page === "tools.background"
-                ? backgroundControls.current
-                : page === "tools.subagents"
-                  ? subagentControls.current
-                  : lspControls.current
+            page === "tools.mcp"
+              ? mcpControls.current
+              : page === "tools.skills"
+                ? skillsControls.current
+                : page === "extensions"
+                  ? extensionsControls.current
+                  : page === "tools.background"
+                    ? backgroundControls.current
+                    : page === "tools.subagents"
+                      ? subagentControls.current
+                      : lspControls.current
           )?.back()
         ) {
           if (!split) {
@@ -1195,14 +1245,18 @@ export function OpenTuiSettings({
               page === "tools.background" ||
               page === "web"
                 ? 0
-                : bodyHeight
+                : page === "tools.mcp" || page === "tools.skills"
+                  ? 0
+                  : bodyHeight
             }
             visible={
               page !== "extensions" &&
               page !== "tools.lsp" &&
               page !== "tools.subagents" &&
               page !== "tools.background" &&
-              page !== "web"
+              page !== "web" &&
+              page !== "tools.mcp" &&
+              page !== "tools.skills"
             }
             flexShrink={0}
             flexDirection="column"
@@ -1214,14 +1268,6 @@ export function OpenTuiSettings({
                   LSP недоступен в этой composition.
                 </text>
               )
-            ) : page === "tools.mcp" || page === "tools.skills" ? (
-              <DialogAction
-                label="Открыть управление"
-                palette={palette}
-                onSelect={() =>
-                  (onOpenIntegration ?? actions?.openIntegration)?.(page)
-                }
-              />
             ) : page === "web" && actions?.web ? null : page ===
               "permissions" ? (
               <TerminalScrollbox width="100%" height="100%">
@@ -1649,6 +1695,90 @@ export function OpenTuiSettings({
               </>
             )}
           </box>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: Tab also focuses this native panel. */}
+          <box
+            width="100%"
+            height={page === "tools.mcp" ? bodyHeight : 0}
+            visible={page === "tools.mcp" && !navigationOnly}
+            overflow="hidden"
+            onMouseDown={() => setShellFocus("content")}
+          >
+            {mcp ? (
+              <OpenTuiMcp
+                actions={mcp}
+                embedded
+                width={innerWidth}
+                height={bodyHeight}
+                palette={palette}
+                active={
+                  active &&
+                  page === "tools.mcp" &&
+                  !navigationOnly &&
+                  !confirmClose
+                }
+                focused={shellFocus === "content"}
+                controls={mcpControls}
+                onDirty={recordMcpDirty}
+                onClose={() => {
+                  setCompactDetail(false);
+                  setShellFocus("navigation");
+                }}
+              />
+            ) : (
+              <text fg={palette.muted}>
+                {getMcpActions
+                  ? "Загружаем подключения…"
+                  : "MCP недоступен в текущем приложении."}
+              </text>
+            )}
+          </box>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: Tab also focuses this native panel. */}
+          <box
+            width="100%"
+            height={page === "tools.skills" ? bodyHeight : 0}
+            visible={page === "tools.skills" && !navigationOnly}
+            overflow="hidden"
+            onMouseDown={() => setShellFocus("content")}
+          >
+            {skillsVisited && skillsActions ? (
+              <OpenTuiSkills
+                actions={skillsActions}
+                embedded
+                width={innerWidth}
+                height={bodyHeight}
+                palette={palette}
+                active={
+                  active &&
+                  page === "tools.skills" &&
+                  !navigationOnly &&
+                  !confirmClose
+                }
+                focused={shellFocus === "content"}
+                controls={skillsControls}
+                onClose={() => {
+                  setCompactDetail(false);
+                  setShellFocus("navigation");
+                }}
+                onChoose={
+                  onChooseSkill
+                    ? (skill) => close(() => onChooseSkill(skill))
+                    : undefined
+                }
+                onCreate={
+                  onCreateSkill ? () => close(onCreateSkill) : undefined
+                }
+                onEdit={
+                  onEditSkill
+                    ? (skill) => close(() => onEditSkill(skill))
+                    : undefined
+                }
+              />
+            ) : (
+              <text fg={palette.muted}>
+                Навыки недоступны в текущем приложении.
+              </text>
+            )}
+          </box>
           {actions?.extensions && (
             <box
               width="100%"
@@ -1792,7 +1922,10 @@ export function OpenTuiSettings({
             active={closeSelection === 0}
             label={tiny ? "Остаться" : "Остаться (Esc)"}
             palette={palette}
-            onSelect={() => setConfirmClose(false)}
+            onSelect={() => {
+              afterClose.current = undefined;
+              setConfirmClose(false);
+            }}
           />
           <DialogAction
             id="settings-save-current"
@@ -1800,6 +1933,7 @@ export function OpenTuiSettings({
             label={tiny ? "Сохранить текущую" : "Сохранить текущую форму"}
             palette={palette}
             onSelect={() => {
+              afterClose.current = undefined;
               setConfirmClose(false);
               saveCurrent();
             }}
@@ -1814,8 +1948,10 @@ export function OpenTuiSettings({
               lspControls.current?.discard();
               subagentControls.current?.discard();
               backgroundControls.current?.discard();
+              extensionsControls.current?.discard();
+              mcpControls.current?.discard();
               onThemePreview?.(restore.current.theme);
-              onClose();
+              completeClose();
             }}
           />
         </box>
@@ -1847,11 +1983,15 @@ export function OpenTuiSettings({
                     : "Enter открыть | Tab фокус | Ctrl+F поиск | Esc назад"
                 : page === "extensions"
                   ? "I установка | PgUp/PgDn | Esc назад"
-                  : tiny
-                    ? "F2 сохр | Esc назад"
-                    : surfaceWidth < 55
-                      ? "F2 сохранить | Esc назад"
-                      : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
+                  : page === "tools.skills"
+                    ? "Tab фокус | Alt+1/2 вкладки | Ctrl+O текст | Esc назад"
+                    : page === "tools.mcp"
+                      ? "Tab фокус | Ctrl+R проверка | Ctrl+S сохранить | Esc назад"
+                      : tiny
+                        ? "F2 сохр | Esc назад"
+                        : surfaceWidth < 55
+                          ? "F2 сохранить | Esc назад"
+                          : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
               surfaceWidth,
             )}
           </text>

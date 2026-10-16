@@ -32,3 +32,5 @@
 - [Композиция интерфейса, встроенный extension-creator и live UI: реализация и кадры](reports/ui-composition.md)
 
 - [Единое графическое оформление OpenTUI: удаление ASCII, совместимость конфигурации и кадры](reports/opentui-graphics.md)
+
+- [Разделы MCP и навыков в Settings: решение, кадры и проверки](reports/settings-tools.md)
