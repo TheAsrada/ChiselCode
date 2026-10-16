@@ -99,6 +99,8 @@ jobs:
         run: |
           tarball=$(npm pack --silent --pack-destination dist)
           npm install --prefix ./dist/install-smoke --no-audit --no-fund "./dist/$tarball"
+          test -f ./dist/install-smoke/node_modules/chiselcode/dist/extension-sdk/ui-composition.d.ts
+          test -f ./dist/install-smoke/node_modules/chiselcode/skills/bundled/extension-creator/SKILL.md
           entry=./dist/install-smoke/node_modules/chiselcode/dist/cli.js
           bun "$entry" --version
           bun tests/fixtures/manifest-cli.ts bun "$entry"

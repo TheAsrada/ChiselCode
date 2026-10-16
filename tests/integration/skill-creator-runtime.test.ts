@@ -26,7 +26,6 @@ test("npm includes all bundled skills and the built module discovers them from t
     expect(files).toContain("skills/bundled/skill-creator/SKILL.md");
     expect(files).toContain("skills/bundled/code-review/SKILL.md");
     expect(files).toContain("skills/bundled/extension-creator/SKILL.md");
-    expect(files).toContain("dist/extension-sdk/ui-composition.d.ts");
     const packageRoot = join(directory, "node_modules/chiselcode");
     await mkdir(join(packageRoot, "skills"), { recursive: true });
     await cp("skills/bundled", join(packageRoot, "skills/bundled"), {
