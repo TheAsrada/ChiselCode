@@ -22,7 +22,9 @@
 
 Секрет — только string без default. Ядро хранит его через существующий `CredentialStore`; DTO возвращает `secretSet`, но не значение или credential reference. Значения secret не передаются в каталог, review и логи ядра. Доверенный in-process JavaScript всё равно обладает правами процесса; декларация не создаёт OS sandbox.
 
-Factory получает snapshot параметров текущего запуска:
+Стандартная factory получает snapshot параметров текущего запуска. В `Unreleased` UI-пакет с `kind: "ui"` получает новую factory/settings revision при live remount; параметры применяются после сохранения без перезапуска core. Для UI-пакетов читайте настройки внутри activation, храните изменяемое состояние там же.
+
+Factory получает snapshot через injected SDK:
 
 ```js
 export default async ({sdk, manifest}) => {

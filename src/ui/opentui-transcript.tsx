@@ -5,6 +5,7 @@ import { type Palette, THEMES } from "./appearance.js";
 import { diffViewForWidth } from "./file-diff-preview.js";
 import { ChatCard } from "./opentui-chat-card.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
+import { UiSurface } from "./opentui-composition.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { FormattedMessage } from "./opentui-message.js";
 import { ToolActions } from "./opentui-tool-actions.js";
@@ -94,161 +95,207 @@ export function OpenTuiTranscript({
         </text>
       )}
       {visible.entries.map((entry) => {
-        if (entry.actionGroup)
-          return (
-            <ToolActions
-              key={entry.actionGroup.id}
-              group={entry.actionGroup}
-              state={actions}
-              width={contentWidth}
-              palette={palette}
-              focusedId={focusedActionId}
-              onCardAction={onCardAction}
-              onSelect={(target) =>
-                onActionSelect
-                  ? onActionSelect(target)
-                  : void activateActionTarget(actions, target, () =>
-                      refresh((value) => value + 1),
-                    )
-              }
-            />
-          );
-        if (entry.chatCard)
-          return (
-            <ChatCard
-              key={entry.id}
-              card={entry.chatCard.card}
-              extensionId={entry.chatCard.extensionId}
-              width={contentWidth}
-              palette={palette}
-              onOpen={(target) =>
-                onOpenCard?.(target, entry.chatCard!.extensionId)
-              }
-              onAction={(action) =>
-                onCardAction?.(action, entry.chatCard!.extensionId)
-              }
-            />
-          );
-        const sideId = entry.sideOperationId;
-        if (sideId)
-          return (
-            <box
-              key={entry.id}
-              flexDirection={contentWidth < 40 ? "column" : "row"}
-              width="100%"
-            >
-              <text
-                fg={palette.muted}
-                height={1}
-                width={Math.max(1, contentWidth - (contentWidth < 40 ? 0 : 15))}
+        const renderEntry = () => {
+          if (entry.actionGroup)
+            return (
+              <ToolActions
+                key={entry.actionGroup.id}
+                group={entry.actionGroup}
+                state={actions}
+                width={contentWidth}
+                palette={palette}
+                focusedId={focusedActionId}
+                onCardAction={onCardAction}
+                onSelect={(target) =>
+                  onActionSelect
+                    ? onActionSelect(target)
+                    : void activateActionTarget(actions, target, () =>
+                        refresh((value) => value + 1),
+                      )
+                }
+              />
+            );
+          if (entry.chatCard)
+            return (
+              <ChatCard
+                key={entry.id}
+                card={entry.chatCard.card}
+                extensionId={entry.chatCard.extensionId}
+                width={contentWidth}
+                palette={palette}
+                onOpen={(target) =>
+                  onOpenCard?.(target, entry.chatCard!.extensionId)
+                }
+                onAction={(action) =>
+                  onCardAction?.(action, entry.chatCard!.extensionId)
+                }
+              />
+            );
+          const sideId = entry.sideOperationId;
+          if (sideId)
+            return (
+              <box
+                key={entry.id}
+                flexDirection={contentWidth < 40 ? "column" : "row"}
+                width="100%"
               >
-                {terminalLine(
-                  entry.text,
-                  Math.max(1, contentWidth - (contentWidth < 40 ? 0 : 15)),
+                <text
+                  fg={palette.muted}
+                  height={1}
+                  width={Math.max(
+                    1,
+                    contentWidth - (contentWidth < 40 ? 0 : 15),
+                  )}
+                >
+                  {terminalLine(
+                    entry.text,
+                    Math.max(1, contentWidth - (contentWidth < 40 ? 0 : 15)),
+                  )}
+                </text>
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: Tab focuses this record; Enter or F6 opens the view. */}
+                <text
+                  id={`side-open-${entry.id}`}
+                  fg={palette.accent}
+                  bg={focusedSideId === sideId ? palette.raised : undefined}
+                  onMouseUp={(event) => {
+                    event.stopPropagation();
+                    onOpenSide?.(sideId);
+                  }}
+                >
+                  {focusedSideId === sideId
+                    ? "> Открыть Enter"
+                    : " Открыть · F6"}
+                </text>
+              </box>
+            );
+          const diff = entry.fileDiff;
+          if (!diff && entry.tone === "context")
+            return (
+              <ContextCompactionMessage
+                key={entry.id}
+                text={entry.text}
+                palette={palette}
+              />
+            );
+          if (!diff && entry.tone === "assistant")
+            return (
+              <FormattedMessage
+                key={entry.id}
+                id={`assistant-${entry.id}`}
+                content={entry.text}
+                palette={palette}
+                width={contentWidth}
+              />
+            );
+          if (!diff && entry.tone === "user")
+            return (
+              <box
+                key={entry.id}
+                width="100%"
+                backgroundColor={palette.surface}
+                paddingLeft={1}
+                paddingRight={1}
+                marginTop={1}
+              >
+                <text fg={palette.accent}>
+                  {">"}{" "}
+                  <span fg={palette.text}>
+                    {terminalSafeText(
+                      entry.text.replace(/^[>\u276f]\s*/, ""),
+                      20_000,
+                    )}
+                  </span>
+                </text>
+              </box>
+            );
+          if (!diff && entry.tone === "tool")
+            return (
+              <text key={entry.id} fg={palette.muted}>
+                {" "}
+                •{" "}
+                {terminalSafeText(
+                  entry.text.replace(/^\[chisel\]\s*/, ""),
+                  20_000,
                 )}
               </text>
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: Tab focuses this record; Enter or F6 opens the view. */}
+            );
+          if (!diff && entry.tone === "dim")
+            return (
+              <box key={entry.id} width="100%" paddingLeft={1}>
+                <text fg={palette.muted} selectable>
+                  {terminalSafeText(entry.text, 20_000)}
+                </text>
+              </box>
+            );
+          if (!diff)
+            return (
               <text
-                id={`side-open-${entry.id}`}
-                fg={palette.accent}
-                bg={focusedSideId === sideId ? palette.raised : undefined}
-                onMouseUp={(event) => {
-                  event.stopPropagation();
-                  onOpenSide?.(sideId);
-                }}
+                key={entry.id}
+                fg={
+                  entry.tone === "error"
+                    ? palette.red
+                    : entry.tone === "warn"
+                      ? palette.yellow
+                      : entry.tone === "success"
+                        ? palette.green
+                        : palette.muted
+                }
+                selectable
               >
-                {focusedSideId === sideId ? "> Открыть Enter" : " Открыть · F6"}
-              </text>
-            </box>
-          );
-        const diff = entry.fileDiff;
-        if (!diff && entry.tone === "context")
-          return (
-            <ContextCompactionMessage
-              key={entry.id}
-              text={entry.text}
-              palette={palette}
-            />
-          );
-        if (!diff && entry.tone === "assistant")
-          return (
-            <FormattedMessage
-              key={entry.id}
-              id={`assistant-${entry.id}`}
-              content={entry.text}
-              palette={palette}
-              width={contentWidth}
-            />
-          );
-        if (!diff && entry.tone === "user")
-          return (
-            <box
-              key={entry.id}
-              width="100%"
-              backgroundColor={palette.surface}
-              paddingLeft={1}
-              paddingRight={1}
-              marginTop={1}
-            >
-              <text fg={palette.accent}>
-                {">"}{" "}
-                <span fg={palette.text}>
-                  {terminalSafeText(
-                    entry.text.replace(/^[>\u276f]\s*/, ""),
-                    20_000,
-                  )}
-                </span>
-              </text>
-            </box>
-          );
-        if (!diff && entry.tone === "tool")
-          return (
-            <text key={entry.id} fg={palette.muted}>
-              {" "}
-              •{" "}
-              {terminalSafeText(
-                entry.text.replace(/^\[chisel\]\s*/, ""),
-                20_000,
-              )}
-            </text>
-          );
-        if (!diff && entry.tone === "dim")
-          return (
-            <box key={entry.id} width="100%" paddingLeft={1}>
-              <text fg={palette.muted} selectable>
                 {terminalSafeText(entry.text, 20_000)}
               </text>
-            </box>
-          );
-        if (!diff)
+            );
           return (
-            <text
+            <FileDiffCard
               key={entry.id}
-              fg={
-                entry.tone === "error"
-                  ? palette.red
-                  : entry.tone === "warn"
-                    ? palette.yellow
-                    : entry.tone === "success"
-                      ? palette.green
-                      : palette.muted
-              }
-              selectable
-            >
-              {terminalSafeText(entry.text, 20_000)}
-            </text>
+              id={`file-diff-${entry.id}`}
+              diff={diff}
+              width={contentWidth}
+              expanded={expandedIds?.has(entry.id) || expandedId === entry.id}
+              latest={entry.id === latestDiffId}
+              onToggle={onToggleDiff ? () => onToggleDiff(entry.id) : undefined}
+              palette={palette}
+            />
+          );
+        };
+        const name = entry.actionGroup
+          ? entry.actionGroup.kind === "skills"
+            ? "Skills"
+            : "ToolActions"
+          : entry.chatCard
+            ? "ChatCard"
+            : entry.fileDiff
+              ? "FileDiff"
+              : entry.tone === "assistant"
+                ? "AssistantMessage"
+                : entry.tone === "user"
+                  ? "UserMessage"
+                  : entry.tone === "context"
+                    ? "Compaction"
+                    : entry.tone === "tool"
+                      ? "CommandOutput"
+                      : "SystemMessage";
+        const problem =
+          entry.tone === "error" ||
+          entry.actionGroup?.items.some((action) =>
+            ["failed", "denied", "cancelled", "interrupted"].includes(
+              action.state,
+            ),
           );
         return (
-          <FileDiffCard
-            key={entry.id}
-            id={`file-diff-${entry.id}`}
-            diff={diff}
-            width={contentWidth}
-            expanded={expandedIds?.has(entry.id) || expandedId === entry.id}
-            latest={entry.id === latestDiffId}
-            onToggle={onToggleDiff ? () => onToggleDiff(entry.id) : undefined}
-            palette={palette}
-          />
+          <UiSurface
+            key={entry.actionGroup?.id ?? entry.id}
+            name={name}
+            values={{
+              text: entry.text,
+              state: entry.tone,
+              count: entry.actionGroup?.items.length ?? 1,
+              path: entry.fileDiff?.path,
+            }}
+            preserveNative={!!problem}
+          >
+            {renderEntry()}
+          </UiSurface>
         );
       })}
       {visible.end < rows.length && (

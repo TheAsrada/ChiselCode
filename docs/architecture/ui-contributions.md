@@ -2,7 +2,7 @@
 
 [Архитектура](../architecture.md) · [Пользовательская справка](../interface-contributions.md) · [Отчёт](../contributors/reports/ui-contributions.md)
 
-Это рабочий internal linked API встроенных возможностей. [Публичный SDK и внешний loader](external-extensions.md) адаптируют его для подготовленного trusted пакета; external context не получает private core navigation constructors. Установка/обновление/удаление и Settings остаются следующими этапами. Data-only contracts и AbortSignal не создают OS sandbox и не прерывают синхронный бесконечный JS callback.
+Это рабочий internal linked API встроенных возможностей. [Публичный SDK и внешний loader](external-extensions.md) адаптируют его для подготовленного trusted пакета; external context не получает private core navigation constructors. Установка, обновление, удаление и Settings используют управляемый store и exact-content review. Data-only contracts и AbortSignal не создают OS sandbox и не прерывают синхронный бесконечный JS callback.
 
 ## Регистрация
 
@@ -10,7 +10,7 @@
 
 `ctx.ui.register(contribution)` и `ctx.ui.registerView(view)` входят в существующий staged lifecycle `WorkspaceExtensionScope`. Identity — canonical workspace, scope instance, host-assigned extension ID и local ID. Local ID соответствует `[a-z][a-z0-9_-]{0,63}`. Метаданные и ссылки функций захватываются при регистрации; поздние регистрации, дубликаты и ошибочная metadata отклоняются. Публикация происходит после общего seal. Rollback и reverse disposal продолжают cleanup остальных ресурсов после ошибки.
 
-Три slots: `status`, `context_section`, `menu_entry`. Menu group ограничен `conversation`, `project`, `extensions`; core groups остаются первыми. Порядок стабилен по order, extension ID и local ID. Идентичные local IDs разных расширений разрешены. Renderer выбирает Palette, размеры, размещение и input ownership.
+Четыре slots: `status`, `context_section`, `menu_entry`, `render` (последний в Unreleased после 0.6.32). Menu group ограничен `conversation`, `project`, `extensions`; core groups остаются первыми. Порядок стабилен по order, extension ID и local ID. Идентичные local IDs разных расширений разрешены. Renderer выбирает Palette, размеры, размещение и input ownership.
 
 ```ts
 import type { ChiselExtension, UiSnapshot } from "../../src/extensions/index.js";
@@ -85,3 +85,23 @@ Generic renderer использует shared Dialog, Palette, scrollbox и captu
 Связанные контракты: [Chat presentation](extension-chat.md), [Background Tasks](background-tasks.md), [Помощники](subagents.md), [Побочные запросы](../side-questions.md).
 
 [Вернуться к архитектуре](../architecture.md)
+
+## Композиция и live UI
+
+Решение для `Unreleased` после 0.6.32: расширить существующий registry декларативным `slot: render`, а не передавать расширению React/OpenTUI или второй UI runtime. Публичные `UiNode`/`UiSurface` определены в `extension-sdk/ui-composition.ts`; core schema проверяет plain DTO, глубину, объём, уникальные keys и единственное native-встраивание. SDK v1 остаётся совместимым со старыми пакетами.
+
+`UiSurface` собирает отсортированные cache patches вокруг штатного узла. `native` относится к предыдущему слою. Источники и инструменты не исполняются в paint path. Ошибка дерева/источника оставляет native, уведомление рисуется вне композиции. Root/input/error owners сохраняются один раз; защищённые dialogs не являются render sites. Высота ленты распределяется flex-layout после добавленных панелей. При перестройке wrapper host восстанавливает cursor и scroll; стабильные keys сохраняют обычные обновления без remount.
+
+Для включения без перезапуска выбран явный `manifest.kind: ui`. `UiExtensionRuntime` владеет отдельным mount на canonical workspace/package. Он использует прежние loader, exact-content trust, runtime snapshot, module import и use leases. Разрешены UI/chat/tools/cleanup; runtime registrations, model commands, services и themes не проходят этот lifecycle. Обычные пакеты сохраняют boot snapshot. Headless и `--no-external-extensions` не запускают UI mounts.
+
+`UiSubscriptions` объединяет представления по attested identity, сохраняя исходный scope каждого view/action. UI tool получает private receipt с base scope, handler и UI lifetime. `runExtensionCommand` прикрепляет этот handler к обычному core runtime: guards основного workspace остаются обязательными. Сигнал UI mount включён в общий signal, в том числе при ожидании подтверждения. JSON не создаёт receipt. Перезагрузка одного пакета не отменяет чужой UI tool или фоновые процессы. Неподтверждённый cleanup блокирует повторный mount до перезапуска и отражается в каталоге.
+
+`create_extension` — обычный `library_write` tool. Prepare проверяет manifest, пути и JavaScript без исполнения. Execute создаёт private temporary source и вызывает прежний PackageManagementService; atomic commit всегда выключен и без trust receipt. Агент не пишет registry, не активирует пакет и не подтверждает его digest. Встроенный `extension-creator` объясняет контракт и завершается указанием на Settings review.
+
+### Сопоставление с Claude Code mods
+
+Изучены первичные источники Anthropic на 16 октября 2026 года. [Обзор mods](https://code.claude.com/docs/en/plugins/mods/overview) описывает внутрипроцессные JavaScript/TypeScript hooks: события UI, инструментов и запросов проходят через обработчики плагина. Установка, отключение и обновление используют обычный plugin lifecycle. Модуль может обращаться к файлам, сети и данным процесса; mods не являются OS sandbox. Permission prompt исключён из изменения интерфейса.
+
+[UI API](https://code.claude.com/docs/en/plugins/mods/interface) использует именованные render sites и `ui.render` с matcher по компоненту. `next(e)` продолжает цепочку; полученную engine reference можно встроить в своё дерево, сохранив штатное отображение. Собственное дерево заменяет участок. В документации отдельно описаны проверка элементов с fallback, обновление через invalidate, панели, полоса над вводом и владение клавиатурой. В ChiselCode эти принципы выражены cache patches и `native`; формат Claude API не копируется. Наш SDK не расширяет права инструментов через UI.
+
+В официальном [token-weather](https://github.com/anthropics/claude-code-playground/blob/main/claude-code/mods/token-weather/hooks/token-weather.mjs) события начала сеанса и завершения хода обновляют ограниченную историю показаний, а отдельный render handler рисует полосу над вводом. Это подтверждает полезное разделение сбора данных и рисования. Наши source/subscribe и bounded snapshots сохраняют такое разделение в существующей архитектуре.

@@ -128,6 +128,8 @@ interface Options {
   applySubagents?: () => Promise<void>;
   externalDisabled?: boolean;
   desktop?: boolean;
+  applyUi?: (id: string) => Promise<boolean>;
+  canApplyUi?: (id: string) => boolean;
 }
 /** One shared application service. UI receives data, never prepared handles. */
 export class ExtensionManagementService {
@@ -707,12 +709,15 @@ export class ExtensionManagementService {
           options,
         );
       else result = await this.packages.remove(review.id, expected);
+      const appliedUi = await this.options
+        .applyUi?.(result.id)
+        .catch(() => false);
       op.dto = {
         requestId: input.requestId,
         phase: "completed",
         result: {
           id: result.id,
-          restartRequired: result.restartRequired,
+          restartRequired: result.restartRequired && !appliedUi,
           deferred: result.deferred,
           ...(result.warning ? { warning: result.warning } : {}),
         },
@@ -775,9 +780,12 @@ export class ExtensionManagementService {
       input.enabled,
       input,
     );
+    const appliedUi = await this.options
+      .applyUi?.(result.id)
+      .catch(() => false);
     return {
       id: result.id,
-      restartRequired: result.restartRequired,
+      restartRequired: result.restartRequired && !appliedUi,
       deferred: result.deferred,
     };
   }
@@ -785,7 +793,7 @@ export class ExtensionManagementService {
     input: RequestMap["extensions/settings/read"]["params"],
     save?: RequestMap["extensions/settings/save"]["params"],
   ): Promise<ExtensionSettings> {
-    return withExtensionRegistry(async (registry) => {
+    const result = await withExtensionRegistry(async (registry) => {
       const row = registry.records.find(
           (r) => r.id === ExternalIdSchema.parse(input.id),
         ),
@@ -802,7 +810,7 @@ export class ExtensionManagementService {
       if (candidate.digest !== version.digest)
         conflict("Пакет изменён; настройки не сохранены.");
       const store = new ExtensionSettingsStore(candidate.manifest);
-      return save
+      const settings = await (save
         ? store.save({
             revision: save.settingsRevision,
             values: save.values,
@@ -810,8 +818,17 @@ export class ExtensionManagementService {
             clearSecrets: save.clearSecrets,
             reset: save.reset,
           })
-        : store.read();
+        : store.read());
+      return !save &&
+        candidate.manifest.kind === "ui" &&
+        this.options.applyUi &&
+        this.options.canApplyUi?.(input.id) !== false
+        ? { ...settings, restartRequired: false }
+        : settings;
     });
+    if (save && (await this.options.applyUi?.(input.id).catch(() => false)))
+      return { ...result, restartRequired: false };
+    return result;
   }
   async dispose(): Promise<void> {
     this.closed = true;

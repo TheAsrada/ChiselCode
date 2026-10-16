@@ -20,6 +20,8 @@ export interface Manifest {
   readonly id: string;
   readonly version: string;
   readonly apiVersion: 1;
+  /** UI extensions are mounted live in an isolated UI lifecycle. */
+  readonly kind?: "standard" | "ui";
   readonly entry: string;
   readonly displayName: string;
   readonly description?: string;
@@ -215,6 +217,13 @@ export interface UiRow {
   tone?: Tone;
   action?: UiActionUse;
 }
+export type {
+  UiNode,
+  UiRenderPatch,
+  UiSurface,
+  UiValueField,
+} from "./ui-composition.js";
+export { UI_SURFACES } from "./ui-composition.js";
 export interface UiSnapshot {
   revision: number;
   state: ViewState;
@@ -224,6 +233,7 @@ export interface UiSnapshot {
   count?: number;
   rows?: UiRow[];
   action?: UiActionUse;
+  render?: import("./ui-composition.js").UiRenderPatch;
 }
 export interface UiPage {
   revision: number;
@@ -262,7 +272,8 @@ export interface UiBinding {
 }
 export interface UiContribution {
   readonly id: string;
-  readonly slot: "status" | "context_section" | "menu_entry";
+  readonly slot: "status" | "context_section" | "menu_entry" | "render";
+  readonly surfaces?: readonly import("./ui-composition.js").UiSurface[];
   readonly scope: "workspace" | "conversation";
   readonly title: string;
   readonly description?: string;

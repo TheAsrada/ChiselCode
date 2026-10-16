@@ -1,5 +1,13 @@
 import { z } from "zod";
+import type { UI_SURFACES, UiNode } from "../extension-sdk/ui-composition.js";
 import type { Disposable } from "./contracts.js";
+
+export type {
+  UiNode,
+  UiRenderPatch,
+  UiSurface,
+} from "../extension-sdk/ui-composition.js";
+export { UI_SURFACES } from "../extension-sdk/ui-composition.js";
 
 export const UiIdSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 export const UiToneSchema = z.enum([
@@ -35,6 +43,96 @@ export const UiRowSchema = z
     action: UiActionUseSchema.optional(),
   })
   .strict();
+export const UiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
+  z.discriminatedUnion("type", [
+    z
+      .object({ type: z.literal("native"), key: UiIdSchema.optional() })
+      .strict(),
+    z
+      .object({
+        type: z.literal("text"),
+        key: UiIdSchema.optional(),
+        text: z.string().max(2000),
+        tone: UiToneSchema.optional(),
+        bold: z.boolean().optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("value"),
+        key: UiIdSchema.optional(),
+        field: z.enum(["text", "title", "state", "count", "path"]),
+        tone: UiToneSchema.optional(),
+        maxLength: z.number().int().min(1).max(20000).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("button"),
+        key: UiIdSchema.optional(),
+        label: title,
+        action: UiActionUseSchema,
+        tone: UiToneSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("box"),
+        key: UiIdSchema.optional(),
+        direction: z.enum(["row", "column"]).optional(),
+        gap: z.number().int().min(0).max(3).optional(),
+        padding: z.number().int().min(0).max(2).optional(),
+        border: z.boolean().optional(),
+        grow: z.boolean().optional(),
+        tone: UiToneSchema.optional(),
+        children: z.array(UiNodeSchema).max(32),
+      })
+      .strict(),
+  ]),
+);
+export const UiRenderPatchSchema = z
+  .object({
+    mode: z.enum(["before", "after", "replace", "hide"]),
+    content: UiNodeSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (patch) => (patch.mode === "hide" ? !patch.content : !!patch.content),
+    "Render content is required unless hidden.",
+  );
+
+/** Bound recursion before schema traversal and collect action uses for the existing dispatcher. */
+export function uiNodeInfo(root?: UiNode) {
+  const actions: z.infer<typeof UiActionUseSchema>[] = [];
+  const buttons: {
+    label: string;
+    action: z.infer<typeof UiActionUseSchema>;
+  }[] = [];
+  const pending = root ? [{ node: root, depth: 1 }] : [];
+  let count = 0,
+    native = 0;
+  while (pending.length) {
+    const { node, depth } = pending.pop()!;
+    if (++count > 128 || depth > 8) throw new Error("UI tree limit exceeded.");
+    if (node.type === "native") native++;
+    if (node.type === "button") {
+      actions.push(node.action);
+      buttons.push({ label: node.label, action: node.action });
+    }
+    if (node.type === "box") {
+      const keys = node.children
+        .filter((child) => child.key)
+        .map((child) => child.key);
+      if (new Set(keys).size !== keys.length)
+        throw new Error("Duplicate UI child key.");
+      for (const child of [...node.children].reverse())
+        pending.push({ node: child, depth: depth + 1 });
+    }
+  }
+  if (native > 1)
+    throw new Error("A UI patch may embed native content only once.");
+  return { actions, buttons, native, count };
+}
 export const UiSnapshotSchema = z
   .object({
     revision: z.number().int().nonnegative(),
@@ -45,6 +143,7 @@ export const UiSnapshotSchema = z
     count: z.number().int().min(0).max(1_000_000).optional(),
     rows: z.array(UiRowSchema).max(8).optional(),
     action: UiActionUseSchema.optional(),
+    render: UiRenderPatchSchema.optional(),
   })
   .strict()
   .refine(
@@ -132,7 +231,8 @@ export interface UiSource<T> {
 }
 export interface UiContribution {
   readonly id: string;
-  readonly slot: "status" | "context_section" | "menu_entry";
+  readonly slot: "status" | "context_section" | "menu_entry" | "render";
+  readonly surfaces?: readonly (typeof UI_SURFACES)[number][];
   readonly scope: "workspace" | "conversation";
   readonly title: string;
   readonly description?: string;

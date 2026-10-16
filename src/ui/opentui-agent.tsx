@@ -53,6 +53,7 @@ import {
 } from "../extensions/host.js";
 import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
 import { ExtensionManagementService } from "../extensions/management.js";
+import { UiExtensionRuntime } from "../extensions/ui-runtime.js";
 import { lspServiceToken } from "../lsp/service.js";
 import { LspSettingsStore } from "../lsp/settings.js";
 import { McpController } from "../mcp/controller.js";
@@ -154,14 +155,39 @@ async function runApplication(
   let bypassAvailable = config.permissions?.allowBypassPermissions === true;
   let webConfigLive = resolveWebConfig(config.web);
   const webSettingsStore = new WebSettingsStore(options.configPath);
+  const uiRuntime = new UiExtensionRuntime(
+    options.externalExtensions === false,
+    (id) =>
+      !extensionHost
+        .readyScopes()
+        .some((scope) =>
+          scope
+            .externalDiagnostics()
+            .some(
+              (diagnostic) =>
+                diagnostic.id === id &&
+                [
+                  "active",
+                  "loading",
+                  "load_failed",
+                  "activation_failed",
+                  "cleanup_failed",
+                ].includes(diagnostic.state),
+            ),
+        ),
+  );
   const extensionManagement = new ExtensionManagementService({
+    applyUi: (id) => uiRuntime.changed(id),
+    canApplyUi: (id) => uiRuntime.canApply(id),
     configPath: options.configPath,
     externalDisabled: options.externalExtensions === false,
-    diagnostics: (root) =>
-      extensionHost
+    diagnostics: (root) => [
+      ...uiRuntime.diagnostics(root),
+      ...extensionHost
         .readyScopes()
         .filter((s) => !root || s.workspaceRoot === root)
         .flatMap((s) => s.externalDiagnostics()),
+    ],
     scopeReady: (root) =>
       extensionHost.readyScopes().some((s) => s.workspaceRoot === root),
   });
@@ -350,7 +376,10 @@ async function runApplication(
       )
         continue;
       closingRoots.add(scope.workspaceRoot);
-      const work = extensionHost.closeWorkspace(scope.workspaceRoot);
+      const work = Promise.all([
+        extensionHost.closeWorkspace(scope.workspaceRoot),
+        uiRuntime.closeWorkspace(scope.workspaceRoot),
+      ]).then(() => {});
       closingScopes.add(work);
       void work
         .catch((error) =>
@@ -386,7 +415,11 @@ async function runApplication(
     : undefined;
   const root = createRoot(renderer);
   const abort = new AbortController();
-  const commandActions = new WorkspaceCommands(extensionHost, abort.signal);
+  const commandActions = new WorkspaceCommands(
+    extensionHost,
+    abort.signal,
+    uiRuntime,
+  );
   void commandActions.load(currentController().snapshot.projectPath);
   let homeOperationTarget:
     | { generation: number; root: string; controller: TuiController }
@@ -2018,7 +2051,14 @@ async function runApplication(
         onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
         uiRedactor,
-        onUiTool: async (controller, scope, extensionId, tool, args) => {
+        onUiTool: async (
+          controller,
+          scope,
+          extensionId,
+          tool,
+          args,
+          toolScope,
+        ) => {
           const generation = controller.currentGeneration;
           const originRoot = controller.snapshot.projectPath;
           const assertOwner = () => {
@@ -2035,6 +2075,7 @@ async function runApplication(
             tool,
             args,
             assertOwner,
+            toolScope,
           );
           assertOwner();
           return new Promise((resolve) => {
@@ -2116,6 +2157,7 @@ async function runApplication(
     };
     await cleanup(() => modelService.dispose());
     await cleanup(() => extensionManagement.dispose());
+    await cleanup(() => uiRuntime.dispose());
     await cleanup(() =>
       Promise.all(
         [workspace.home, ...workspace.tabs.map((tab) => tab.controller)].map(

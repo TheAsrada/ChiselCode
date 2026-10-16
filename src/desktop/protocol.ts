@@ -112,7 +112,7 @@ export interface ExtensionSettings {
   secretSet: Record<string, boolean>;
   unknownKeys: string[];
   issues: string[];
-  restartRequired: true;
+  restartRequired: boolean;
 }
 export interface BuiltinSettings {
   id: string;

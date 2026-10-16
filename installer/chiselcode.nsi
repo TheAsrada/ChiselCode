@@ -147,13 +147,15 @@ Section "ChiselCode" SecMain
   RMDir "$INSTDIR\skills\commit"
   RMDir "$INSTDIR\skills\code-review"
   RMDir "$INSTDIR\skills\skill-creator"
-  ; Bundled skills (/code-review, /skill-creator): explicit file list,
+  ; Bundled skills (/code-review, /skill-creator, /extension-creator): explicit file list,
   ; so the uninstaller below removes exactly what we shipped and never
   ; touches skills added by the user afterwards.
   SetOutPath "$LOCALAPPDATA\ChiselCode\skills\bundled\code-review"
   File "..\skills\bundled\code-review\SKILL.md"
   SetOutPath "$LOCALAPPDATA\ChiselCode\skills\bundled\skill-creator"
   File "..\skills\bundled\skill-creator\SKILL.md"
+  SetOutPath "$LOCALAPPDATA\ChiselCode\skills\bundled\extension-creator"
+  File "..\skills\bundled\extension-creator\SKILL.md"
   SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\${UNINSTALLER}"
 
@@ -226,10 +228,12 @@ Section "Uninstall"
   Delete "$INSTDIR\skills\commit\SKILL.md"
   Delete "$LOCALAPPDATA\ChiselCode\skills\bundled\code-review\SKILL.md"
   Delete "$LOCALAPPDATA\ChiselCode\skills\bundled\skill-creator\SKILL.md"
+  Delete "$LOCALAPPDATA\ChiselCode\skills\bundled\extension-creator\SKILL.md"
   RMDir "$INSTDIR\skills\review"
   RMDir "$INSTDIR\skills\commit"
   RMDir "$LOCALAPPDATA\ChiselCode\skills\bundled\code-review"
   RMDir "$LOCALAPPDATA\ChiselCode\skills\bundled\skill-creator"
+  RMDir "$LOCALAPPDATA\ChiselCode\skills\bundled\extension-creator"
   RMDir "$LOCALAPPDATA\ChiselCode\skills\bundled"
   RMDir "$INSTDIR\skills"
   ; Legacy: custom markdown commands replaced by skills in v0.5.3.

@@ -52,7 +52,7 @@ import {
 import type { RunEventHandlers, RunOptions } from "./run-prompt.js";
 import { subagentControls } from "./subagent-inspection.js";
 import { createSessionToolRuntime } from "./tool-runtime.js";
-import { assertUiToolInvocation } from "./ui-tool.js";
+import { assertUiToolInvocation, uiToolAttachment } from "./ui-tool.js";
 
 export interface PreparedExtensionCommand {
   readonly command: RegisteredExtensionCommand;
@@ -105,10 +105,19 @@ async function runExtensionCommandOwned(
 ): Promise<{ session: Session; result: ToolExecutionResult }> {
   scope.assertUsable();
   const uiInvocation = assertUiToolInvocation(prepared, scope);
+  const uiAttachment = uiToolAttachment(prepared, scope);
   if (prepared.command.executionPolicy !== "foreground")
     throw new Error("Side command requires the side-query dispatch lane.");
   const acceptedAt = Date.now();
-  const signal = operationSignal(scope.signal, operation);
+  const signal = operationSignal(
+    scope.signal,
+    uiAttachment
+      ? AbortSignal.any([
+          uiAttachment.signal,
+          ...(operation ? [operation] : []),
+        ])
+      : operation,
+  );
   cancelled(signal);
   const root = scope.workspaceRoot;
   const config = await loadProjectConfig(root);
@@ -220,6 +229,7 @@ async function runExtensionCommandOwned(
     handlers.onSubagentControls?.(subagentControls(subagents, childOwner));
   }
   const tools = await createSessionToolRuntime({
+    uiTool: uiAttachment?.handler,
     subagentTools,
     backgroundOwner: { redactor },
     onBackground: handlers.onBackground,

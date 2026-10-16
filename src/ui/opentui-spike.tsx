@@ -6,7 +6,7 @@ import type {
   ScrollBoxRenderable,
   TextareaRenderable,
 } from "@opentui/core";
-import { useTerminalDimensions } from "@opentui/react";
+import { useRenderer, useTerminalDimensions } from "@opentui/react";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { backgroundActive } from "../background/contracts.js";
 import {
@@ -57,6 +57,12 @@ import { OpenTuiBackgroundDetails } from "./opentui-background-details.js";
 import { OpenTuiBackgroundTasks } from "./opentui-background-tasks.js";
 import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
+import {
+  UiCompositionControls,
+  UiCompositionNotices,
+  UiCompositionProvider,
+  UiSurface,
+} from "./opentui-composition.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
@@ -289,6 +295,7 @@ function OpenTuiScreen({
   onUnicodeDecorationsChange?: (value: boolean) => Promise<void>;
 }) {
   const { width, height } = useTerminalDimensions();
+  const nativeRenderer = useRenderer();
   const editor = React.useRef<TextareaRenderable>(null);
   const history = React.useRef(
     controller?.presentation.history ?? createEditorState(),
@@ -349,32 +356,109 @@ function OpenTuiScreen({
         focus: "composer",
       },
   );
-  useEffect(() => controller?.subscribe(setView), [controller]);
+  const compositionPosition = useRef<
+    | {
+        owner: string;
+        generation: number;
+        editor: TextareaRenderable | null;
+        cursor: number;
+        scroll: ScrollBoxRenderable | null;
+        top: number;
+        pinned: boolean;
+      }
+    | undefined
+  >(undefined);
+  const priorContributions = useRef(view.uiContributions);
+  useEffect(
+    () =>
+      controller?.subscribe((next) => {
+        if (next.uiContributions !== priorContributions.current) {
+          priorContributions.current = next.uiContributions;
+          const scroll = transcript.current;
+          compositionPosition.current ??= {
+            owner: controller.conversationId,
+            generation: controller.currentGeneration,
+            editor: editor.current,
+            cursor: editor.current?.cursorOffset ?? 0,
+            scroll,
+            top: scroll?.scrollTop ?? 0,
+            pinned:
+              !scroll ||
+              scroll.scrollTop >=
+                scroll.scrollHeight - scroll.viewport.height - 1,
+          };
+        }
+        setView(next);
+      }),
+    [controller],
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Restore native position after a composition commit, including structural changes that replace refs.
+  useLayoutEffect(() => {
+    const saved = compositionPosition.current;
+    compositionPosition.current = undefined;
+    if (
+      !saved ||
+      saved.owner !== controller?.conversationId ||
+      saved.generation !== controller.currentGeneration
+    )
+      return;
+    if (editor.current && saved.editor !== editor.current)
+      editor.current.cursorOffset = Math.min(
+        saved.cursor,
+        editor.current.plainText.length,
+      );
+    if (
+      transcript.current &&
+      saved.scroll !== transcript.current &&
+      !saved.pinned
+    ) {
+      const scroll = transcript.current;
+      const restore = () => {
+        if (transcript.current === scroll) scroll.scrollTo(saved.top);
+      };
+      nativeRenderer.once("frame", restore);
+      nativeRenderer.requestRender();
+      return () => {
+        nativeRenderer.off("frame", restore);
+      };
+    }
+  }, [controller, nativeRenderer, view.uiContributions]);
   const uiBinding = controller?.uiBinding;
   const bindingGeneration = controller?.currentGeneration;
+  const [uiEpoch, setUiEpoch] = useState(0);
+  useEffect(
+    () => commandActions?.subscribeUi?.(() => setUiEpoch((epoch) => epoch + 1)),
+    [commandActions],
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: Session allocation replaces the pre-session binding without creating a session from a view.
   useEffect(() => {
     if (!controller || !commandActions?.uiScope) return;
     let active = true;
     let binding: ExtensionUiBinding | undefined;
-    void commandActions
-      .uiScope(controller.snapshot.projectPath, controller.ownerSignal)
-      .then((scope) => {
-        if (
-          !active ||
-          !scope ||
-          controller.ownerSignal.aborted ||
-          controller.currentGeneration !== bindingGeneration
-        )
-          return;
-        binding = new ExtensionUiBinding(
-          controller,
-          scope,
-          onUiTool,
-          uiRedactor,
-        );
-        controller.uiBinding = binding;
-      });
+    const root = controller.snapshot.projectPath;
+    void (
+      commandActions.uiScopes
+        ? commandActions.uiScopes(root, controller.ownerSignal)
+        : commandActions
+            .uiScope(root, controller.ownerSignal)
+            .then((scope) => (scope ? [scope] : []))
+    ).then(([scope, ...additional]) => {
+      if (
+        !active ||
+        !scope ||
+        controller.ownerSignal.aborted ||
+        controller.currentGeneration !== bindingGeneration
+      )
+        return;
+      binding = new ExtensionUiBinding(
+        controller,
+        scope,
+        onUiTool,
+        uiRedactor,
+        additional,
+      );
+      controller.uiBinding = binding;
+    });
     return () => {
       active = false;
       binding?.dispose();
@@ -387,6 +471,7 @@ function OpenTuiScreen({
     uiRedactor,
     bindingGeneration,
     view.sessionId,
+    uiEpoch,
   ]);
   const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
     "editor",
@@ -398,6 +483,7 @@ function OpenTuiScreen({
     }
   }, [view.focus, view.agentTree?.view]);
   const [uiOverflow, setUiOverflow] = useState(false);
+  const [uiControls, setUiControls] = useState(false);
   const extensionActive = !!view.extensionView && !approval;
   const otherOverlay = !!(
     pickerOpen ||
@@ -408,6 +494,7 @@ function OpenTuiScreen({
     permissionsOpen ||
     updateOpen ||
     view.extensionView ||
+    uiControls ||
     uiOverflow
   );
   const sideActive = !!(
@@ -458,23 +545,25 @@ function OpenTuiScreen({
   const sideOwner = `side:${controller?.conversationId}:${controller?.currentGeneration}`;
   const inputOwner = approval
     ? "approval"
-    : uiOverflow
-      ? `ui-status:${controller?.conversationId}:${controller?.currentGeneration}`
-      : extensionActive
-        ? `extension-view:${controller?.conversationId}:${controller?.currentGeneration}`
-        : otherOverlay
-          ? "dialog"
-          : backgroundPanelActive
-            ? `background:${controller?.conversationId}:${controller?.currentGeneration}`
-            : backgroundActiveView
-              ? `background-view:${controller?.conversationId}:${controller?.currentGeneration}`
-              : agentActive
-                ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
-                : sideActive
-                  ? sideOwner
-                  : sidebarFocused
-                    ? sidebarOwner
-                    : "main";
+    : uiControls
+      ? `ui-controls:${controller?.conversationId}:${controller?.currentGeneration}`
+      : uiOverflow
+        ? `ui-status:${controller?.conversationId}:${controller?.currentGeneration}`
+        : extensionActive
+          ? `extension-view:${controller?.conversationId}:${controller?.currentGeneration}`
+          : otherOverlay
+            ? "dialog"
+            : backgroundPanelActive
+              ? `background:${controller?.conversationId}:${controller?.currentGeneration}`
+              : backgroundActiveView
+                ? `background-view:${controller?.conversationId}:${controller?.currentGeneration}`
+                : agentActive
+                  ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
+                  : sideActive
+                    ? sideOwner
+                    : sidebarFocused
+                      ? sidebarOwner
+                      : "main";
   useOverlayInputOwner(inputOwner);
   const cancelApprovalChild = approval?.owner?.childId
     ? () => {
@@ -661,7 +750,14 @@ function OpenTuiScreen({
   const showSidebar = layout.placement !== "hidden";
   const contextOnly = layout.placement === "fullscreen";
   const sidebarDrawer = layout.placement === "overlay";
-  const panelHeight = Math.max(1, height - tabRows);
+  const uiFaultRows = (view.uiContributions ?? []).some(
+    (item) =>
+      item.descriptor.slot === "render" &&
+      ["error", "unavailable"].includes(item.snapshot.state),
+  )
+    ? 1
+    : 0;
+  const panelHeight = Math.max(1, height - tabRows - uiFaultRows);
   const panelWidth = layout.sidebarWidth;
   const chrome = sidebarChrome(panelHeight);
   const panelBodyHeight = Math.max(
@@ -734,14 +830,6 @@ function OpenTuiScreen({
   );
   const selectedSuggestion = suggestions[selectedSuggestionIndex];
   const showLogo = !workspace && height >= 22 && textWidth >= 46;
-  const feedHeight = Math.max(
-    1,
-    height -
-      editorHeight -
-      tabRows -
-      (workspace ? 6 : showLogo ? (initialUnicodeDecorations ? 10 : 9) : 8) -
-      visibleSuggestions.length,
-  );
   let newestDiffId: number | undefined;
   for (let index = view.transcript.length - 1; index >= 0; index--) {
     const entry = view.transcript[index];
@@ -997,6 +1085,28 @@ function OpenTuiScreen({
 
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== inputOwner) return;
+    if (uiControls) {
+      if (key.ctrl && key.name === "c") {
+        key.preventDefault();
+        key.stopPropagation();
+      }
+      return;
+    }
+    if (
+      (key.option || key.meta) &&
+      key.name === "u" &&
+      !approval &&
+      !otherOverlay &&
+      !sideActive &&
+      !agentActive &&
+      !backgroundPanelActive &&
+      !backgroundActiveView
+    ) {
+      key.preventDefault();
+      key.stopPropagation();
+      setUiControls(true);
+      return;
+    }
     if (key.ctrl && key.name === "c" && !key.shift) {
       key.preventDefault();
       if (
@@ -1878,68 +1988,29 @@ function OpenTuiScreen({
     (child) => child.status === "awaiting_approval",
   );
   const composer = (
-    <box width="100%" flexShrink={0} flexDirection="column">
-      {visibleSuggestions.map((command, index) => (
-        <text
-          key={command.name}
-          height={1}
-          fg={
-            index + suggestionStart === selectedSuggestionIndex
-              ? palette.accent
-              : palette.muted
-          }
-        >
-          {terminalLine(
-            `${index + suggestionStart === selectedSuggestionIndex ? ">" : " "} ${command.name} | ${command.description}${command.source.type === "extension" ? ` [${command.source.extensionId}]` : ""}`,
-            Math.max(8, composerWidth - 3),
-          )}
-        </text>
-      ))}
-      <OpenTuiPrompt
-        compact={!home && height < 10}
-        palette={palette}
-        width={composerWidth}
-        focused={
-          focus === "editor" &&
-          !skillsOpen &&
-          !mcpActions &&
-          !settingsOpen &&
-          !modelsActions &&
-          !permissionsOpen &&
-          !updateOpen &&
-          !approval &&
-          !sideActive &&
-          !agentActive &&
-          !backgroundPanelActive &&
-          !backgroundActiveView
-        }
-        hasDraft={!!draft.trim()}
-        busy={view.busy}
-        model={
-          view.modelSelection?.model ?? view.usage?.model ?? getDefaultModel?.()
-        }
-        agentMode={view.agentMode}
-        runningMode={view.runningMode}
-        approvalMode={view.approvalMode}
-        runningApprovalMode={view.runningApprovalMode}
-        onToggleMode={() => {
-          if (!sideActive && !agentActive && !approval && !otherOverlay)
-            toggleAgentMode();
-        }}
-        onPermissionsSelect={openPermissions}
-        onModelSelect={getModelsActions ? openModels : undefined}
-        onSubmit={() => submit()}
-      >
-        <textarea
-          id="prompt-editor"
-          ref={editor}
-          onMouseDown={() => {
-            if (!approval && !otherOverlay) {
-              setFocus("editor");
-              controller?.setFocus("composer");
+    <UiSurface name="Composer" preserveNative>
+      <UiSurface name="AbovePrompt" />
+      <box width="100%" flexShrink={0} flexDirection="column">
+        {visibleSuggestions.map((command, index) => (
+          <text
+            key={command.name}
+            height={1}
+            fg={
+              index + suggestionStart === selectedSuggestionIndex
+                ? palette.accent
+                : palette.muted
             }
-          }}
-          height={editorHeight}
+          >
+            {terminalLine(
+              `${index + suggestionStart === selectedSuggestionIndex ? ">" : " "} ${command.name} | ${command.description}${command.source.type === "extension" ? ` [${command.source.extensionId}]` : ""}`,
+              Math.max(8, composerWidth - 3),
+            )}
+          </text>
+        ))}
+        <OpenTuiPrompt
+          compact={!home && height < 10}
+          palette={palette}
+          width={composerWidth}
           focused={
             focus === "editor" &&
             !skillsOpen &&
@@ -1952,76 +2023,606 @@ function OpenTuiScreen({
             !sideActive &&
             !agentActive &&
             !backgroundPanelActive &&
-            !backgroundActiveView &&
-            !extensionActive &&
-            !uiOverflow
+            !backgroundActiveView
           }
-          initialValue={draft}
-          backgroundColor={palette.surface}
-          focusedBackgroundColor={palette.surface}
-          textColor={palette.text}
-          focusedTextColor={palette.text}
-          placeholderColor={palette.muted}
-          placeholder="Опишите задачу..."
-          cursorColor={palette.accent}
-          selectionBg={palette.raised}
-          selectionFg={palette.text}
-          onContentChange={() => {
-            const next = editor.current?.plainText ?? "";
-            if (
-              applyingHistory.current ||
-              (history.current.historyIndex >= 0 &&
-                next === history.current.value)
-            )
-              return;
-            if (next !== acceptedCompletion.current) {
-              setSuggestionIndex(0);
-              setSuggestionsDismissed(false);
-            }
-            acceptedCompletion.current = undefined;
-            history.current = {
-              ...history.current,
-              value: next,
-              cursor: editor.current?.cursorOffset ?? next.length,
-              historyIndex: -1,
-              historyDraft: "",
-            };
-            setDraft(next);
-            controller?.setDraft(next);
+          hasDraft={!!draft.trim()}
+          busy={view.busy}
+          model={
+            view.modelSelection?.model ??
+            view.usage?.model ??
+            getDefaultModel?.()
+          }
+          agentMode={view.agentMode}
+          runningMode={view.runningMode}
+          approvalMode={view.approvalMode}
+          runningApprovalMode={view.runningApprovalMode}
+          onToggleMode={() => {
+            if (!sideActive && !agentActive && !approval && !otherOverlay)
+              toggleAgentMode();
           }}
+          onPermissionsSelect={openPermissions}
+          onModelSelect={getModelsActions ? openModels : undefined}
           onSubmit={() => submit()}
-          keyBindings={[
-            { name: "return", action: "submit" },
-            { name: "return", shift: true, action: "newline" },
-          ]}
-        />
-      </OpenTuiPrompt>
-      <box height={1} flexDirection="row" flexShrink={0}>
-        <text
-          fg={palette.muted}
-          height={1}
-          width={Math.max(1, composerWidth - statusLayout.reserved)}
         >
-          {terminalLine(
-            !home && height < 10
-              ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
-              : view.busy && onCancel
-                ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
-                : composerWidth - statusLayout.reserved >= 77
-                  ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
-                  : composerWidth >= 45
-                    ? "Enter отправить | Shift+Tab режим | F4 разрешения"
-                    : "Shift+Tab режим | F4",
-            Math.max(1, composerWidth - statusLayout.reserved),
+          <textarea
+            id="prompt-editor"
+            ref={editor}
+            onMouseDown={() => {
+              if (!approval && !otherOverlay) {
+                setFocus("editor");
+                controller?.setFocus("composer");
+              }
+            }}
+            height={editorHeight}
+            focused={
+              focus === "editor" &&
+              !skillsOpen &&
+              !mcpActions &&
+              !settingsOpen &&
+              !modelsActions &&
+              !permissionsOpen &&
+              !updateOpen &&
+              !approval &&
+              !sideActive &&
+              !agentActive &&
+              !backgroundPanelActive &&
+              !backgroundActiveView &&
+              !extensionActive &&
+              !uiOverflow &&
+              !uiControls
+            }
+            initialValue={draft}
+            backgroundColor={palette.surface}
+            focusedBackgroundColor={palette.surface}
+            textColor={palette.text}
+            focusedTextColor={palette.text}
+            placeholderColor={palette.muted}
+            placeholder="Опишите задачу..."
+            cursorColor={palette.accent}
+            selectionBg={palette.raised}
+            selectionFg={palette.text}
+            onContentChange={() => {
+              const next = editor.current?.plainText ?? "";
+              if (
+                applyingHistory.current ||
+                (history.current.historyIndex >= 0 &&
+                  next === history.current.value)
+              )
+                return;
+              if (next !== acceptedCompletion.current) {
+                setSuggestionIndex(0);
+                setSuggestionsDismissed(false);
+              }
+              acceptedCompletion.current = undefined;
+              history.current = {
+                ...history.current,
+                value: next,
+                cursor: editor.current?.cursorOffset ?? next.length,
+                historyIndex: -1,
+                historyDraft: "",
+              };
+              setDraft(next);
+              controller?.setDraft(next);
+            }}
+            onSubmit={() => submit()}
+            keyBindings={[
+              { name: "return", action: "submit" },
+              { name: "return", shift: true, action: "newline" },
+            ]}
+          />
+        </OpenTuiPrompt>
+        <UiSurface name="StatusLine">
+          <box height={1} flexDirection="row" flexShrink={0}>
+            <UiSurface name="PromptHints">
+              <text
+                fg={palette.muted}
+                height={1}
+                width={Math.max(1, composerWidth - statusLayout.reserved)}
+              >
+                {terminalLine(
+                  !home && height < 10
+                    ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
+                    : view.busy && onCancel
+                      ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
+                      : composerWidth - statusLayout.reserved >= 77
+                        ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
+                        : composerWidth >= 45
+                          ? "Enter отправить | Shift+Tab режим | F4 разрешения"
+                          : "Shift+Tab режим | F4",
+                  Math.max(1, composerWidth - statusLayout.reserved),
+                )}
+              </text>
+            </UiSurface>
+            {statusLayout.visible.map(({ item, label }) => (
+              <DialogAction
+                key={item.key}
+                id={`ui-status-${item.key}`}
+                label={label}
+                palette={palette}
+                onSelect={() => {
+                  if (item.snapshot.action)
+                    void uiBinding?.dispatch(
+                      item.key,
+                      item.snapshot.action,
+                      item.snapshot.revision,
+                    );
+                  else uiBinding?.refresh();
+                }}
+              />
+            ))}
+            {!!statusLayout.remaining && (
+              <DialogAction
+                id="ui-status-more"
+                label={`Ещё ${statusLayout.remaining}`}
+                palette={palette}
+                onSelect={() => setUiOverflow(true)}
+              />
+            )}
+          </box>
+        </UiSurface>
+      </box>
+      <UiSurface name="BelowPrompt" />
+    </UiSurface>
+  );
+
+  return (
+    <UiCompositionProvider
+      value={{
+        items: view.uiContributions ?? [],
+        palette,
+        interactive: !approval && !otherOverlay,
+        dispatch: (key, use, revision) => {
+          void uiBinding?.dispatch(key, use, revision);
+        },
+      }}
+    >
+      <box
+        width={width}
+        height={height}
+        flexDirection="column"
+        backgroundColor={palette.bg}
+      >
+        <UiSurface name="App" preserveNative>
+          {workspace && (
+            <UiSurface name="WorkspaceTabs">
+              <SessionTabs
+                workspace={workspace}
+                width={width}
+                palette={palette}
+              />
+            </UiSurface>
           )}
-        </text>
-        {statusLayout.visible.map(({ item, label }) => (
-          <DialogAction
-            key={item.key}
-            id={`ui-status-${item.key}`}
-            label={label}
+          <UiSurface name="Main" preserveNative>
+            <box width={width} height={panelHeight} flexDirection="row">
+              {!contextOnly &&
+                (home ? (
+                  <UiSurface name="Home" preserveNative>
+                    <OpenTuiHome
+                      projectPath={view.projectPath}
+                      width={textWidth}
+                      height={panelHeight}
+                      palette={palette}
+                      updateNotice={notice}
+                      onUpdate={openUpdate}
+                      feedback={
+                        view.transcript.length > 0 &&
+                        !visibleSuggestions.length ? (
+                          <TerminalScrollbox
+                            ref={transcript}
+                            height={Math.min(
+                              6,
+                              Math.max(
+                                1,
+                                homeHeight -
+                                  homeFixedRows -
+                                  editorHeight -
+                                  visibleSuggestions.length -
+                                  1,
+                              ),
+                            )}
+                            marginTop={1}
+                            width="100%"
+                            viewportCulling
+                            scrollbarOptions={{ visible: false }}
+                          >
+                            <OpenTuiTranscript
+                              onOpenSide={(id) => controller?.openSide(id)}
+                              onCardAction={(action, extensionId) => {
+                                if (controller)
+                                  void (uiBinding
+                                    ? uiBinding.chat(
+                                        action.target,
+                                        action.action,
+                                        extensionId,
+                                      )
+                                    : dispatchCoreChat(
+                                        controller,
+                                        action.target,
+                                        action.action,
+                                      ));
+                              }}
+                              onOpenCard={(target, extensionId) => {
+                                if (controller)
+                                  void (uiBinding
+                                    ? uiBinding.chat(
+                                        target,
+                                        "open",
+                                        extensionId,
+                                      )
+                                    : dispatchCoreChat(controller, target));
+                              }}
+                              focusedSideId={focusedSideId}
+                              focusedActionId={focusedActionId}
+                              actionPresentation={actions}
+                              onActionSelect={(target) => {
+                                controller?.activateAction(target);
+                                if (focus === "editor") editor.current?.focus();
+                              }}
+                              entries={view.transcript}
+                              contentWidth={composerWidth - 2}
+                              expandedIds={expandedDiffIds}
+                              onToggleDiff={toggleDiff}
+                              palette={palette}
+                            />
+                          </TerminalScrollbox>
+                        ) : undefined
+                      }
+                    >
+                      {composer}
+                    </OpenTuiHome>
+                  </UiSurface>
+                ) : (
+                  <box
+                    width={textWidth}
+                    height={panelHeight}
+                    flexDirection="column"
+                    paddingLeft={1}
+                    paddingRight={1}
+                  >
+                    {!workspace && (
+                      <UiSurface name="Header">
+                        {showLogo &&
+                          (initialUnicodeDecorations
+                            ? COMPACT_LOGO
+                            : ["<i> ChiselCode"]
+                          ).map((row) => (
+                            <text key={row} fg={palette.accent}>
+                              {row}
+                            </text>
+                          ))}
+                        <text fg={palette.accent}>
+                          {onSubmit
+                            ? `[i] ${showLogo ? "" : "ChiselCode  |  "}${terminalLine(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  |  ${palette.label}`
+                            : `[i] ChiselCode | probe | ${width}x${height} | ${palette.label}`}
+                        </text>
+                        <box
+                          width="100%"
+                          flexDirection="row"
+                          justifyContent="space-between"
+                        >
+                          <text fg={palette.muted}>
+                            {terminalSafeText(
+                              view.projectPath,
+                              Math.max(8, textWidth - 23),
+                            )}
+                          </text>
+                          {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+comma also opens settings. */}
+                          <box
+                            backgroundColor={palette.raised}
+                            paddingLeft={1}
+                            paddingRight={1}
+                            onMouseUp={(event) => {
+                              if (event.button !== 0) return;
+                              openSettings("connection");
+                            }}
+                          >
+                            <text fg={palette.accent}>Настройки Ctrl+,</text>
+                          </box>
+                        </box>
+                      </UiSurface>
+                    )}
+                    {height >= 12 && (
+                      <UiSurface
+                        name="Transcript"
+                        preserveNative={view.transcript.some(
+                          (entry) =>
+                            entry.tone === "error" ||
+                            (entry.toolAction &&
+                              [
+                                "failed",
+                                "denied",
+                                "cancelled",
+                                "interrupted",
+                              ].includes(entry.toolAction.state)),
+                        )}
+                      >
+                        <TerminalScrollbox
+                          ref={transcript}
+                          flexGrow={1}
+                          minHeight={0}
+                          stickyScroll={
+                            !home &&
+                            expandedDiffIds.size === 0 &&
+                            !expanded &&
+                            actions.expanded.size === 0
+                          }
+                          stickyStart={home ? "top" : "bottom"}
+                          viewportCulling
+                          onMouseScroll={(event) => {
+                            const box = transcript.current;
+                            if (!box) return;
+                            if (
+                              event.scroll?.direction === "up" &&
+                              box.scrollTop <= 0
+                            )
+                              shiftWindow("up");
+                            if (
+                              event.scroll?.direction === "down" &&
+                              box.scrollTop >=
+                                box.scrollHeight - box.viewport.height
+                            )
+                              shiftWindow("down");
+                          }}
+                        >
+                          {controller ? (
+                            <OpenTuiTranscript
+                              onOpenSide={(id) => controller?.openSide(id)}
+                              onCardAction={(action, extensionId) => {
+                                if (controller)
+                                  void (uiBinding
+                                    ? uiBinding.chat(
+                                        action.target,
+                                        action.action,
+                                        extensionId,
+                                      )
+                                    : dispatchCoreChat(
+                                        controller,
+                                        action.target,
+                                        action.action,
+                                      ));
+                              }}
+                              onOpenCard={(target, extensionId) => {
+                                if (controller)
+                                  void (uiBinding
+                                    ? uiBinding.chat(
+                                        target,
+                                        "open",
+                                        extensionId,
+                                      )
+                                    : dispatchCoreChat(controller, target));
+                              }}
+                              focusedSideId={focusedSideId}
+                              focusedActionId={focusedActionId}
+                              actionPresentation={actions}
+                              onActionSelect={(target) => {
+                                controller?.activateAction(target);
+                                if (focus === "editor") editor.current?.focus();
+                              }}
+                              entries={
+                                classic
+                                  ? focus === "transcript"
+                                    ? view.transcript
+                                    : expanded
+                                      ? view.transcript.filter(
+                                          (entry) => entry.id === newestDiffId,
+                                        )
+                                      : []
+                                  : view.transcript
+                              }
+                              contentWidth={textWidth - 2}
+                              expandedId={
+                                classic && expanded ? newestDiffId : undefined
+                              }
+                              expandedIds={
+                                classic ? undefined : expandedDiffIds
+                              }
+                              onToggleDiff={
+                                classic ? () => setExpanded(false) : toggleDiff
+                              }
+                              windowEnd={classic ? undefined : windowEnd}
+                              palette={palette}
+                            />
+                          ) : (
+                            <React.Fragment>
+                              {lines.map((line) => (
+                                <text key={line.id} fg={palette.text}>
+                                  {line.text}
+                                </text>
+                              ))}
+                              <text fg={palette.muted}>
+                                example.ts | +1 -1 | Ctrl+D: diff
+                              </text>
+                              {expanded && (
+                                <diff
+                                  diff={PATCH}
+                                  view={
+                                    textWidth - 2 >= 100 ? "split" : "unified"
+                                  }
+                                  height={5}
+                                />
+                              )}
+                            </React.Fragment>
+                          )}
+                          {controller && view.streaming && (
+                            <UiSurface
+                              name="AssistantMessage"
+                              values={{
+                                text: view.streaming,
+                                state: "streaming",
+                              }}
+                            >
+                              <FormattedMessage
+                                id="streaming-message"
+                                streaming
+                                content={view.streaming}
+                                palette={palette}
+                                width={textWidth - 2}
+                              />
+                            </UiSurface>
+                          )}
+                          {controller && view.toolActivity && (
+                            <UiSurface
+                              name="ToolProgress"
+                              values={{ text: view.toolActivity }}
+                            >
+                              <text fg={palette.muted}>
+                                {terminalSafeText(view.toolActivity, 2_000)}
+                              </text>
+                            </UiSurface>
+                          )}
+                          {controller && view.compaction && (
+                            <ContextCompactionMessage
+                              text={
+                                "Сжимаю контекст...\nСохраняю задачу, решения и результаты работы"
+                              }
+                              palette={palette}
+                            />
+                          )}
+                          {controller &&
+                            view.requestStartedAt !== undefined && (
+                              <UiSurface name="RequestStatus">
+                                <OpenTuiRequestStatus
+                                  controller={controller}
+                                  palette={palette}
+                                  width={textWidth - 2}
+                                  awaitingApproval={!!approval}
+                                />
+                              </UiSurface>
+                            )}
+                        </TerminalScrollbox>
+                      </UiSurface>
+                    )}
+                    {composer}
+                  </box>
+                ))}
+              {showSidebar && (
+                <UiSurface name="Sidebar">
+                  <box
+                    ref={sidebar}
+                    width={contextOnly ? panelWidth : panelWidth + 1}
+                    height={panelHeight}
+                    position={sidebarDrawer ? "absolute" : "relative"}
+                    right={sidebarDrawer ? 0 : undefined}
+                    top={sidebarDrawer ? 0 : undefined}
+                    flexDirection="row"
+                    focusable
+                  >
+                    {!contextOnly && (
+                      <box
+                        width={1}
+                        backgroundColor={
+                          sidebarFocused ? palette.accent : palette.border
+                        }
+                      />
+                    )}
+                    <SidebarPanel
+                      tab={sidebarTab}
+                      width={panelWidth}
+                      height={panelHeight}
+                      palette={palette}
+                      focused={sidebarFocused}
+                      owner={sidebarOwner}
+                      running={activeChildren}
+                      approvals={
+                        (view.children ?? []).filter(
+                          (child) => child.status === "awaiting_approval",
+                        ).length
+                      }
+                      busy={
+                        view.busy ||
+                        activeChildren > 0 ||
+                        (view.backgroundTasks ?? []).some((task) =>
+                          backgroundActive(task.state),
+                        )
+                      }
+                      onFocus={focusSidebar}
+                      onSelect={selectSidebar}
+                      onBack={backFromSidebar}
+                      onHide={() => {
+                        changeMode("hide");
+                        backFromSidebar();
+                      }}
+                    >
+                      {sidebarTab === "menu" ? (
+                        <UiSurface name="SidebarMenu">
+                          <SidebarMenu
+                            key={controller?.conversationId}
+                            actions={menuActions}
+                            controller={controller}
+                            width={panelWidth}
+                            height={panelBodyHeight}
+                            palette={palette}
+                            focused={sidebarFocused}
+                            owner={sidebarOwner}
+                            onFocus={focusSidebar}
+                          />
+                        </UiSurface>
+                      ) : controller && sidebarTab === "agents" ? (
+                        <UiSurface name="AgentTree">
+                          <AgentsSidebar
+                            embedded
+                            controller={controller}
+                            state={view}
+                            width={panelWidth}
+                            height={panelBodyHeight}
+                            palette={palette}
+                            focused={agentsFocused}
+                            onFocus={focusSidebar}
+                            onBack={backFromSidebar}
+                            onContext={() => selectSidebar("context")}
+                            onOpen={openAgent}
+                            onStop={stopAgent}
+                          />
+                        </UiSurface>
+                      ) : (
+                        <UiSurface name="ContextPanel">
+                          <ContextSidebar
+                            key={controller?.conversationId}
+                            state={view}
+                            width={panelWidth}
+                            height={panelBodyHeight}
+                            focused={sidebarFocused}
+                            palette={palette}
+                            presentation={controller?.sidebarPresentation}
+                            onAction={(item) => {
+                              if (item.snapshot.action)
+                                void uiBinding?.dispatch(
+                                  item.key,
+                                  item.snapshot.action,
+                                  item.snapshot.revision,
+                                );
+                              else uiBinding?.refresh();
+                            }}
+                          />
+                        </UiSurface>
+                      )}
+                    </SidebarPanel>
+                  </box>
+                </UiSurface>
+              )}
+            </box>
+          </UiSurface>
+        </UiSurface>
+        <UiCompositionNotices />
+        {uiControls && !approval && (
+          <UiCompositionControls
+            width={width}
+            height={height}
+            owner={inputOwner}
+            onClose={() => setUiControls(false)}
+          />
+        )}
+        {settingsDialog}
+        {uiOverflow && !approval && (
+          <OpenTuiStatusOverflow
+            items={statusLayout.statuses}
+            width={width}
+            height={height}
             palette={palette}
-            onSelect={() => {
+            owner={`ui-status:${controller?.conversationId}:${controller?.currentGeneration}`}
+            onClose={() => setUiOverflow(false)}
+            onOpen={(item) => {
+              setUiOverflow(false);
               if (item.snapshot.action)
                 void uiBinding?.dispatch(
                   item.key,
@@ -2031,609 +2632,218 @@ function OpenTuiScreen({
               else uiBinding?.refresh();
             }}
           />
-        ))}
-        {!!statusLayout.remaining && (
-          <DialogAction
-            id="ui-status-more"
-            label={`Ещё ${statusLayout.remaining}`}
+        )}
+        {extensionActive && controller && (
+          <OpenTuiExtensionDetails
+            controller={controller}
+            width={width}
+            height={height}
             palette={palette}
-            onSelect={() => setUiOverflow(true)}
+          />
+        )}
+        {backgroundPanelActive && controller && (
+          <OpenTuiBackgroundTasks
+            controller={controller}
+            view={view}
+            width={width}
+            height={height}
+            palette={palette}
+          />
+        )}
+        {backgroundActiveView && controller && (
+          <OpenTuiBackgroundDetails
+            controller={controller}
+            view={view}
+            width={width}
+            height={height}
+            palette={palette}
+            onRetry={(id) => {
+              void onSubmit?.(`/tasks retry ${id}`, controller);
+            }}
+          />
+        )}
+        {agentActive && controller && (
+          <OpenTuiAgentDetails
+            controller={controller}
+            view={view}
+            width={width}
+            height={height}
+            palette={palette}
+            onLoad={loadAgent}
+            onStop={stopAgent}
+            onApply={(id) => {
+              const origin = controller;
+              const generation = origin.currentGeneration;
+              const controls = origin.subagentControls;
+              if (!controls) return;
+              void controls.port
+                .status(id)
+                .then((child) => {
+                  if (
+                    !origin.isCurrent(generation) ||
+                    origin.snapshot.agentView?.id !== id ||
+                    !child.worktree ||
+                    !child.cleanup.quiescent ||
+                    [
+                      "queued",
+                      "preparing",
+                      "running",
+                      "awaiting_approval",
+                      "cancelling",
+                    ].includes(child.status)
+                  )
+                    return;
+                  return onSubmit?.(
+                    `/worktree apply ${child.worktree.id}`,
+                    origin,
+                  );
+                })
+                .catch((error) => {
+                  if (
+                    origin.isCurrent(generation) &&
+                    origin.snapshot.agentView?.id === id
+                  )
+                    origin.setAgentView({
+                      notice:
+                        error instanceof Error
+                          ? error.message
+                          : "Не удалось подготовить перенос.",
+                    });
+                });
+            }}
+          />
+        )}
+        {updateOpen && updater && !approval && (
+          <OpenTuiUpdate
+            updater={updater}
+            width={width}
+            height={height}
+            palette={palette}
+            onClose={() => {
+              setUpdateOpen(false);
+              controller?.setOverlay();
+              controller?.setFocus(focus === "editor" ? "composer" : focus);
+            }}
+          />
+        )}
+        {permissionsOpen && !approval && (
+          <OpenTuiPermissions
+            width={width}
+            height={height}
+            palette={palette}
+            mode={view.approvalMode}
+            allowBypassPermissions={bypassAllowed}
+            onClose={closePermissions}
+            onSelect={(next) => {
+              changeApprovalMode(next);
+              closePermissions();
+            }}
+            onSettings={() => {
+              setPermissionsOpen(false);
+              openSettings("permissions");
+            }}
+          />
+        )}
+        {modelsActions && !approval && (
+          <OpenTuiModels
+            actions={modelsActions}
+            width={width}
+            height={height}
+            palette={palette}
+            onClose={() => {
+              setModelsActions(undefined);
+              controller?.setOverlay();
+              controller?.setFocus(focus === "editor" ? "composer" : focus);
+            }}
+            onSettings={() => {
+              setModelsActions(undefined);
+              openSettings("connection");
+            }}
+          />
+        )}
+        {approval && (
+          <OpenTuiApproval
+            request={approval}
+            width={width}
+            height={height}
+            palette={palette}
+            onApprove={() => approvalResolver?.resolve("approved", approval)}
+            onSessionApprove={() =>
+              approvalResolver?.resolve("approved_session", approval)
+            }
+            onAlwaysApprove={() =>
+              approvalResolver?.resolve("approved_always", approval)
+            }
+            onDeny={() => approvalResolver?.resolve("denied", approval)}
+            onCancelChild={cancelApprovalChild}
+          />
+        )}
+        {mcpActions && !approval && (
+          <OpenTuiMcp
+            actions={mcpActions}
+            width={width}
+            height={height}
+            palette={palette}
+            onClose={() => {
+              setMcpActions(undefined);
+              controller?.setOverlay(
+                settingsIntegration.current ? "settings" : undefined,
+              );
+              controller?.setFocus(
+                settingsIntegration.current
+                  ? "modal"
+                  : focus === "editor"
+                    ? "composer"
+                    : focus,
+              );
+            }}
+          />
+        )}
+        {skillsOpen && skillsActions && !approval && (
+          <OpenTuiSkills
+            actions={skillsActions}
+            width={width}
+            height={height}
+            palette={palette}
+            onClose={closeSkills}
+            onChoose={(skill) =>
+              prepareSkill(
+                skillCommandDraft(skill.name, draft, skillsActions.load()),
+              )
+            }
+            onCreate={() =>
+              prepareSkill(
+                skillCommandDraft("skill-creator", draft, skillsActions.load()),
+              )
+            }
+            onEdit={
+              skillsActions.editSource
+                ? (skill) =>
+                    prepareSkill(
+                      skillEditDraft(
+                        skill.name,
+                        skillsActions.editSource?.(skill.name) ?? "",
+                        draft,
+                      ),
+                    )
+                : undefined
+            }
+          />
+        )}
+        {sideActive && controller && (
+          <OpenTuiSideQuery
+            controller={controller}
+            view={view}
+            width={width}
+            height={height}
+            palette={palette}
+            onStop={() => onSideCancel?.()}
+            onSubmit={(question) => {
+              void onSubmit?.(`/btw ${question}`, controller);
+            }}
           />
         )}
       </box>
-    </box>
-  );
-
-  return (
-    <box
-      width={width}
-      height={height}
-      flexDirection="column"
-      backgroundColor={palette.bg}
-    >
-      {workspace && (
-        <SessionTabs workspace={workspace} width={width} palette={palette} />
-      )}
-      <box width={width} height={height - tabRows} flexDirection="row">
-        {!contextOnly &&
-          (home ? (
-            <OpenTuiHome
-              projectPath={view.projectPath}
-              width={textWidth}
-              height={height - tabRows}
-              palette={palette}
-              updateNotice={notice}
-              onUpdate={openUpdate}
-              feedback={
-                view.transcript.length > 0 && !visibleSuggestions.length ? (
-                  <TerminalScrollbox
-                    ref={transcript}
-                    height={Math.min(
-                      6,
-                      Math.max(
-                        1,
-                        homeHeight -
-                          homeFixedRows -
-                          editorHeight -
-                          visibleSuggestions.length -
-                          1,
-                      ),
-                    )}
-                    marginTop={1}
-                    width="100%"
-                    viewportCulling
-                    scrollbarOptions={{ visible: false }}
-                  >
-                    <OpenTuiTranscript
-                      onOpenSide={(id) => controller?.openSide(id)}
-                      onCardAction={(action, extensionId) => {
-                        if (controller)
-                          void (uiBinding
-                            ? uiBinding.chat(
-                                action.target,
-                                action.action,
-                                extensionId,
-                              )
-                            : dispatchCoreChat(
-                                controller,
-                                action.target,
-                                action.action,
-                              ));
-                      }}
-                      onOpenCard={(target, extensionId) => {
-                        if (controller)
-                          void (uiBinding
-                            ? uiBinding.chat(target, "open", extensionId)
-                            : dispatchCoreChat(controller, target));
-                      }}
-                      focusedSideId={focusedSideId}
-                      focusedActionId={focusedActionId}
-                      actionPresentation={actions}
-                      onActionSelect={(target) => {
-                        controller?.activateAction(target);
-                        if (focus === "editor") editor.current?.focus();
-                      }}
-                      entries={view.transcript}
-                      contentWidth={composerWidth - 2}
-                      expandedIds={expandedDiffIds}
-                      onToggleDiff={toggleDiff}
-                      palette={palette}
-                    />
-                  </TerminalScrollbox>
-                ) : undefined
-              }
-            >
-              {composer}
-            </OpenTuiHome>
-          ) : (
-            <box
-              width={textWidth}
-              height={height - tabRows}
-              flexDirection="column"
-              paddingLeft={1}
-              paddingRight={1}
-            >
-              {!workspace && (
-                <>
-                  {showLogo &&
-                    (initialUnicodeDecorations
-                      ? COMPACT_LOGO
-                      : ["<i> ChiselCode"]
-                    ).map((row) => (
-                      <text key={row} fg={palette.accent}>
-                        {row}
-                      </text>
-                    ))}
-                  <text fg={palette.accent}>
-                    {onSubmit
-                      ? `[i] ${showLogo ? "" : "ChiselCode  |  "}${terminalLine(view.sessionTitle ?? "новый сеанс", Math.max(12, textWidth - 32))}  |  ${palette.label}`
-                      : `[i] ChiselCode | probe | ${width}x${height} | ${palette.label}`}
-                  </text>
-                  <box
-                    width="100%"
-                    flexDirection="row"
-                    justifyContent="space-between"
-                  >
-                    <text fg={palette.muted}>
-                      {terminalSafeText(
-                        view.projectPath,
-                        Math.max(8, textWidth - 23),
-                      )}
-                    </text>
-                    {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+comma also opens settings. */}
-                    <box
-                      backgroundColor={palette.raised}
-                      paddingLeft={1}
-                      paddingRight={1}
-                      onMouseUp={(event) => {
-                        if (event.button !== 0) return;
-                        openSettings("connection");
-                      }}
-                    >
-                      <text fg={palette.accent}>Настройки Ctrl+,</text>
-                    </box>
-                  </box>
-                </>
-              )}
-              {height >= 12 && (
-                <TerminalScrollbox
-                  ref={transcript}
-                  height={feedHeight}
-                  stickyScroll={
-                    !home &&
-                    expandedDiffIds.size === 0 &&
-                    !expanded &&
-                    actions.expanded.size === 0
-                  }
-                  stickyStart={home ? "top" : "bottom"}
-                  viewportCulling
-                  onMouseScroll={(event) => {
-                    const box = transcript.current;
-                    if (!box) return;
-                    if (event.scroll?.direction === "up" && box.scrollTop <= 0)
-                      shiftWindow("up");
-                    if (
-                      event.scroll?.direction === "down" &&
-                      box.scrollTop >= box.scrollHeight - box.viewport.height
-                    )
-                      shiftWindow("down");
-                  }}
-                >
-                  {controller ? (
-                    <OpenTuiTranscript
-                      onOpenSide={(id) => controller?.openSide(id)}
-                      onCardAction={(action, extensionId) => {
-                        if (controller)
-                          void (uiBinding
-                            ? uiBinding.chat(
-                                action.target,
-                                action.action,
-                                extensionId,
-                              )
-                            : dispatchCoreChat(
-                                controller,
-                                action.target,
-                                action.action,
-                              ));
-                      }}
-                      onOpenCard={(target, extensionId) => {
-                        if (controller)
-                          void (uiBinding
-                            ? uiBinding.chat(target, "open", extensionId)
-                            : dispatchCoreChat(controller, target));
-                      }}
-                      focusedSideId={focusedSideId}
-                      focusedActionId={focusedActionId}
-                      actionPresentation={actions}
-                      onActionSelect={(target) => {
-                        controller?.activateAction(target);
-                        if (focus === "editor") editor.current?.focus();
-                      }}
-                      entries={
-                        classic
-                          ? focus === "transcript"
-                            ? view.transcript
-                            : expanded
-                              ? view.transcript.filter(
-                                  (entry) => entry.id === newestDiffId,
-                                )
-                              : []
-                          : view.transcript
-                      }
-                      contentWidth={textWidth - 2}
-                      expandedId={
-                        classic && expanded ? newestDiffId : undefined
-                      }
-                      expandedIds={classic ? undefined : expandedDiffIds}
-                      onToggleDiff={
-                        classic ? () => setExpanded(false) : toggleDiff
-                      }
-                      windowEnd={classic ? undefined : windowEnd}
-                      palette={palette}
-                    />
-                  ) : (
-                    <React.Fragment>
-                      {lines.map((line) => (
-                        <text key={line.id} fg={palette.text}>
-                          {line.text}
-                        </text>
-                      ))}
-                      <text fg={palette.muted}>
-                        example.ts | +1 -1 | Ctrl+D: diff
-                      </text>
-                      {expanded && (
-                        <diff
-                          diff={PATCH}
-                          view={textWidth - 2 >= 100 ? "split" : "unified"}
-                          height={5}
-                        />
-                      )}
-                    </React.Fragment>
-                  )}
-                  {controller && view.streaming && (
-                    <FormattedMessage
-                      id="streaming-message"
-                      streaming
-                      content={view.streaming}
-                      palette={palette}
-                      width={textWidth - 2}
-                    />
-                  )}
-                  {controller && view.toolActivity && (
-                    <text fg={palette.muted}>
-                      {terminalSafeText(view.toolActivity, 2_000)}
-                    </text>
-                  )}
-                  {controller && view.compaction && (
-                    <ContextCompactionMessage
-                      text={
-                        "Сжимаю контекст...\nСохраняю задачу, решения и результаты работы"
-                      }
-                      palette={palette}
-                    />
-                  )}
-                  {controller && view.requestStartedAt !== undefined && (
-                    <OpenTuiRequestStatus
-                      controller={controller}
-                      palette={palette}
-                      width={textWidth - 2}
-                      awaitingApproval={!!approval}
-                    />
-                  )}
-                </TerminalScrollbox>
-              )}
-              {composer}
-            </box>
-          ))}
-        {showSidebar && (
-          <box
-            ref={sidebar}
-            width={contextOnly ? panelWidth : panelWidth + 1}
-            height={panelHeight}
-            position={sidebarDrawer ? "absolute" : "relative"}
-            right={sidebarDrawer ? 0 : undefined}
-            top={sidebarDrawer ? 0 : undefined}
-            flexDirection="row"
-            focusable
-          >
-            {!contextOnly && (
-              <box
-                width={1}
-                backgroundColor={
-                  sidebarFocused ? palette.accent : palette.border
-                }
-              />
-            )}
-            <SidebarPanel
-              tab={sidebarTab}
-              width={panelWidth}
-              height={panelHeight}
-              palette={palette}
-              focused={sidebarFocused}
-              owner={sidebarOwner}
-              running={activeChildren}
-              approvals={
-                (view.children ?? []).filter(
-                  (child) => child.status === "awaiting_approval",
-                ).length
-              }
-              busy={
-                view.busy ||
-                activeChildren > 0 ||
-                (view.backgroundTasks ?? []).some((task) =>
-                  backgroundActive(task.state),
-                )
-              }
-              onFocus={focusSidebar}
-              onSelect={selectSidebar}
-              onBack={backFromSidebar}
-              onHide={() => {
-                changeMode("hide");
-                backFromSidebar();
-              }}
-            >
-              {sidebarTab === "menu" ? (
-                <SidebarMenu
-                  key={controller?.conversationId}
-                  actions={menuActions}
-                  controller={controller}
-                  width={panelWidth}
-                  height={panelBodyHeight}
-                  palette={palette}
-                  focused={sidebarFocused}
-                  owner={sidebarOwner}
-                  onFocus={focusSidebar}
-                />
-              ) : controller && sidebarTab === "agents" ? (
-                <AgentsSidebar
-                  embedded
-                  controller={controller}
-                  state={view}
-                  width={panelWidth}
-                  height={panelBodyHeight}
-                  palette={palette}
-                  focused={agentsFocused}
-                  onFocus={focusSidebar}
-                  onBack={backFromSidebar}
-                  onContext={() => selectSidebar("context")}
-                  onOpen={openAgent}
-                  onStop={stopAgent}
-                />
-              ) : (
-                <ContextSidebar
-                  key={controller?.conversationId}
-                  state={view}
-                  width={panelWidth}
-                  height={panelBodyHeight}
-                  focused={sidebarFocused}
-                  palette={palette}
-                  presentation={controller?.sidebarPresentation}
-                  onAction={(item) => {
-                    if (item.snapshot.action)
-                      void uiBinding?.dispatch(
-                        item.key,
-                        item.snapshot.action,
-                        item.snapshot.revision,
-                      );
-                    else uiBinding?.refresh();
-                  }}
-                />
-              )}
-            </SidebarPanel>
-          </box>
-        )}
-      </box>
-      {settingsDialog}
-      {uiOverflow && !approval && (
-        <OpenTuiStatusOverflow
-          items={statusLayout.statuses}
-          width={width}
-          height={height}
-          palette={palette}
-          owner={`ui-status:${controller?.conversationId}:${controller?.currentGeneration}`}
-          onClose={() => setUiOverflow(false)}
-          onOpen={(item) => {
-            setUiOverflow(false);
-            if (item.snapshot.action)
-              void uiBinding?.dispatch(
-                item.key,
-                item.snapshot.action,
-                item.snapshot.revision,
-              );
-            else uiBinding?.refresh();
-          }}
-        />
-      )}
-      {extensionActive && controller && (
-        <OpenTuiExtensionDetails
-          controller={controller}
-          width={width}
-          height={height}
-          palette={palette}
-        />
-      )}
-      {backgroundPanelActive && controller && (
-        <OpenTuiBackgroundTasks
-          controller={controller}
-          view={view}
-          width={width}
-          height={height}
-          palette={palette}
-        />
-      )}
-      {backgroundActiveView && controller && (
-        <OpenTuiBackgroundDetails
-          controller={controller}
-          view={view}
-          width={width}
-          height={height}
-          palette={palette}
-          onRetry={(id) => {
-            void onSubmit?.(`/tasks retry ${id}`, controller);
-          }}
-        />
-      )}
-      {agentActive && controller && (
-        <OpenTuiAgentDetails
-          controller={controller}
-          view={view}
-          width={width}
-          height={height}
-          palette={palette}
-          onLoad={loadAgent}
-          onStop={stopAgent}
-          onApply={(id) => {
-            const origin = controller;
-            const generation = origin.currentGeneration;
-            const controls = origin.subagentControls;
-            if (!controls) return;
-            void controls.port
-              .status(id)
-              .then((child) => {
-                if (
-                  !origin.isCurrent(generation) ||
-                  origin.snapshot.agentView?.id !== id ||
-                  !child.worktree ||
-                  !child.cleanup.quiescent ||
-                  [
-                    "queued",
-                    "preparing",
-                    "running",
-                    "awaiting_approval",
-                    "cancelling",
-                  ].includes(child.status)
-                )
-                  return;
-                return onSubmit?.(
-                  `/worktree apply ${child.worktree.id}`,
-                  origin,
-                );
-              })
-              .catch((error) => {
-                if (
-                  origin.isCurrent(generation) &&
-                  origin.snapshot.agentView?.id === id
-                )
-                  origin.setAgentView({
-                    notice:
-                      error instanceof Error
-                        ? error.message
-                        : "Не удалось подготовить перенос.",
-                  });
-              });
-          }}
-        />
-      )}
-      {updateOpen && updater && !approval && (
-        <OpenTuiUpdate
-          updater={updater}
-          width={width}
-          height={height}
-          palette={palette}
-          onClose={() => {
-            setUpdateOpen(false);
-            controller?.setOverlay();
-            controller?.setFocus(focus === "editor" ? "composer" : focus);
-          }}
-        />
-      )}
-      {permissionsOpen && !approval && (
-        <OpenTuiPermissions
-          width={width}
-          height={height}
-          palette={palette}
-          mode={view.approvalMode}
-          allowBypassPermissions={bypassAllowed}
-          onClose={closePermissions}
-          onSelect={(next) => {
-            changeApprovalMode(next);
-            closePermissions();
-          }}
-          onSettings={() => {
-            setPermissionsOpen(false);
-            openSettings("permissions");
-          }}
-        />
-      )}
-      {modelsActions && !approval && (
-        <OpenTuiModels
-          actions={modelsActions}
-          width={width}
-          height={height}
-          palette={palette}
-          onClose={() => {
-            setModelsActions(undefined);
-            controller?.setOverlay();
-            controller?.setFocus(focus === "editor" ? "composer" : focus);
-          }}
-          onSettings={() => {
-            setModelsActions(undefined);
-            openSettings("connection");
-          }}
-        />
-      )}
-      {approval && (
-        <OpenTuiApproval
-          request={approval}
-          width={width}
-          height={height}
-          palette={palette}
-          onApprove={() => approvalResolver?.resolve("approved", approval)}
-          onSessionApprove={() =>
-            approvalResolver?.resolve("approved_session", approval)
-          }
-          onAlwaysApprove={() =>
-            approvalResolver?.resolve("approved_always", approval)
-          }
-          onDeny={() => approvalResolver?.resolve("denied", approval)}
-          onCancelChild={cancelApprovalChild}
-        />
-      )}
-      {mcpActions && !approval && (
-        <OpenTuiMcp
-          actions={mcpActions}
-          width={width}
-          height={height}
-          palette={palette}
-          onClose={() => {
-            setMcpActions(undefined);
-            controller?.setOverlay(
-              settingsIntegration.current ? "settings" : undefined,
-            );
-            controller?.setFocus(
-              settingsIntegration.current
-                ? "modal"
-                : focus === "editor"
-                  ? "composer"
-                  : focus,
-            );
-          }}
-        />
-      )}
-      {skillsOpen && skillsActions && !approval && (
-        <OpenTuiSkills
-          actions={skillsActions}
-          width={width}
-          height={height}
-          palette={palette}
-          onClose={closeSkills}
-          onChoose={(skill) =>
-            prepareSkill(
-              skillCommandDraft(skill.name, draft, skillsActions.load()),
-            )
-          }
-          onCreate={() =>
-            prepareSkill(
-              skillCommandDraft("skill-creator", draft, skillsActions.load()),
-            )
-          }
-          onEdit={
-            skillsActions.editSource
-              ? (skill) =>
-                  prepareSkill(
-                    skillEditDraft(
-                      skill.name,
-                      skillsActions.editSource?.(skill.name) ?? "",
-                      draft,
-                    ),
-                  )
-              : undefined
-          }
-        />
-      )}
-      {sideActive && controller && (
-        <OpenTuiSideQuery
-          controller={controller}
-          view={view}
-          width={width}
-          height={height}
-          palette={palette}
-          onStop={() => onSideCancel?.()}
-          onSubmit={(question) => {
-            void onSubmit?.(`/btw ${question}`, controller);
-          }}
-        />
-      )}
-    </box>
+    </UiCompositionProvider>
   );
 }

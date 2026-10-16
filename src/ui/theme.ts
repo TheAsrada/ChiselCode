@@ -60,6 +60,7 @@ export const TOOL_DISPLAY: Record<string, ToolDisplay> = {
   git_status: { icon: "#", label: "Git status" },
   load_skill: { icon: "#", label: "Загрузка скилла" },
   create_skill: { icon: "+", label: "Сохранение скилла" },
+  create_extension: { icon: "+", label: "Создание расширения" },
   git_commit: { icon: "#", label: "Git commit" },
   self_update: { icon: "^", label: "Обновление ChiselCode" },
 };
@@ -182,6 +183,8 @@ export function formatToolSummary(
       return `load_skill ${singleLine(input.name, 70)}`;
     case "create_skill":
       return `create_skill ${singleLine(input.name, 70)}`;
+    case "create_extension":
+      return "Создание расширения · установка выключенным";
     case "git_commit": {
       const message = typeof input.message === "string" ? input.message : "";
       return `git commit -m '${singleLine(message, 100)}'`;

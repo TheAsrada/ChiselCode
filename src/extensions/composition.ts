@@ -59,7 +59,7 @@ export async function applicationExtensions(
 ): Promise<readonly ChiselExtension[]> {
   const builtins = defaultExtensions([], options);
   if (options.externalExtensions === false) return builtins;
-  const loader = await ExternalExtensionLoader.create();
+  const loader = await ExternalExtensionLoader.create(undefined, "standard");
   return [...builtins, ...loader.definitions(builtins)];
 }
 

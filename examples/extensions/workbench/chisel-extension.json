@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "example.workbench",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "kind": "ui",
+  "entry": "index.mjs",
+  "displayName": "Мой рабочий стол",
+  "description": "Панель над вводом, собственный логотип и компактные сообщения",
+  "settings": {
+    "fields": [
+      { "name": "title", "type": "string", "label": "Название", "default": "Мой рабочий стол", "minLength": 1, "maxLength": 80 },
+      { "name": "compact", "type": "boolean", "label": "Компактные ответы", "default": true }
+    ]
+  }
+}

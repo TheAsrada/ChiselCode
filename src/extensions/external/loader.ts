@@ -9,6 +9,7 @@ import type { ChiselExtension } from "../contracts.js";
 import { abortable, frozenClone } from "../lifecycle.js";
 import { markRuntimeSnapshot } from "../packages/runtime-ownership.js";
 import { acquireVersionUse, type PackageUseLease } from "../packages/use.js";
+import { ExtensionSettingsStore } from "../settings-store.js";
 import {
   adaptDefinition,
   createHostSdk,
@@ -150,11 +151,28 @@ async function loadModule(
   signal: AbortSignal,
   lease: PackageUseLease,
 ): Promise<ChiselExtension> {
+  const uiRevision =
+    candidate.manifest.kind === "ui"
+      ? (await new ExtensionSettingsStore(candidate.manifest).read()).revision
+      : undefined;
   const key = JSON.stringify([
     record.id,
     canonicalPath(record.location),
     record.digest,
+    ...(uiRevision === undefined ? [] : [uiRevision]),
   ]);
+  if (uiRevision !== undefined) {
+    for (const [oldKey, entry] of modules) {
+      const identity = JSON.parse(oldKey) as unknown[];
+      if (
+        oldKey !== key &&
+        identity.length === 4 &&
+        identity[0] === record.id &&
+        entry.settled
+      )
+        modules.delete(oldKey);
+    }
+  }
   let pending = modules.get(key);
   if (pending?.abort.signal.aborted && !pending.started) {
     modules.delete(key);
@@ -199,6 +217,10 @@ async function loadModule(
           budget(),
         );
         const adapted = adaptDefinition(definition, candidate.manifest, sdk);
+        if (candidate.manifest.kind === "ui" && adapted.themes?.length)
+          throw new Error(
+            "Declare application themes in a standard extension.",
+          );
         loadedSettings.set(adapted, await hostSettingsRevision(sdk));
         return adapted;
       }),
@@ -253,12 +275,30 @@ export class ExternalExtensionLoader {
   static async create(
     notify: (message: string) => void = (message) =>
       process.stderr.write(message + "\n"),
+    kind?: "standard" | "ui",
+    onlyId?: string,
   ): Promise<ExternalExtensionLoader> {
     try {
-      return new ExternalExtensionLoader(
-        frozenClone(await extensionRecords()),
-        notify,
+      const records = (await extensionRecords()).filter(
+        (record) => !onlyId || record.id === onlyId,
       );
+      const selected = kind
+        ? (
+            await Promise.all(
+              records.map(async (record) => {
+                try {
+                  const candidate = await inspectPackage(record.location);
+                  return (candidate.manifest.kind ?? "standard") === kind
+                    ? record
+                    : undefined;
+                } catch {
+                  return kind === "standard" ? record : undefined;
+                }
+              }),
+            )
+          ).filter((record): record is ExtensionRecord => !!record)
+        : records;
+      return new ExternalExtensionLoader(frozenClone(selected), notify);
     } catch {
       const loader = new ExternalExtensionLoader([], notify);
       loader.notice(
@@ -407,7 +447,30 @@ export class ExternalExtensionLoader {
           themeDefinition = definition;
           themeName = candidate.manifest.displayName;
           loadedRoots.add(context.workspaceRoot);
-          await definition.activate(context);
+          if (candidate.manifest.kind === "ui") {
+            const unsupported = () => {
+              throw new Error(
+                "UI extensions may register UI, chat views, owned tools and disposables only.",
+              );
+            };
+            // Live UI has no background/service/runtime hooks to outlive its mount.
+            await definition.activate(
+              Object.freeze({
+                ...context,
+                commands: Object.freeze({ register: unsupported }),
+                services: Object.freeze({
+                  provide: unsupported,
+                  get: unsupported,
+                  lookup: unsupported,
+                }),
+                guards: Object.freeze({
+                  afterPrepare: unsupported,
+                  beforeExecute: unsupported,
+                }),
+                contextProviders: Object.freeze({ register: unsupported }),
+              }),
+            );
+          } else await definition.activate(context);
         },
       };
       setThemeSource(wrapper, () =>

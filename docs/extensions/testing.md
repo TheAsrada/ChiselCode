@@ -22,7 +22,7 @@
 | cleanup_failed | Registrations сняты; resource cleanup не подтверждён |
 | pending_restart | Сохранён enabled выбор; изменения применяются новым запуском |
 
-Standalone `chisel extensions status` пассивен и не сообщает active за другой процесс. Cached workspace metadata доступна core для дальнейшего управления; Settings → Extensions ещё не выпускается.
+Standalone `chisel extensions status` пассивен и не сообщает active за другой процесс. Cached workspace metadata доступна core для дальнейшего управления; Settings → Extensions доступен с CLI 0.6.30. UI-пакеты текущего main включаются live; [новый контракт и ограничения](ui-composition.md) относятся к Unreleased после 0.6.32.
 
 Import/factory/activation waits cooperative и bounded 10 секундами; synchronous endless callback или `process.exit` может остановить весь процесс. Не тестируйте такой код в основном test runner. Используйте отдельный процесс с конечным timeout и recovery flag. Нет CPU/RAM/OS isolation для недоверенного JS.
 

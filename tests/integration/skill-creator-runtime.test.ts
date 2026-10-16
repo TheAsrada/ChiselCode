@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-test("npm includes both bundled skills and the built module discovers them from the installed package", async () => {
+test("npm includes all bundled skills and the built module discovers them from the installed package", async () => {
   const directory = await mkdtemp(join(tmpdir(), "chisel-skills-package-"));
   try {
     const pack = Bun.spawn(
@@ -25,6 +25,8 @@ test("npm includes both bundled skills and the built module discovers them from 
     )[0]?.files.map((file) => file.path);
     expect(files).toContain("skills/bundled/skill-creator/SKILL.md");
     expect(files).toContain("skills/bundled/code-review/SKILL.md");
+    expect(files).toContain("skills/bundled/extension-creator/SKILL.md");
+    expect(files).toContain("dist/extension-sdk/ui-composition.d.ts");
     const packageRoot = join(directory, "node_modules/chiselcode");
     await mkdir(join(packageRoot, "skills"), { recursive: true });
     await cp("skills/bundled", join(packageRoot, "skills/bundled"), {
@@ -46,6 +48,7 @@ test("npm includes both bundled skills and the built module discovers them from 
       });
     expect(skills.map((skill) => skill.name).sort()).toEqual([
       "code-review",
+      "extension-creator",
       "skill-creator",
     ]);
     expect(

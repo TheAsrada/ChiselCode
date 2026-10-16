@@ -1,19 +1,20 @@
 import { backgroundActive } from "../background/contracts.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { frozenClone } from "../extensions/lifecycle.js";
-import type { UiSubscription } from "../extensions/ui.js";
 import { coreUiTarget } from "../extensions/ui-core.js";
 import {
   type UiActionUse,
   UiActionUseSchema,
   type UiDetailsPage,
   type UiOwnerSummary,
+  uiNodeInfo,
 } from "../extensions/ui-types.js";
 import type { SecretRedactor } from "../security/redaction.js";
 import { subagentActive } from "../subagents/contracts.js";
 import type { ChatCard } from "../types/chat-presentation.js";
 import type { JsonObject, ToolExecutionResult } from "../types/domain.js";
 import type { TuiController } from "./tui-controller.js";
+import { UiSubscriptions } from "./ui-subscriptions.js";
 
 export type UiToolSubmit = (
   controller: TuiController,
@@ -21,6 +22,7 @@ export type UiToolSubmit = (
   extensionId: string,
   tool: string,
   args: JsonObject,
+  toolScope?: WorkspaceExtensionScope,
 ) => Promise<ToolExecutionResult>;
 export interface ExtensionDetailsState {
   key: string;
@@ -37,7 +39,7 @@ export interface ExtensionDetailsState {
 const externalNotices = new WeakMap<TuiController, Set<string>>();
 /** Application adapter: the registry and linked code never receive a controller. */
 export class ExtensionUiBinding {
-  readonly subscription: UiSubscription;
+  readonly subscription: UiSubscriptions;
   private pending = new Set<string>();
   private serial = 0;
   private closed = false;
@@ -50,6 +52,7 @@ export class ExtensionUiBinding {
     readonly scope: WorkspaceExtensionScope,
     private submit?: UiToolSubmit,
     redactor?: SecretRedactor,
+    additionalScopes: readonly WorkspaceExtensionScope[] = [],
   ) {
     this.generation = controller.currentGeneration;
     const notices = externalNotices.get(controller) ?? new Set<string>();
@@ -114,7 +117,8 @@ export class ExtensionUiBinding {
         },
       };
     };
-    this.subscription = scope.ui.bind(
+    this.subscription = new UiSubscriptions(
+      [scope, ...additionalScopes],
       {
         conversationId: controller.conversationId,
         sessionId: controller.snapshot.sessionId,
@@ -176,7 +180,11 @@ export class ExtensionUiBinding {
             row.action ? [row.action] : [],
           ),
         ]
-      : [snapshot?.action, ...(snapshot?.rows ?? []).map((row) => row.action)];
+      : [
+          snapshot?.action,
+          ...(snapshot?.rows ?? []).map((row) => row.action),
+          ...uiNodeInfo(snapshot?.render?.content).actions,
+        ];
     if (
       !candidates.some(
         (candidate) =>
@@ -221,6 +229,7 @@ export class ExtensionUiBinding {
           extensionId,
           action.tool,
           use.args ?? {},
+          this.subscription.scopeFor(key),
         );
         if (this.live() && this.controller.snapshot.extensionView?.key === key)
           this.controller.setExtensionNotice(

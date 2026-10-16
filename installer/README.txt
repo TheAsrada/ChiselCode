@@ -4,7 +4,7 @@ ChiselCode — помощник для работы с кодом в терми�
 Что здесь лежит:
   chisel.exe       — приложение;
   icon.ico         — значок для ярлыков;
-  skills/bundled/  — встроенные навыки code-review и skill-creator;
+  skills/bundled/  — встроенные навыки code-review, skill-creator и extension-creator;
   skills/user/     — пользовательские навыки;
   LICENSE.txt      — лицензия MIT;
   Uninstall.exe    — удаление приложения.

@@ -257,3 +257,7 @@ bun tests/fixtures/command-packaging.ts
 Для установленного пакета или скомпилированного бинарника замените executable/prefix в тестовом запуске CLI. Git, файлы, EditingService и executor в этих сценариях настоящие; модель изолирована локальным endpoint. Результаты, барьеры аварийных проверок, пределы и команды получения кадров находятся в [отчёте о рабочих копиях](contributors/reports/worktrees.md).
 
 Внутренний service token предоставляет порт, привязанный к root; invocation получает identity/signal и узкие порты tools/open. Core определяет идентичность репозитория, управляемый путь, base, разрешение изменения, блокировки, реестр, prepare/execute, откат и удержанные ссылки. Подробности — [контракт сервиса](architecture.md#сервис-рабочих-копий). Дочерний runtime и делегирование описаны в [руководстве помощников](subagents.md), а внешние пакеты — в [SDK и загрузчике](extensions/README.md).
+
+## UI-композиция и создание расширений
+
+[Публичный контракт](extensions/ui-composition.md) и [архитектурное решение](architecture/ui-contributions.md#композиция-и-live-ui) относятся к Unreleased после 0.6.32. Пример `examples/extensions/workbench` не требует сборки. `bun tests/fixtures/tui-extension-creator.ts` проверяет scripted-provider → load_skill/create_extension → managed install → реальный Settings trust/live enable → UI actions/permissions → settings/disable. Это проверка runtime и поставки, не оценка качества произвольной модели. [Кадры и фактические проверки](contributors/reports/ui-composition.md).

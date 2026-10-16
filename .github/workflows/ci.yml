@@ -90,6 +90,8 @@ jobs:
           tests/unit/tool-actions.test.ts tests/integration/tool-actions-tui.test.ts
           tests/unit/subagent-storage-policy.test.ts
           tests/unit/lsp-transport.test.ts
+          tests/unit/extension-authoring.test.ts tests/unit/ui-extension-runtime.test.ts
+          tests/integration/ui-extension-tools.test.ts
       - name: Build CLI and public SDK
         run: bun run build
       - name: Installed package starts, executes tools, downloads and loads the SDK
@@ -123,6 +125,15 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
           bun build scripts/opentui-spike.tsx --compile --outfile="$binary"
           "$binary" --smoke
+      - name: Compiled live UI extension authoring and protected actions
+        shell: bash
+        run: |
+          binary=dist/chisel-ui-creator
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          mkdir -p dist/skills
+          cp -R skills/bundled dist/skills/
+          bun build tests/fixtures/tui-extension-creator.ts --compile --outfile="$binary"
+          "$binary"
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.os }}

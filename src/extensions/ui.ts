@@ -11,6 +11,7 @@ import {
 import { coreUiTarget } from "./ui-core.js";
 import {
   type OwnedUiContribution,
+  UI_SURFACES,
   type UiAction,
   type UiActionUse,
   type UiBinding,
@@ -21,12 +22,18 @@ import {
   UiIdSchema,
   type UiSnapshot,
   UiSnapshotSchema,
+  uiNodeInfo,
 } from "./ui-types.js";
 
 const metadata = z
   .object({
     id: UiIdSchema,
-    slot: z.enum(["status", "context_section", "menu_entry"]),
+    slot: z.enum(["status", "context_section", "menu_entry", "render"]),
+    surfaces: z
+      .array(z.enum(UI_SURFACES))
+      .min(1)
+      .max(UI_SURFACES.length)
+      .optional(),
     scope: z.enum(["workspace", "conversation"]),
     title: z.string().min(1).max(120),
     description: z.string().max(2000).optional(),
@@ -34,7 +41,11 @@ const metadata = z
     shortcut: z.string().max(40).optional(),
     order: z.number().int().min(0).max(100).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => (value.slot === "render" ? !!value.surfaces : !value.surfaces),
+    "Only render contributions declare surfaces.",
+  );
 const viewMetadata = z
   .object({
     id: UiIdSchema,
@@ -481,17 +492,27 @@ export class UiSubscription implements Disposable {
       });
       let snapshot: UiSnapshot;
       try {
-        snapshot = sanitizeUi(
-          UiSnapshotSchema,
-          await abortable(() => entry.source.snapshot(binding), binding.signal),
-          this.redactor,
+        const raw = await abortable(
+          () => entry.source.snapshot(binding),
+          binding.signal,
         );
+        uiNodeInfo(raw.render?.content);
+        snapshot = sanitizeUi(UiSnapshotSchema, raw, this.redactor);
+        if (snapshot.render && entry.descriptor.slot !== "render")
+          throw new Error("Render patch in a non-render contribution.");
+        if (
+          snapshot.render &&
+          snapshot.render.mode !== "replace" &&
+          uiNodeInfo(snapshot.render.content).native
+        )
+          throw new Error("Only replace can embed native content.");
       } finally {
         clearTimeout(timer);
       }
       for (const use of [
         snapshot.action,
         ...(snapshot.rows ?? []).map((row) => row.action),
+        ...uiNodeInfo(snapshot.render?.content).actions,
       ])
         if (use && !entry.actions.some((action) => action.id === use.id))
           throw new Error("Unknown UI source action.");
@@ -503,6 +524,14 @@ export class UiSubscription implements Disposable {
           snapshot.revision <= previousRevision)
       )
         return;
+      const cacheBytes = [...this.cache].reduce(
+        (bytes, [id, item]) =>
+          bytes +
+          (id === key ? 0 : Buffer.byteLength(JSON.stringify(item.snapshot))),
+        Buffer.byteLength(JSON.stringify(snapshot)),
+      );
+      if (cacheBytes > 256 * 1024)
+        throw new Error("UI snapshot cache limit exceeded.");
       this.revisions.set(key, snapshot.revision);
       this.cache.set(
         key,

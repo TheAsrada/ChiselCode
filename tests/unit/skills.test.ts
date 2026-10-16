@@ -390,13 +390,14 @@ describe("SKILL.md files", () => {
     });
     expect(bundled.map((s) => s.name).sort()).toEqual([
       "code-review",
+      "extension-creator",
       "skill-creator",
     ]);
     expect(
       invocableSkills(bundled)
         .map((s) => s.name)
         .sort(),
-    ).toEqual(["code-review", "skill-creator"]);
+    ).toEqual(["code-review", "extension-creator", "skill-creator"]);
     const catalog = skillsCatalogPrompt(bundled);
     expect(catalog).toContain("<name>code-review</name>");
     expect(catalog).toContain("<name>skill-creator</name>");

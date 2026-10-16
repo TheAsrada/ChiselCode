@@ -7,6 +7,7 @@ import type {
   WorkspaceExtensionScope,
 } from "../extensions/host.js";
 import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
+import type { UiExtensionRuntime } from "../extensions/ui-runtime.js";
 import { invocableSkills, loadSkills, type Skill } from "../skills/skills.js";
 
 export interface WorkspaceCommandSnapshot {
@@ -16,6 +17,11 @@ export interface WorkspaceCommandSnapshot {
   readonly error?: string;
 }
 export interface WorkspaceCommandsPort {
+  subscribeUi?(changed: () => void): () => void;
+  uiScopes?(
+    root: string,
+    signal?: AbortSignal,
+  ): Promise<readonly WorkspaceExtensionScope[]>;
   load(root: string, signal?: AbortSignal): Promise<WorkspaceCommandSnapshot>;
   /** UI binding may activate a known scope, but never enumerate project skills. */
   uiScope?(
@@ -30,7 +36,20 @@ export class WorkspaceCommands implements WorkspaceCommandsPort {
   constructor(
     private readonly host: ExtensionHost,
     private readonly signal?: AbortSignal,
+    private readonly uiRuntime?: UiExtensionRuntime,
   ) {}
+  subscribeUi(changed: () => void) {
+    return this.uiRuntime?.subscribe(changed) ?? (() => {});
+  }
+  async uiScopes(root: string, signal?: AbortSignal) {
+    const core = await this.uiScope(root, signal);
+    if (!core) return [];
+    const ui = await abortable(
+      () => this.uiRuntime?.open(root, signal),
+      signal,
+    ).catch(() => []);
+    return ui ? [core, ...ui] : [core];
+  }
   async uiScope(
     root: string,
     operation?: AbortSignal,

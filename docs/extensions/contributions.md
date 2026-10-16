@@ -10,7 +10,7 @@ Activation context содержит workspaceRoot, lifetime signal, registration
 
 `ctx.chat.register({id,render})` регистрирует formatter и возвращает `void`. Safe summary/cards возвращает callback `render`, а не вызов регистрации. Tool/command `chat: {title, view}` выбирает formatter. Formatter получает frozen data, не изменяет выполненный результат; ошибка даёт существующий fallback. `extension_view` ведёт к owned named view. Не сериализуйте callback, token или path как authority в Session.
 
-`ctx.ui.register` поддерживает `status`, `context_section`, `menu_entry`; `registerView` — summary/key/value/paginated list. Slot scope — workspace или conversation. Core контролирует Palette, размеры, фокус и keyboard/mouse. External actions — открыть own view или вызвать own registered tool. Private core navigation constructors, JSX/renderables и raw input handlers отсутствуют.
+`ctx.ui.register` поддерживает `status`, `context_section`, `menu_entry` и `render` для [композиции интерфейса](ui-composition.md); `registerView` — summary/key/value/paginated list. Slot scope — workspace или conversation. Core контролирует Palette, размеры, фокус и keyboard/mouse. External actions — открыть own view или вызвать own registered tool. Private core navigation constructors, JSX/renderables и raw input handlers отсутствуют.
 
 Точные DTO/scoping/limits совпадают с [контрактом UI](../architecture/ui-contributions.md): 12 contributions и 8 views на extension, 64 KiB snapshot, 8 preview rows, page до 100 и mount до 64 rows, cache до 256 KiB, readonly provider timeout 2 секунды, coalescing до 10 publications/second. Для данных до Session используйте empty/unknown; UI не создаёт Session или model request.
 

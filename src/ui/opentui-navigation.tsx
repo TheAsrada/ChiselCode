@@ -8,6 +8,7 @@ import {
   LOGO_WIDTH,
   renderLogoRows,
 } from "./logo.js";
+import { UiSurface } from "./opentui-composition.js";
 import { useTerminalDecoration } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
@@ -240,32 +241,34 @@ export function OpenTuiHome({
         flexDirection="column"
         alignItems="center"
       >
-        {fullLogo ? (
-          <box
-            id="welcome-logo"
-            width={logoWidth}
-            height={5}
-            flexShrink={0}
-            flexDirection="column"
-          >
-            {logoRows.map((row) => (
-              <text key={row} height={1} selectable={false}>
-                <span fg={palette.accent}>{row.slice(0, 15)}</span>
-                <span fg={palette.text}>{row.slice(15)}</span>
-              </text>
-            ))}
-          </box>
-        ) : (
-          <text
-            id="welcome-logo"
-            fg={palette.text}
-            height={1}
-            selectable={false}
-          >
-            <span fg={palette.accent}>{"<i> "}</span>
-            <strong>ChiselCode</strong>
-          </text>
-        )}
+        <UiSurface name="HomeLogo">
+          {fullLogo ? (
+            <box
+              id="welcome-logo"
+              width={logoWidth}
+              height={5}
+              flexShrink={0}
+              flexDirection="column"
+            >
+              {logoRows.map((row) => (
+                <text key={row} height={1} selectable={false}>
+                  <span fg={palette.accent}>{row.slice(0, 15)}</span>
+                  <span fg={palette.text}>{row.slice(15)}</span>
+                </text>
+              ))}
+            </box>
+          ) : (
+            <text
+              id="welcome-logo"
+              fg={palette.text}
+              height={1}
+              selectable={false}
+            >
+              <span fg={palette.accent}>{"<i> "}</span>
+              <strong>ChiselCode</strong>
+            </text>
+          )}
+        </UiSurface>
         <box height={height >= 12 ? 1 : 0} flexShrink={0} />
         {children}
         {updateNotice && (
@@ -291,20 +294,22 @@ export function OpenTuiHome({
       </box>
       <box flexGrow={1.3} minHeight={0} />
       {height >= 10 && (
-        <box
-          height={1}
-          width="100%"
-          flexShrink={0}
-          flexDirection="row"
-          justifyContent="space-between"
-        >
-          <text fg={palette.muted} height={1}>
-            {terminalLine(projectPath, Math.max(1, width - 22))}
-          </text>
-          <text fg={palette.muted} height={1}>
-            ChiselCode {VERSION}
-          </text>
-        </box>
+        <UiSurface name="HomeHints" values={{ path: projectPath }}>
+          <box
+            height={1}
+            width="100%"
+            flexShrink={0}
+            flexDirection="row"
+            justifyContent="space-between"
+          >
+            <text fg={palette.muted} height={1}>
+              {terminalLine(projectPath, Math.max(1, width - 22))}
+            </text>
+            <text fg={palette.muted} height={1}>
+              ChiselCode {VERSION}
+            </text>
+          </box>
+        </UiSurface>
       )}
     </box>
   );

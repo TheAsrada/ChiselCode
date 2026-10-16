@@ -46,6 +46,8 @@ export async function createSessionToolRuntime(input: {
     controls: import("../background/binding.js").BackgroundControls,
   ) => void;
   subagentTools?: import("../subagents/service.js").SubagentToolBinding;
+  /** An attested UI-owned handler, added to a normal core-scoped execution only. */
+  uiTool?: import("../tools/types.js").ToolHandler;
 }) {
   const {
     root,
@@ -221,6 +223,7 @@ export async function createSessionToolRuntime(input: {
     await tools.catalog.addProvider(web);
     mcpBinding = mcp ? new McpRuntimeBinding(mcp, tools.catalog) : undefined;
     extensionBinding = await attachExtensionTools(scope, tools.catalog);
+    if (input.uiTool) tools.catalog.register(input.uiTool);
     input.childPolicy?.seal(tools.catalog.handlersSnapshot());
     return {
       ...tools,

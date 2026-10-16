@@ -29,6 +29,7 @@ export const ExtensionManifestSchema = z
     id: ExternalIdSchema,
     version,
     apiVersion: z.literal(1),
+    kind: z.enum(["standard", "ui"]).optional(),
     entry: z
       .string()
       .min(1)

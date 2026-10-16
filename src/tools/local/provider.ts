@@ -1,6 +1,7 @@
 import type { Skill } from "../../skills/skills.js";
 import { editingHandlers } from "../editing/handlers.js";
 import type { ToolProvider } from "../types.js";
+import { createExtensionHandler } from "./extensions.js";
 import { fileHandlers } from "./files.js";
 import { gitHandlers } from "./git.js";
 import { shellHandler } from "./shell.js";
@@ -11,6 +12,7 @@ export class LocalToolProvider implements ToolProvider {
     ...editingHandlers(),
     shellHandler(),
     ...gitHandlers(),
+    createExtensionHandler(),
   ];
   async listTools() {
     return this.handlers.map((handler) => handler.spec);

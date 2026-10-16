@@ -6,6 +6,7 @@ import {
   type ApprovalMode,
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
+import { UiSurface } from "./opentui-composition.js";
 import { useTerminalDecoration } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import { ENTER_KEY } from "./theme.js";
@@ -91,88 +92,90 @@ export function OpenTuiPrompt({
       flexDirection="column"
     >
       {children}
-      <box
-        height={1}
-        width="100%"
-        flexShrink={0}
-        flexDirection="row"
-        justifyContent="space-between"
-      >
-        <box flexDirection="row" height={1} flexGrow={1} minWidth={0} gap={1}>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+Tab also switches modes. */}
-          <box
-            id="prompt-agent-mode"
-            height={1}
-            flexShrink={0}
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={palette.raised}
-            onMouseUp={(event) => {
-              if (event.button !== 0) return;
-              event.stopPropagation();
-              onToggleMode();
-            }}
-          >
-            <text fg={modeColor} height={1} selectable={false}>
-              <strong>{AGENT_MODE_LABELS[agentMode]}</strong>
-            </text>
+      <UiSurface name="PromptControls">
+        <box
+          height={1}
+          width="100%"
+          flexShrink={0}
+          flexDirection="row"
+          justifyContent="space-between"
+        >
+          <box flexDirection="row" height={1} flexGrow={1} minWidth={0} gap={1}>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Shift+Tab also switches modes. */}
+            <box
+              id="prompt-agent-mode"
+              height={1}
+              flexShrink={0}
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={palette.raised}
+              onMouseUp={(event) => {
+                if (event.button !== 0) return;
+                event.stopPropagation();
+                onToggleMode();
+              }}
+            >
+              <text fg={modeColor} height={1} selectable={false}>
+                <strong>{AGENT_MODE_LABELS[agentMode]}</strong>
+              </text>
+            </box>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: /permissions opens the picker and F4 cycles modes. */}
+            <box
+              id="prompt-permissions"
+              height={1}
+              flexShrink={0}
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={palette.raised}
+              onMouseUp={(event) => {
+                if (event.button !== 0) return;
+                event.stopPropagation();
+                onPermissionsSelect();
+              }}
+            >
+              <text
+                height={1}
+                selectable={false}
+                fg={
+                  approvalMode === "bypassPermissions"
+                    ? palette.red
+                    : approvalMode === "acceptEdits"
+                      ? palette.yellow
+                      : palette.text
+                }
+              >
+                {width < 45 && approvalMode === "acceptEdits"
+                  ? "Edits"
+                  : width < 45 && approvalMode === "dontAsk"
+                    ? "Allowed"
+                    : APPROVAL_MODE_LABELS[approvalMode]}{" "}
+                v
+              </text>
+            </box>
           </box>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: /permissions opens the picker and F4 cycles modes. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: Enter also submits the message. */}
           <box
-            id="prompt-permissions"
-            height={1}
+            id="prompt-send"
             flexShrink={0}
             paddingLeft={1}
             paddingRight={1}
-            backgroundColor={palette.raised}
+            backgroundColor={hasDraft ? palette.raised : palette.surface}
             onMouseUp={(event) => {
               if (event.button !== 0) return;
               event.stopPropagation();
-              onPermissionsSelect();
+              if (hasDraft) onSubmit();
             }}
           >
             <text
+              fg={hasDraft ? palette.accent : palette.muted}
               height={1}
               selectable={false}
-              fg={
-                approvalMode === "bypassPermissions"
-                  ? palette.red
-                  : approvalMode === "acceptEdits"
-                    ? palette.yellow
-                    : palette.text
-              }
             >
-              {width < 45 && approvalMode === "acceptEdits"
-                ? "Edits"
-                : width < 45 && approvalMode === "dontAsk"
-                  ? "Allowed"
-                  : APPROVAL_MODE_LABELS[approvalMode]}{" "}
-              v
+              {width >= 60 ? `Отправить | ${ENTER_KEY}` : ENTER_KEY}
             </text>
           </box>
         </box>
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: Enter also submits the message. */}
-        <box
-          id="prompt-send"
-          flexShrink={0}
-          paddingLeft={1}
-          paddingRight={1}
-          backgroundColor={hasDraft ? palette.raised : palette.surface}
-          onMouseUp={(event) => {
-            if (event.button !== 0) return;
-            event.stopPropagation();
-            if (hasDraft) onSubmit();
-          }}
-        >
-          <text
-            fg={hasDraft ? palette.accent : palette.muted}
-            height={1}
-            selectable={false}
-          >
-            {width >= 60 ? `Отправить | ${ENTER_KEY}` : ENTER_KEY}
-          </text>
-        </box>
-      </box>
+      </UiSurface>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: /model also opens the model picker. */}
       <text
         id="prompt-model"

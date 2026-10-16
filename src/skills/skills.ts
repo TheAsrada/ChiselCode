@@ -81,6 +81,7 @@ const SKILL_FILENAME = "SKILL.md";
 export const RESERVED_BUNDLED_SKILL_NAMES = new Set([
   "skill-creator",
   "code-review",
+  "extension-creator",
 ]);
 
 const BUILT_IN_NAMES = new Set(SLASH_COMMANDS.map((c) => c.name.slice(1)));

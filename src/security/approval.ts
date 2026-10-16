@@ -12,6 +12,7 @@ const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "run_shell",
   "git_commit",
   "create_skill",
+  "create_extension",
   "apply_patch",
 ]);
 
@@ -135,7 +136,8 @@ export class ApprovalGate {
         ? "process"
         : request.tool === "git_commit"
           ? "git_write"
-          : request.tool === "create_skill"
+          : request.tool === "create_skill" ||
+              request.tool === "create_extension"
             ? "external"
             : MUTATING_TOOLS.has(request.tool)
               ? "workspace_write"
