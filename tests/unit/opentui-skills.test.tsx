@@ -23,7 +23,6 @@ const creator: Skill = {
   ...review,
   name: "skill-creator",
   description: "Создать или улучшить навык",
-  disableModelInvocation: true,
 };
 
 function actions(skills: Skill[] = [review, creator]) {
@@ -397,7 +396,7 @@ test("mouse selection and the primary button choose exactly once without pinning
       await setup.mockMouse.click(row.x, row.y);
     });
     await frame(setup);
-    expect(setup.captureCharFrame()).toContain("Вручную");
+    expect(setup.captureCharFrame()).toContain("Автовыбор");
     expect(chosen).toEqual([]);
     const button = position(setup, "Применить к задаче");
     await act(async () => {
@@ -433,7 +432,7 @@ for (const [width, height] of [
         setup.resize(100, 30);
       });
       await frame(setup);
-      expect(setup.captureCharFrame()).toContain("Вручную");
+      expect(setup.captureCharFrame()).toContain("Автовыбор");
       await press(setup, "RETURN");
       chosen = setup.renderer.currentFocusedEditor?.plainText ?? "";
       expect(chosen).toBe("/skill-creator ");

@@ -15,6 +15,7 @@
     "dist/extension-sdk/*.d.ts",
     "dist/desktop-sdk/**/*.js",
     "dist/desktop-sdk/**/*.d.ts",
+    "skills/bundled/*/SKILL.md",
     "README.md",
     "LICENSE"
   ],

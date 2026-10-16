@@ -13,7 +13,7 @@ import { execa } from "execa";
 import { userSkillsDir } from "../../src/paths/home.js";
 import type { ApprovalRequest } from "../../src/security/approval.js";
 import { ApprovalGate } from "../../src/security/approval.js";
-import type { Skill } from "../../src/skills/skills.js";
+import { loadSkills, type Skill } from "../../src/skills/skills.js";
 import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
 import type { ProjectConfig, Session } from "../../src/types/domain.js";
@@ -73,6 +73,28 @@ afterEach(async () => {
 });
 
 describe("ToolRegistry", () => {
+  test("the shipped skill-creator loads automatically without weakening manual-only skill restrictions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-creator-tool-"));
+    paths.push(root);
+    const skills = loadSkills(root, {
+      homeDir: join(root, "home"),
+      bundledSourceDir: join(import.meta.dir, "../../skills/bundled"),
+      legacyDirs: [],
+    });
+    const creator = skills.find((skill) => skill.name === "skill-creator");
+    if (!creator) throw new Error("Bundled creator is missing");
+    const result = await registry(root, true, skills).execute("load_skill", {
+      name: creator.name,
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.output).toBe(creator.instructions);
+    expect(result.details?.skill).toEqual({
+      name: creator.name,
+      description: creator.description,
+      source: "bundled",
+    });
+  });
+
   test("load_skill uses only the registered snapshot and rejects manual-only names and paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-skills-tool-"));
     paths.push(root);

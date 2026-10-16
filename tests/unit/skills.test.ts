@@ -380,7 +380,7 @@ describe("SKILL.md files", () => {
     expect(catalog).not.toContain("Ревью</description>");
   });
 
-  test("bundled skills expose review to the model and creator only to manual slash", async () => {
+  test("bundled review and creator are available to both model and manual slash", async () => {
     const root = join(import.meta.dir, "..", "..");
     const temporary = await mkdtemp(join(tmpdir(), "chiselcode-bundled-"));
     const bundled = loadSkills(root, {
@@ -399,7 +399,7 @@ describe("SKILL.md files", () => {
     ).toEqual(["code-review", "skill-creator"]);
     const catalog = skillsCatalogPrompt(bundled);
     expect(catalog).toContain("<name>code-review</name>");
-    expect(catalog).not.toContain("skill-creator");
+    expect(catalog).toContain("<name>skill-creator</name>");
     expect(catalog).not.toContain(bundled[0]?.instructions ?? "impossible");
     await rm(temporary, { recursive: true, force: true });
   });

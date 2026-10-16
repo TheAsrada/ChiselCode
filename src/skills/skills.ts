@@ -93,7 +93,11 @@ function bundledSourceDir(): string {
     return join(dirname(process.execPath), "skills", "bundled");
   try {
     const here = dirname(fileURLToPath(import.meta.url));
-    return join(here, "..", "..", "skills", "bundled");
+    // Bundled JS lives in package/dist; source modules live in src/skills.
+    const packaged = join(here, "..", "skills", "bundled");
+    return existsSync(packaged)
+      ? packaged
+      : join(here, "..", "..", "skills", "bundled");
   } catch {
     return "";
   }

@@ -1,82 +1,87 @@
 ---
 name: skill-creator
 description: >
-  Создание и улучшение Agent Skills для ChiselCode. Используется вручную,
-  когда пользователь хочет создать новый skill, переработать существующий
-  skill или настроить его правила срабатывания.
-disable-model-invocation: true
+  Create and improve Agent Skills for ChiselCode. Use when the user wants to
+  create a skill, turn a workflow into reusable instructions, revise an existing
+  skill, or improve its triggering rules, even without an explicit slash command.
 ---
 
 # Skill Creator
 
-Скилл для создания новых скиллов ChiselCode и итеративного улучшения
-существующих.
+Create new ChiselCode skills and iteratively improve existing ones.
 
-Общий процесс такой:
+The overall process is:
 
-- Пойми, что должен делать скилл и примерно как.
-- Напиши черновик скилла.
-- Придумай 2–3 тестовых промпта и выполни их сам, следуя скиллу.
-- Вместе с пользователем оцени результаты и доработай скилл.
-- Повторяй, пока не станет хорошо.
-- В конце улучши `description` для точного срабатывания.
+- Understand what the skill should do and how it should work.
+- Write a draft.
+- Develop two or three realistic test prompts and try them yourself.
+- Review the results with the user and refine the skill.
+- Repeat as needed, then improve the `description` for accurate triggering.
 
-Твоя задача — понять, на каком этапе пользователь, и помочь продвинуться
-дальше. Например, «хочу скилл для X»: помоги сузить задачу, напиши черновик,
-придумай тесты, прогони, разбери результаты. А если черновик уже есть —
-сразу переходи к проверке и итерациям.
+Identify the user's current stage and help them move forward. For "I want a
+skill for X", clarify the task, draft the skill, and evaluate it. If a draft
+already exists, move directly to evaluation and iteration. Be flexible: if the
+user asks you to skip tests and just create the skill, follow that preference.
 
-Будь гибким: если пользователь говорит «не надо тестов, просто сделай» —
-делай без тестов.
+## Language and communication
 
-## Как общаться
+These authoring instructions are written in English; that does not determine
+what language the generated skill should use.
 
-По умолчанию общайся по-русски, просто и по делу. Следи за контекстом:
-если пользователь явно разбирается в теме — можно жаргон
-(«ассёршены», «бенчмарк»), если нет — объясни термин одной фразой,
-прежде чем использовать.
+- Use the user's language from the current conversation for explanations and
+  newly created skills. An explicit request for another output language takes
+  precedence. If the conversation is in Russian, create the skill in Russian;
+  if it is in English, create it in English. Apply the same rule to other
+  languages. Ask only if the intended language is genuinely ambiguous.
+- Write the generated skill's `description`, Markdown instructions, explanations,
+  examples, and human-facing reference material in that language. Do not copy
+  English prose from these instructions or templates merely because it is here.
+- Keep `name` and the folder name as a valid lowercase Latin slug. Preserve YAML
+  field names, tool names, API identifiers, commands, paths, and the argument
+  placeholder.
+  Language selection does not change the skill format.
+- When updating an existing skill, preserve its language unless the user asks
+  for a translation or another language.
 
-## Создание скилла
+Communicate plainly and directly. Adapt terminology to the user's experience:
+use technical terms when they are familiar, otherwise explain them briefly.
 
-### Выясни намерение
+## Creating a skill
 
-В текущем разговоре уже может быть процесс, который надо оформить
-(«сделай из этого скилл»). Тогда сначала извлеки ответы из истории:
-какие инструменты использовались, порядок шагов, поправки пользователя,
-форматы входа/выхода. Пробелы закрой вопросами, дальше иди только после
-подтверждения пользователя.
+### Understand the intent
 
-1. Что скилл должен позволить агенту делать?
-2. Когда скилл должен срабатывать (какие фразы и контексты пользователя)?
-3. Какой формат результата ожидается?
-4. Нужны ли тестовые примеры? Скиллам с объективно проверяемым выходом
-   (трансформация файлов, извлечение данных, генерация кода,
-   фиксированные шаги) тесты полезны. Скиллам со вкусовым выходом
-   (стиль текста, дизайн) — обычно нет. Предложи подходящий вариант,
-   решать пользователю.
+The conversation may already contain a workflow to capture, such as "turn this
+into a skill". Extract the tools, step order, user corrections, and input/output
+formats from that history before asking questions. Clarify material gaps that
+cannot be inferred; proceed when the task is clear.
 
-### Расспроси и изучи
+1. What should the skill enable the agent to do?
+2. When should it trigger: which requests and contexts?
+3. What output format is expected?
+4. Would test cases help? Objectively checkable outputs, such as file
+   transformations, extraction, code generation, or fixed procedures, benefit
+   from tests. Subjective outputs, such as writing style or design, may need
+   qualitative review instead. Recommend an approach and respect the user's
+   testing preference.
 
-Проактивно спрашивай про краевые случаи, форматы входа/выхода, примеры
-файлов, критерии успеха, зависимости. Тестовые промпты пиши только когда
-это утрясено.
+### Research and clarify
 
-Изучи контекст доступными инструментами: похожие навыки из каталога,
-которые можно открыть через `load_skill`, референсы и лучшие практики. Приходи к пользователю
-подготовленным, чтобы меньше его дёргать.
+Consider edge cases, input/output formats, sample files, success criteria, and
+requirements before writing test prompts. Inspect relevant context using the
+available tools: similar advertised skills through `load_skill`, references,
+and established practices. Research first so the user has fewer gaps to fill.
 
 ## Skill destination
 
-Создаваемые этим навыком skills являются пользовательскими. Новые и
-изменяемые пользовательские навыки размещай только в директории,
-которую ChiselCode определяет через `userSkillsDir()`:
+Skills created by this workflow are user skills. Create and update them only
+in the directory ChiselCode determines through `userSkillsDir()`:
 
 ```text
 <ChiselCode Home>/skills/user/<skill-name>/
 ```
 
-При обычной установке Windows ChiselCode Home —
-`%LOCALAPPDATA%\ChiselCode`, поэтому структура выглядит так:
+For a standard Windows installation, ChiselCode Home is
+`%LOCALAPPDATA%\ChiselCode`, giving this layout:
 
 ```text
 %LOCALAPPDATA%\ChiselCode\
@@ -89,226 +94,210 @@ disable-model-invocation: true
             └── SKILL.md
 ```
 
-Например, `release-helper` сохраняется в
-`<ChiselCode Home>/skills/user/release-helper/SKILL.md`; его
-`references/`, `scripts/` и `assets/` остаются в той же папке навыка.
+For example, save `release-helper` as
+`<ChiselCode Home>/skills/user/release-helper/SKILL.md`. Its `references/`,
+`scripts/`, and `assets/` belong in the same skill directory.
 
-Используй инструмент `create_skill({name, files})` для нового навыка и
-`create_skill({name, files, mode: "update"})` для изменения существующего
-пользовательского навыка. Передавай `SKILL.md` и нужные вспомогательные
-файлы относительными ключами `files`. ChiselCode сам вызывает
-`userSkillsDir()` и строит пути; не вычисляй ChiselCode Home из текущей
-папки и не записывай навыки обычным `write_file` по абсолютному пути.
+Use `create_skill({name, files})` to create a skill and
+`create_skill({name, files, mode: "update"})` to update an existing user skill.
+Supply `SKILL.md` and supporting files as relative keys in `files`. ChiselCode
+calls `userSkillsDir()` and constructs the destination itself. Do not infer
+ChiselCode Home from the current project or use ordinary `write_file` with an
+absolute path to save a skill.
 
-`skills/bundled` управляется приложением. Не создавай там навыки и не
-перезаписывай встроенные. При конфликте имени с зарезервированным
-встроенным навыком остановись и попроси другое имя. Не создавай навыки
-в текущем проекте: проектные каталоги больше не являются источниками
-навыков ChiselCode.
+`skills/bundled` is managed by the application. Do not create skills there or
+replace bundled skills. If a name conflicts with a reserved bundled skill,
+ask for a different name. Do not create skills in the current project: project
+directories are no longer ChiselCode skill sources.
 
-Имя папки — это имя скилла (`deploy`). Встроенные команды (`/settings`,
-`/model`, `/skills`…) перекрыть нельзя. Если скилл не должен вызываться
-как команда, а только быть доступным модели, — добавь во frontmatter
-`user-invocable: false`. Если скилл доступен пользователю вручную, но
-модель не должна выбирать его автоматически, добавь
-`disable-model-invocation: true`. Это независимые настройки. Для ручного
-скилла не добавляй `user-invocable: false`.
+The folder name is the skill name, such as `deploy`. Built-in commands such as
+`/settings`, `/model`, and `/skills` cannot be overridden. If a skill should be
+available only to the model, add `user-invocable: false` to its frontmatter. If
+it should be available only through manual invocation, add
+`disable-model-invocation: true`. These settings are independent. Omit both
+fields when both model selection and the manual command should be available.
 
-## Формат SKILL.md
+## SKILL.md format
 
-Файл начинается с YAML-frontmatter между `---`, дальше markdown-инструкции:
+Start with YAML frontmatter between `---` markers, followed by Markdown
+instructions. This example is in English; localize its prose to the user's
+language when creating a skill:
 
 ```markdown
 ---
 name: deploy
 description: >
-  Деплой сервиса одной командой. Используй, когда просят задеплоить,
-  выкатить релиз или обновить staging.
+  Deploy a service. Use when the user asks to deploy, release a version,
+  or update staging.
 ---
 
 # Deploy
 
-1. Проверь `git status`: дерево должно быть чистым.
-2. Собери проект: ...
-3. Задеплой: ...
+1. Check `git status`: the working tree should be clean.
+2. Build the project: ...
+3. Deploy: ...
 ```
 
-Требования к полям:
+Field requirements:
 
-- `name`: латиница в нижнем регистре, цифры, дефис; без висячих
-  и двойных дефисов; максимум 64 символа; совпадает с именем папки.
-- `description`: что делает скилл И когда срабатывать. Это главный
-  триггер: агент читает описания всех скиллов и сам решает, какой
-  открыть. Вся «когда использовать»-информация — здесь, а не в теле.
-  Учти: агент склонен НЕДОиспользовать скиллы — не открывать их там,
-  где они полезны. Поэтому описание делай чуть «настойчивым»: вместо
-  «Как собрать простой дашборд для внутренних метрик» пиши «Как собрать
-  простой дашборд для внутренних метрик. Используй этот скилл, когда
-  пользователь упоминает дашборды, визуализацию, внутренние метрики
-  или хочет показать любые данные компании, даже если слово
-  «дашборд» не прозвучало». Максимум 1024 символа.
-- `user-invocable: false` скрывает `/имя`, но оставляет автоматическую
-  загрузку модели. `disable-model-invocation: true` скрывает скилл от модели,
-  но сохраняет ручную команду `/имя`. При отсутствии обоих полей доступны
-  оба способа. `load_skill` загружает только видимые модели скиллы.
-- Необязательные: `license`, `compatibility` (что нужно: сеть, пакеты),
-  `metadata` (словарь строк), `allowed-tools` (через пробел,
-  experimental).
+- `name`: lowercase Latin letters, digits, and hyphens; no leading, trailing,
+  or consecutive hyphens; at most 64 characters; matches the folder name.
+- `description`: explain what the skill does and when to use it. This is the
+  main trigger: the agent reads available names and descriptions to decide
+  which skill to open. Put triggering information here, rather than burying
+  it in the body. Be specific enough to avoid underuse. Instead of "Build a
+  dashboard", describe the relevant requests: dashboards, visualization,
+  internal metrics, or presenting company data, even if the user does not say
+  "dashboard". Keep the description within 1024 characters.
+- `user-invocable: false` hides `/name` while retaining model loading.
+  `disable-model-invocation: true` hides the skill from the model while
+  retaining `/name`. Without either field, both paths are available.
+  `load_skill` loads only skills visible to the model.
+- Optional fields: `license`, `compatibility` for requirements such as network
+  access or packages, `metadata` as a string dictionary, and experimental
+  space-separated `allowed-tools`.
 
-## Анатомия скилла
+## Skill anatomy
 
 ```text
 skill-name/
-├── SKILL.md (обязателен)
-│   ├── YAML frontmatter (name, description обязательны)
-│   └── Markdown-инструкции
-└── Ресурсы (необязательны)
-    ├── scripts/    - исполняемый код для детерминированных задач
-    ├── references/ - доки, подгружаемые по мере нужды
-    └── assets/     - файлы для результата (шаблоны, иконки, шрифты)
+├── SKILL.md (required)
+│   ├── YAML frontmatter (name and description required)
+│   └── Markdown instructions
+└── Optional resources
+    ├── scripts/    - executable code for deterministic tasks
+    ├── references/ - documentation loaded as needed
+    └── assets/     - output templates, icons, fonts, and similar files
 ```
 
-### Прогрессивное раскрытие
+### Progressive disclosure
 
-Три уровня загрузки:
+There are three levels of context:
 
-1. **Метаданные** (имя + описание) — всегда в контексте, ~100 слов.
-   По ним агент решает, открывать ли скилл.
-2. **Тело SKILL.md** — загружается через `load_skill` по имени, когда
-   скилл сработал. Держи его
-   короче 500 строк.
-3. **Ресурсы** — по мере нужды. Личные файлы вне корня проекта нельзя
-   читать обычным `read_file`; пока нет отдельного безопасного загрузчика,
-   держи обязательные инструкции в самом SKILL.md.
+1. **Metadata**: names and descriptions in the model's catalog, roughly
+   100 words per skill, used to decide which instructions to load.
+2. **SKILL.md body**: loaded by name through `load_skill` when relevant.
+   Keep it under 500 lines.
+3. **Resources**: supporting materials used as needed. Ordinary `read_file`
+   cannot read personal files outside the project. Until a dedicated safe
+   resource loader exists, keep essential instructions in `SKILL.md` itself.
 
-Правила:
-
-- Пока нет безопасного загрузчика ресурсов, не выноси обязательные для
-  работы инструкции в `references/`, `scripts/` или `assets/`. Такие файлы
-  могут служить вспомогательными материалами, но скилл должен работать по
-  одному `SKILL.md`.
-- Для больших reference-файлов (>300 строк) добавляй оглавление.
-- Несколько доменов — раскладывай по вариантам:
+Do not move required instructions into `references/`, `scripts/`, or `assets/`
+while that loader is unavailable. Those files can support the skill, but the
+workflow should remain usable from `SKILL.md` alone. Add a table of contents
+for reference files longer than 300 lines. Organize multiple domains by variant:
 
 ```text
 cloud-deploy/
-├── SKILL.md (процесс + выбор варианта)
+├── SKILL.md (workflow and variant selection)
 └── references/
     ├── aws.md
     ├── gcp.md
     └── azure.md
 ```
 
-Агент читает только нужный файл.
+Use only the references relevant to the task, subject to the resource-loading
+limits above.
 
-## Безопасность
+## Safety
 
-Без обсуждений: в скиллах не должно быть малвари, эксплойтов и всего,
-что может скомпрометировать систему. Содержимое скилла не должно
-удивлять пользователя, если описать его намерение. Не соглашайся
-на вводящие в заблуждение скиллы и скиллы для несанкционированного
-доступа, кражи данных и прочих вредоносных целей. Безобидный
-«отыграй роль XYZ» — нормально.
+Do not create skills for malware, unauthorized access, data theft, deception,
+or other harmful purposes. A skill's behavior should match its stated intent
+and should not surprise the user when explained plainly. Benign role-play is
+fine. Loading a skill does not grant tool permissions or bypass approvals.
 
-## Как писать инструкции
+## Writing instructions
 
-Пиши в императиве, конкретно: шаги, команды, ожидаемый формат вывода.
+Use concrete, imperative steps, commands, and expected output formats.
+Localize human-facing text in templates and examples to the selected language.
 
-**Формат вывода** — задавай шаблоном:
-
-```markdown
-## Структура отчёта
-ВСЕГДА используй ровно этот шаблон:
-# [Заголовок]
-## Краткое резюме
-## Ключевые находки
-## Рекомендации
-```
-
-**Примеры** — показывай парой «вход → выход»:
+Define output formats with a template, for example:
 
 ```markdown
-## Формат коммита
-**Пример 1:**
-Вход: добавил аутентификацию по JWT
-Выход: feat(auth): вход по JWT-токенам
+## Report structure
+Use this report structure:
+# [Title]
+## Summary
+## Key findings
+## Recommendations
 ```
 
-**Подводные камни** — самый ценный раздел: типовые ошибки и как их
-избегать. Пополняй его каждый раз, когда агент спотыкается.
+Show examples as input/output pairs:
 
-`$ARGUMENTS` в теле подставит аргументы вызова `/имя args`; без
-плейсхолдера аргументы допишутся с новой строки.
+```markdown
+## Commit format
+**Example 1:**
+Input: added JWT authentication
+Output: feat(auth): add JWT authentication
+```
 
-## Стиль
+Document common mistakes and how to avoid them. Update these pitfalls when an
+agent encounters the same problem repeatedly.
 
-Объясняй модели, ПОЧЕМУ важно, вместо тяжёлых MUST-ов капсом. Делай
-скилл общим, а не заточенным под один пример: начни с черновика,
-перечитай свежим взглядом, улучши. Если ловишь себя на словах
-ВСЕГДА/НИКОГДА и жёстких решётках — тревожный звонок: переформулируй
-через причину, чтобы модель понимала смысл, а не зубрила правило.
-Это гуманнее, мощнее и эффективнее.
+The argument placeholder (a dollar sign followed by `ARGUMENTS`) in the body
+is replaced with the arguments of `/name args`.
+Without that placeholder, the arguments are appended on a new line.
 
-## Проверка
+## Style
 
-1. Покажи пользователю черновик SKILL.md целиком.
-2. Предложи 2–3 реалистичных тестовых промпта — то, что реально
-   сказал бы живой пользователь («сделай ревью моих изменений»,
-   «задеплой на staging»). Согласуй список: «Вот кейсы, которые хочу
-   прогнать. Так нормально или добавить?».
-3. Прогони каждый кейс сам, строго следуя скиллу. Для сравнения
-   выполни тот же кейс без скилла (новый скилл) или со старой версией
-   (доработка — сначала скопируй скилл в сторону как снапшот).
-4. Покажи пользователю оба результата рядом и спроси фидбек:
-   что хорошо, что поправить. Пустой фидбек — значит, всё ок.
+Explain why a step matters instead of relying on rigid, all-caps rules. Write
+for a range of realistic uses, rather than one example. Draft, reread, and
+refine. If the instructions accumulate "ALWAYS", "NEVER", or brittle
+constraints, explain the underlying reason so the model can apply it sensibly.
 
-## Дорабатывай по фидбеку
+## Evaluation
 
-1. **Обобщай, а не латай.** Мы делаем скилл на тысячи применений,
-   а итерируемся на паре примеров — не перетачивай его под эти
-   примеры фетишистскими MUST-ами. Если проблема упорная, попробуй
-   другую метафору или другой паттерн работы: это дёшево, может
-   выстрелить.
-2. **Держи текст стройным.** Убирай то, что не тянет свой вес.
-   Смотри не только на результаты, но и на ход работы: если агент
-   тратит кучу шагов впустую — выкидывай куски скилла, которые
-   его туда гонят, и смотри, что будет.
-3. **Объясняй «почему».** Вникни в задачу пользователя по-настоящему
-   и передай это понимание в инструкции, даже если фидбек скупой
-   или раздражённый.
-4. **Ищи повторяющуюся работу.** Если во всех прогонах агент
-   независимо писал похожие скрипты-помощники или шёл одним
-   многошаговым путём — это сигнал: напиши скрипт один раз, положи
-   в `scripts/` и вели скиллу его использовать. Каждое будущее
-   применение сэкономит изобретение велосипеда.
+1. Show the user the complete draft `SKILL.md`.
+2. Propose two or three realistic prompts, such as reviewing changes or
+   deploying to staging. Agree on material changes to the test scope and
+   respect testing preferences already given by the user.
+3. Try each case following the skill. For comparison, run the same case
+   without the skill when it is new, or with a saved snapshot of the previous
+   version when improving one. Keep tests isolated and retain normal tool
+   approvals; a test is not permission to perform unrelated external actions.
+4. Show the results side by side and ask for concrete feedback on what to
+   keep or change. Do not interpret silence as approval for another action.
 
-Применил правки — прогони кейсы заново, покажи, собери фидбек,
-повторяй. Хватит, когда пользователь доволен, фидбек пустой или
-прогресс встал.
+## Iterating on feedback
 
-## Оптимизация description
+1. **Generalize rather than patching individual examples.** A skill should
+   support many uses, even though evaluation uses only a few cases. For a
+   recurring problem, try a different explanation or workflow instead of
+   adding increasingly narrow constraints.
+2. **Keep instructions lean.** Review both the outputs and the steps taken.
+   Remove text that sends the agent through unnecessary work.
+3. **Explain why.** Understand the user's task and carry that understanding
+   into the instructions, even when feedback is brief.
+4. **Identify repeated work.** If multiple trials independently produce the
+   same helper script or procedure, consider a reusable supporting script,
+   subject to the resource-loading limits described above.
 
-Поле `description` — главный механизм срабатывания: агент видит имя
-и описание в каталоге и решает, открывать ли скилл. После того как
-скилл готов, предложи оптимизировать описание.
+After changes, repeat relevant cases and review the results. Stop when the
+user is satisfied, the requested work is complete, or further iteration is
+not producing useful improvements.
 
-1. Придумай ~20 реалистичных запросов: половина «должен сработать»,
-   половина «не должен». Запросы — как живые: конкретные, с деталями
-   (пути файлов, названия, контекст), разной длины, иногда с опечатками
-   и разговорной речью. Плохо: «Отформатируй данные». Хорошо: «босс
-   скинул xlsx, называется типа „продажи Q4 финал ФИНАЛ v2.xlsx“,
-   надо добавить колонку с маржой в процентах, выручка вроде
-   в колонке C, расходы в D».
-2. Настоящая ценность — в लगभग-промахах: запросы с общими словами,
-   но другой задачей; смежные домены, где наивное совпадение по словам
-   сработало бы, а не должно; случаи, где уместнее другой инструмент.
-   Слишком лёгкие негативы («напиши фибоначчи» для PDF-скилла)
-   ничего не проверяют.
-3. Покажи набор пользователю, согласуй, поправь.
-4. Проверь вручную: для каждого запроса реши сам, сработал бы скилл
-   с текущим описанием или нет. Где мажет — перепиши описание
-   и проверь заново. Учитывай: агент открывает скиллы под задачи,
-   с которыми сам легко не справится; простые одношаговые запросы
-   («прочитай файл X») скилл могут не триггернуть при любом описании —
-   такие запросы в набор не бери.
-5. Обнови frontmatter, покажи было/стало.
+## Optimizing the description
+
+Once the skill works, offer to improve its description, which controls when
+the agent selects it from the catalog.
+
+1. Develop about 20 realistic requests: half should trigger the skill and
+   half should not. Include concrete paths, names, context, varied lengths,
+   typos, and conversational language. "Format the data" is too vague; a
+   request about a specific quarterly sales spreadsheet and its margin
+   columns is more useful. Write these cases in the user's language.
+2. Focus on near misses: shared vocabulary with a different task, adjacent
+   domains where keyword matching would be wrong, and cases better served
+   by another tool. Obviously unrelated negative examples test little.
+3. Share the proposed cases and incorporate the user's corrections.
+4. Evaluate each request against the current description. Revise misleading
+   wording and try again. Exclude trivial one-step requests, such as reading
+   one file, for which a skill may be unnecessary regardless of description.
+5. Update the frontmatter and show the before/after descriptions.
+
+## Current request
+
+When loaded through `load_skill`, use the user's current request from the
+conversation. For a manual slash invocation, its arguments appear below:
+
+$ARGUMENTS
