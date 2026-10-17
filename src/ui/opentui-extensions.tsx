@@ -538,11 +538,15 @@ export function OpenTuiExtensions({
             label: `${filters[filter]} ▾`,
             run: () => openView("filters"),
           },
-          {
-            id: "extensions-refresh",
-            label: compact ? "↻" : "↻ Обновить",
-            run: () => run(refresh),
-          },
+          ...(width >= 30
+            ? [
+                {
+                  id: "extensions-refresh",
+                  label: compact ? "↻" : "↻ Обновить",
+                  run: () => run(refresh),
+                },
+              ]
+            : []),
           ...visible.map(
             (item): MenuEntry => ({
               id: `extensions-item-${item.id}`,

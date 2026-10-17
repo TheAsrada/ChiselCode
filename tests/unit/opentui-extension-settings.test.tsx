@@ -315,3 +315,20 @@ test("builtin configuration is a named action in its card", async () => {
     destroy(ui);
   }
 });
+
+test("a 24-column catalog only navigates controls that are actually shown", async () => {
+  const { ui, calls } = await setup(undefined, 24, 8);
+  try {
+    expect(
+      ui.renderer.root.findDescendantById("extensions-refresh"),
+    ).toBeUndefined();
+    await key(ui, "ARROW_UP");
+    await key(ui, "RETURN");
+    expect(
+      ui.renderer.root.findDescendantById("extensions-filter-0"),
+    ).toBeDefined();
+    expect(calls).toEqual([]);
+  } finally {
+    destroy(ui);
+  }
+});
