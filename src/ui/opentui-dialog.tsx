@@ -146,6 +146,7 @@ export function DialogAction({
   id,
   tone,
   subtitle,
+  trailing,
 }: {
   label: string;
   onSelect: () => void;
@@ -156,6 +157,10 @@ export function DialogAction({
   id?: string;
   tone?: import("../extensions/ui-types.js").UiTone;
   subtitle?: string;
+  trailing?: {
+    label: string;
+    tone?: import("../extensions/ui-types.js").UiTone;
+  };
 }) {
   const renderer = useRenderer();
   const pressed = useRef<
@@ -218,31 +223,63 @@ export function DialogAction({
         if (!disabled) activate.activate();
       }}
     >
-      <text
-        height={1}
-        selectable={false}
-        fg={
-          disabled
-            ? palette.muted
-            : primary
-              ? palette.bg
-              : active
-                ? palette.accent
-                : tone === "error"
-                  ? palette.red
-                  : tone === "warning"
-                    ? palette.yellow
-                    : tone === "success"
-                      ? palette.green
-                      : tone === "accent"
-                        ? palette.accent
-                        : tone === "muted"
-                          ? palette.muted
-                          : palette.text
-        }
-      >
-        {terminalSafeText(label, 4000)}
-      </text>
+      {trailing ? (
+        <box
+          height={1}
+          flexDirection="row"
+          justifyContent="space-between"
+          width="100%"
+        >
+          <text
+            height={1}
+            selectable={false}
+            fg={active ? palette.accent : palette.text}
+          >
+            {terminalSafeText(label, 4000)}
+          </text>
+          <text
+            height={1}
+            selectable={false}
+            fg={
+              trailing.tone === "error"
+                ? palette.red
+                : trailing.tone === "warning"
+                  ? palette.yellow
+                  : trailing.tone === "success"
+                    ? palette.green
+                    : palette.muted
+            }
+          >
+            {terminalSafeText(trailing.label, 200)}
+          </text>
+        </box>
+      ) : (
+        <text
+          height={1}
+          selectable={false}
+          fg={
+            disabled
+              ? palette.muted
+              : primary
+                ? palette.bg
+                : active
+                  ? palette.accent
+                  : tone === "error"
+                    ? palette.red
+                    : tone === "warning"
+                      ? palette.yellow
+                      : tone === "success"
+                        ? palette.green
+                        : tone === "accent"
+                          ? palette.accent
+                          : tone === "muted"
+                            ? palette.muted
+                            : palette.text
+          }
+        >
+          {terminalSafeText(label, 4000)}
+        </text>
+      )}
       {subtitle && (
         <text
           height={1}

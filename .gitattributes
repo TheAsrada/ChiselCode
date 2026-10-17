@@ -20,3 +20,5 @@ docs/assets/ui-composition/**/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/opentui-graphics/*.txt whitespace=-blank-at-eol,-blank-at-eof
 
 docs/assets/settings-tools/*.txt whitespace=-blank-at-eol,-blank-at-eof
+
+docs/assets/extensions-cards/**/*.txt whitespace=-blank-at-eol,-blank-at-eof

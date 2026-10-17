@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { ScrollBoxRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { zipSync } from "fflate";
@@ -74,8 +75,8 @@ if (phase < 0) {
     project = join(storage, "project"),
     configPath = join(storage, "config.json");
   const ui = await createTestRenderer({
-    width: 160,
-    height: 50,
+    width: 120,
+    height: 36,
     exitOnCtrlC: false,
   });
   let application: Promise<void> | undefined,
@@ -112,14 +113,51 @@ if (phase < 0) {
     await frame();
   };
   const click = async (id: string) => {
-    // React can mount a node before OpenTUI has rebuilt its native hit map.
-    await frame();
-    const node = ui.renderer.root.findDescendantById(id);
-    assert.ok(node, `Нет ${id}\n${ui.captureCharFrame()}`);
+    await until(() => !!ui.renderer.root.findDescendantById(id), `Нет ${id}`);
+    const node = ui.renderer.root.findDescendantById(id)!;
+    for (let parent = node.parent; parent; parent = parent.parent) {
+      if (parent instanceof ScrollBoxRenderable) {
+        const scroll = parent;
+        await act(async () => {
+          scroll.scrollChildIntoView(id);
+          await ui.renderOnce();
+        });
+      }
+    }
+    await until(() => {
+      for (let parent = node.parent; parent; parent = parent.parent)
+        if (
+          parent instanceof ScrollBoxRenderable &&
+          (node.y < parent.viewport.y ||
+            node.y >= parent.viewport.y + parent.viewport.height)
+        ) {
+          parent.scrollChildIntoView(id);
+          return false;
+        }
+      return (
+        node.width > 0 &&
+        node.height > 0 &&
+        node.y >= 0 &&
+        node.y < ui.renderer.height
+      );
+    }, `Не виден ${id}`);
     await act(async () => {
-      await ui.mockMouse.click(node.x + 1, node.y);
+      await ui.renderOnce();
+      await ui.mockMouse.click(node.x + Math.min(1, node.width - 1), node.y);
     });
     await frame();
+  };
+  const closeSettings = async () => {
+    for (
+      let attempt = 0;
+      attempt < 5 && ui.renderer.root.findDescendantById("settings-popup");
+      attempt++
+    )
+      await key("ESCAPE");
+    await until(
+      () => !ui.renderer.root.findDescendantById("settings-popup"),
+      "Настройки не закрылись",
+    );
   };
   const paste = async (value: string) => {
     await act(async () => ui.mockInput.pasteBracketedText(value));
@@ -163,10 +201,15 @@ if (phase < 0) {
       () =>
         !!ui.renderer.root.findDescendantById(
           "extensions-item-example.settings-demo",
-        ),
+        ) || !!ui.renderer.root.findDescendantById("extensions-action-remove"),
       "Нет пакета",
     );
-    await click("extensions-item-example.settings-demo");
+    if (
+      ui.renderer.root.findDescendantById(
+        "extensions-item-example.settings-demo",
+      )
+    )
+      await click("extensions-item-example.settings-demo");
     await until(
       () =>
         !!ui.renderer.root.findDescendantById("extensions-action-remove") &&
@@ -208,7 +251,20 @@ if (phase < 0) {
       await click("prompt-editor");
       await paste("Черновик перед расширениями");
       await settings();
-      await capture("catalog-160x50");
+      assert.equal(
+        ui.renderer.root.findDescendantById("extensions-action-enable"),
+        undefined,
+      );
+      for (const name of ["i", "e", "s", "u", "v", "t", "DELETE"])
+        await key(name);
+      assert.ok(ui.renderer.root.findDescendantById("extensions-install"));
+      await capture("catalog-120x36");
+      await click("extensions-filter");
+      await capture("filters-120x36");
+      await click("extensions-filter-2");
+      assert.match(ui.captureCharFrame(), /В этой группе/);
+      await click("extensions-filter");
+      await click("extensions-filter-0");
       await click("extensions-install");
       await paste(join(storage, "author"));
       await key("RETURN");
@@ -216,13 +272,14 @@ if (phase < 0) {
         () => !!ui.renderer.root.findDescendantById("extensions-trust"),
         "Нет review",
       );
-      await capture("install-review-160x50");
+      await capture("install-review-120x36");
       await key("ESCAPE");
       assert.equal(
         (await readExtensionRegistry()).records.length,
         0,
         "Отмена создала пакет",
       );
+      await click("extensions-back");
       await click("extensions-install");
       await paste(join(storage, "author"));
       await key("RETURN");
@@ -237,19 +294,19 @@ if (phase < 0) {
         await Bun.file(join(storage, "imports.txt")).exists(),
         false,
       );
-      await capture("installed-untrusted-160x50");
-      await key("t");
+      await capture("installed-untrusted-120x36");
+      await click("extensions-action-trust");
       await until(
         () => !!ui.renderer.root.findDescendantById("extensions-trust"),
         "Нет trust review",
       );
-      await key("t");
-      await key("RETURN");
+      await click("extensions-trust");
+      await click("extensions-commit");
       await until(
         () => ui.captureCharFrame().includes("Нужен перезапуск"),
         "Нет pending restart",
       );
-      await key("ESCAPE");
+      await closeSettings();
       assert.match(ui.captureCharFrame(), /Черновик перед расширениями/);
     } else if (step === "use") {
       // React can mount `welcome` before the native frame buffer has painted.
@@ -266,8 +323,10 @@ if (phase < 0) {
       await command("Привет · Привет");
       await settings();
       await select();
-      await capture("working-160x50");
-      await key("s");
+      await capture("working-120x36");
+      await click("extensions-metadata");
+      await capture("metadata-120x36");
+      await click("extensions-action-settings");
       await until(
         () =>
           !!ui.renderer.root.findDescendantById("extensions-setting-message"),
@@ -283,35 +342,34 @@ if (phase < 0) {
         () => ui.captureCharFrame().includes("Параметры расширения применятся"),
         "Параметры не сохранены",
       );
-      await capture("settings-160x50");
-      await key("ESCAPE");
-      await key("ESCAPE");
+      await capture("settings-120x36");
+      await closeSettings();
     } else if (step === "update") {
       await command("После restart · После restart");
       await settings();
       await select();
-      await key("u");
+      await click("extensions-action-update");
       await paste(join(storage, "update.zip"));
       await key("RETURN");
       await until(
         () => !!ui.renderer.root.findDescendantById("extensions-trust"),
         "Нет update review",
       );
-      await capture("update-review-160x50");
-      await key("t");
-      await key("RETURN");
+      await capture("update-review-120x36");
+      await click("extensions-trust");
+      await click("extensions-commit");
       await until(
         () =>
           !!ui.renderer.root.findDescendantById("extensions-action-versions") &&
           !ui.captureCharFrame().includes("Выполняется"),
         "Update не выбран",
       );
-      await key("v");
+      await click("extensions-action-versions");
       await until(
         () => !!ui.renderer.root.findDescendantById("extensions-version-0"),
         "Нет версий",
       );
-      await capture("versions-160x50");
+      await capture("versions-120x36");
       await click("extensions-version-0");
       await until(
         () => !!ui.renderer.root.findDescendantById("extensions-commit"),
@@ -324,7 +382,7 @@ if (phase < 0) {
           !ui.captureCharFrame().includes("Выполняется"),
         "Нет карточки после rollback",
       );
-      await key("e");
+      await click("extensions-action-disable");
       await until(
         () =>
           !!ui.renderer.root.findDescendantById("extensions-action-enable") &&
@@ -332,7 +390,7 @@ if (phase < 0) {
         "Нет disable",
       );
       assert.equal((await readExtensionRegistry()).records[0]?.enabled, false);
-      await capture("disabled-before-restart-160x50");
+      await capture("disabled-before-restart-120x36");
       for (const [width, height] of [
         [80, 24],
         [40, 16],
@@ -340,7 +398,7 @@ if (phase < 0) {
       ]) {
         await act(async () => ui.resize(width!, height!));
         await frame();
-        await capture(`catalog-${width}x${height}`);
+        await capture(`details-${width}x${height}`);
       }
     } else {
       await settings();
@@ -350,7 +408,7 @@ if (phase < 0) {
         "import\nimport\n",
         "Выключенная версия была импортирована",
       );
-      await key("DELETE");
+      await click("extensions-action-remove");
       await until(
         () => !!ui.renderer.root.findDescendantById("extensions-commit"),
         "Нет remove review",
@@ -362,7 +420,7 @@ if (phase < 0) {
           !ui.captureCharFrame().includes("Выполняется"),
         "Remove не завершён",
       );
-      await capture("removed-160x50");
+      await capture("removed-120x36");
       assert.ok((await readExtensionRegistry()).records[0]?.removedAt);
     }
     assert.equal(fetches, 0, "Настройки/команда вызвали сеть/модель");

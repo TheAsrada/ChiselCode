@@ -1227,7 +1227,9 @@ export function OpenTuiSettings({
               <text fg={palette.accent} height={1}>
                 <strong>
                   {terminalLine(
-                    `${section?.group ?? ""} > ${section?.title ?? ""}`,
+                    section?.group === section?.title
+                      ? (section?.title ?? "")
+                      : `${section?.group ?? ""} > ${section?.title ?? ""}`,
                     innerWidth,
                   )}
                 </strong>
@@ -1801,6 +1803,7 @@ export function OpenTuiSettings({
                 controls={extensionsControls}
                 onOpenBuiltin={changePage}
                 onDirty={recordExtensionsDirty}
+                onFocus={() => setShellFocus("content")}
               />
             </box>
           )}
@@ -1982,7 +1985,7 @@ export function OpenTuiSettings({
                     ? "Enter открыть | Ctrl+F | Esc назад"
                     : "Enter открыть | Tab фокус | Ctrl+F поиск | Esc назад"
                 : page === "extensions"
-                  ? "I установка | PgUp/PgDn | Esc назад"
+                  ? "Tab фокус | Ctrl+F разделы | Esc назад"
                   : page === "tools.skills"
                     ? "Tab фокус | Alt+1/2 вкладки | Ctrl+O текст | Esc назад"
                     : page === "tools.mcp"

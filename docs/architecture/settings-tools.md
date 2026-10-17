@@ -2,7 +2,7 @@
 
 [Документация](../README.md) · [Архитектура](../architecture.md) · [Кадры и проверки](../contributors/reports/settings-tools.md)
 
-Статус: принято, Unreleased после 0.6.33.
+Статус: принято, 0.6.34.
 
 ## Причина и решение
 

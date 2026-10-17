@@ -432,4 +432,4 @@ Workspace extension scope владеет staged UI registry. Linked consumers о
 
 Общий сервис захватывает папку/ZIP без исполнения JS, хранит immutable версии и exact trust, атомарно меняет desired selection. Loader удерживает application version leases; update/disable/remove требуют restart и не стирают used/unknown bytes. [Транзакции, migration, quota и recovery](architecture/extension-packages.md), [пользовательские команды](extensions.md).
 
-В Unreleased после 0.6.33 графическое оформление OpenTUI стало единственным. [Решение, совместимость конфигурации и проверки](contributors/reports/opentui-graphics.md).
+В 0.6.34 графическое оформление OpenTUI стало единственным. [Решение, совместимость конфигурации и проверки](contributors/reports/opentui-graphics.md).

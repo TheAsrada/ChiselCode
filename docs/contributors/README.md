@@ -34,3 +34,5 @@
 - [Единое графическое оформление OpenTUI: удаление ASCII, совместимость конфигурации и кадры](reports/opentui-graphics.md)
 
 - [Разделы MCP и навыков в Settings: решение, кадры и проверки](reports/settings-tools.md)
+
+- [Каталог и карточки расширений OpenTUI 0.6.34: UX, кадры и проверки](reports/extensions-cards.md)

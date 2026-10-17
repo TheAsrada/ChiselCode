@@ -186,8 +186,10 @@ async function click(id: string) {
         ancestor instanceof ScrollBoxRenderable &&
         (node.y < ancestor.viewport.y ||
           node.y >= ancestor.viewport.y + ancestor.viewport.height)
-      )
+      ) {
+        ancestor.scrollChildIntoView(id);
         return false;
+      }
       ancestor = ancestor.parent;
     }
     return (
@@ -301,7 +303,7 @@ try {
   await capture("created-disabled");
   await click("extensions-action-trust");
   await click("extensions-trust");
-  await key("RETURN");
+  await click("extensions-commit");
   await until(
     () => ui.captureCharFrame().includes("Работает"),
     "Live enable did not activate",

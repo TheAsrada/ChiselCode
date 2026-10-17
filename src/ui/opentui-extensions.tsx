@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import stringWidth from "string-width";
 import type {
   CatalogExtension,
   ExtensionAction,
@@ -47,7 +48,32 @@ const actionLabels: Record<ExtensionAction, string> = {
   versions: "Версии",
   remove: "Удалить",
 };
-type View = "catalog" | "source" | "review" | "versions" | "settings";
+type View =
+  | "catalog"
+  | "details"
+  | "filters"
+  | "source"
+  | "review"
+  | "versions"
+  | "settings";
+interface MenuEntry {
+  id: string;
+  label: string;
+  run(): void;
+  disabled?: boolean;
+  subtitle?: string;
+  tone?: "error" | "warning" | "success" | "muted";
+}
+const stateTone = (item: CatalogExtension): MenuEntry["tone"] =>
+  item.state === "error"
+    ? "error"
+    : item.state === "not_trusted" ||
+        item.restartRequired ||
+        item.projectBlocked
+      ? "warning"
+      : item.state === "working"
+        ? "success"
+        : "muted";
 export function OpenTuiExtensions({
   management,
   root,
@@ -59,6 +85,7 @@ export function OpenTuiExtensions({
   controls,
   onOpenBuiltin,
   onDirty,
+  onFocus = () => {},
 }: {
   management: ExtensionManagementService;
   root?: string;
@@ -70,6 +97,7 @@ export function OpenTuiExtensions({
   controls: MutableRefObject<SettingsPanelControl | undefined>;
   onOpenBuiltin(route: NonNullable<CatalogExtension["settingsRoute"]>): void;
   onDirty(value: boolean): void;
+  onFocus?(): void;
 }) {
   const [items, setItems] = useState<CatalogExtension[]>([]),
     [selectedId, setSelectedId] = useState(""),
@@ -77,27 +105,28 @@ export function OpenTuiExtensions({
     [query, setQuery] = useState(""),
     [searching, setSearching] = useState(false);
   const [view, setView] = useState<View>("catalog"),
-    [detail, setDetail] = useState(false),
+    [menuTarget, setMenuTarget] = useState(""),
+    [metadata, setMetadata] = useState(false),
     [source, setSource] = useState(""),
     [sourceKind, setSourceKind] = useState<"install" | "update">("install");
   const [review, setReview] = useState<ExtensionReview>(),
     [trust, setTrust] = useState(false),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(""),
-    [progress, setProgress] = useState("");
+    [progress, setProgress] = useState(""),
+    [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [settings, setSettings] = useState<ExtensionSettings>(),
     [values, setValues] = useState<Record<string, SettingValue>>({}),
     [secrets, setSecrets] = useState<Record<string, string>>({}),
     [clearSecrets, setClearSecrets] = useState<string[]>([]);
-  const [fieldIndex, setFieldIndex] = useState(0),
-    [edit, setEdit] = useState<SettingField>(),
-    [input, setInput] = useState(""),
-    [versionIndex, setVersionIndex] = useState(0);
+  const [edit, setEdit] = useState<SettingField>(),
+    [input, setInput] = useState("");
   const pending = useRef(false),
     request = useRef<string | undefined>(undefined),
     alive = useRef(true),
     detailScroll = useRef<ScrollBoxRenderable | null>(null),
+    pendingScroll = useRef<string | undefined>(undefined),
     lastAttempt = useRef<
       | {
           kind: ExtensionReview["kind"];
@@ -111,30 +140,48 @@ export function OpenTuiExtensions({
     !!settings &&
     (JSON.stringify(values) !== JSON.stringify(settings.values) ||
       Object.keys(secrets).length > 0 ||
-      clearSecrets.length > 0);
+      clearSecrets.length > 0 ||
+      !!(
+        edit && input !== (edit.secret ? "" : String(values[edit.name] ?? ""))
+      ));
   useEffect(() => {
     onDirty(dirty);
   }, [dirty, onDirty]);
   const selected = items.find((i) => i.id === selectedId);
-  const visible = items.filter(
-    (i) =>
-      `${i.name} ${i.id}`
-        .toLocaleLowerCase()
-        .includes(query.toLocaleLowerCase()) &&
-      (filter === 0 ||
-        (filter === 1 && i.origin === "builtin") ||
-        (filter === 2 && i.origin === "installed") ||
-        (filter === 3 &&
-          (i.state === "error" ||
-            i.state === "not_trusted" ||
-            i.restartRequired ||
-            i.projectBlocked ||
-            i.deferredRemoval))),
-  );
+  const matching = (item: CatalogExtension, option = filter) => {
+    const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    const content =
+      `${item.name} ${item.id} ${item.description}`.toLocaleLowerCase();
+    return (
+      words.every((word) => content.includes(word)) &&
+      (option === 0 ||
+        (option === 1 && item.origin === "builtin") ||
+        (option === 2 && item.origin === "installed") ||
+        (option === 3 &&
+          (item.state === "error" ||
+            item.state === "not_trusted" ||
+            item.restartRequired ||
+            item.projectBlocked ||
+            item.deferredRemoval)))
+    );
+  };
+  const visible = items.filter((item) => matching(item));
+  const openView = (next: View, target = "") => {
+    setView(next);
+    setMenuTarget(target);
+  };
+  const openDetails = (item: CatalogExtension) => {
+    setSelectedId(item.id);
+    setMetadata(false);
+    setSearching(false);
+    setNotice("");
+    openView("details");
+  };
   const refresh = useCallback(async () => {
     const list = await management.list(root);
     if (alive.current) {
       setItems(list.items);
+      setLoaded(true);
       setSelectedId((id) =>
         list.items.some((i) => i.id === id) ? id : (list.items[0]?.id ?? ""),
       );
@@ -247,11 +294,11 @@ export function OpenTuiExtensions({
       });
       request.current = undefined;
       setReview(undefined);
-      setView("catalog");
+      openView(review.kind === "remove" ? "catalog" : "details");
       setSelectedId(result.id);
       await refresh();
       setNotice(
-        `Сохранено.${result.restartRequired ? " Примените через перезапуск ChiselCode: сначала дождитесь задач или остановите их; сохраните черновик. Загруженный JS продолжает работать до выхода." : ""}${result.deferred ? " Удаление занятых файлов отложено. Пользовательские данные сохранены." : ""}${result.warning ? " " + result.warning : ""}`,
+        `${review.kind === "install" && !trust ? "Установлено выключенным. Доверие и запуск доступны в карточке." : "Сохранено."}${result.restartRequired && (review.kind !== "install" || trust) ? " Изменения применятся после перезапуска ChiselCode." : ""}${result.deferred ? " Удаление занятых файлов отложено; пользовательские данные сохранены." : ""}${result.warning ? ` ${result.warning}` : ""}`,
       );
     });
   };
@@ -302,16 +349,14 @@ export function OpenTuiExtensions({
           setValues(next.values);
           setSecrets({});
           setClearSecrets([]);
-          setFieldIndex(0);
-          setView("settings");
+          openView("settings");
         });
     } else if (name === "update") {
       setSourceKind("update");
       setSource("");
-      setView("source");
+      openView("source");
     } else if (name === "versions") {
-      setVersionIndex(0);
-      setView("versions");
+      openView("versions");
     } else if (name === "remove" || name === "trust")
       prepare({ kind: name, id: selected.id });
     else
@@ -326,20 +371,53 @@ export function OpenTuiExtensions({
         await refresh();
         setNotice(
           result.restartRequired
-            ? "Сохранено. Примените через перезапуск приложения после завершения задач; сохраните черновик."
+            ? "Сохранено. Изменения применятся после перезапуска ChiselCode."
             : "Настройка возможности сохранена.",
         );
       });
   };
-  const back = () => {
-    if (busy || review) {
-      cancel();
-      setView("catalog");
-      setNotice(
-        "Отмена запрошена. Дождитесь результата: уже начавшееся сохранение могло завершиться.",
-      );
-      return true;
+
+  const acceptEdit = () => {
+    if (!edit) return;
+    if (edit.secret) {
+      setSecrets({ ...secrets, [edit.name]: input });
+      setClearSecrets(clearSecrets.filter((key) => key !== edit.name));
+    } else {
+      setValues({
+        ...values,
+        [edit.name]: edit.type === "number" ? Number(input) : input,
+      });
     }
+    setMenuTarget(`extensions-setting-${edit.name}`);
+    setEdit(undefined);
+    setInput("");
+  };
+  const editField = (field: SettingField) => {
+    if (field.type === "boolean")
+      setValues({ ...values, [field.name]: !values[field.name] });
+    else if (field.type === "enum") {
+      const options = field.options ?? [];
+      const at = options.findIndex(
+        (option) => option.value === values[field.name],
+      );
+      setValues({
+        ...values,
+        [field.name]: options[(at + 1) % options.length]?.value ?? "",
+      });
+    } else {
+      setEdit(field);
+      setInput(field.secret ? "" : String(values[field.name] ?? ""));
+    }
+  };
+  const discardSettings = () => {
+    if (settings) setValues(settings.values);
+    setSecrets({});
+    setClearSecrets([]);
+    setEdit(undefined);
+    setInput("");
+    setNotice("Изменения отменены.");
+  };
+  const back = () => {
     if (edit) {
       setEdit(undefined);
       setInput("");
@@ -347,31 +425,50 @@ export function OpenTuiExtensions({
     }
     if (searching) {
       setSearching(false);
+      setMenuTarget(`extensions-item-${visible[0]?.id ?? ""}`);
       return true;
     }
-    if (view !== "catalog") {
-      if (dirty) {
-        setNotice("Сохраните или отмените изменения перед возвратом.");
-        return true;
-      }
-      setView("catalog");
+    if (busy || review) {
+      const returnView =
+        review?.kind === "install" ||
+        (view === "source" && sourceKind === "install")
+          ? "source"
+          : "details";
+      cancel();
+      openView(returnView);
+      setNotice(
+        busy
+          ? "Отмена запрошена. Уже начавшееся сохранение могло завершиться."
+          : "Подтверждение отменено.",
+      );
       return true;
     }
-    if (detail && width < 65) {
-      setDetail(false);
+    if (view === "settings" && dirty) {
+      setNotice(
+        "Есть несохранённые изменения. Выберите «Сохранить» или «Отменить изменения».",
+      );
       return true;
     }
-    return false;
+    if (view === "catalog") return false;
+    if (
+      view === "details" ||
+      view === "filters" ||
+      (view === "source" && sourceKind === "install")
+    ) {
+      openView("catalog", `extensions-item-${selectedId}`);
+    } else openView("details");
+    return true;
   };
   useLayoutEffect(() => {
     controls.current = {
-      save: () => saveSettings(),
+      save: () => {
+        if (view !== "settings") return;
+        if (edit) setNotice("Сначала подтвердите значение клавишей Enter.");
+        else saveSettings();
+      },
       back,
       discard: () => {
-        if (settings) setValues(settings.values);
-        setSecrets({});
-        setClearSecrets([]);
-        setEdit(undefined);
+        discardSettings();
         cancel();
       },
     };
@@ -379,136 +476,9 @@ export function OpenTuiExtensions({
       controls.current = undefined;
     };
   });
-  const acceptEdit = () => {
-    if (!edit) return;
-    if (edit.secret) {
-      setSecrets({ ...secrets, [edit.name]: input });
-      setClearSecrets(clearSecrets.filter((k) => k !== edit.name));
-    } else
-      setValues({
-        ...values,
-        [edit.name]: edit.type === "number" ? Number(input) : input,
-      });
-    setEdit(undefined);
-    setInput("");
-  };
-  const editField = (index: number) => {
-    const f = settings?.schema.fields[index];
-    if (!f) return;
-    setFieldIndex(index);
-    if (f.type === "boolean")
-      setValues({ ...values, [f.name]: !values[f.name] });
-    else if (f.type === "enum") {
-      const options = f.options ?? [],
-        at = options.findIndex((o) => o.value === values[f.name]);
-      setValues({
-        ...values,
-        [f.name]: options[(at + 1) % options.length]?.value ?? "",
-      });
-    } else {
-      setEdit(f);
-      setInput(f.secret ? "" : String(values[f.name] ?? ""));
-    }
-  };
-  useUiKeyboard((key) => {
-    if (
-      !active ||
-      !focused ||
-      key.ctrl ||
-      key.name === "escape" ||
-      key.name === "tab"
-    )
-      return;
-    if (view === "source" || searching || edit) return;
-    const name = key.name.toLowerCase();
-    if (name === "pageup" || name === "pagedown") {
-      key.preventDefault();
-      detailScroll.current?.scrollBy(
-        name === "pageup" ? -Math.max(1, height - 3) : Math.max(1, height - 3),
-      );
-      return;
-    }
-    if (["up", "down"].includes(name)) {
-      key.preventDefault();
-      const delta = name === "up" ? -1 : 1;
-      if (view === "settings")
-        setFieldIndex(
-          Math.max(
-            0,
-            Math.min(
-              (settings?.schema.fields.length ?? 1) - 1,
-              fieldIndex + delta,
-            ),
-          ),
-        );
-      else if (view === "versions")
-        setVersionIndex(
-          Math.max(
-            0,
-            Math.min(
-              (selected?.versions.length ?? 1) - 1,
-              versionIndex + delta,
-            ),
-          ),
-        );
-      else {
-        const at = visible.findIndex((i) => i.id === selectedId);
-        setSelectedId(
-          visible[Math.max(0, Math.min(visible.length - 1, at + delta))]?.id ??
-            selectedId,
-        );
-      }
-    } else if (name === "return") {
-      key.preventDefault();
-      if (view === "review") commit();
-      else if (view === "settings") editField(fieldIndex);
-      else if (view === "versions" && selected?.versions[versionIndex])
-        prepare({
-          kind: "rollback",
-          id: selected.id,
-          versionKey: selected.versions[versionIndex]!.key,
-        });
-      else setDetail(true);
-    } else if (name === "t" && view === "review") {
-      key.preventDefault();
-      setTrust(!trust);
-    } else if (name === "f" && view === "catalog") {
-      key.preventDefault();
-      setFilter((filter + 1) % filters.length);
-    } else if (name === "/" && view === "catalog") {
-      key.preventDefault();
-      setSearching(true);
-    } else if (name === "i" && view === "catalog") {
-      key.preventDefault();
-      setSourceKind("install");
-      setSource("");
-      setView("source");
-    } else if (view === "settings" && name === "r") {
-      key.preventDefault();
-      saveSettings(true);
-    } else if (view === "settings" && name === "d" && settings) {
-      key.preventDefault();
-      setValues(settings.values);
-      setSecrets({});
-      setClearSecrets([]);
-    } else if (name === "r" && failed && notice && lastAttempt.current) {
-      key.preventDefault();
-      prepare(lastAttempt.current);
-    } else if (view === "catalog") {
-      const map: Record<string, ExtensionAction> = {
-        e: selected?.desiredEnabled ? "disable" : "enable",
-        s: "settings",
-        u: "update",
-        v: "versions",
-        delete: "remove",
-        t: "trust",
-      };
-      if (map[name]) {
-        key.preventDefault();
-        action(map[name]!);
-      }
-    }
-  });
+
+  const compact = width < 40 || height < 10;
+  const roomy = width >= 50 && height >= 14;
   const text = (value: string, color = palette.text) => (
     <text key={value} fg={color}>
       {terminalSafeText(value, 8000)}
@@ -516,27 +486,397 @@ export function OpenTuiExtensions({
   );
   const digestLines = (digest: string) =>
     digest
-      .match(new RegExp(`.{1,${Math.max(8, Math.min(64, width - 4))}}`, "g"))
+      .match(new RegExp(`.{1,${Math.max(4, Math.min(64, width - 4))}}`, "g"))
       ?.join("\n") ?? digest;
-  const listWidth = Math.min(32, Math.floor(width * 0.4)),
-    wide = width >= 65;
-  const compact = width < 40 || height < 10;
+  const fieldLabel = (field: SettingField) =>
+    `${field.label}: ${
+      field.secret
+        ? secrets[field.name]
+          ? "Новый секрет"
+          : clearSecrets.includes(field.name)
+            ? "Будет удалён"
+            : settings?.secretSet[field.name]
+              ? "Сохранён"
+              : "Не задан"
+        : String(values[field.name] ?? "Не задано")
+    }`;
+  const startInstall = () => {
+    setSourceKind("install");
+    setSource("");
+    openView("source");
+  };
+  const prepareSource = () =>
+    prepare({
+      kind: sourceKind,
+      source: source.trim(),
+      ...(sourceKind === "update" ? { id: selectedId } : {}),
+    });
+  const orderedActions: ExtensionAction[] = [
+    "trust",
+    "enable",
+    "disable",
+    "settings",
+    "update",
+    "versions",
+    "remove",
+  ];
+  const entries: MenuEntry[] =
+    view === "catalog"
+      ? [
+          {
+            id: "extensions-search",
+            label: "Поиск",
+            run: () => setSearching(true),
+          },
+          {
+            id: "extensions-install",
+            label: compact ? "+ Установить" : "+ Установить расширение",
+            run: startInstall,
+          },
+          {
+            id: "extensions-filter",
+            label: `${filters[filter]} ▾`,
+            run: () => openView("filters"),
+          },
+          {
+            id: "extensions-refresh",
+            label: compact ? "↻" : "↻ Обновить",
+            run: () => run(refresh),
+          },
+          ...visible.map(
+            (item): MenuEntry => ({
+              id: `extensions-item-${item.id}`,
+              label: item.name,
+              subtitle: `${item.version} · ${EXTENSION_STATE_LABELS[item.state]}`,
+              run: () => openDetails(item),
+            }),
+          ),
+        ]
+      : view === "filters"
+        ? [
+            { id: "extensions-back", label: "‹ Каталог", run: back },
+            ...filters.map((label, index) => ({
+              id: `extensions-filter-${index}`,
+              label: `${index === filter ? "●" : "○"} ${label} · ${items.filter((item) => matching(item, index)).length}`,
+              run: () => {
+                setFilter(index);
+                openView("catalog");
+              },
+            })),
+          ]
+        : view === "details" && selected
+          ? [
+              { id: "extensions-back", label: "‹ Каталог", run: back },
+              ...orderedActions
+                .filter((name) => selected.actions.includes(name))
+                .map(
+                  (name): MenuEntry => ({
+                    id: `extensions-action-${name}`,
+                    label: actionLabels[name],
+                    tone: name === "remove" ? "error" : undefined,
+                    run: () => action(name),
+                  }),
+                ),
+              {
+                id: "extensions-metadata",
+                label: `${metadata ? "▾" : "▸"} Технические сведения`,
+                run: () => setMetadata(!metadata),
+              },
+            ]
+          : view === "source"
+            ? [
+                { id: "extensions-back", label: "‹ Назад", run: back },
+                {
+                  id: "extensions-prepare",
+                  label: "Проверить пакет",
+                  disabled: !source.trim(),
+                  run: prepareSource,
+                },
+              ]
+            : view === "review" && review
+              ? [
+                  ...(review.kind === "remove"
+                    ? []
+                    : [
+                        {
+                          id: "extensions-trust",
+                          label: `[${trust ? "✓" : " "}] ${compact ? "Доверяю коду" : "Я доверяю этому содержимому"}`,
+                          disabled: !!review.incompatible,
+                          run: () => setTrust(!trust),
+                        },
+                      ]),
+                  {
+                    id: "extensions-commit",
+                    label:
+                      review.kind === "remove"
+                        ? "Удалить расширение"
+                        : review.kind === "install" && !trust
+                          ? "Установить выключенным"
+                          : review.kind === "rollback"
+                            ? "Вернуть эту версию"
+                            : "Подтвердить",
+                    disabled:
+                      !!review.incompatible ||
+                      (review.kind !== "install" &&
+                        review.kind !== "remove" &&
+                        review.trustRequired &&
+                        !trust),
+                    run: commit,
+                  },
+                  { id: "extensions-cancel", label: "Отмена", run: back },
+                ]
+              : view === "versions" && selected
+                ? [
+                    {
+                      id: "extensions-back",
+                      label: "‹ О расширении",
+                      run: back,
+                    },
+                    ...selected.versions.map((version, index) => ({
+                      id: `extensions-version-${index}`,
+                      label: `${version.selected ? "● " : ""}${version.version} · ${version.digest.slice(0, 12)}`,
+                      subtitle: `${version.selected ? "Выбрана" : "Сохранена"}${version.inUse ? " · используется" : ""}`,
+                      run: () =>
+                        prepare({
+                          kind: "rollback",
+                          id: selected.id,
+                          versionKey: version.key,
+                        }),
+                    })),
+                  ]
+                : view === "settings" && settings
+                  ? [
+                      {
+                        id: "extensions-back",
+                        label: "‹ О расширении",
+                        run: back,
+                      },
+                      ...settings.schema.fields.flatMap(
+                        (field): MenuEntry[] => [
+                          {
+                            id: `extensions-setting-${field.name}`,
+                            label: fieldLabel(field),
+                            run: () => editField(field),
+                          },
+                          ...(field.secret
+                            ? [
+                                {
+                                  id: `extensions-clear-${field.name}`,
+                                  label: "Удалить сохранённый секрет",
+                                  run: () => {
+                                    setClearSecrets([
+                                      ...clearSecrets,
+                                      field.name,
+                                    ]);
+                                    const next = { ...secrets };
+                                    delete next[field.name];
+                                    setSecrets(next);
+                                  },
+                                },
+                              ]
+                            : []),
+                        ],
+                      ),
+                      ...(settings.schema.fields.length
+                        ? [
+                            {
+                              id: "extensions-settings-save",
+                              label: "Сохранить",
+                              run: () => saveSettings(),
+                            },
+                            {
+                              id: "extensions-settings-discard",
+                              label: "Отменить изменения",
+                              run: discardSettings,
+                            },
+                            {
+                              id: "extensions-settings-reset",
+                              label: "Вернуть значения по умолчанию",
+                              run: () => saveSettings(true),
+                            },
+                            {
+                              id: "extensions-settings-reload",
+                              label: "Перечитать состояние",
+                              run: () =>
+                                run(async () => {
+                                  if (!selected?.digest) return;
+                                  const current = await management.settings({
+                                    id: selected.id,
+                                    digest: selected.digest,
+                                    revision: selected.revision,
+                                  });
+                                  setSettings(current);
+                                  setNotice(
+                                    "Состояние перечитано; введённые значения сохранены. Подтвердите сохранение заново.",
+                                  );
+                                }),
+                            },
+                          ]
+                        : []),
+                    ]
+                  : [
+                      {
+                        id: "extensions-back",
+                        label: "‹ Каталог",
+                        run: () => openView("catalog"),
+                      },
+                    ];
+  if (failed && lastAttempt.current)
+    entries.push({
+      id: "extensions-retry",
+      label: "Повторить проверку",
+      run: () => {
+        if (lastAttempt.current) prepare(lastAttempt.current);
+      },
+    });
+  const defaultTarget =
+    view === "catalog"
+      ? `extensions-item-${visible.find((item) => item.id === selectedId)?.id ?? visible[0]?.id}`
+      : view === "details"
+        ? entries[1]?.id
+        : view === "review"
+          ? "extensions-commit"
+          : entries[1]?.id;
+  const target =
+    entries.find((entry) => entry.id === menuTarget) ??
+    entries.find((entry) => entry.id === defaultTarget) ??
+    entries[0];
+  const invoke = (entry: MenuEntry) => {
+    if (
+      !active ||
+      entry.disabled ||
+      (busy && !["extensions-cancel", "extensions-back"].includes(entry.id))
+    )
+      return;
+    onFocus();
+    setMenuTarget(entry.id);
+    entry.run();
+  };
+  const button = (
+    id: string,
+    options: {
+      primary?: boolean;
+      subtitle?: string;
+      label?: string;
+      trailing?: { label: string; tone?: MenuEntry["tone"] };
+    } = {},
+  ) => {
+    const entry = entries.find((item) => item.id === id);
+    return entry ? (
+      <DialogAction
+        key={id}
+        id={id}
+        label={terminalLine(
+          options.label ?? entry.label,
+          Math.max(1, width - 2),
+        )}
+        subtitle={
+          options.subtitle
+            ? terminalLine(options.subtitle, Math.max(1, width - 2))
+            : undefined
+        }
+        palette={palette}
+        active={target?.id === id && focused}
+        primary={options.primary}
+        tone={entry.tone}
+        trailing={options.trailing}
+        disabled={
+          entry.disabled ||
+          (busy && !["extensions-cancel", "extensions-back"].includes(id))
+        }
+        onSelect={() => invoke(entry)}
+      />
+    ) : null;
+  };
+  const targetId = target?.id;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Resizing must reveal the selected action or native editor after layout.
+  useLayoutEffect(() => {
+    if (active)
+      pendingScroll.current =
+        view === "source"
+          ? "extensions-source"
+          : edit
+            ? `extensions-editor-${edit.name}`
+            : targetId;
+  }, [active, targetId, edit, view, width, height]);
+  useUiKeyboard((key) => {
+    if (
+      !active ||
+      !focused ||
+      key.ctrl ||
+      key.meta ||
+      key.option ||
+      ["escape", "tab", "f2"].includes(key.name)
+    )
+      return;
+    const name = key.name.toLowerCase();
+    if (edit || view === "source") return;
+    if (searching) {
+      if (name === "down" || name === "up") {
+        key.preventDefault();
+        setSearching(false);
+        setMenuTarget(`extensions-item-${visible[0]?.id}`);
+      }
+      return;
+    }
+    if (name === "pageup" || name === "pagedown") {
+      key.preventDefault();
+      detailScroll.current?.scrollBy(
+        (name === "pageup" ? -1 : 1) * Math.max(1, height - 4),
+      );
+    } else if (
+      name === "up" ||
+      name === "down" ||
+      name === "home" ||
+      name === "end"
+    ) {
+      key.preventDefault();
+      const index = entries.findIndex((entry) => entry.id === target?.id);
+      const next =
+        name === "home"
+          ? 0
+          : name === "end"
+            ? entries.length - 1
+            : Math.max(
+                0,
+                Math.min(entries.length - 1, index + (name === "up" ? -1 : 1)),
+              );
+      setMenuTarget(entries[next]?.id ?? "");
+      const item = visible.find(
+        (item) => `extensions-item-${item.id}` === entries[next]?.id,
+      );
+      if (item && view === "catalog") setSelectedId(item.id);
+    } else if (name === "return" || name === "space") {
+      key.preventDefault();
+      if (target) invoke(target);
+    } else if (name === "/" && view === "catalog") {
+      key.preventDefault();
+      setSearching(true);
+    }
+  });
   const noticeRows = notice
-    ? compact
-      ? 1
-      : Math.min(3, Math.max(1, height - 5))
+    ? Math.min(
+        compact ? 1 : 3,
+        Math.max(1, height - 4),
+        Math.max(1, Math.ceil(stringWidth(notice) / Math.max(1, width))),
+      )
     : 0;
-  const listCount = Math.max(
-    1,
-    Math.floor((height - (compact ? 3 : 4) - (busy ? 1 : 0) - noticeRows) / 2),
-  );
-  const listStart = Math.max(
-    0,
-    Math.min(
-      visible.findIndex((i) => i.id === selectedId) - listCount + 1,
-      visible.length - listCount,
-    ),
-  );
+  const title =
+    view === "catalog"
+      ? ""
+      : view === "filters"
+        ? "Показать расширения"
+        : view === "details"
+          ? "О расширении"
+          : view === "settings"
+            ? "Параметры расширения"
+            : view === "versions"
+              ? "Сохранённые версии"
+              : view === "review"
+                ? "Проверка пакета"
+                : sourceKind === "install"
+                  ? "Установка расширения"
+                  : "Обновление расширения";
   return (
     <box
       id="extensions-panel"
@@ -545,415 +885,367 @@ export function OpenTuiExtensions({
       flexDirection="column"
       overflow="hidden"
     >
-      {busy && text(`Выполняется… ${progress}`, palette.accent)}
+      {busy && (
+        <text height={1} flexShrink={0} fg={palette.accent}>
+          {terminalLine(`Выполняется… ${progress}`, width)}
+        </text>
+      )}
       {notice && (
-        <box height={noticeRows} flexShrink={0}>
-          {text(compact ? terminalLine(notice, width) : notice, palette.yellow)}
+        <box height={noticeRows} flexShrink={0} overflow="hidden">
+          <text fg={failed ? palette.red : palette.yellow}>
+            {terminalSafeText(
+              compact ? terminalLine(notice, width) : notice,
+              1200,
+            )}
+          </text>
         </box>
       )}
-      {view === "source" ? (
-        <box flexDirection="column" gap={1}>
-          {text(
-            sourceKind === "install"
-              ? "Установить: путь к подготовленной папке или ZIP"
-              : `Обновить ${selected?.name}: путь к новому пакету`,
+      {view !== "catalog" && (
+        <box
+          height={1}
+          flexShrink={0}
+          flexDirection="row"
+          justifyContent="space-between"
+        >
+          {view === "review" ? (
+            <text height={1} fg={palette.accent}>
+              {title}
+            </text>
+          ) : (
+            button("extensions-back")
           )}
-          <input
-            id="extensions-source"
-            value={source}
-            focused={active && focused && !busy}
-            onInput={(v) => setSource(cleanSettingsInput(v))}
-            onSubmit={() =>
-              prepare({
-                kind: sourceKind,
-                source: source.trim(),
-                ...(sourceKind === "update" ? { id: selectedId } : {}),
-              })
-            }
-            backgroundColor={palette.raised}
-            textColor={palette.text}
-          />
-          <DialogAction
-            id="extensions-prepare"
-            label="Проверить пакет (Enter)"
-            palette={palette}
-            disabled={busy || !source.trim()}
-            onSelect={() =>
-              prepare({
-                kind: sourceKind,
-                source: source.trim(),
-                ...(sourceKind === "update" ? { id: selectedId } : {}),
-              })
-            }
-          />
-          {text(
-            "Проверка не выполняет JavaScript и не обращается к модели.",
-            palette.muted,
+          {!compact && view !== "review" && (
+            <text height={1} fg={palette.muted}>
+              {title}
+            </text>
           )}
         </box>
-      ) : view === "review" && review ? (
-        <TerminalScrollbox ref={detailScroll} width="100%" height="100%">
-          <box flexDirection="column" gap={1}>
-            {text(
-              `${review.name} · ${review.oldVersion ? review.oldVersion + " → " : ""}${review.version}`,
-              palette.accent,
-            )}
-            {text(
-              `ID: ${review.id}\n${review.description}\n${review.incompatible ?? "Совместим"} · ${review.compatibility}\n${review.location}\nSHA-256:\n${digestLines(review.digest)}\n${review.files} файлов · ${review.bytes} байт\nentry: ${review.entry}`,
-            )}
-            {review.oldDigest &&
-              review.oldDigest !== review.digest &&
-              text(
-                `Новое содержимое. Прежний SHA-256:\n${digestLines(review.oldDigest)}`,
-                palette.yellow,
-              )}
-            {review.kind === "remove" ? (
-              text(
-                "Подключение будет удалено. Занятые файлы сохраняются до выхода; пользовательские данные и история остаются.",
-                palette.yellow,
-              )
-            ) : (
-              <>
-                {text(
-                  "Доверенный JS получает доступ процесса к файлам, сети и запуску программ. SHA-256 не подтверждает автора.",
-                  palette.yellow,
-                )}
-                <DialogAction
-                  id="extensions-trust"
-                  label={`[${trust ? "*" : " "}] Я доверяю этому содержимому (T)`}
-                  palette={palette}
-                  active={trust}
-                  disabled={busy || !!review.incompatible}
-                  onSelect={() => setTrust(!trust)}
-                />
-              </>
-            )}
-            <DialogAction
-              id="extensions-commit"
-              label={
-                review.kind === "remove"
-                  ? "Удалить (Enter)"
-                  : review.kind === "install" && !trust
-                    ? "Установить без доверия (Enter)"
-                    : review.kind === "rollback"
-                      ? "Вернуть эту версию (Enter)"
-                      : "Подтвердить (Enter)"
-              }
-              palette={palette}
-              primary
-              disabled={
-                busy ||
-                !!review.incompatible ||
-                (review.kind !== "install" &&
-                  review.kind !== "remove" &&
-                  review.trustRequired &&
-                  !trust)
-              }
-              onSelect={commit}
-            />
-            <DialogAction
-              id="extensions-cancel"
-              label="Отмена (Esc)"
-              palette={palette}
-              onSelect={back}
-            />
-            {review.contents.map((f) =>
-              text(`${f.path} · ${f.bytes} байт · ${f.digest.slice(0, 12)}`),
-            )}
-          </box>
-        </TerminalScrollbox>
-      ) : view === "versions" && selected ? (
-        <TerminalScrollbox ref={detailScroll} width="100%" height="100%">
-          <box flexDirection="column">
-            {text(
-              "Версии · Enter проверяет выбранный rollback",
-              palette.accent,
-            )}
-            {selected.versions.map((v, i) => (
-              <DialogAction
-                key={v.key}
-                id={`extensions-version-${i}`}
-                active={versionIndex === i}
-                label={`${v.selected ? "* " : ""}${v.version} · ${v.digest.slice(0, 12)}${v.inUse ? " · используется" : ""}`}
-                palette={palette}
-                onSelect={() =>
-                  prepare({
-                    kind: "rollback",
-                    id: selected.id,
-                    versionKey: v.key,
-                  })
-                }
-              />
-            ))}
-          </box>
-        </TerminalScrollbox>
-      ) : view === "settings" && settings ? (
-        <TerminalScrollbox ref={detailScroll} width="100%" height="100%">
-          <box flexDirection="column" gap={1}>
-            {text(`Настройки · ${selected?.name}`, palette.accent)}
-            {!settings.schema.fields.length &&
-              text("У этого расширения нет настроек.")}
-            {settings.unknownKeys.length > 0 &&
-              text(
-                `Сохранены неизвестные поля: ${settings.unknownKeys.join(", ")}`,
-                palette.yellow,
-              )}
-            {settings.issues.map((issue) => text(issue, palette.yellow))}
-            {settings.schema.fields.map((f, i) => (
-              <box key={f.name} flexDirection="column">
-                <DialogAction
-                  id={`extensions-setting-${f.name}`}
-                  label={`${f.label}: ${f.secret ? (secrets[f.name] ? "Новый секрет" : clearSecrets.includes(f.name) ? "Будет удалён" : settings.secretSet[f.name] ? "Сохранён" : "Не задан") : String(values[f.name] ?? "Не задано")}`}
-                  palette={palette}
-                  active={fieldIndex === i}
-                  disabled={busy}
-                  onSelect={() => editField(i)}
-                />
-                {f.description && text(f.description, palette.muted)}
-                {f.secret && (
-                  <DialogAction
-                    label="Сбросить секрет"
-                    palette={palette}
-                    disabled={busy}
-                    onSelect={() => {
-                      setClearSecrets([...clearSecrets, f.name]);
-                      const next = { ...secrets };
-                      delete next[f.name];
-                      setSecrets(next);
-                    }}
-                  />
-                )}
-              </box>
-            ))}
-            {edit && (
-              <box flexDirection="column">
-                {text(edit.label)}
-                {edit.secret ? (
-                  <SettingsSecretInput
-                    value={input}
-                    onChange={setInput}
-                    onSubmit={acceptEdit}
-                    palette={palette}
-                    active={active && focused}
-                  />
-                ) : (
-                  <input
-                    value={input}
-                    onInput={setInput}
-                    onSubmit={acceptEdit}
-                    focused={active && focused}
-                    backgroundColor={palette.raised}
-                    textColor={palette.text}
-                  />
-                )}
-              </box>
-            )}
-            {settings.schema.fields.length > 0 && (
-              <box flexDirection="row" gap={1}>
-                <DialogAction
-                  id="extensions-settings-save"
-                  label="Сохранить (F2)"
-                  palette={palette}
-                  disabled={busy}
-                  onSelect={() => saveSettings()}
-                />
-                <DialogAction
-                  id="extensions-settings-reset"
-                  label="Сбросить (R)"
-                  palette={palette}
-                  disabled={busy}
-                  onSelect={() => saveSettings(true)}
-                />
-                <DialogAction
-                  id="extensions-settings-discard"
-                  label="Отменить изменения (D)"
-                  palette={palette}
-                  disabled={busy}
-                  onSelect={() => {
-                    setValues(settings.values);
-                    setSecrets({});
-                    setClearSecrets([]);
-                    setEdit(undefined);
-                    setInput("");
-                  }}
-                />
-                <DialogAction
-                  id="extensions-settings-refresh"
-                  label="Перечитать, сохранив ввод"
-                  palette={palette}
-                  disabled={busy}
-                  onSelect={() =>
-                    run(async () => {
-                      if (selected?.digest) {
-                        const current = await management.settings({
-                          id: selected.id,
-                          digest: selected.digest,
-                          revision: selected.revision,
-                        });
-                        setSettings(current);
-                        setNotice(
-                          "Состояние перечитано; введённые значения сохранены. Подтвердите сохранение заново.",
-                        );
-                      }
-                    })
-                  }
-                />
-              </box>
-            )}
-            {text(
-              settings.restartRequired
-                ? "Параметры применяются после перезапуска приложения."
-                : "Параметры применяются сразу после сохранения.",
-              palette.muted,
-            )}
-          </box>
-        </TerminalScrollbox>
-      ) : (
+      )}
+      {view === "catalog" && (
         <>
-          <box flexDirection="row" gap={1} flexShrink={0}>
-            <DialogAction
-              id="extensions-install"
-              label={compact ? "Установить (I)" : "Установить (I)"}
-              palette={palette}
-              disabled={busy}
-              onSelect={() => {
-                setSourceKind("install");
-                setSource("");
-                setView("source");
-              }}
-            />
-            {!compact && (
-              <DialogAction
-                id="extensions-refresh"
-                label="Обновить список"
-                palette={palette}
-                disabled={busy}
-                onSelect={() => run(refresh)}
-              />
-            )}
-          </box>
-          {searching ? (
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: Enter focuses the same native search input. */}
+          <box
+            height={1}
+            flexShrink={0}
+            backgroundColor={palette.raised}
+            onMouseDown={() => {
+              onFocus();
+              setSearching(true);
+              setMenuTarget("extensions-search");
+            }}
+          >
             <input
               id="extensions-search"
               value={query}
-              onInput={setQuery}
-              onSubmit={() => setSearching(false)}
-              focused={active && focused}
-              placeholder="Найти расширение"
+              onInput={(value) => {
+                setQuery(cleanSettingsInput(value));
+                setMenuTarget("");
+              }}
+              onSubmit={() => {
+                setSearching(false);
+                setMenuTarget(`extensions-item-${visible[0]?.id}`);
+              }}
+              focused={active && focused && searching && !busy}
+              placeholder="Поиск расширений…"
               backgroundColor={palette.raised}
+              focusedBackgroundColor={palette.raised}
               textColor={palette.text}
-            />
-          ) : !compact ? (
-            <DialogAction
-              label={`Поиск (/): ${query || "Все"}`}
-              palette={palette}
-              onSelect={() => setSearching(true)}
-            />
-          ) : null}
-          <box flexDirection="row" flexShrink={0}>
-            <DialogAction
-              id="extensions-filter"
-              label={
-                compact
-                  ? `${filters[filter]} (F)`
-                  : `Фильтр (F): ${filters[filter]}`
-              }
-              palette={palette}
-              onSelect={() => setFilter((filter + 1) % filters.length)}
+              focusedTextColor={palette.text}
+              placeholderColor={palette.muted}
             />
           </box>
-          <box flexDirection="row" flexGrow={1} minHeight={0}>
-            {(wide || !detail) && (
-              <TerminalScrollbox
-                width={wide ? listWidth : "100%"}
-                height="100%"
-              >
-                <box flexDirection="column">
-                  {!visible.length &&
-                    text("Нет расширений по фильтру.", palette.muted)}
-                  {visible.slice(listStart, listStart + listCount).map((i) => (
-                    <DialogAction
-                      key={i.id}
-                      id={`extensions-item-${i.id}`}
-                      label={terminalLine(
-                        i.name,
-                        wide ? listWidth - 2 : width - 2,
-                      )}
-                      subtitle={terminalLine(
-                        `${i.version} · ${EXTENSION_STATE_LABELS[i.state]}`,
-                        wide ? listWidth - 2 : width - 2,
-                      )}
-                      palette={palette}
-                      active={i.id === selectedId}
-                      onSelect={() => {
-                        setSelectedId(i.id);
-                        setDetail(true);
-                      }}
-                    />
-                  ))}
-                </box>
-              </TerminalScrollbox>
-            )}
-            {(wide || detail) && (
-              <TerminalScrollbox
-                ref={detailScroll}
-                width={wide ? width - listWidth : "100%"}
-                height="100%"
-              >
-                <box flexDirection="column" gap={1}>
-                  {selected ? (
-                    <>
-                      {text(
-                        compact
-                          ? terminalLine(selected.name, width)
-                          : `${selected.name} · ${selected.version}`,
-                        palette.accent,
-                      )}
-                      {text(
-                        compact
-                          ? terminalLine(
-                              `${selected.version} · ${EXTENSION_STATE_LABELS[selected.state]}`,
-                              width,
-                            )
-                          : EXTENSION_STATE_LABELS[selected.state],
-                      )}
-                      {text(
-                        `${selected.description}\nID: ${selected.id}\nИсточник: ${selected.source}\nСовместимость: ${selected.compatibility}\nДоверие: ${selected.trusted ? "Подтверждено" : "Не выдано"}\nСохранено: ${selected.desiredEnabled ? "Включено" : "Выключено"}\nСейчас: ${selected.actualLabel}`,
-                      )}
-                      {selected.reason && text(selected.reason, palette.yellow)}
-                      {selected.restartRequired &&
-                        text(
-                          "Загруженная версия сохраняется до выхода. Дождитесь задач или остановите их; сохраните черновик и перезапустите ChiselCode.",
-                          palette.yellow,
-                        )}
-                      {selected.deferredRemoval &&
-                        text(
-                          "Удаление занятых файлов отложено; пользовательские данные сохранены.",
-                          palette.yellow,
-                        )}
-                      {selected.actions.map((a) => (
-                        <DialogAction
-                          key={a}
-                          id={`extensions-action-${a}`}
-                          label={actionLabels[a]}
-                          palette={palette}
-                          disabled={busy}
-                          onSelect={() => action(a)}
-                        />
-                      ))}
-                    </>
-                  ) : (
-                    text("Выберите расширение.", palette.muted)
-                  )}
-                </box>
-              </TerminalScrollbox>
-            )}
+          <box
+            height={1}
+            flexShrink={0}
+            flexDirection="row"
+            justifyContent="space-between"
+            marginTop={roomy ? 1 : 0}
+          >
+            {button("extensions-install", { primary: true })}
+            {button("extensions-filter")}
+            {width >= 30 && button("extensions-refresh")}
           </box>
+          {roomy && (
+            <text height={1} marginTop={1} fg={palette.muted}>
+              Показано {visible.length} из {items.length} · Выберите расширение
+            </text>
+          )}
         </>
       )}
-      <text height={1} fg={palette.muted}>
+      <TerminalScrollbox
+        key={view}
+        ref={detailScroll}
+        flexGrow={1}
+        minHeight={0}
+        width="100%"
+        viewportCulling
+        scrollX={false}
+        horizontalScrollbarOptions={{ visible: false }}
+        verticalScrollbarOptions={{ visible: !compact }}
+        renderBefore={() => {
+          if (!pendingScroll.current || !detailScroll.current?.scrollHeight)
+            return;
+          detailScroll.current.scrollChildIntoView(pendingScroll.current);
+          pendingScroll.current = undefined;
+        }}
+      >
+        <box flexDirection="column" gap={roomy ? 1 : 0}>
+          {view === "catalog" ? (
+            <>
+              {!loaded && text("Загружаем расширения…", palette.muted)}
+              {loaded &&
+                !visible.length &&
+                text(
+                  query
+                    ? "Ничего не найдено. Измените запрос или фильтр."
+                    : "В этой группе пока нет расширений.",
+                  palette.muted,
+                )}
+              {visible.map((item) =>
+                button(`extensions-item-${item.id}`, {
+                  label: terminalLine(
+                    item.name,
+                    Math.max(
+                      1,
+                      width -
+                        (roomy
+                          ? stringWidth(EXTENSION_STATE_LABELS[item.state]) + 5
+                          : 4),
+                    ),
+                  ),
+                  trailing: roomy
+                    ? {
+                        label: EXTENSION_STATE_LABELS[item.state],
+                        tone: stateTone(item),
+                      }
+                    : undefined,
+                  subtitle: roomy
+                    ? `${item.version} · ${item.origin === "builtin" ? "Встроенное" : "Установлено"} · ${item.description}`
+                    : `${item.version} · ${EXTENSION_STATE_LABELS[item.state]}`,
+                }),
+              )}
+            </>
+          ) : view === "filters" ? (
+            entries
+              .filter((entry) => entry.id.startsWith("extensions-filter-"))
+              .map((entry) => button(entry.id))
+          ) : view === "details" && selected ? (
+            <>
+              <text height={1} fg={palette.accent}>
+                <strong>
+                  {terminalLine(
+                    `${selected.name} · ${selected.version}`,
+                    width,
+                  )}
+                </strong>
+              </text>
+              {text(
+                EXTENSION_STATE_LABELS[selected.state],
+                stateTone(selected) === "error"
+                  ? palette.red
+                  : stateTone(selected) === "warning"
+                    ? palette.yellow
+                    : selected.state === "working"
+                      ? palette.green
+                      : palette.muted,
+              )}
+              {text(
+                terminalLine(
+                  selected.description,
+                  Math.max(1, width * (compact ? 2 : 3)),
+                ),
+              )}
+              {text(`Сейчас: ${selected.actualLabel}`, palette.muted)}
+              {selected.reason && text(selected.reason, palette.yellow)}
+              {selected.restartRequired &&
+                text(
+                  "Изменения применятся после перезапуска ChiselCode.",
+                  palette.yellow,
+                )}
+              {selected.deferredRemoval &&
+                text(
+                  "Удаление занятых файлов отложено; пользовательские данные сохранены.",
+                  palette.yellow,
+                )}
+              <box
+                id="extensions-actions"
+                flexDirection="column"
+                marginTop={roomy ? 1 : 0}
+              >
+                {orderedActions
+                  .filter((name) => selected.actions.includes(name))
+                  .map((name) => button(`extensions-action-${name}`))}
+              </box>
+              {button("extensions-metadata")}
+              {metadata &&
+                text(
+                  `ID: ${selected.id}\nИсточник: ${selected.source}\nСовместимость: ${selected.compatibility}\nДоверие: ${selected.trusted ? "Подтверждено" : "Не выдано"}\nСохранено: ${selected.desiredEnabled ? "Включено" : "Выключено"}${selected.digest ? `\nSHA-256:\n${digestLines(selected.digest)}` : ""}`,
+                  palette.muted,
+                )}
+            </>
+          ) : view === "source" ? (
+            <box flexDirection="column" gap={compact ? 0 : 1}>
+              {text(
+                sourceKind === "install"
+                  ? "Укажите папку готового расширения или ZIP."
+                  : `Новый пакет для ${selected?.name}`,
+              )}
+              <input
+                id="extensions-source"
+                value={source}
+                focused={active && focused && !busy}
+                onInput={(value) => setSource(cleanSettingsInput(value))}
+                onSubmit={prepareSource}
+                backgroundColor={palette.raised}
+                focusedBackgroundColor={palette.raised}
+                textColor={palette.text}
+                focusedTextColor={palette.text}
+                placeholder="Путь к папке или ZIP…"
+              />
+              {button("extensions-prepare", { primary: true })}
+              {text(
+                "Проверка читает пакет без запуска его кода. Перед установкой появится подтверждение.",
+                palette.muted,
+              )}
+            </box>
+          ) : view === "review" && review ? (
+            <>
+              <text fg={palette.accent}>
+                <strong>
+                  {terminalSafeText(
+                    `${review.name} · ${review.oldVersion ? review.oldVersion + " → " : ""}${review.version}`,
+                  )}
+                </strong>
+              </text>
+              {text(
+                `${review.description}\nID: ${review.id}\n${review.incompatible ?? "Совместим"} · ${review.compatibility}\n${review.location}\nSHA-256:\n${digestLines(review.digest)}\n${review.files} файлов · ${review.bytes} байт\nentry: ${review.entry}`,
+              )}
+              {review.oldDigest &&
+                review.oldDigest !== review.digest &&
+                text(
+                  `Новое содержимое. Прежний SHA-256:\n${digestLines(review.oldDigest)}`,
+                  palette.yellow,
+                )}
+              {text(
+                review.kind === "remove"
+                  ? "Подключение будет удалено. Занятые файлы сохраняются до выхода; пользовательские данные и история остаются."
+                  : "Доверенный JS получает доступ процесса к файлам, сети и запуску программ. SHA-256 не подтверждает автора.",
+                palette.yellow,
+              )}
+              {review.contents.map((file) =>
+                text(
+                  `${file.path} · ${file.bytes} байт · ${file.digest.slice(0, 12)}`,
+                ),
+              )}
+            </>
+          ) : view === "versions" && selected ? (
+            <>
+              {text(
+                "Выберите версию, чтобы проверить её перед возвратом.",
+                palette.muted,
+              )}
+              {selected.versions.map((_version, index) =>
+                button(`extensions-version-${index}`, {
+                  subtitle: entries.find(
+                    (entry) => entry.id === `extensions-version-${index}`,
+                  )?.subtitle,
+                }),
+              )}
+            </>
+          ) : view === "settings" && settings ? (
+            <>
+              {text(selected?.name ?? "", palette.accent)}
+              {!settings.schema.fields.length &&
+                text("У этого расширения нет настроек.", palette.muted)}
+              {settings.unknownKeys.length > 0 &&
+                text(
+                  `Сохранены неизвестные поля: ${settings.unknownKeys.join(", ")}`,
+                  palette.yellow,
+                )}
+              {settings.issues.map((issue) => text(issue, palette.yellow))}
+              {settings.schema.fields.map((field) => (
+                <box key={field.name} flexDirection="column">
+                  {button(`extensions-setting-${field.name}`)}
+                  {field.description &&
+                    !compact &&
+                    text(field.description, palette.muted)}
+                  {field.secret && button(`extensions-clear-${field.name}`)}
+                  {edit?.name === field.name && (
+                    <box
+                      id={`extensions-editor-${field.name}`}
+                      flexDirection="column"
+                      marginTop={compact ? 0 : 1}
+                    >
+                      {edit.secret ? (
+                        <SettingsSecretInput
+                          value={input}
+                          onChange={setInput}
+                          onSubmit={acceptEdit}
+                          palette={palette}
+                          active={active && focused}
+                        />
+                      ) : (
+                        <input
+                          id="extensions-setting-input"
+                          value={input}
+                          onInput={(value) =>
+                            setInput(cleanSettingsInput(value))
+                          }
+                          onSubmit={acceptEdit}
+                          focused={active && focused}
+                          backgroundColor={palette.raised}
+                          textColor={palette.text}
+                        />
+                      )}
+                      {text("Enter подтвердить · Esc отменить", palette.muted)}
+                    </box>
+                  )}
+                </box>
+              ))}
+              {settings.schema.fields.length > 0 && (
+                <box flexDirection="column" marginTop={roomy ? 1 : 0}>
+                  {button("extensions-settings-save", { primary: true })}
+                  {button("extensions-settings-discard")}
+                  {button("extensions-settings-reset")}
+                  {button("extensions-settings-reload")}
+                </box>
+              )}
+              {text(
+                settings.restartRequired
+                  ? "Параметры применяются после перезапуска приложения."
+                  : "Параметры применяются сразу после сохранения.",
+                palette.muted,
+              )}
+            </>
+          ) : (
+            text(
+              "Расширение недоступно. Вернитесь в каталог и обновите список.",
+              palette.yellow,
+            )
+          )}
+          {button("extensions-retry")}
+        </box>
+      </TerminalScrollbox>
+      {view === "review" && review && (
+        <box flexDirection="column" flexShrink={0}>
+          {button("extensions-trust")}
+          {button("extensions-commit", { primary: true })}
+          {button("extensions-cancel")}
+        </box>
+      )}
+      <text height={1} flexShrink={0} fg={palette.muted}>
         {terminalLine(
-          "↑↓ выбор · Enter детали · I установка · E вкл · S настройки · U обновить · V версии · Esc назад",
+          edit
+            ? "Enter подтвердить · Esc отменить"
+            : view === "source"
+              ? "Enter проверить · Esc назад"
+              : searching
+                ? "Enter к списку · Esc назад"
+                : compact
+                  ? "↑↓ · Enter · Esc назад"
+                  : view === "catalog"
+                    ? "↑↓ выбор · Enter открыть · Esc назад"
+                    : "↑↓ действие · Enter выбрать · Esc назад",
           width,
         )}
       </text>

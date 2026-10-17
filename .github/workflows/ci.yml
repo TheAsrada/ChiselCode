@@ -103,6 +103,7 @@ jobs:
           tests/integration/graphics-runtime.test.ts
           tests/unit/settings-shell.test.tsx tests/unit/opentui-mcp.test.tsx
           tests/unit/opentui-skills.test.tsx tests/integration/settings-tools-runtime.test.ts
+          tests/unit/opentui-extension-settings.test.tsx
       - name: Build CLI and public SDK
         run: bun run build
       - name: Installed package starts, executes tools, downloads and loads the SDK
