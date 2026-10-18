@@ -2,7 +2,7 @@
 
 [Документация](../README.md) · [Архитектура](../architecture.md) · [Установка](../installation.md) · [Проверки](../contributors/reports/windows-update.md)
 
-Статус: принято, исходники 0.6.35.
+Статус: принято, 0.6.35.
 
 ## Причина и решение
 

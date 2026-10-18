@@ -436,4 +436,4 @@ Workspace extension scope владеет staged UI registry. Linked consumers о
 
 ## Самообновление
 
-Скачивание и проверка установщика принадлежат application updater. В исходниках 0.6.35 Windows-перезапуск использует отдельную причину выхода после cleanup, ожидание parent process в NSIS и замену файла с сохранением прежней версии при блокировке. [Контракт, журнал и восстановление](architecture/self-update.md).
+Скачивание и проверка установщика принадлежат application updater. В 0.6.35 Windows-перезапуск использует отдельную причину выхода после cleanup, ожидание parent process в NSIS и замену файла с сохранением прежней версии при блокировке. [Контракт, журнал и восстановление](architecture/self-update.md).
