@@ -117,6 +117,14 @@ jobs:
       - name: Windows updater, actual executable replacement and console restart
         if: runner.os == 'Windows'
         run: bun tests/fixtures/windows-update.ts
+      - name: Save actual Windows updater captures
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-update-evidence
+          path: dist/update-captures/**
+          if-no-files-found: warn
+          retention-days: 7
       - name: Build CLI and public SDK
         run: bun run build
       - name: Installed package starts, executes tools, downloads and loads the SDK

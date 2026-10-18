@@ -123,7 +123,7 @@ try {
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "$f=[IO.File]::Open($env:CHISEL_LOCK_PATH,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read); [IO.File]::WriteAllText($env:CHISEL_LOCK_READY,'ready'); [Console]::ReadLine() | Out-Null; $f.Dispose()",
+      "$f=[IO.File]::Open($env:CHISEL_LOCK_PATH,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read); [IO.File]::WriteAllText($env:CHISEL_LOCK_READY,'ready'); $deadline=[DateTime]::UtcNow.AddSeconds(30); while ([DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 100 }; $f.Dispose()",
     ],
     {
       env: { CHISEL_LOCK_PATH: client, CHISEL_LOCK_READY: locked },
