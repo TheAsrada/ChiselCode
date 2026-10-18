@@ -3,6 +3,7 @@ import {
   planSelfUpdate,
   type UpdateCheckResult,
 } from "../../src/commands/update.js";
+import { completeInteractiveExit } from "../../src/ui/interactive-exit.js";
 import {
   UpdateController,
   type UpdateDependencies,
@@ -63,6 +64,40 @@ function fixture(overrides: Partial<UpdateDependencies> = {}) {
 }
 
 describe("application updater", () => {
+  test("a completed update bypasses Explorer/explicit pause and releases the process", async () => {
+    const events: string[] = [];
+    await completeInteractiveExit(
+      "update",
+      async () => {
+        events.push("pause");
+      },
+      (code) => {
+        events.push(`exit:${code}`);
+      },
+    );
+    expect(events).toEqual(["exit:0"]);
+    await completeInteractiveExit(
+      "exit",
+      async () => {
+        events.push("pause");
+      },
+      () => {
+        throw new Error("ordinary exit was forced");
+      },
+    );
+    expect(events).toEqual(["exit:0", "pause"]);
+  });
+
+  test("a previous installer failure stays visible after the release check", async () => {
+    const { updater } = fixture({
+      previousFailure: async () => "Файл занят; update.log",
+    });
+    await updater.check();
+    expect(updater.snapshot.previousFailure).toBe("Файл занят; update.log");
+    expect(updater.snapshot.phase).toBe("available");
+    expect(updater.restartHandedOff).toBe(false);
+    await updater.dispose();
+  });
   test("background checks are cached and never download or install", async () => {
     const { updater, calls } = fixture();
     await updater.check();
@@ -197,6 +232,7 @@ describe("application updater", () => {
     expect(calls.downloads).toBe(1);
     await updater.restart();
     expect(calls.launches).toBe(1);
+    expect(updater.restartHandedOff).toBe(true);
     await updater.restart();
     expect(calls.launches).toBe(1);
     await updater.dispose();
@@ -275,6 +311,7 @@ describe("application updater", () => {
     await updater.restart();
     expect(updater.snapshot.phase).toBe("ready");
     expect(updater.snapshot.error).toBe("Installer blocked");
+    expect(updater.restartHandedOff).toBe(false);
     await updater.restart();
     expect(attempts).toBe(2);
     expect(calls.downloads).toBe(1);

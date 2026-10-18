@@ -12,7 +12,10 @@ import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { OpenTuiUpdate, updateNotice } from "../../src/ui/opentui-update.js";
 
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
-import { UpdateController } from "../../src/ui/update-controller.js";
+import {
+  UpdateController,
+  type UpdateDependencies,
+} from "../../src/ui/update-controller.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
 
@@ -41,7 +44,7 @@ async function click(setup: Setup, id: string) {
   await frame(setup);
 }
 
-function fixture() {
+function fixture(overrides: Partial<UpdateDependencies> = {}) {
   let report: ((progress: DownloadProgress) => void) | undefined;
   let finish: ((asset: DownloadedAsset) => void) | undefined;
   let launches = 0;
@@ -77,6 +80,7 @@ function fixture() {
       launches++;
     },
     remove: async () => {},
+    ...overrides,
   });
   return {
     updater,
@@ -242,4 +246,36 @@ test("home notifications ignore incomplete releases and show a prepared update",
   await downloading;
   expect(updateNotice(api.updater.snapshot)).toContain("готово");
   await api.updater.dispose();
+});
+
+test("the previous installer failure is visible and a download can be retried", async () => {
+  const api = fixture({
+    previousFailure: async () =>
+      "Прежняя установка не завершена: файл занят. Журнал: update.log",
+  });
+  await api.updater.check();
+  expect(updateNotice(api.updater.snapshot)).toBe(
+    "Обновление не завершено | /update",
+  );
+  const setup = await testRender(
+    <OpenTuiUpdate
+      updater={api.updater}
+      width={80}
+      height={24}
+      palette={themePalette("obsidian")}
+      onClose={() => {}}
+    />,
+    { width: 80, height: 24 },
+  );
+  try {
+    await frame(setup);
+    expect(setup.captureCharFrame()).toContain("файл занят");
+    expect(setup.captureCharFrame()).toContain("update.log");
+    await click(setup, "update-primary");
+    expect(api.updater.snapshot.phase).toBe("downloading");
+  } finally {
+    api.updater.cancel();
+    act(() => setup.renderer.destroy());
+    await api.updater.dispose();
+  }
 });

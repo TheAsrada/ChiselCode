@@ -40,7 +40,7 @@ const ui = await createTestRenderer({
   height: 40,
   exitOnCtrlC: false,
 });
-let application: Promise<void> | undefined;
+let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 const frame = async () => {
   for (let i = 0; i < 3; i++)
     await act(async () => {

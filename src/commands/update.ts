@@ -8,9 +8,16 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -461,16 +468,66 @@ export const NSIS_SILENT_ARGS: readonly string[] = ["/S"];
 export function windowsUpdateArguments(
   projectPath: string,
   sessionId?: string,
+  restart?: { parentPid: number; installDirectory: string },
 ): string[] {
   if (/["\r\n\0]/.test(projectPath))
     throw new Error("Недопустимый путь проекта для перезапуска.");
   if (sessionId && !/^[\w-]+$/.test(sessionId))
     throw new Error("Недопустимый ID сессии для перезапуска.");
+  if (
+    restart &&
+    (!Number.isSafeInteger(restart.parentPid) ||
+      restart.parentPid <= 0 ||
+      /["\r\n\0]/.test(restart.installDirectory) ||
+      !restart.installDirectory)
+  )
+    throw new Error("Недопустимые параметры установки.");
   return [
     ...NSIS_SILENT_ARGS,
     `/CHISEL_CWD=${projectPath}`,
     ...(sessionId ? [`/CHISEL_RESUME=${sessionId}`] : []),
+    ...(restart
+      ? [
+          `/CHISEL_PARENT_PID=${restart.parentPid}`,
+          `/D=${restart.installDirectory}`,
+        ]
+      : []),
   ];
+}
+
+/** NSIS parses key="value" itself; /D must be last and unquoted, even with spaces. No shell. */
+export function encodeNsisArguments(args: readonly string[]): string[] {
+  return args.map((arg, index) => {
+    if (/["\r\n\0]/.test(arg))
+      throw new Error("Недопустимый аргумент установщика.");
+    if (arg.startsWith("/D=")) {
+      if (index !== args.length - 1)
+        throw new Error("/D должен быть последним аргументом.");
+      return arg;
+    }
+    const equal = arg.indexOf("=");
+    return equal >= 0
+      ? `${arg.slice(0, equal + 1)}"${arg.slice(equal + 1)}"`
+      : arg;
+  });
+}
+
+/** Best-effort diagnostic from the installer, including attempts from older clients. */
+export async function previousWindowsUpdateFailure(): Promise<
+  string | undefined
+> {
+  if (process.platform !== "win32" || !isInstalledBinary()) return;
+  const path = join(dirname(process.execPath), "update.log");
+  try {
+    if ((await stat(path)).size > 64 * 1024) return;
+    const text = (await readFile(path)).toString("utf16le");
+    const failure = /(?:^|\r?\n)failed: ([^\r\n]+)/.exec(text)?.[1];
+    return failure
+      ? `Предыдущее обновление не завершено: ${failure}. Журнал: ${path}`
+      : undefined;
+  } catch {
+    return;
+  }
 }
 
 export function launchWindowsInstaller(
@@ -480,11 +537,16 @@ export function launchWindowsInstaller(
   return new Promise((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(assetPath, [...args], {
-        detached: true,
-        stdio: "ignore",
-        shell: false,
-      });
+      child = spawn(
+        assetPath,
+        process.platform === "win32" ? encodeNsisArguments(args) : [...args],
+        {
+          detached: true,
+          stdio: "ignore",
+          shell: false,
+          windowsVerbatimArguments: process.platform === "win32",
+        },
+      );
     } catch (error) {
       reject(toLaunchError(assetPath, error));
       return;

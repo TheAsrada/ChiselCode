@@ -96,7 +96,7 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     height: 40,
     exitOnCtrlC: false,
   });
-  let application: Promise<void> | undefined;
+  let application: ReturnType<typeof runOpenTuiAgent> | undefined;
   const frames = async (count = 3) => {
     for (let i = 0; i < count; i++)
       await act(async () => {

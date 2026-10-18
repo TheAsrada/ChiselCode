@@ -9,6 +9,7 @@ import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import type { UpdateController, UpdateState } from "./update-controller.js";
 
 export function updateNotice(state?: UpdateState): string | undefined {
+  if (state?.previousFailure) return "Обновление не завершено | /update";
   const plan = state?.plan;
   if (!plan?.updateAvailable || plan.error || plan.assetReady !== true)
     return undefined;
@@ -287,10 +288,17 @@ export function OpenTuiUpdate({
             Релиз опубликован, файлы ещё собираются. Проверьте чуть позже.
           </text>
         )}
-        {(state.error || restartBlocked) && (
-          <text fg={state.error ? palette.red : palette.yellow}>
+        {(state.error || state.previousFailure || restartBlocked) && (
+          <text
+            fg={
+              state.error || state.previousFailure
+                ? palette.red
+                : palette.yellow
+            }
+          >
             {terminalSafeText(
               state.error ??
+                state.previousFailure ??
                 "Запрос ещё выполняется. Перезапуск доступен после завершения запроса и очереди.",
             )}
           </text>

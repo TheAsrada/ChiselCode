@@ -34,6 +34,10 @@ import {
 import { CredentialStore } from "./security/credentials.js";
 import { projectSessionStore } from "./sessions/project-store.js";
 import {
+  completeInteractiveExit,
+  type InteractiveExitReason,
+} from "./ui/interactive-exit.js";
+import {
   describeTerminalSize,
   formatTerminalSizeLine,
 } from "./ui/terminal-size.js";
@@ -118,8 +122,9 @@ program
         process.exitCode = 2;
         return;
       }
-      await startTui(options);
-      await pauseBeforeExit(raw);
+      await completeInteractiveExit(await startTui(options), () =>
+        pauseBeforeExit(raw),
+      );
       return;
     }
 
@@ -156,7 +161,7 @@ program
     if (provider && !(await getProviderCatalog()).registry.has(provider))
       throw new Error(`Неизвестный сервис: ${provider}`);
     const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
-    await runOpenTuiAgent(
+    const reason = await runOpenTuiAgent(
       {
         provider,
         profile:
@@ -166,7 +171,7 @@ program
       true,
       true,
     );
-    await pauseBeforeExit();
+    await completeInteractiveExit(reason, () => pauseBeforeExit());
   });
 
 program
@@ -399,7 +404,7 @@ function argvFlagValue(flag: string): string | undefined {
   return value && !value.startsWith("-") ? value : undefined;
 }
 
-async function startTui(options: RunOptions): Promise<void> {
+async function startTui(options: RunOptions): Promise<InteractiveExitReason> {
   const config = await loadGlobalConfig();
   const initialSession = options.resume
     ? await (async () => {
@@ -433,7 +438,7 @@ async function startTui(options: RunOptions): Promise<void> {
       throw error;
   }
   const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
-  await runOpenTuiAgent(options, initialSession, !keyReady && !initialSession);
+  return runOpenTuiAgent(options, initialSession, !keyReady && !initialSession);
 }
 
 function isTooManyArgumentsError(error: unknown): boolean {

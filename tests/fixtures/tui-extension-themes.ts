@@ -82,7 +82,7 @@ globalThis.fetch = Object.assign(
   { preconnect: originalFetch.preconnect },
 );
 let ui!: Awaited<ReturnType<typeof createTestRenderer>>;
-let application: Promise<void> | undefined;
+let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 async function frame() {
   await act(async () => {
     await ui.renderOnce();

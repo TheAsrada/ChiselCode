@@ -372,7 +372,7 @@ async function idle() {
     "Operation did not finish",
   );
 }
-let application: Promise<void> | undefined;
+let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 try {
   await act(async () => {
     application = runOpenTuiAgent(

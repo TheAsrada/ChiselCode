@@ -79,7 +79,7 @@ if (phase < 0) {
     height: 36,
     exitOnCtrlC: false,
   });
-  let application: Promise<void> | undefined,
+  let application: ReturnType<typeof runOpenTuiAgent> | undefined,
     fetches = 0;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (request: Parameters<typeof fetch>[0]) => {

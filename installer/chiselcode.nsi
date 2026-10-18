@@ -92,49 +92,15 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 LangString DESC_SecMain ${LANG_RUSSIAN} "Файлы ChiselCode, команда chisel в PATH и ярлык в меню «Пуск» (обязательно)."
 LangString DESC_SecDesktop ${LANG_RUSSIAN} "Ярлык для запуска ChiselCode на рабочем столе."
 
-; Remembers whether we are updating an existing install (for silent relaunch).
-Var WasUpdate
-; Set when the main binary could not be replaced (still locked after retries):
-; silent relaunch must not start the stale copy then.
-Var InstallFailed
-Var RestartCwd
-Var RestartSession
+!include "update.nsh"
 
 Function .onInit
-  ${GetParameters} $R0
-  ${GetOptions} $R0 "/CHISEL_CWD=" $RestartCwd
-  ${GetOptions} $R0 "/CHISEL_RESUME=" $RestartSession
-  StrCpy $InstallFailed "0"
-  IfFileExists "$INSTDIR\${EXENAME}" 0 done
-    StrCpy $WasUpdate "1"
-  done:
+  Call ChiselUpdateInit
 FunctionEnd
 
 Section "ChiselCode" SecMain
   SectionIn RO
-  SetOutPath "$INSTDIR"
-  ; The updater (/update) exits the app right before launching us, but give a
-  ; running instance a grace period instead of failing instantly when the
-  ; file is still locked. Last resort: defer the stale file to reboot.
-  StrCpy $R0 0
-  delete_retry:
-    ClearErrors
-    Delete "$INSTDIR\${EXENAME}"
-    ${If} ${Errors}
-      IntOp $R0 $R0 + 1
-      ${If} $R0 >= 20
-        Delete /REBOOTOK "$INSTDIR\${EXENAME}"
-        Goto delete_done
-      ${EndIf}
-      Sleep 500
-      Goto delete_retry
-    ${EndIf}
-  delete_done:
-  ClearErrors
-  File "/oname=${EXENAME}" "..\dist\release\chisel-windows-x64.exe"
-  ${If} ${Errors}
-    StrCpy $InstallFailed "1"
-  ${EndIf}
+  !insertmacro ChiselStageBinary "..\dist\release\chisel-windows-x64.exe"
   File "/oname=${ICONFILE}" "assets\${ICONFILE}"
   File "/oname=LICENSE.txt" "..\LICENSE"
   File "/oname=README.txt" "README.txt"
@@ -189,21 +155,7 @@ SectionEnd
 ; Skipped when the binary could not be replaced: launching the stale copy
 ; would fake a successful update on the old version.
 Section "-RelaunchAfterSilentUpdate"
-  IfSilent 0 relaunch_done
-  ${If} $WasUpdate == "1"
-  ${AndIf} $InstallFailed == "0"
-    ${If} $RestartCwd != ""
-      SetOutPath "$RestartCwd"
-      ${If} $RestartSession != ""
-        Exec '"$INSTDIR\${EXENAME}" --cwd "$RestartCwd" --resume "$RestartSession"'
-      ${Else}
-        Exec '"$INSTDIR\${EXENAME}" --cwd "$RestartCwd"'
-      ${EndIf}
-    ${Else}
-      Exec '"$INSTDIR\${EXENAME}"'
-    ${EndIf}
-  ${EndIf}
-  relaunch_done:
+  Call ChiselUpdateRelaunch
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
@@ -224,6 +176,9 @@ Section "Uninstall"
   Delete "$INSTDIR\${ICONFILE}"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\README.txt"
+  Delete "$INSTDIR\update.log"
+  Delete "$INSTDIR\chisel-update.new.exe"
+  Delete "$INSTDIR\chisel-update.previous.exe"
   Delete "$INSTDIR\skills\review\SKILL.md"
   Delete "$INSTDIR\skills\commit\SKILL.md"
   Delete "$LOCALAPPDATA\ChiselCode\skills\bundled\code-review\SKILL.md"

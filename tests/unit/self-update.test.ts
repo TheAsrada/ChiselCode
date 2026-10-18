@@ -9,6 +9,7 @@ import {
   compareVersions,
   type DownloadProgress,
   downloadReleaseAsset,
+  encodeNsisArguments,
   installerAssetName,
   isInstalledBinary,
   launchWindowsInstaller,
@@ -493,6 +494,29 @@ describe("update progress and cancellation", () => {
     expect(() => windowsUpdateArguments("C:\\projects", 'bad"id')).toThrow(
       "ID",
     );
+  });
+
+  test("NSIS receives quoted values and an unquoted final install directory", () => {
+    const args = windowsUpdateArguments("C:\\Проекты\\A & B", "saved-123", {
+      parentPid: 1234,
+      installDirectory: "D:\\My Apps\\ChiselCode",
+    });
+    expect(encodeNsisArguments(args)).toEqual([
+      "/S",
+      '/CHISEL_CWD="C:\\Проекты\\A & B"',
+      '/CHISEL_RESUME="saved-123"',
+      '/CHISEL_PARENT_PID="1234"',
+      "/D=D:\\My Apps\\ChiselCode",
+    ]);
+    expect(() => encodeNsisArguments(["/D=C:\\app", "/S"])).toThrow(
+      "последним",
+    );
+    expect(() =>
+      windowsUpdateArguments("C:\\", undefined, {
+        parentPid: 0,
+        installDirectory: "C:\\app",
+      }),
+    ).toThrow();
   });
 
   test("rejects unsupported installer architectures", () => {

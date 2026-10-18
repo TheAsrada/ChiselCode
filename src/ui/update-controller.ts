@@ -7,6 +7,7 @@ import {
   downloadReleaseAsset,
   manualInstallCommand,
   planSelfUpdate,
+  previousWindowsUpdateFailure,
   type SelfUpdatePlan,
   type UpdateCheckOptions,
   type UpdateCheckResult,
@@ -33,6 +34,7 @@ export interface UpdateState {
   bytes: number;
   totalBytes?: number;
   error?: string;
+  previousFailure?: string;
 }
 
 export interface UpdateDependencies {
@@ -50,6 +52,7 @@ export interface UpdateDependencies {
   launch: (downloaded: DownloadedAsset) => Promise<void>;
   canRestart: () => boolean;
   now: () => number;
+  previousFailure: () => Promise<string | undefined>;
 }
 
 const CHECK_CACHE_MS = 10 * 60_000;
@@ -81,6 +84,7 @@ export class UpdateController {
       },
       canRestart: () => true,
       now: () => performance.now(),
+      previousFailure: previousWindowsUpdateFailure,
       ...dependencies,
     };
   }
@@ -97,6 +101,10 @@ export class UpdateController {
 
   get canRestart(): boolean {
     return this.dependencies.canRestart();
+  }
+
+  get restartHandedOff(): boolean {
+    return this.handedOff;
   }
 
   subscribe(listener: (state: UpdateState) => void): () => void {
@@ -121,14 +129,17 @@ export class UpdateController {
     this.set({ phase: "checking", error: undefined });
     const task = (async () => {
       try {
+        const previous = this.dependencies.previousFailure();
         const check = await this.dependencies.check(this.state.current, {
           signal: abort.signal,
         });
+        const previousFailure = await previous;
         if (!this.isCurrent(operation)) return;
         const plan = this.dependencies.plan(check, this.state.current);
         this.checkedAt = this.dependencies.now();
         this.set({
           plan,
+          previousFailure,
           bytes: 0,
           totalBytes: plan.assetSize,
           error: plan.error,

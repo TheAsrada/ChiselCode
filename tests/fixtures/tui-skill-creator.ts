@@ -157,7 +157,7 @@ const ui = await createTestRenderer({
   height: 40,
   exitOnCtrlC: false,
 });
-let application: Promise<void> | undefined;
+let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 async function until(ready: () => boolean, label: string) {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {

@@ -206,7 +206,7 @@ async function chooseModel(id: string, profileId?: string) {
     () => !setup.renderer.root.findDescendantById("models-popup"),
   );
 }
-let running: Promise<void> | undefined;
+let running: ReturnType<typeof runOpenTuiAgent> | undefined;
 try {
   act(() => {
     running = runOpenTuiAgent({ cwd: process.cwd() });

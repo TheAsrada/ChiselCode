@@ -1,0 +1,36 @@
+name: Windows update regression
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  update:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Prepare NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "NSIS installation failed" }
+            Add-Content $env:GITHUB_PATH 'C:\Program Files (x86)\NSIS'
+          }
+      - run: bun test tests/unit/self-update.test.ts tests/unit/update-controller.test.ts tests/unit/opentui-update.test.tsx
+      - run: bun tests/fixtures/windows-update.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-update-evidence
+          path: dist/update-captures/**
+          if-no-files-found: warn
+          retention-days: 7

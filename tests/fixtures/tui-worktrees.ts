@@ -297,7 +297,7 @@ const approve = async (name: string) => {
   await act(async () => setup.renderer.resize(120, 40));
   await frame();
 };
-let application: Promise<void> | undefined;
+let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 let pids: number[] = [];
 try {
   await act(async () => {

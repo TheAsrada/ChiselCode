@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import React from "react";
@@ -99,6 +99,7 @@ import {
   resultChatPresentation,
 } from "./chat-presentation.js";
 import { suggestSimilarCommand } from "./commands.js";
+import type { InteractiveExitReason } from "./interactive-exit.js";
 import type { OpenTuiModelsActions } from "./opentui-models.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
@@ -127,7 +128,7 @@ export async function runOpenTuiAgent(
   setupOnly = false,
   extensions?: readonly ChiselExtension[],
   rendererFactory: typeof createCliRenderer = createCliRenderer,
-): Promise<void> {
+): Promise<InteractiveExitReason> {
   return withOwnedExtensionHost(
     extensions ?? (await applicationExtensions(options)),
     (host) =>
@@ -149,7 +150,7 @@ async function runApplication(
   setupOnly: boolean,
   extensionHost: ExtensionHost,
   rendererFactory: typeof createCliRenderer,
-): Promise<void> {
+): Promise<InteractiveExitReason> {
   let activeOptions = { ...options, resume: undefined };
   let config = await loadGlobalConfig(options.configPath);
   let bypassAvailable = config.permissions?.allowBypassPermissions === true;
@@ -1052,7 +1053,10 @@ async function runApplication(
       const { projectPath, sessionId } = currentController().snapshot;
       await launchWindowsInstaller(
         downloaded.path,
-        windowsUpdateArguments(resolve(projectPath), sessionId),
+        windowsUpdateArguments(resolve(projectPath), sessionId, {
+          parentPid: process.pid,
+          installDirectory: dirname(process.execPath),
+        }),
       );
       shutdown();
     },
@@ -2191,4 +2195,5 @@ async function runApplication(
       "Application shutdown failed; all cleanup operations were attempted.",
     );
   if (applicationFailed) throw applicationFailure;
+  return updater.restartHandedOff ? "update" : "exit";
 }
