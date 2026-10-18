@@ -107,11 +107,10 @@ try {
     /success: 9\.9\.9/,
   );
   const saved = JSON.parse(await readFile(cleanup, "utf8"));
-  assert.ok(
-    (await readFile(join(destination, "update.log")))
-      .toString("utf16le")
-      .includes(`waiting: ${saved.pid}`),
-  );
+  const installedLog = (
+    await readFile(join(destination, "update.log"))
+  ).toString("utf16le");
+  assert.ok(installedLog.includes(`waiting: ${saved.pid}`), installedLog);
   assert.equal((await execa(client, ["--version"])).stdout, "9.9.9");
 
   // A second open handle must cause an honest, bounded failure and preserve bytes.

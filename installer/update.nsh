@@ -48,12 +48,14 @@ Function ChiselUpdateWaitForParent
       System::Call 'kernel32::WaitForSingleObject(p r0, i 60000) i.r1'
       System::Call 'kernel32::CloseHandle(p r0)'
       FileOpen $UpdateLog "$INSTDIR\update.log" a
+      FileSeek $UpdateLog 0 END
       ${If} $1 != 0
         Push "ChiselCode не завершился за 60 секунд. Закройте его окна и повторите установку"
         Call ChiselUpdateFail
       ${EndIf}
     ${Else}
       FileOpen $UpdateLog "$INSTDIR\update.log" a
+      FileSeek $UpdateLog 0 END
       ${If} $1 != 87
         ; ERROR_INVALID_PARAMETER means this process has already exited.
         Push "Не удалось дождаться выхода ChiselCode (ошибка Windows $1)"
