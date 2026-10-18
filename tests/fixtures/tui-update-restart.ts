@@ -54,6 +54,7 @@ const ui = await createTestRenderer({ width: 120, height: 36 });
 const until = async (ready: () => boolean, message: string) => {
   const deadline = Date.now() + 20000;
   while (!ready()) {
+    if (Date.now() >= deadline) console.error(ui.captureCharFrame());
     assert.ok(Date.now() < deadline, message);
     await act(async () => {
       await new Promise((done) => setTimeout(done, 15));
@@ -62,10 +63,19 @@ const until = async (ready: () => boolean, message: string) => {
   }
 };
 const click = async (id: string) => {
+  await act(async () => {
+    await ui.renderOnce();
+    await ui.renderOnce();
+  });
   const target = ui.renderer.root.findDescendantById(id);
   assert.ok(target, id);
+  assert.ok(
+    target.width > 0 && target.height > 0 && target.y >= 0 && target.y < 36,
+    `Not visible: ${id}`,
+  );
   await act(async () => {
     await ui.mockMouse.click(target.x + 1, target.y);
+    await ui.renderOnce();
   });
 };
 let application: ReturnType<typeof runOpenTuiAgent> | undefined;

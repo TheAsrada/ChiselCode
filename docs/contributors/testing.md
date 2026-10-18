@@ -19,6 +19,8 @@ bun run build
 
 При изменении поведения дополнительно выполните подходящий узкий тест. Например, `bun test tests/unit/background-process.test.ts` проверяет настоящий process ownership, а `bun test tests/integration/subagents-runtime.test.ts` — дочерний runtime. Не подменяйте их успешным быстрым профилем и не повторяйте весь набор после каждой небольшой правки.
 
+Для Windows updater доступен ручной workflow `Windows update regression`: полные `self-update`, `update-controller`, `opentui-update` и `bun tests/fixtures/windows-update.ts` с настоящим NSIS. Сценарий проверяет замену EXE после выхода OpenTUI, отдельную консоль, блокировку файла и восстановление причины ошибки. Он также входит в Windows job обязательного Native validation; Linux/macOS этот Windows-сценарий не исполняют.
+
 ## Полный прогон
 
 ```bash
