@@ -7,6 +7,7 @@ import {
   encodeNsisArguments,
   windowsUpdateArguments,
 } from "../../src/commands/update.js";
+import { canonicalWorkspaceRoot } from "../../src/extensions/host.js";
 
 assert.equal(
   process.platform,
@@ -15,6 +16,8 @@ assert.equal(
 );
 const root = await mkdtemp(join(tmpdir(), "chisel-update-native-"));
 let lock: ReturnType<typeof execa> | undefined;
+let parent: ReturnType<typeof execa> | undefined;
+let installing: ReturnType<typeof execa> | undefined;
 const until = async (ready: () => Promise<boolean>, message: string) => {
   const deadline = Date.now() + 30000;
   while (!(await ready())) {
@@ -33,9 +36,10 @@ const exited = async (pid: number) => {
 };
 try {
   const destination = join(root, "Custom Apps & каталог");
-  const project = join(root, "Проект & demo");
+  let project = join(root, "Проект & demo");
   const data = join(root, "data");
   await Promise.all([mkdir(destination), mkdir(project), mkdir(data)]);
+  project = await canonicalWorkspaceRoot(project);
   const client = join(destination, "chisel.exe");
   const fresh = join(root, "new.exe");
   const setup = join(root, "setup.exe");
@@ -102,6 +106,13 @@ try {
     (await readFile(join(destination, "update.log"))).toString("utf16le"),
     /success: 9\.9\.9/,
   );
+  const saved = JSON.parse(await readFile(cleanup, "utf8"));
+  assert.ok(
+    (await readFile(join(destination, "update.log")))
+      .toString("utf16le")
+      .includes(`waiting: ${saved.pid}`),
+  );
+  assert.equal((await execa(client, ["--version"])).stdout, "9.9.9");
 
   // A second open handle must cause an honest, bounded failure and preserve bytes.
   await writeFile(client, old);
@@ -147,14 +158,39 @@ try {
   // Windows root paths must survive both NSIS parsing and ShellExecute argv.
   await rm(marker);
   const drive = parse(project).root;
-  await execa(
+  parent = execa(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    reject: false,
+  });
+  assert.ok(parent.pid);
+  installing = execa(
     setup,
     encodeNsisArguments([
-      ...windowsUpdateArguments(drive, "saved-123"),
-      `/D=${destination}`,
+      ...windowsUpdateArguments(drive, "saved-123", {
+        parentPid: parent.pid,
+        installDirectory: destination,
+      }),
     ]),
-    { env, windowsVerbatimArguments: true, timeout: 20000 },
+    { env, windowsVerbatimArguments: true, timeout: 30000, reject: false },
   );
+  await until(async () => {
+    try {
+      return (await readFile(join(destination, "update.log")))
+        .toString("utf16le")
+        .includes(`waiting: ${parent?.pid}`);
+    } catch {
+      return false;
+    }
+  }, "NSIS did not enter the parent wait");
+  assert.deepEqual(
+    await readFile(client),
+    old,
+    "NSIS replaced the EXE while the parent was still alive",
+  );
+  parent.kill();
+  await parent;
+  parent = undefined;
+  assert.equal((await installing).exitCode, 0);
+  installing = undefined;
   await until(() => exists(marker), "No relaunch for root project path");
   const resumed = JSON.parse(await readFile(marker, "utf8"));
   await until(() => exited(resumed.pid), "Root-path process did not exit");
@@ -169,6 +205,14 @@ try {
     "Windows update: production OpenTUI → verified download → cleanup/exit without pause → real NSIS replacement → new console; locked-file preservation/error recovery and root path/session resume passed",
   );
 } finally {
+  if (parent) {
+    parent.kill();
+    await parent;
+  }
+  if (installing) {
+    installing.kill();
+    await installing;
+  }
   if (lock) {
     lock.kill();
     await lock;

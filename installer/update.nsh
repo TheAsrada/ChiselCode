@@ -1,4 +1,4 @@
-; Shared by the real installer and the isolated native updater regression.
+﻿; Shared by the real installer and the isolated native updater regression.
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 Var WasUpdate
@@ -40,20 +40,25 @@ FunctionEnd
 Function ChiselUpdateWaitForParent
   ${If} $UpdateParentPid != ""
     FileWriteUTF16LE $UpdateLog "waiting: $UpdateParentPid$\r$\n"
+    FileClose $UpdateLog
     ; Hold one process handle: a reused PID cannot prolong this wait.
     System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i $UpdateParentPid) p.r0 ?e'
     Pop $1
     ${If} $0 P<> 0
       System::Call 'kernel32::WaitForSingleObject(p r0, i 60000) i.r1'
       System::Call 'kernel32::CloseHandle(p r0)'
+      FileOpen $UpdateLog "$INSTDIR\update.log" a
       ${If} $1 != 0
         Push "ChiselCode не завершился за 60 секунд. Закройте его окна и повторите установку"
         Call ChiselUpdateFail
       ${EndIf}
-    ${ElseIf} $1 != 87
-      ; ERROR_INVALID_PARAMETER means this process has already exited.
-      Push "Не удалось дождаться выхода ChiselCode (ошибка Windows $1)"
-      Call ChiselUpdateFail
+    ${Else}
+      FileOpen $UpdateLog "$INSTDIR\update.log" a
+      ${If} $1 != 87
+        ; ERROR_INVALID_PARAMETER means this process has already exited.
+        Push "Не удалось дождаться выхода ChiselCode (ошибка Windows $1)"
+        Call ChiselUpdateFail
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 FunctionEnd

@@ -9,9 +9,9 @@ import { completeInteractiveExit } from "../../src/ui/interactive-exit.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 import { loadTerminalDraft } from "../../src/ui/terminal-drafts.js";
 
-if (process.argv.includes("--inspect-update-failure")) {
+const inspectFailure = process.argv.includes("--inspect-update-failure");
+if (inspectFailure) {
   console.log(await previousWindowsUpdateFailure());
-  process.exit(0);
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const project = process.env.CHISEL_UPDATE_PROJECT;
@@ -51,6 +51,26 @@ await writeFile(
   }),
 );
 const ui = await createTestRenderer({ width: 120, height: 36 });
+const capture = async (name: string) => {
+  const captures = process.env.CHISEL_UPDATE_CAPTURES;
+  if (!captures) return;
+  await mkdir(captures, { recursive: true });
+  await writeFile(join(captures, `${name}.txt`), ui.captureCharFrame());
+  const spans = ui.captureSpans();
+  await writeFile(
+    join(captures, `${name}.json`),
+    JSON.stringify({
+      ...spans,
+      lines: spans.lines.map((line) => ({
+        spans: line.spans.map((span) => ({
+          ...span,
+          fg: span.fg.toInts(),
+          bg: span.bg.toInts(),
+        })),
+      })),
+    }),
+  );
+};
 const until = async (ready: () => boolean, message: string) => {
   const deadline = Date.now() + 20000;
   while (!ready()) {
@@ -91,9 +111,10 @@ try {
     );
   });
   await until(() => !!ui.renderer.currentFocusedEditor, "No native editor");
-  await act(async () => {
-    await ui.mockInput.pasteBracketedText("Черновик перед обновлением");
-  });
+  if (!inspectFailure)
+    await act(async () => {
+      await ui.mockInput.pasteBracketedText("Черновик перед обновлением");
+    });
   await until(
     () => !!ui.renderer.root.findDescendantById("welcome-update"),
     "No update notice",
@@ -103,36 +124,33 @@ try {
     () => !!ui.renderer.root.findDescendantById("update-primary"),
     "No update popup",
   );
+  if (inspectFailure) {
+    await until(
+      () => ui.captureCharFrame().includes("Предыдущее обновление"),
+      "No previous installation error in production UI",
+    );
+    await capture("failure");
+    process.emit("SIGTERM", "SIGTERM");
+    assert.equal(await application, "exit");
+    process.exit(0);
+  }
   await click("update-primary");
   await until(
     () => ui.captureCharFrame().includes("Перезапустить"),
     "Installer not prepared",
   );
-  const captures = process.env.CHISEL_UPDATE_CAPTURES;
-  if (captures) {
-    await mkdir(captures, { recursive: true });
-    await writeFile(join(captures, "ready.txt"), ui.captureCharFrame());
-    await writeFile(
-      join(captures, "ready.json"),
-      JSON.stringify({
-        ...ui.captureSpans(),
-        lines: ui.captureSpans().lines.map((line) => ({
-          spans: line.spans.map((span) => ({
-            ...span,
-            fg: span.fg.toInts(),
-            bg: span.bg.toInts(),
-          })),
-        })),
-      }),
-    );
-  }
+  await capture("ready");
   await click("update-primary");
   const reason = await application;
   assert.equal(reason, "update");
   assert.equal(await loadTerminalDraft(project), "Черновик перед обновлением");
   await writeFile(
     cleanup,
-    JSON.stringify({ reason, draft: "Черновик перед обновлением" }),
+    JSON.stringify({
+      pid: process.pid,
+      reason,
+      draft: "Черновик перед обновлением",
+    }),
   );
   globalThis.fetch = originalFetch;
   // Same boundary as cli.ts, with a pause that would reproduce the old hang.
