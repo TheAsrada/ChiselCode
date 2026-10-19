@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { execa } from "execa";
@@ -34,6 +42,27 @@ const exited = async (pid: number) => {
     return true;
   }
 };
+async function removeTemporaryDirectory() {
+  // All owned processes have exited, but Windows can briefly retain an image
+  // or directory handle. Bun does not reliably honor fs.rm's maxRetries here.
+  // Retry the actual removal within a fixed bound; a persistent lock still fails.
+  const cleanupDeadline = Date.now() + 12000;
+  for (;;) {
+    try {
+      await rm(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        !["EBUSY", "ENOTEMPTY", "EPERM"].includes(String(error.code)) ||
+        Date.now() >= cleanupDeadline
+      )
+        throw error;
+      await new Promise((done) => setTimeout(done, 100));
+    }
+  }
+}
 try {
   const destination = join(root, "Custom Apps & каталог");
   let project = join(root, "Проект & demo");
@@ -213,25 +242,7 @@ try {
     lock.kill();
     await lock;
   }
-  // All owned processes have exited, but Windows can briefly retain an image
-  // or directory handle. Bun does not reliably honor fs.rm's maxRetries here.
-  // Retry the actual removal within a fixed bound; a persistent lock still fails.
-  const cleanupDeadline = Date.now() + 12000;
-  for (;;) {
-    try {
-      await rm(root, { recursive: true, force: true });
-      break;
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !("code" in error) ||
-        !["EBUSY", "ENOTEMPTY", "EPERM"].includes(String(error.code)) ||
-        Date.now() >= cleanupDeadline
-      )
-        throw error;
-      await new Promise((done) => setTimeout(done, 100));
-    }
-  }
+  await removeTemporaryDirectory();
 }
 await assert.rejects(lstat(root), { code: "ENOENT" });
 console.log(
