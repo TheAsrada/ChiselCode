@@ -2,7 +2,7 @@
 
 [Материалы участников](../README.md) · [Интерактивный режим](../../interactive.md) · [Клавиши](../../keybindings.md) · [Дизайн панели](../../design/sidebar.md)
 
-Изменение подготовлено для CLI 0.6.36. Работа выполнена в `main`; исходный HEAD — `52392c5`. Результаты публикации и проверки файлов будут добавлены после завершения Release workflow.
+Изменение вошло в [CLI 0.6.36](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.36), опубликованный 19 октября 2026 года. Работа выполнена в `main`; исходный HEAD — `52392c5`.
 
 ## Изменение
 
@@ -31,4 +31,37 @@ F7 открывает дерево помощников, F8 — существу
 
 Первый локальный запуск LSP config остановился из-за отсутствующих закреплённых test dependencies; после подготовки `typescript-language-server@6.0.1` и `typescript@6.0.3` файл прошёл целиком. Две новые проверки первоначально обращались к ID диалога без суффикса `-popup`; ID исправлены. Внешний fixture использовал неверное имя mock-клавиши `escape`; заменено на штатное `ESCAPE` и добавлено ожидание закрытия окна. Assertions не пропускались, production timeout не менялся.
 
-Результаты итоговой CI фиксируются после её завершения. Локальные native кадры и compiled harness проверены на Linux; Windows/macOS не выдаются за локально проверенные платформы.
+## Native CI перед выпуском
+
+Release source — `94dc1d18b394bf967e8271fa45eccdac8ac520c0`. [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/39230661133) и все четыре job [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/39230683616) прошли с первого запуска, без повторов, изменения deadlines или пропуска assertions. Native CI использует Bun 1.4.2.
+
+| Проверка | Фактический результат | Длительность job |
+| --- | --- | ---: |
+| Полный source, Ubuntu | 1257 pass, 3 skip, 0 fail в 164 файлах; тесты 327,52 с; typecheck/lint и 14 eval успешны | 380 с |
+| Native Ubuntu | Установленный npm-пакет, compiled CLI и OpenTUI, MCP/skills в Settings, внешние UI-расширения | 127 с |
+| Native macOS | 312 pass, 3 skip, 0 fail в 40 файлах, 76,82 с; installed/compiled smoke | 201 с |
+| Native Windows | 314 pass, 1 skip, 0 fail в 40 файлах, 202,25 с; реальный NSIS updater и installed/compiled smoke | 632 с |
+
+От запуска Native workflow до завершения последнего job прошло 636 с. Это измеренное время ожидания, а не сумма runner minutes. Полный source-набор выполнен один раз на Linux; Windows/macOS проверяли платформенные файлы целиком и реальные процессы/поставку. Локальные native кадры и compiled harness сняты на Linux; интерактивная работа в физических терминалах Windows/macOS вручную не проверялась.
+
+Production `verify-release-ci.ts` подтвердил все четыре job на точном source до создания и отправки annotated tag `v0.6.36`. Тег и опубликованные assets не перезаписывались.
+
+## Выпуск CLI 0.6.36
+
+[Release workflow](https://github.com/TheAsrada/ChiselCode/actions/runs/39232052168) повторно проверил допуск точного source и завершил все шесть jobs успешно. Annotated tag `v0.6.36` указывает на `94dc1d18b394bf967e8271fa45eccdac8ac520c0`; GitHub API подтвердил его объект. Выпуск опубликован как latest, не draft/prerelease, с четырьмя установщиками и npm-архивом CLI/SDK.
+
+Все пять опубликованных файлов скачаны. Размеры и SHA-256 совпали с GitHub API; форматы EXE/PKG/DEB/tgz проверены по сигнатурам файлов.
+
+| Asset | Размер, байт | SHA-256 |
+| --- | ---: | --- |
+| `ChiselCode-Setup-0.6.36-linux-amd64.deb` | 37003622 | `870d660de8918d86e38e85d8dd6caf2e9d32d4b90d86c451fd66b95951372980` |
+| `ChiselCode-Setup-0.6.36-macos-arm64.pkg` | 33357972 | `d55787a29831ee11e3303e1cb79dac41ee6f464aeb73874199a98c45679fb4fd` |
+| `ChiselCode-Setup-0.6.36-macos-x64.pkg` | 35943470 | `91c9504c78ede223ee2132efd47aa43f56546edcabd3fffc9a3478a291cd434a` |
+| `ChiselCode-Setup-0.6.36.exe` | 38727365 | `ea337a0baf56aba8a552c520f6146d7ad1488614ca36068e683701929dcb5cf6` |
+| `chiselcode-0.6.36.tgz` | 5862100 | `7cca75a156dbb430dc9e2a60baa3366395514ea2d47079f4b9fb88de3bbb840a` |
+
+Извлечённый опубликованный DEB и CLI, установленный из опубликованного npm-архива в отдельный временный prefix, показали `0.6.36` и прошли настоящий manifest/model/tool/persistence smoke с локальным provider. `update --json` опубликованного бинарника получил текущий публичный релиз `0.6.36`, все пять assets с SHA-256 и `updateAvailable: false`. Публичный SDK импортируется отдельно (`API_VERSION=1`), declarations присутствуют. Все три bundled skill в DEB/npm побайтово совпали с tag source.
+
+Установка npm под Node 24.19.0 завершилась с предупреждением engine зависимости OpenTUI о Node ≥26.4; запуск и smoke выполнены под поддерживаемым Bun 1.4.3. npm-архив опубликован в GitHub Release.
+
+Release проверил запуск Windows x64, Linux x64 и macOS ARM64. macOS x64 собран, запуск на Intel не проверялся. Установщики Windows/macOS не подписаны; GUI полного мастера установки и физические терминалы вручную не проверялись. Эти результаты добавлены отдельным коммитом документации в `main`, без изменения release source, тега и assets.
