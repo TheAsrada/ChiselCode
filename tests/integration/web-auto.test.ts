@@ -34,6 +34,40 @@ async function environment() {
     },
   };
 }
+test("Auto reuses the working service after a primary quota failure and recovers when that service fails", async () => {
+  const env = await environment();
+  const search = async () =>
+    (
+      await testWebAccess(env.provider, env.root, {
+        query: "official documentation",
+      })
+    )[0]?.result;
+  try {
+    env.exa.state.httpStatus = 429;
+    expect((await search())?.details?.web).toMatchObject({
+      provider: "parallel",
+      routing: { attempted: ["exa", "parallel"] },
+    });
+    const failedPrimaryRequests = env.exa.connections.length;
+    expect((await search())?.details?.web).toMatchObject({
+      provider: "parallel",
+      routing: { attempted: ["parallel"] },
+    });
+    expect(env.exa.connections).toHaveLength(failedPrimaryRequests);
+    env.exa.state.httpStatus = 200;
+    env.parallel.state.httpStatus = 503;
+    expect((await search())?.details?.web).toMatchObject({
+      provider: "exa",
+      routing: { attempted: ["parallel", "exa"] },
+    });
+    env.exa.config.permissions.denyDomains.push("mcp.exa.ai");
+    const primaryRequests = env.exa.connections.length;
+    expect((await search())?.errorCode).toBe("WEB_HTTP_ERROR");
+    expect(env.exa.connections).toHaveLength(primaryRequests);
+  } finally {
+    await env.close();
+  }
+});
 
 for (const approvalMode of ["default", "dontAsk"] as const)
   test(`default Auto search and fallback run in ${approvalMode} without grants or approval`, async () => {

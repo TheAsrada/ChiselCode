@@ -1,12 +1,76 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CredentialStore } from "../../src/security/credentials.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
-import { WebConfigSchema } from "../../src/web/schema.js";
+import {
+  ProjectWebConfigSchema,
+  WebConfigSchema,
+} from "../../src/web/schema.js";
 import { resolveWebCredential } from "../../src/web/search.js";
 import { WebSettingsStore } from "../../src/web/settings.js";
+
+test("legacy Web quotas disappear on load/save without losing credentials, explicit denies or unrelated config", async () => {
+  const root = await mkdtemp(join(tmpdir(), "web-quota-migration-"));
+  try {
+    const path = join(root, "config.json");
+    const original = {
+      schemaVersion: 2,
+      profiles: {},
+      customFutureSetting: { keep: true },
+      web: {
+        search: { provider: "brave", apiKey: { secretRef: "user-brave" } },
+        permissions: {
+          search: "deny",
+          fetch: "ask",
+          denyDomains: ["react.dev"],
+        },
+        limits: {
+          maxRequestsPerTurn: 1,
+          maxConcurrent: 1,
+          requestTimeoutMs: 12345,
+        },
+      },
+    };
+    await writeFile(path, JSON.stringify(original));
+    const store = new WebSettingsStore(
+      path,
+      new CredentialStore(join(root, "credentials")),
+    );
+    const loaded = await store.load();
+    expect(loaded.config.limits).not.toHaveProperty("maxRequestsPerTurn");
+    expect(loaded.config.limits).not.toHaveProperty("maxConcurrent");
+    expect(loaded.config.limits.requestTimeoutMs).toBe(12345);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(original);
+    await store.save(loaded.config);
+    const persisted = JSON.parse(await readFile(path, "utf8"));
+    expect(persisted.customFutureSetting).toEqual({ keep: true });
+    expect(persisted.web.search).toEqual(original.web.search);
+    expect(persisted.web.permissions).toMatchObject(original.web.permissions);
+    expect(persisted.web.limits).not.toHaveProperty("maxRequestsPerTurn");
+    expect(persisted.web.limits).not.toHaveProperty("maxConcurrent");
+    expect(
+      ProjectWebConfigSchema.parse({
+        enabled: false,
+        denyDomains: ["react.dev"],
+        maxRequestsPerTurn: 1,
+        maxConcurrent: 1,
+      }),
+    ).toEqual({ enabled: false, denyDomains: ["react.dev"] });
+    expect(
+      WebConfigSchema.safeParse({ limits: { unknownQuota: 1 } }).success,
+    ).toBe(false);
+    expect(
+      ProjectWebConfigSchema.safeParse({
+        maxConcurrent: 1,
+        permissions: { search: "allow" },
+      }).success,
+    ).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("settings persist only a secret reference and keep the key encrypted", async () => {
   const root = await mkdtemp(join(tmpdir(), "web-settings-"));

@@ -290,7 +290,6 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       web: {
         enabled: web.enabled,
         denyDomains: web.permissions.denyDomains,
-        maxRequestsPerTurn: web.limits.maxRequestsPerTurn,
       },
     };
     const session = createSession(root, record.providerId, record.model);

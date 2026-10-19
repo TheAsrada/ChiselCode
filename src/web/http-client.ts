@@ -33,7 +33,6 @@ export interface WebResponse {
 export interface WebHttpOptions {
   signal?: AbortSignal;
   authorization: NetworkAuthorization;
-  beforeRequest?: (signal: AbortSignal) => Promise<() => void>;
   headers?: Record<string, string>;
   maxRedirects?: number;
   method?: "GET" | "POST" | "DELETE";
@@ -130,71 +129,66 @@ export class SafeWebHttpClient {
         const normalized = this.policy.normalize(current);
         options.authorization.assertDestination(urlHostname(normalized));
         const target = await this.policy.resolve(current, signal);
-        const release = await options.beforeRequest?.(signal);
-        try {
-          cancelled(signal);
-          options.authorization.assertDestination(urlHostname(target.url));
-          const response = await this.request(target, signal, options);
-          if ([301, 302, 303, 307, 308].includes(response.status)) {
-            if (
-              redirects.length >=
-              (options.maxRedirects ?? this.limits.maxRedirects)
-            )
-              throw new RuntimeError(
-                "WEB_REDIRECT_LIMIT",
-                "Maximum redirect count reached.",
-                { retryable: false },
-              );
-            if (!response.location)
-              throw new RuntimeError(
-                "WEB_PROTOCOL_ERROR",
-                "Redirect has no valid Location header.",
-              );
-            let destination: URL;
-            try {
-              destination = new URL(response.location, current);
-            } catch {
-              throw new RuntimeError(
-                "WEB_PROTOCOL_ERROR",
-                "Redirect contains an invalid URL.",
-              );
-            }
-            current = this.policy.normalize(destination.toString()).toString();
-            redirects.push(current);
-            continue;
-          }
-          if (response.status < 200 || response.status >= 300) {
-            if (options.acceptHttpErrors)
-              return {
-                requestedUrl,
-                finalUrl: current,
-                redirects,
-                ...response,
-              };
+        cancelled(signal);
+        options.authorization.assertDestination(urlHostname(target.url));
+        const response = await this.request(target, signal, options);
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          if (
+            redirects.length >=
+            (options.maxRedirects ?? this.limits.maxRedirects)
+          )
             throw new RuntimeError(
-              response.status === 429 ? "WEB_RATE_LIMITED" : "WEB_HTTP_ERROR",
-              `Web request returned HTTP ${response.status}.`,
-              {
-                status: response.status,
-                retryable: response.status === 429 || response.status >= 500,
-                ...(response.retryAfterMs !== undefined
-                  ? { retryAfterMs: response.retryAfterMs }
-                  : {}),
-              },
+              "WEB_REDIRECT_LIMIT",
+              "Maximum redirect count reached.",
+              { retryable: false },
+            );
+          if (!response.location)
+            throw new RuntimeError(
+              "WEB_PROTOCOL_ERROR",
+              "Redirect has no valid Location header.",
+            );
+          let destination: URL;
+          try {
+            destination = new URL(response.location, current);
+          } catch {
+            throw new RuntimeError(
+              "WEB_PROTOCOL_ERROR",
+              "Redirect contains an invalid URL.",
             );
           }
-          return {
-            requestedUrl,
-            finalUrl: current,
-            contentType: response.contentType,
-            bytes: response.bytes,
-            redirects,
-            status: response.status,
-            headers: response.headers,
-          };
-        } finally {
-          release?.();
+          current = this.policy.normalize(destination.toString()).toString();
+          redirects.push(current);
+          continue;
         }
+        if (response.status < 200 || response.status >= 300) {
+          if (options.acceptHttpErrors)
+            return {
+              requestedUrl,
+              finalUrl: current,
+              redirects,
+              ...response,
+            };
+          throw new RuntimeError(
+            response.status === 429 ? "WEB_RATE_LIMITED" : "WEB_HTTP_ERROR",
+            `Web request returned HTTP ${response.status}.`,
+            {
+              status: response.status,
+              retryable: response.status === 429 || response.status >= 500,
+              ...(response.retryAfterMs !== undefined
+                ? { retryAfterMs: response.retryAfterMs }
+                : {}),
+            },
+          );
+        }
+        return {
+          requestedUrl,
+          finalUrl: current,
+          contentType: response.contentType,
+          bytes: response.bytes,
+          redirects,
+          status: response.status,
+          headers: response.headers,
+        };
       }
     } catch (error) {
       cancelled(options.signal);

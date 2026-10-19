@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { extractDocument } from "../../src/web/content.js";
-import { WebRequestLimiter } from "../../src/web/limiter.js";
 import { SearchInputSchema, WebConfigSchema } from "../../src/web/schema.js";
 import { startWebFixture } from "../fixtures/web-http.js";
 
@@ -235,27 +234,3 @@ test("repeated rejected redirects and completed compressed responses close safel
     }
   }
 }, 15000);
-test("limiter bounds concurrency, queues cancellation, counts turn quota and rate limits separately", async () => {
-  const limiter = new WebRequestLimiter(2, 0, 10);
-  const signal = new AbortController().signal;
-  const first = await limiter.acquire("turn", 4, signal);
-  const second = await limiter.acquire("turn", 4, signal);
-  const abort = new AbortController();
-  const queued = limiter.acquire("turn", 4, abort.signal);
-  abort.abort();
-  await expect(queued).rejects.toMatchObject({ code: "CANCELLED" });
-  first();
-  second();
-  const fourth = await limiter.acquire("turn", 4, signal);
-  fourth();
-  await expect(limiter.acquire("turn", 4, signal)).rejects.toMatchObject({
-    code: "WEB_REQUEST_LIMIT",
-    details: { budget: "http_requests", used: 4, limit: 4, retryable: false },
-  });
-  const onePerMinute = new WebRequestLimiter(1, 0, 1);
-  const release = await onePerMinute.acquire("a", 10, signal);
-  release();
-  await expect(onePerMinute.acquire("b", 10, signal)).rejects.toMatchObject({
-    code: "WEB_RATE_LIMITED",
-  });
-});

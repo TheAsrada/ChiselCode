@@ -81,6 +81,23 @@ test("real MCP handshake/discovery/search uses compact normalized results, filte
     await fixture.close();
   }
 });
+test("fixed public search starts with initialize, without a speculative unsupported protocol probe", async () => {
+  const fixture = await startExaFixture();
+  fixture.state.legacyOnly = true;
+  try {
+    const result = await fixture.backend.search(
+      SearchInputSchema.parse({ query: "docs" }),
+      { authorization },
+    );
+    expect(result.results).toHaveLength(2);
+    expect(fixture.methods[0]).toBe("initialize");
+    expect(fixture.methods).not.toContain("server/discover");
+    expect(fixture.methods).toContain("tools/list");
+    expect(fixture.methods).toContain("tools/call");
+  } finally {
+    await fixture.close();
+  }
+});
 
 for (const status of [429, 403, 503])
   test(`anonymous search HTTP ${status} becomes a safe classified failure`, async () => {

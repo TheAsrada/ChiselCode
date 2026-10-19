@@ -14,6 +14,7 @@ export async function startHostedSearchFixture(provider: "exa" | "parallel") {
   const parallel = provider === "parallel";
   const argumentsReceived: Record<string, unknown>[] = [];
   const headers: Array<Record<string, string>> = [];
+  const methods: string[] = [];
   const state = {
     httpStatus: 200,
     toolError: "",
@@ -26,6 +27,7 @@ export async function startHostedSearchFixture(provider: "exa" | "parallel") {
     long: false,
     delay: 0,
     aborted: 0,
+    legacyOnly: false,
   };
   const handler = createMcpHandler(() => {
     const server = new McpServer({
@@ -146,8 +148,15 @@ export async function startHostedSearchFixture(provider: "exa" | "parallel") {
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(req) {
+    async fetch(req) {
       headers.push(Object.fromEntries(req.headers));
+      const method =
+        req.method === "POST"
+          ? ((await req.clone().json()) as { method?: string }).method
+          : req.method;
+      if (method) methods.push(method);
+      if (state.legacyOnly && method === "server/discover")
+        return new Response("Unsupported modern discovery", { status: 400 });
       if (state.redirect) return Response.redirect(state.redirect, 307);
       if (state.httpStatus !== 200)
         return new Response("private-error-secret-do-not-show", {
@@ -187,6 +196,7 @@ export async function startHostedSearchFixture(provider: "exa" | "parallel") {
     state,
     argumentsReceived,
     headers,
+    methods,
     connections,
     async close() {
       server.stop(true);

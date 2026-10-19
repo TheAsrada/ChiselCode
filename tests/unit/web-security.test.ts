@@ -387,6 +387,6 @@ describe("network permission layer", () => {
       }),
     );
     expect(gate(combined).policy.decide(request, "external_read")).toBe("deny");
-    expect(combined.limits.maxRequestsPerTurn).toBe(2);
+    expect(combined.limits).not.toHaveProperty("maxRequestsPerTurn");
   });
 });

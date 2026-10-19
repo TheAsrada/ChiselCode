@@ -27,7 +27,6 @@ import { ChildToolPolicy } from "../../src/subagents/policy.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import { workspaceCoordinator } from "../../src/tools/workspace-coordinator.js";
 import { SafeWebHttpClient } from "../../src/web/http-client.js";
-import { WebRequestLimiter } from "../../src/web/limiter.js";
 import { WebToolProvider } from "../../src/web/provider.js";
 import { WebConfigSchema } from "../../src/web/schema.js";
 import { UrlPolicy } from "../../src/web/url-policy.js";
@@ -210,9 +209,7 @@ async function environment(
     artifactDirectory: join(root, "artifacts"),
   });
   await tools.catalog.addProvider(
-    new WebToolProvider(config, client, undefined, {
-      limiter: new WebRequestLimiter(3, 0, 1000),
-    }),
+    new WebToolProvider(config, client, undefined, {}),
   );
   if (childPolicy) childPolicy.seal([tools.catalog.get("web_download")]);
   let serial = 0;

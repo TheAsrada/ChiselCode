@@ -40,34 +40,44 @@ export const WebCredentialSchema = z.union([
       .max(128),
   }),
 ]);
+function discardQuotas(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const {
+    maxConcurrent: _concurrency,
+    maxRequestsPerTurn: _requests,
+    ...rest
+  } = value as Record<string, unknown>;
+  return rest;
+}
 export const WebLimitsSchema = z
-  .strictObject({
-    connectTimeoutMs: z.number().int().min(100).max(30000).default(8000),
-    requestTimeoutMs: z.number().int().min(100).max(60000).default(30000),
-    downloadTimeoutMs: z.number().int().min(100).max(300000).default(120000),
-    maxDownloadBytes: z
-      .number()
-      .int()
-      .min(1)
-      .max(1024 * 1024 * 1024)
-      .default(128 * 1024 * 1024),
-    maxRedirects: z.number().int().min(0).max(10).default(5),
-    maxResponseBytes: z
-      .number()
-      .int()
-      .min(1024)
-      .max(8 * 1024 * 1024)
-      .default(2 * 1024 * 1024),
-    maxDecompressedBytes: z
-      .number()
-      .int()
-      .min(1024)
-      .max(16 * 1024 * 1024)
-      .default(4 * 1024 * 1024),
-    maxExtractedChars: z.number().int().min(1000).max(200000).default(100000),
-    maxConcurrent: z.number().int().min(1).max(8).default(3),
-    maxRequestsPerTurn: z.number().int().min(1).max(100).default(24),
-  })
+  .preprocess(
+    discardQuotas,
+    z.strictObject({
+      connectTimeoutMs: z.number().int().min(100).max(30000).default(8000),
+      requestTimeoutMs: z.number().int().min(100).max(60000).default(30000),
+      downloadTimeoutMs: z.number().int().min(100).max(300000).default(120000),
+      maxDownloadBytes: z
+        .number()
+        .int()
+        .min(1)
+        .max(1024 * 1024 * 1024)
+        .default(128 * 1024 * 1024),
+      maxRedirects: z.number().int().min(0).max(10).default(5),
+      maxResponseBytes: z
+        .number()
+        .int()
+        .min(1024)
+        .max(8 * 1024 * 1024)
+        .default(2 * 1024 * 1024),
+      maxDecompressedBytes: z
+        .number()
+        .int()
+        .min(1024)
+        .max(16 * 1024 * 1024)
+        .default(4 * 1024 * 1024),
+      maxExtractedChars: z.number().int().min(1000).max(200000).default(100000),
+    }),
+  )
   .default(() => ({
     connectTimeoutMs: 8000,
     requestTimeoutMs: 30000,
@@ -77,8 +87,6 @@ export const WebLimitsSchema = z
     maxResponseBytes: 2 * 1024 * 1024,
     maxDecompressedBytes: 4 * 1024 * 1024,
     maxExtractedChars: 100000,
-    maxConcurrent: 3,
-    maxRequestsPerTurn: 24,
   }));
 export const WebConfigSchema = z
   .strictObject({
@@ -116,21 +124,21 @@ export const WebConfigSchema = z
       maxResponseBytes: 2 * 1024 * 1024,
       maxDecompressedBytes: 4 * 1024 * 1024,
       maxExtractedChars: 100000,
-      maxConcurrent: 3,
-      maxRequestsPerTurn: 24,
     },
     cacheTtlMs: 300000,
   }));
 
 /** Repository configuration can restrict access, never grant user permissions. */
-export const ProjectWebConfigSchema = z.strictObject({
-  enabled: z.boolean().optional(),
-  denyDomains: z
-    .array(DomainPatternSchema)
-    .max(256)
-    .default(() => []),
-  maxRequestsPerTurn: z.number().int().min(1).max(100).optional(),
-});
+export const ProjectWebConfigSchema = z.preprocess(
+  discardQuotas,
+  z.strictObject({
+    enabled: z.boolean().optional(),
+    denyDomains: z
+      .array(DomainPatternSchema)
+      .max(256)
+      .default(() => []),
+  }),
+);
 export const SearchInputSchema = z.strictObject({
   query: z.string().trim().min(1).max(1000),
   domains: z
@@ -170,13 +178,6 @@ export function resolveWebConfig(
           ...(project?.denyDomains ?? []),
         ]),
       ],
-    },
-    limits: {
-      ...value.limits,
-      maxRequestsPerTurn: Math.min(
-        value.limits.maxRequestsPerTurn,
-        project?.maxRequestsPerTurn ?? Infinity,
-      ),
     },
   };
 }

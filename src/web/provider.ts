@@ -10,7 +10,6 @@ import { ExaSearchBackend } from "./exa.js";
 import { WebFetchService } from "./fetch.js";
 import { SafeWebHttpClient, type WebHttpOptions } from "./http-client.js";
 import { WEB_FETCH_GUIDANCE, WEB_SEARCH_GUIDANCE } from "./instructions.js";
-import { WebRequestLimiter } from "./limiter.js";
 import { ParallelSearchBackend } from "./parallel.js";
 import {
   FetchInputSchema,
@@ -26,8 +25,6 @@ import {
 } from "./search.js";
 import { urlHostname } from "./url-policy.js";
 
-const processLimiter = new WebRequestLimiter();
-const calls = new Map<string, number>();
 export class WebToolProvider implements ToolProvider {
   readonly handlers: ToolHandler[];
   readonly redactor: SecretRedactor;
@@ -36,13 +33,11 @@ export class WebToolProvider implements ToolProvider {
     http = new SafeWebHttpClient(config.limits),
     backend?: WebSearchBackend,
     options: {
-      limiter?: WebRequestLimiter;
       cache?: WebSessionCache;
       redactor?: SecretRedactor;
     } = {},
   ) {
     this.redactor = options.redactor ?? new SecretRedactor(false);
-    const limiter = options.limiter ?? processLimiter;
     const spec = {
       effect: "external_read" as const,
       permission: "network",
@@ -57,32 +52,9 @@ export class WebToolProvider implements ToolProvider {
           "WEB_NETWORK_DENIED",
           "Web execution requires a network capability from the normal tool executor.",
         );
-      const scope = `${context.workspace.root}:${context.session.id}:${context.session.runtime?.turnId ?? "direct"}`;
-      const count = calls.get(scope) ?? 0;
-      if (count >= config.limits.maxRequestsPerTurn)
-        throw new RuntimeError(
-          "WEB_REQUEST_LIMIT",
-          `Web tool budget for this turn is exhausted (${count}/${config.limits.maxRequestsPerTurn}). Reuse collected evidence.`,
-          {
-            retryable: false,
-            budget: "tool_calls",
-            used: count,
-            limit: config.limits.maxRequestsPerTurn,
-          },
-        );
-      calls.set(scope, count + 1);
-      while (calls.size > 512)
-        calls.delete(calls.keys().next().value as string);
       return {
         authorization: context.networkAuthorization,
         signal: context.signal,
-        beforeRequest: (signal) =>
-          limiter.acquire(
-            scope,
-            config.limits.maxRequestsPerTurn,
-            signal,
-            config.limits.maxConcurrent,
-          ),
       };
     };
     this.handlers = [

@@ -11,7 +11,7 @@ function canFailOver(error: unknown, backend: WebSearchBackend): boolean {
       ["results", "discovery"].includes(String(error.details?.phase))
     );
   if (error.code === "WEB_RATE_LIMITED")
-    // A provider quota can fail over; shared process/turn limits must not.
+    // Only a failure classified by this service adapter permits failover.
     return error.details?.provider === backend.id;
   if (error.code === "WEB_HTTP_ERROR")
     return (
@@ -27,6 +27,7 @@ function canFailOver(error: unknown, backend: WebSearchBackend): boolean {
 
 /** Predictable bounded routing across explicitly approved public search services. */
 export class AutoSearchBackend implements WebSearchBackend {
+  private preferred?: WebSearchBackend;
   readonly id = "auto";
   readonly hostname: string;
   readonly destinations: readonly { id: string; hostname: string }[];
@@ -59,6 +60,14 @@ export class AutoSearchBackend implements WebSearchBackend {
         "No search service is authorized.",
         { retryable: false },
       );
+    // Reuse the working service within this provider lifetime. A failed/quota
+    // limited primary should not slow every subsequent query; authorization is
+    // still recomputed above and a preferred service can itself fail over.
+    const preferred = this.preferred;
+    if (preferred && eligible.includes(preferred)) {
+      eligible.splice(eligible.indexOf(preferred), 1);
+      eligible.unshift(preferred);
+    }
     const deadline = performance.now() + this.timeoutMs;
     const attempted: string[] = [];
     for (const [index, backend] of eligible.entries()) {
@@ -91,6 +100,7 @@ export class AutoSearchBackend implements WebSearchBackend {
             "Search service exceeded its allotted timeout.",
             { retryable: true },
           );
+        this.preferred = backend;
         return {
           ...result,
           usage: { requests: attempted.length },

@@ -34,13 +34,9 @@ export class HostedMcpSearchClient {
       {
         capabilities: {},
         jsonSchemaValidator: new AjvJsonSchemaValidator(),
-        versionNegotiation: {
-          mode: "auto",
-          probe: {
-            timeoutMs: Math.min(8000, this.http.limits.requestTimeoutMs),
-            maxRetries: 0,
-          },
-        },
+        // These fixed public endpoints use initialize (2025 MCP). A speculative
+        // server/discover probe adds an unsupported request to every search.
+        versionNegotiation: { mode: "legacy" },
         inputRequired: { autoFulfill: false },
         listMaxPages: 2,
       },

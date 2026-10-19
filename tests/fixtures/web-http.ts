@@ -7,7 +7,6 @@ import {
   type PinnedRequest,
   SafeWebHttpClient,
 } from "../../src/web/http-client.js";
-import { WebRequestLimiter } from "../../src/web/limiter.js";
 import { WebToolProvider } from "../../src/web/provider.js";
 import { type WebConfig, WebConfigSchema } from "../../src/web/schema.js";
 import { BraveSearchBackend } from "../../src/web/search.js";
@@ -245,7 +244,6 @@ export async function startWebFixture(
   redactor.add(key);
   const backend = new BraveSearchBackend(client, key, redactor);
   const provider = new WebToolProvider(config, client, backend, {
-    limiter: new WebRequestLimiter(config.limits.maxConcurrent, 0, 1000),
     cache: new WebSessionCache(),
     redactor,
   });

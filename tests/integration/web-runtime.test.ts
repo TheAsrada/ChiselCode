@@ -349,8 +349,8 @@ test("web requests do not hold workspace locks while waiting on a remote respons
     await env.close();
   }
 });
-test("parallel read scheduler respects the configured shared web concurrency", async () => {
-  const env = await environment({ config: { limits: { maxConcurrent: 2 } } });
+test("parallel web reads start without the removed concurrency quota", async () => {
+  const env = await environment({ config: { limits: { maxConcurrent: 1 } } });
   const abort = new AbortController();
   const running = env.tools.scheduler.execute(
     [
@@ -361,39 +361,34 @@ test("parallel read scheduler respects the configured shared web concurrency", a
     abort.signal,
   );
   try {
-    await until(() => env.fixture.counts.get("/controlled") === 2);
-    expect(env.fixture.peak).toBe(2);
-    env.fixture.finishControlled();
     await until(() => env.fixture.counts.get("/controlled") === 3);
+    expect(env.fixture.peak).toBe(3);
     env.fixture.finishControlled();
     expect((await running).every((result) => !result.isError)).toBe(true);
-    expect(env.fixture.peak).toBeLessThanOrEqual(2);
+    expect(env.fixture.peak).toBe(3);
   } finally {
     abort.abort();
     await running;
     await env.close();
   }
 });
-test("cache can be disabled and successful duplicate calls still consume the turn budget", async () => {
+test("legacy quotas cannot stop many actual calls in the same turn or impose a per-minute budget", async () => {
   const env = await environment({
-    config: { cacheTtlMs: 0, limits: { maxRequestsPerTurn: 2 } },
+    config: {
+      cacheTtlMs: 0,
+      limits: { maxRequestsPerTurn: 1, maxConcurrent: 1 },
+    },
   });
   try {
-    expect((await env.tools.executor.execute(call("a"))).isError).not.toBe(
-      true,
-    );
-    expect((await env.tools.executor.execute(call("b"))).isError).not.toBe(
-      true,
-    );
-    expect(env.fixture.counts.get("/article")).toBe(2);
-    expect(await env.tools.executor.execute(call("c"))).toMatchObject({
-      errorCode: "WEB_REQUEST_LIMIT",
-      details: { budget: "tool_calls", used: 2, limit: 2, retryable: false },
-    });
+    for (let index = 0; index < 145; index++) {
+      const result = await env.tools.executor.execute(call(`request-${index}`));
+      expect(result.isError, result.output).not.toBe(true);
+    }
+    expect(env.fixture.counts.get("/article")).toBe(145);
   } finally {
     await env.close();
   }
-});
+}, 15000);
 test("live network revocation after DNS prevents opening the socket", async () => {
   const env = await environment();
   try {
