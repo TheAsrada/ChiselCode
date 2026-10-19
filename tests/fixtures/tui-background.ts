@@ -239,10 +239,13 @@ try {
     () => calls >= 2,
     "Основной запрос не достиг продолжения после shell",
   );
+  await key("F9");
   await until(
     () => ui.captureCharFrame().includes("Фон 1"),
-    "Нет индикатора фоновой команды",
+    "Нет состояния фоновой команды в сервисах",
   );
+  assert.ok(!ui.renderer.root.findDescendantById("ui-status-more"));
+  await key("escape");
   await key("t", true);
   await until(
     () => !!ui.renderer.root.findDescendantById("settings-popup"),
@@ -261,10 +264,10 @@ try {
   );
   assert.equal(calls, 2, "Смена темы не делает model request");
   assert.equal(await readFile(join(root, "launches.txt"), "utf8"), "one\n");
-  await send("/tasks");
+  await key("F8");
   await until(
     () => !!ui.renderer.root.findDescendantById("background-tasks-popup"),
-    "/tasks не открыл popup во время запроса",
+    "F8 не открыл popup во время запроса",
   );
   assert.equal(calls, 2);
   assert.ok(!ui.renderer.root.findDescendantById("sidebar-tab-background"));

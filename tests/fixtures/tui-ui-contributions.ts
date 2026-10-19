@@ -125,6 +125,26 @@ try {
     await Bun.sleep(20);
   });
   await until(() => fixture.reads() >= 3, "Нет UI binding");
+  await until(
+    () => !!ui.renderer.root.findDescendantById("prompt-editor"),
+    "Нет готового ввода главной",
+  );
+  for (const key of [
+    "builtin.background/status",
+    "builtin.lsp/status",
+    "builtin.subagents/status",
+  ])
+    assert.ok(!ui.renderer.root.findDescendantById(`ui-status-${key}`));
+  assert.ok(!ui.renderer.root.findDescendantById("ui-status-more"));
+  await capture("production-clean-home-160x50");
+  await key("F9");
+  await until(
+    () => !!ui.renderer.root.findDescendantById("ui-status-overflow-popup"),
+    "F9 не открыл состояния сервисов на главной",
+  );
+  assert.match(ui.captureCharFrame(), /Фон 0/);
+  await capture("production-services-160x50");
+  await key("escape");
   const beforeNetwork = networkCalls;
   await key("b", true);
   await until(
@@ -239,12 +259,14 @@ try {
   await capture("production-unavailable-120x40");
   await act(async () => fixture.update(false));
   await key("escape");
-  const overflow = ui.renderer.root.findDescendantById("ui-status-more");
-  if (overflow) {
-    await click("ui-status-more");
-    await capture("production-overflow-120x40");
-    await key("escape");
-  }
+  assert.ok(!ui.renderer.root.findDescendantById("ui-status-more"));
+  await key("F9");
+  await until(
+    () => !!ui.renderer.root.findDescendantById("ui-status-overflow-popup"),
+    "F9 не открыл состояния сервисов",
+  );
+  await capture("production-overflow-120x40");
+  await key("escape");
   await click("prompt-editor");
   await key("a", true);
   await key("k", true);

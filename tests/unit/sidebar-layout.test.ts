@@ -23,20 +23,20 @@ test("responsive sidebar reserves exactly 41 columns when the feed fits", () => 
   expect(sidebarLayout(80, "show", true).placement).toBe("hidden");
 });
 
-test("sidebar choice survives a config reload", async () => {
+test("obsolete persistent sidebar choice is retired without dropping appearance", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-sidebar-"));
   try {
     const path = join(root, "config.json");
     await saveGlobalConfig(
-      { providers: {}, ui: { sidebarMode: "show" } },
+      { providers: {}, ui: { sidebarMode: "show", theme: "paper" } },
       path,
     );
-    expect((await loadGlobalConfig(path)).ui?.sidebarMode).toBe("show");
+    expect((await loadGlobalConfig(path)).ui).toEqual({ theme: "paper" });
     await saveGlobalConfig(
       { ...(await loadGlobalConfig(path)), ui: { sidebarMode: "auto" } },
       path,
     );
-    expect((await loadGlobalConfig(path)).ui?.sidebarMode).toBe("auto");
+    expect((await loadGlobalConfig(path)).ui).not.toHaveProperty("sidebarMode");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

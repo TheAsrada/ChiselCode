@@ -63,7 +63,6 @@ import {
   UiCompositionProvider,
   UiSurface,
 } from "./opentui-composition.js";
-import { DialogAction } from "./opentui-dialog.js";
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
@@ -81,7 +80,7 @@ import {
 } from "./opentui-settings.js";
 import { OpenTuiSideQuery } from "./opentui-side-query.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
-import { compactUiStatuses, OpenTuiStatusOverflow } from "./opentui-status.js";
+import { OpenTuiStatusOverflow } from "./opentui-status.js";
 import {
   FormattedMessage,
   OpenTuiTranscript,
@@ -140,7 +139,6 @@ export function OpenTuiSpike(
     () => props.themeCatalog?.subscribe(() => refresh((value) => value + 1)),
     [props.themeCatalog],
   );
-  const [mode, setMode] = useState(props.initialMode ?? "auto");
   const [setupOpen, setSetupOpen] = useState(props.initialSettingsOpen);
   const [bypassAllowed, setBypassAllowed] = useState(
     props.allowBypassPermissions ?? false,
@@ -180,7 +178,6 @@ export function OpenTuiSpike(
         }
         onThemePreview={setPreviewTheme}
         initialTheme={theme}
-        initialMode={mode}
         initialSettingsOpen={setupOpen}
         allowBypassPermissions={bypassAllowed}
         onBypassAvailabilityChange={
@@ -196,10 +193,6 @@ export function OpenTuiSpike(
           await props.onThemeChange?.(next);
           setTheme(next);
           setPreviewTheme(undefined);
-        }}
-        onModeChange={(next) => {
-          setMode(next);
-          props.onModeChange?.(next);
         }}
       />
     </OpenTuiClipboard>
@@ -774,6 +767,7 @@ function OpenTuiScreen({
     (fullHomeLogo ? 5 : 1) +
     (homeCompact ? 1 : 2) +
     (homeHeight >= 10 ? 1 : 0) +
+    (homeHeight >= 18 ? 1 : 0) +
     5;
   const editorLimit = Math.max(
     1,
@@ -858,6 +852,19 @@ function OpenTuiScreen({
       setWindowEnd(next === total ? undefined : next);
     }
   };
+
+  const navigationShortcut = (shortcut: string) =>
+    (view.uiContributions ?? []).find(
+      (item) =>
+        item.descriptor.slot === "menu_entry" &&
+        item.descriptor.shortcut === shortcut &&
+        item.snapshot.action &&
+        uiBinding?.subscription.action(
+          item.key,
+          item.snapshot.action,
+          item.snapshot.revision,
+        )?.type !== "tool",
+    );
 
   const changeMode = (next: SidebarMode) => {
     setMode(next);
@@ -1158,9 +1165,28 @@ function OpenTuiScreen({
       extensionActive ||
       agentActive ||
       backgroundActiveView ||
-      backgroundPanelActive
+      backgroundPanelActive ||
+      sideActive
     )
       return;
+    if (key.name === "f8" && !approval && !otherOverlay) {
+      key.preventDefault();
+      key.stopPropagation();
+      const tasks = navigationShortcut("/tasks");
+      if (tasks?.snapshot.action)
+        void uiBinding?.dispatch(
+          tasks.key,
+          tasks.snapshot.action,
+          tasks.snapshot.revision,
+        );
+      return;
+    }
+    if (key.name === "f9" && !approval && !otherOverlay) {
+      key.preventDefault();
+      key.stopPropagation();
+      setUiOverflow(true);
+      return;
+    }
     if (sidebarFocused) {
       if (key.ctrl && key.name === "b") {
         key.preventDefault();
@@ -1184,7 +1210,6 @@ function OpenTuiScreen({
       }
       return;
     }
-    if (sideActive) return;
     if (key.name === "f6" && !approval && !otherOverlay) {
       key.preventDefault();
       controller?.openSide();
@@ -1564,17 +1589,7 @@ function OpenTuiScreen({
       return;
     }
     const registeredNavigation = value.startsWith("/")
-      ? (view.uiContributions ?? []).find(
-          (item) =>
-            item.descriptor.slot === "menu_entry" &&
-            item.descriptor.shortcut === value &&
-            item.snapshot.action &&
-            uiBinding?.subscription.action(
-              item.key,
-              item.snapshot.action,
-              item.snapshot.revision,
-            )?.type !== "tool",
-        )
+      ? navigationShortcut(value)
       : undefined;
     if (registeredNavigation?.snapshot.action) {
       clearInput();
@@ -1806,9 +1821,8 @@ function OpenTuiScreen({
     view.agentView?.id,
     view.agentView?.visible,
   ]);
-  const statusLayout = compactUiStatuses(
-    view.uiContributions ?? [],
-    height >= 10 ? composerWidth : 0,
+  const statuses = (view.uiContributions ?? []).filter(
+    (item) => item.descriptor.slot === "status",
   );
   if (pickerOpen && sessionPicker && !approval)
     return (
@@ -1830,7 +1844,7 @@ function OpenTuiScreen({
         {settingsDialog}
         {uiOverflow && !approval && (
           <OpenTuiStatusOverflow
-            items={statusLayout.statuses}
+            items={statuses}
             width={width}
             height={height}
             palette={palette}
@@ -1883,12 +1897,15 @@ function OpenTuiScreen({
         },
       }));
   };
-  const openAgents = () => {
-    controller?.setAgentSidebar("agents", true);
-    setOverlayDismissed(false);
-    focusSidebar();
-  };
   const menuActions: SidebarMenuAction[] = [
+    {
+      id: "services",
+      label: "Состояние сервисов",
+      detail: "Анализ кода, фоновые задачи и расширения",
+      shortcut: "F9",
+      group: "ПРОЕКТ",
+      run: () => setUiOverflow(true),
+    },
     ...(sessionPicker
       ? [
           {
@@ -2145,50 +2162,21 @@ function OpenTuiScreen({
         <UiSurface name="StatusLine">
           <box height={1} flexDirection="row" flexShrink={0}>
             <UiSurface name="PromptHints">
-              <text
-                fg={palette.muted}
-                height={1}
-                width={Math.max(1, composerWidth - statusLayout.reserved)}
-              >
+              <text fg={palette.muted} height={1} width={composerWidth}>
                 {terminalLine(
                   !home && height < 10
                     ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
                     : view.busy && onCancel
                       ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
-                      : composerWidth - statusLayout.reserved >= 77
+                      : composerWidth >= 77
                         ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
                         : composerWidth >= 45
                           ? "Enter отправить | Shift+Tab режим | F4 разрешения"
                           : "Shift+Tab режим | F4",
-                  Math.max(1, composerWidth - statusLayout.reserved),
+                  composerWidth,
                 )}
               </text>
             </UiSurface>
-            {statusLayout.visible.map(({ item, label }) => (
-              <DialogAction
-                key={item.key}
-                id={`ui-status-${item.key}`}
-                label={label}
-                palette={palette}
-                onSelect={() => {
-                  if (item.snapshot.action)
-                    void uiBinding?.dispatch(
-                      item.key,
-                      item.snapshot.action,
-                      item.snapshot.revision,
-                    );
-                  else uiBinding?.refresh();
-                }}
-              />
-            ))}
-            {!!statusLayout.remaining && (
-              <DialogAction
-                id="ui-status-more"
-                label={`Ещё ${statusLayout.remaining}`}
-                palette={palette}
-                onSelect={() => setUiOverflow(true)}
-              />
-            )}
           </box>
         </UiSurface>
       </box>
@@ -2650,7 +2638,7 @@ function OpenTuiScreen({
         {settingsDialog}
         {uiOverflow && !approval && (
           <OpenTuiStatusOverflow
-            items={statusLayout.statuses}
+            items={statuses}
             width={width}
             height={height}
             palette={palette}

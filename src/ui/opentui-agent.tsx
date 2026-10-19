@@ -2112,7 +2112,6 @@ async function runApplication(
             } else void executeOperation(controller, item);
           });
         },
-        initialMode: config.ui?.sidebarMode ?? "auto",
         initialTheme: currentTheme,
         themeCatalog: extensionHost.themes,
         accent: config.ui?.accent,
@@ -2126,16 +2125,6 @@ async function runApplication(
           });
           pendingSave = saved.catch(() => {});
           return saved;
-        },
-        onModeChange: (mode) => {
-          pendingSave = pendingSave
-            .then(async () => {
-              await updateGlobalConfig(options.configPath, (current) => ({
-                ...current,
-                ui: { ...current.ui, sidebarMode: mode },
-              }));
-            })
-            .catch(() => {});
         },
       }),
     );

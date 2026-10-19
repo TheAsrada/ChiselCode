@@ -285,6 +285,23 @@ export function OpenTuiHome({
       <box flexGrow={1.3} minHeight={0} />
       {height >= 10 && (
         <UiSurface name="HomeHints" values={{ path: projectPath }}>
+          {height >= 18 && (
+            <text
+              id="home-shortcuts"
+              height={1}
+              fg={palette.muted}
+              selectable={false}
+            >
+              {terminalLine(
+                width >= 50
+                  ? "Ctrl+B панель · F7 агенты · F8 фон · F9 сервисы"
+                  : width >= 35
+                    ? "^B панель · F7 агенты · F8 фон · F9"
+                    : "^B панель · F7/8/9",
+                Math.max(1, width - 2),
+              )}
+            </text>
+          )}
           <box
             height={1}
             width="100%"

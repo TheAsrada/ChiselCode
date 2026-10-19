@@ -193,15 +193,29 @@ try {
     await Bun.sleep(20);
   });
   await until(
-    () => !!ui.renderer.root.findDescendantById("ui-status-more"),
-    "Внешний status не подключён ordinary loader",
+    () => !!ui.renderer.root.findDescendantById("prompt-editor"),
+    "Штатный ввод не готов",
   );
   await until(
     () => ui.captureCharFrame().includes("Недоступная возможность"),
     "Нет безопасного startup notice",
   );
   assert.ok(!ui.captureCharFrame().includes("never-display-raw-cause"));
+  assert.ok(!ui.renderer.root.findDescendantById("ui-status-more"));
+  await key("F9");
+  await until(
+    () =>
+      !!ui.renderer.root.findDescendantById(
+        "ui-overflow-example.project-notes/status",
+      ),
+    "Внешний status не подключён ordinary loader",
+  );
   await capture("external-error-status-160x50");
+  await key("ESCAPE");
+  await until(
+    () => !ui.renderer.root.findDescendantById("ui-status-overflow-popup"),
+    "Esc не закрыл состояния сервисов",
+  );
   await click("prompt-editor");
   await act(async () =>
     ui.mockInput.pasteBracketedText("Сохранённый черновик"),

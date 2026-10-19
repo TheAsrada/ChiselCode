@@ -31,7 +31,6 @@ export const GlobalConfigV2Schema = z.looseObject({
     .optional(),
   ui: z
     .looseObject({
-      sidebarMode: z.enum(["auto", "show", "hide"]).optional(),
       theme: z
         .union([
           z.enum(["obsidian", "graphite", "ember", "paper"]),
@@ -48,8 +47,10 @@ export const GlobalConfigV2Schema = z.looseObject({
         .regex(/^#[0-9a-fA-F]{6}$/)
         .optional(),
     })
-    // Retire the old toggle on load/save without dropping future UI preferences.
-    .transform(({ unicodeDecorations: _removed, ...ui }) => ui)
+    // Retire old graphics/sidebar preferences without dropping future UI settings.
+    .transform(
+      ({ unicodeDecorations: _removed, sidebarMode: _sidebar, ...ui }) => ui,
+    )
     .optional(),
 });
 export const LegacyConfigSchema = z.looseObject({

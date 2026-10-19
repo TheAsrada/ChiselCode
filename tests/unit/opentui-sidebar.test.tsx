@@ -177,6 +177,17 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
       // Keys belong to the dialog and cannot switch the sidebar beneath it.
       await key(setup, "3");
       expect(controller.snapshot.agentTree?.view).toBe("menu");
+      await key(setup, "F8");
+      await key(setup, "F9");
+      expect(
+        setup.renderer.root.findDescendantById("settings-popup"),
+      ).toBeDefined();
+      expect(
+        setup.renderer.root.findDescendantById("ui-status-overflow-popup"),
+      ).toBeUndefined();
+      expect(
+        setup.renderer.root.findDescendantById("background-tasks-popup"),
+      ).toBeUndefined();
       await key(setup, "ESCAPE");
       expect(controller.snapshot.focus).toBe("sidebar");
       expect(controller.snapshot.draft).toBe("Черновик следующего сообщения");
@@ -330,3 +341,87 @@ test("home opens the sidebar with one Ctrl+B and menu settings preserve the acti
     workspace.dispose();
   }
 });
+
+for (const theme of ["obsidian", "paper"] as const) {
+  test(`each conversation opens its panel automatically without stealing the draft in ${theme}`, async () => {
+    const workspace = new TuiWorkspace(process.cwd());
+    const setup = await testRender(
+      <OpenTuiSpike workspace={workspace} initialTheme={theme} />,
+      { width: 140, height: 32 },
+    );
+    try {
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeUndefined();
+      expect(
+        setup.renderer.root.findDescendantById("home-shortcuts"),
+      ).toBeDefined();
+      await capture(setup, `${theme}-clean-home`);
+      let first!: TuiController;
+      await act(async () => {
+        first = workspace.newTab();
+        first.append("Первая задача", "user");
+        first.setDraft("Черновик первой беседы");
+      });
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeDefined();
+      expect(first.snapshot.focus).toBe("composer");
+      expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+        "Черновик первой беседы",
+      );
+      await capture(setup, `${theme}-automatic-chat`);
+      const firstKey = workspace.activeKey;
+      await key(setup, "b", true);
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeUndefined();
+      await act(async () => workspace.select());
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeUndefined();
+      await act(async () => workspace.select(firstKey));
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeDefined();
+      expect(first.snapshot.draft).toBe("Черновик первой беседы");
+      expect(first.snapshot.focus).toBe("composer");
+      await key(setup, "F9");
+      expect(
+        setup.renderer.root.findDescendantById("ui-status-overflow-popup"),
+      ).toBeDefined();
+      expect(setup.captureCharFrame()).toContain("Сервисы не подключены");
+      await key(setup, "ESCAPE");
+      expect(first.snapshot.draft).toBe("Черновик первой беседы");
+      expect(
+        setup.renderer.root.findDescendantById("ui-status-more"),
+      ).toBeUndefined();
+      await act(async () => {
+        workspace.newTab().append("Другая задача", "user");
+      });
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeDefined();
+      await act(async () => setup.renderer.resize(80, 24));
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeUndefined();
+      expect(setup.renderer.currentFocusedEditor).toBeDefined();
+      await capture(setup, `${theme}-clean-narrow-chat`);
+      await key(setup, "F7");
+      expect(
+        setup.renderer.root.findDescendantById("sidebar-panel"),
+      ).toBeDefined();
+      expect(workspace.controller.snapshot.agentTree?.view).toBe("agents");
+    } finally {
+      act(() => setup.renderer.destroy());
+      workspace.dispose();
+    }
+  });
+}

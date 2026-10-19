@@ -249,13 +249,13 @@ test("Settings typed save/trust/project patch preserve unrelated fields and reje
   await Promise.all([
     updateGlobalConfig(configPath, (current) => ({
       ...current,
-      ui: { ...current.ui, sidebarMode: "hide" },
+      ui: { ...current.ui, accent: "#123456" },
     })),
     store.trust("typescript", false),
   ]);
   expect(await loadGlobalConfig(configPath)).toMatchObject({
     profiles: { work: { providerId: "anthropic" } },
-    ui: { theme: "paper", sidebarMode: "hide" },
+    ui: { theme: "paper", accent: "#123456" },
     future: { keep: true },
     permissions: { allowBypassPermissions: false },
     lsp: { servers: { typescript: { trustedWorkspaces: [] } } },

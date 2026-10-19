@@ -1,6 +1,5 @@
 /** @jsxImportSource @opentui/react */
 import { useState } from "react";
-import stringWidth from "string-width";
 import type { OwnedUiContribution } from "../extensions/ui-types.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction, OpenTuiDialog } from "./opentui-dialog.js";
@@ -8,38 +7,6 @@ import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 
-export function compactUiStatuses(
-  items: readonly OwnedUiContribution[],
-  width: number,
-) {
-  const statuses = items.filter((item) => item.descriptor.slot === "status");
-  const budget = width < 45 ? 0 : Math.floor(width * 0.45);
-  const visible: { item: OwnedUiContribution; label: string }[] = [];
-  let used = statuses.length > 3 ? 10 : 0;
-  for (const item of statuses) {
-    const label = terminalLine(
-      item.snapshot.label ?? item.descriptor.title,
-      23,
-    );
-    const cells = stringWidth(label) + 2;
-    if (
-      visible.length === 3 ||
-      used + cells + (visible.length + 1 < statuses.length ? 10 : 0) > budget
-    )
-      break;
-    visible.push({ item, label });
-    used += cells;
-  }
-  const remaining = statuses.length - visible.length;
-  return {
-    visible,
-    remaining: budget ? remaining : 0,
-    reserved:
-      visible.reduce((sum, item) => sum + stringWidth(item.label) + 2, 0) +
-      (budget && remaining ? 10 : 0),
-    statuses,
-  };
-}
 export function OpenTuiStatusOverflow({
   items,
   width,
@@ -99,11 +66,13 @@ export function OpenTuiStatusOverflow({
       id="ui-status-overflow"
       width={width}
       height={height}
+      maxWidth={72}
+      maxHeight={Math.min(22, Math.max(8, items.length + 6))}
       palette={palette}
       onClose={onClose}
     >
       <text height={1} fg={palette.accent}>
-        Статусы возможностей
+        Состояние сервисов
       </text>
       <TerminalScrollbox
         minHeight={0}
@@ -111,6 +80,7 @@ export function OpenTuiStatusOverflow({
         focused={false}
         viewportCulling
       >
+        {!items.length && <text fg={palette.muted}>Сервисы не подключены</text>}
         {items.slice(0, 64).map((item) => (
           <DialogAction
             key={item.key}
@@ -119,7 +89,7 @@ export function OpenTuiStatusOverflow({
             tone={item.snapshot.tone}
             label={terminalLine(
               item.snapshot.label ?? item.descriptor.title,
-              Math.min(96, width - 6),
+              Math.min(66, width - 8),
             )}
             palette={palette}
             onSelect={() => onOpen(item)}

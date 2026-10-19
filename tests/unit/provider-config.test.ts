@@ -11,7 +11,7 @@ import {
 } from "../../src/providers/profiles.js";
 import { createBuiltinProviderRegistry } from "../../src/providers/runtime.js";
 
-test("retired graphics preference is stripped while other and future UI settings survive", async () => {
+test("retired graphics and persistent sidebar preferences are stripped while other and future UI settings survive", async () => {
   const dir = await mkdtemp(join(tmpdir(), "chisel-glyph-config-"));
   const path = join(dir, "config.json");
   try {
@@ -33,7 +33,11 @@ test("retired graphics preference is stripped while other and future UI settings
         }),
       );
       const loaded = await loadGlobalConfig(path);
-      const { unicodeDecorations: _removed, ...expected } = ui;
+      const {
+        unicodeDecorations: _removed,
+        sidebarMode: _sidebar,
+        ...expected
+      } = ui;
       expect(loaded.ui).toEqual(expected);
       await saveGlobalConfig(loaded, path);
       expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({

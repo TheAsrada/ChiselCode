@@ -80,6 +80,8 @@ LSP регистрирует status, section и menu entry с generic analysis v
 
 Background Tasks регистрирует menu/status и открывает существующий viewer. Backend, logs, leases, promotion snapshot confirmation и child attribution сохранены. Subagents регистрирует status/navigation, tree renderer и F7 остаются core-owned. Independent fixture `tests/fixtures/ui-extension.ts` использует только linked exports; обычный `runOpenTuiAgent` отображает её без feature-ID switch.
 
+В текущих исходниках `status` отображается в списке F9 и через пункт «Состояние сервисов» меню; footer не содержит кнопок contributions. F8 разрешает owned navigation `/tasks` через ту же subscription/action revision, F7 сохраняет прежнее дерево. Registry, SDK и источники статусов не меняются.
+
 Generic renderer использует shared Dialog, Palette, scrollbox и captured keyboard hub. Menu Enter поглощается; Space действует только в menu focus. Details имеют bounded pagination/search и один оконный список. Mouse down/up захватывает действие; drag и поздняя смена owner не перенаправляют effect. Approval имеет priority; Ctrl+C в view не вызывает main cancellation.
 
 Связанные контракты: [Chat presentation](extension-chat.md), [Background Tasks](background-tasks.md), [Помощники](subagents.md), [Побочные запросы](../side-questions.md).

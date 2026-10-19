@@ -109,6 +109,15 @@ for (const theme of ["obsidian", "paper"] as const)
     );
     try {
       await frames(setup);
+      await key(setup, "F8");
+      await key(setup, "F9");
+      expect(controller.snapshot.sideView?.visible).toBe(true);
+      expect(
+        setup.renderer.root.findDescendantById("ui-status-overflow-popup"),
+      ).toBeUndefined();
+      expect(
+        setup.renderer.root.findDescendantById("background-tasks-popup"),
+      ).toBeUndefined();
       const mode = controller.snapshot.agentMode;
       for (const [width, height] of [
         [120, 40],
