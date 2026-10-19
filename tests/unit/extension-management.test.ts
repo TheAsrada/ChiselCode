@@ -363,7 +363,7 @@ test("desktop public adapter is passive and rejects unvalidated DTOs; builtin fo
       path: f.project,
       scope: "global",
       revision: state.globalRevision,
-      value: { enabled: true, maxActive: 99 },
+      value: { enabled: "invalid" },
     }),
   ).rejects.toThrow();
   const global = await f.service.builtinSave({

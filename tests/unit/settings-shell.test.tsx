@@ -89,6 +89,7 @@ test("catalog search uses only curated metadata and deep links fields in RU/EN",
   expect(searchSettings("")).toHaveLength(10);
   expect(searchSettings("расширения")[0]?.section.id).toBe("extensions");
   expect(searchSettings("фоновые")[0]?.section.id).toBe("tools.background");
+  expect(searchSettings("maxActive")).toEqual([]);
   expect(
     searchSettings("fixture", [
       ...SETTINGS_SECTIONS,
@@ -255,7 +256,7 @@ test("Settings remain a centered popup over the chat; backdrop closes it and res
   }
 });
 
-test("subagent Settings popup edits global/project limits through native input and real storage without losing other sections", async () => {
+test("subagent Settings popup saves global/project enablement across resize without removed quota fields or losing other sections", async () => {
   const { mkdtemp, mkdir, readFile, writeFile, rm } = await import(
     "node:fs/promises"
   );
@@ -275,6 +276,7 @@ test("subagent Settings popup edits global/project limits through native input a
       profiles: {},
       ui: { theme: "paper" },
       web: { enabled: false },
+      subagents: { enabled: true, maxActive: 1, deadlineMs: 1 },
     }),
   );
   await writeFile(
@@ -307,12 +309,9 @@ test("subagent Settings popup edits global/project limits through native input a
     await paste(setup, "основной черновик");
     await key(setup, "t", true);
     await click(setup, "settings-route-tools.subagents");
-    await click(setup, "subagent-setting-2");
-    const input = setup.renderer.currentFocusedEditor;
-    expect(input?.id).toBe("subagent-setting-input");
-    await key(setup, "END");
-    await key(setup, "BACKSPACE");
-    await paste(setup, "1");
+    await click(setup, "subagent-setting-1");
+    expect(setup.captureCharFrame()).toContain("Помощники: выключены");
+    expect(setup.captureCharFrame()).not.toMatch(/Одновременно:|Время, мс/);
     for (const [width, height] of [
       [80, 24],
       [40, 12],
@@ -321,20 +320,22 @@ test("subagent Settings popup edits global/project limits through native input a
     ]) {
       await act(async () => setup.resize(width!, height!));
       await frame(setup);
-      expect(setup.renderer.currentFocusedEditor).toBe(input);
-      expect(input?.plainText).toBe("1");
+      expect(
+        setup.renderer.root.findDescendantById("subagent-setting-input"),
+      ).toBeUndefined();
     }
-    await key(setup, "ENTER");
+    expect(setup.captureCharFrame()).toContain("Помощники: выключены");
     await key(setup, "s", true);
-    await saved(async () => (await settings.load()).global.maxActive === 1);
+    await saved(async () => (await settings.load()).global.enabled === false);
     await click(setup, "settings-route-appearance");
     await click(setup, "settings-route-tools.subagents");
-    expect(setup.captureCharFrame()).toContain("Одновременно: 1");
+    expect(setup.captureCharFrame()).toContain("Помощники: выключены");
     await click(setup, "subagent-setting-0");
     await click(setup, "subagent-setting-1");
     await key(setup, "s", true);
     await saved(async () => (await settings.load()).project.enabled === false);
     const global = JSON.parse(await readFile(path, "utf8"));
+    expect(global.subagents).toEqual({ enabled: false });
     expect(global.ui.theme).toBe("paper");
     expect(global.web.enabled).toBe(false);
     expect(

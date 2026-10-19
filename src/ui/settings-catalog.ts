@@ -113,11 +113,6 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
         keywords: ["выключить", "enabled"],
       },
       {
-        id: "maxActive",
-        title: "Одновременно работающие помощники",
-        keywords: ["лимит", "parallel"],
-      },
-      {
         id: "project",
         title: "Настройки проекта",
         keywords: ["проект", "project"],
