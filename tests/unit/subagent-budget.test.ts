@@ -4,9 +4,9 @@ import { AnthropicProtocolAdapter } from "../../src/providers/drivers/anthropic-
 import { OpenAIProtocolAdapter } from "../../src/providers/drivers/openai-chat.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
 import {
-  boundedChildProvider,
-  ChildBudget,
-} from "../../src/subagents/budget.js";
+  ChildAccounting,
+  childProvider,
+} from "../../src/subagents/accounting.js";
 import type { ProviderRequest, StreamEvent } from "../../src/types/domain.js";
 import { childFixture } from "../helpers/subagent.js";
 
@@ -19,29 +19,57 @@ const request = (): ProviderRequest => ({
 });
 test("child requests have no token quotas; unknown and observed spend remain honest and idempotent", async () => {
   const record = childFixture();
-  const budget = new ChildBudget(record, new AbortController(), async () => {});
+  const accounting = new ChildAccounting(
+    record,
+    new AbortController(),
+    async () => {},
+  );
   const large = {
     ...request(),
     system: "Контекст ".repeat(30000),
     maxTokens: 64000,
   };
-  const unknown = await budget.start(large);
+  const unknown = await accounting.start(large);
   expect(large.maxTokens).toBe(64000);
   expect(unknown).not.toHaveProperty("reserved");
-  await budget.complete(unknown);
+  await accounting.complete(unknown);
   expect(record.spend.unknownUsage).toBe(true);
-  const attempt = await budget.start(request());
+  const attempt = await accounting.start(request());
   const usage = { inputTokens: 1000000, outputTokens: 100000 };
-  await budget.complete(attempt, usage, true, builtinDefinitions[0]);
-  await budget.complete(attempt, usage, true, builtinDefinitions[0]);
+  await accounting.complete(attempt, usage, true, builtinDefinitions[0]);
+  await accounting.complete(attempt, usage, true, builtinDefinitions[0]);
   expect(record.spend.usage.inputTokens).toBe(1000000);
   expect(record.spend.usage.outputTokens).toBe(100000);
   expect(record.spend.unknownUsage).toBe(true);
-  expect(() => budget.assert()).not.toThrow();
+  expect(() => accounting.assert()).not.toThrow();
+});
+test("accounting never stops a child at former tool/attempt ceilings and still honors cancellation", async () => {
+  const record = childFixture();
+  const abort = new AbortController();
+  const accounting = new ChildAccounting(record, abort, async () => {});
+  for (let index = 0; index < 125; index++) {
+    await accounting.tool();
+    const attempt = await accounting.start(request());
+    await accounting.complete(
+      attempt,
+      { inputTokens: 10, outputTokens: 2 },
+      true,
+    );
+  }
+  expect(record.consumption.tools).toBe(125);
+  expect(record.attempts).toHaveLength(125);
+  expect(record.spend.usage.inputTokens).toBe(1250);
+  expect(record.spend.unknownUsage).toBe(false);
+  abort.abort();
+  await expect(accounting.tool()).rejects.toMatchObject({ code: "CANCELLED" });
+  await expect(accounting.start(request())).rejects.toMatchObject({
+    code: "CANCELLED",
+  });
+  expect(record.consumption.tools).toBe(125);
 });
 test("child metadata keeps actual provider limits and cancellation does not wait for a pending lookup", async () => {
   const abort = new AbortController();
-  const provider = boundedChildProvider({
+  const provider = childProvider({
     adapter: {
       providerId: "openai",
       async getCapabilities(model) {
@@ -56,9 +84,9 @@ test("child metadata keeps actual provider limits and cancellation does not wait
     },
     definition: builtinDefinitions[0]!,
     capabilities: { contextWindow: 8192, tokenCounting: "local_estimate" },
-    budget: new ChildBudget(childFixture(), abort, async () => {}),
+    accounting: new ChildAccounting(childFixture(), abort, async () => {}),
     signal: abort.signal,
-    deadline: Date.now() + 10000,
+
     redactor: new SecretRedactor(),
     beforeRequest: async () => {},
   });
@@ -69,6 +97,46 @@ test("child metadata keeps actual provider limits and cancellation does not wait
   const pending = provider.getCapabilities!("pending");
   abort.abort();
   await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+});
+test("child provider inherits normal request timeouts and preserves complete tool arguments", async () => {
+  const abort = new AbortController();
+  const content = "Большая правка ".repeat(10000);
+  const call = {
+    id: "large-input",
+    name: "write_file",
+    input: { path: "large.txt", content },
+  };
+  const provider = childProvider({
+    adapter: {
+      providerId: "openai",
+      async *streamChat(value) {
+        expect(value.transport).not.toHaveProperty("timeoutMs");
+        yield { type: "tool_call", call };
+        yield {
+          type: "turn_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", ...call }],
+          },
+          stopReason: "tool_use",
+          usage: { inputTokens: 10, outputTokens: 10 },
+        };
+      },
+    },
+    definition: builtinDefinitions[0]!,
+    capabilities: { tokenCounting: "local_estimate" },
+    accounting: new ChildAccounting(childFixture(), abort, async () => {}),
+    signal: abort.signal,
+    redactor: new SecretRedactor(false),
+    beforeRequest: async () => {},
+  });
+  const events: StreamEvent[] = [];
+  for await (const event of provider.streamChat(request())) events.push(event);
+  expect(events.find((event) => event.type === "tool_call")).toEqual({
+    type: "tool_call",
+    call,
+  });
+  expect(events.at(-1)?.type).toBe("turn_complete");
 });
 for (const protocol of ["openai", "anthropic"] as const)
   test(`real ${protocol} HTTP attempts include bounded retries, split-secret redaction and strict terminal validation`, async () => {
@@ -159,13 +227,13 @@ for (const protocol of ["openai", "anthropic"] as const)
               baseUrl: `http://127.0.0.1:${server.port}`,
               apiKey: "fixture",
             });
-      const provider = boundedChildProvider({
+      const provider = childProvider({
         adapter,
         definition: builtinDefinitions.find((def) => def.id === protocol)!,
         capabilities: { tokenCounting: "local_estimate" },
-        budget: new ChildBudget(record, abort, async () => {}),
+        accounting: new ChildAccounting(record, abort, async () => {}),
         signal: abort.signal,
-        deadline: Date.now() + 10000,
+
         redactor,
         beforeRequest: async () => {},
       });

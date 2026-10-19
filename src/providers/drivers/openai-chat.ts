@@ -94,7 +94,9 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         ...(request.transport
           ? {
               maxRetries: request.transport.maxRetries,
-              timeout: request.transport.timeoutMs,
+              ...(request.transport.timeoutMs === undefined
+                ? {}
+                : { timeout: request.transport.timeoutMs }),
             }
           : {}),
       });

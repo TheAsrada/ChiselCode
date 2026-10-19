@@ -16,9 +16,9 @@ export const SubagentDescriptorSchema = z.object({
   invocationId: z.string(),
   extensionId: z.string().max(128),
   depth: z.literal(1),
-  ordinal: z.number().int().min(1).max(32),
+  ordinal: z.number().int().min(1),
   label: text(512),
-  task: text(8192),
+  task: z.string(),
   mode: z.enum(["readonly", "coding"]),
   status: z.enum(SUBAGENT_STATES),
   providerId: z.string(),
@@ -70,26 +70,18 @@ export const SubagentDescriptorSchema = z.object({
     )
     .max(256),
   spend: ModelSpendSchema,
-  attempts: z
-    .array(
-      z.object({
-        id: z.string(),
-        purpose: z.enum(["generation", "compaction", "count_tokens"]),
-        usage: SessionUsageSchema.optional(),
-        usageSource: z.enum(["observed", "partial", "unknown"]),
-        completed: z.boolean(),
-      }),
-    )
-    .max(24),
+  attempts: z.array(
+    z.object({
+      id: z.string(),
+      purpose: z.enum(["generation", "compaction", "count_tokens"]),
+      usage: SessionUsageSchema.optional(),
+      usageSource: z.enum(["observed", "partial", "unknown"]),
+      completed: z.boolean(),
+    }),
+  ),
   consumption: z.object({
     tools: z.number().int().nonnegative(),
     iterations: z.number().int().nonnegative(),
-  }),
-  limits: z.object({
-    deadlineMs: z.number().int().min(1).max(600000),
-    iterations: z.number().int().min(1).max(12),
-    attempts: z.number().int().min(1).max(24),
-    tools: z.number().int().min(1).max(100),
   }),
   cleanup: z.object({
     quiescent: z.boolean(),
@@ -125,5 +117,5 @@ export const SubagentOwnerRecordsSchema = z.object({
   schemaVersion: z.literal(1),
   revision: z.number().int().nonnegative(),
   ownerId: z.uuid(),
-  records: z.array(SubagentRecordSchema).max(32),
+  records: z.array(SubagentRecordSchema),
 });

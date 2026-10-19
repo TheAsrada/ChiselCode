@@ -23,8 +23,13 @@ export class WebRequestLimiter {
     if (count >= maxPerTurn)
       throw new RuntimeError(
         "WEB_REQUEST_LIMIT",
-        "Web request budget for this turn is exhausted. Continue with collected evidence instead of repeating searches or fetches.",
-        { retryable: false },
+        `Web HTTP request budget for this turn is exhausted (${count}/${maxPerTurn}). Search protocol requests and redirects also count. Continue with collected evidence instead of repeating searches or fetches.`,
+        {
+          retryable: false,
+          budget: "http_requests",
+          used: count,
+          limit: maxPerTurn,
+        },
       );
     this.counts.set(scope, count + 1);
     while (this.counts.size > 512)

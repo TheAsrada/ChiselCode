@@ -56,12 +56,8 @@ export class SubagentRecordStore {
   private async read(path: string, ownerId: string) {
     try {
       const stat = await lstat(path);
-      if (
-        stat.isSymbolicLink() ||
-        !stat.isFile() ||
-        stat.size > 16 * 1024 * 1024
-      )
-        throw new Error("Небезопасный или слишком большой реестр помощников.");
+      if (stat.isSymbolicLink() || !stat.isFile())
+        throw new Error("Небезопасный реестр помощников.");
       const value = SubagentOwnerRecordsSchema.parse(
         JSON.parse(await readFile(path, "utf8")),
       );
@@ -93,8 +89,6 @@ export class SubagentRecordStore {
       value.revision++;
       const validated = SubagentOwnerRecordsSchema.parse(value);
       const bytes = JSON.stringify(validated, null, 2) + "\n";
-      if (Buffer.byteLength(bytes) > 16 * 1024 * 1024)
-        throw new Error("Реестр помощников слишком большой.");
       const temporary = `${path}.${randomUUID()}.tmp`;
       const file = await open(temporary, "wx", 0o600);
       try {

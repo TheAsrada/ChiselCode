@@ -118,6 +118,7 @@ CHISEL_CAPTURE_DIR=dist/background-owner-captures bun tests/fixtures/tui-backgro
 ```bash
 bun test tests/unit/subagent-budget.test.ts tests/unit/subagent-storage-policy.test.ts
 bun test tests/unit/subagent-lifecycle.test.ts tests/unit/opentui-subagents.test.tsx
+bun test tests/unit/runtime-v2.test.ts tests/integration/conversation-diagnostics.test.ts
 CHISEL_CAPTURE_DIR=/absolute/captures bun tests/fixtures/tui-subagents.ts
 bun tests/fixtures/subagents-runtime.ts
 bun tests/fixtures/subagents-cli.ts bun dist/cli.js

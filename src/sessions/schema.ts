@@ -327,6 +327,12 @@ export const SessionV3Schema = z.looseObject({
           "failed",
           "cancelled",
         ]),
+        error: z
+          .object({
+            code: z.string().optional(),
+            message: z.string(),
+          })
+          .optional(),
       }),
     )
     .optional(),

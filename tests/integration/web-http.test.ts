@@ -250,6 +250,7 @@ test("limiter bounds concurrency, queues cancellation, counts turn quota and rat
   fourth();
   await expect(limiter.acquire("turn", 4, signal)).rejects.toMatchObject({
     code: "WEB_REQUEST_LIMIT",
+    details: { budget: "http_requests", used: 4, limit: 4, retryable: false },
   });
   const onePerMinute = new WebRequestLimiter(1, 0, 1);
   const release = await onePerMinute.acquire("a", 10, signal);

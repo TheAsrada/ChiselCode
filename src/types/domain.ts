@@ -145,7 +145,7 @@ export interface ProviderRequest {
   /** Core-owned per-request transport policy; absent preserves foreground SDK defaults. */
   transport?: {
     maxRetries: number;
-    timeoutMs: number;
+    timeoutMs?: number;
     compatibilityRetries?: boolean;
     validateTerminal?: boolean;
   };
@@ -303,6 +303,7 @@ export interface Session {
 }
 
 export interface RequestTiming {
+  error?: { code?: string; message: string };
   afterMessage: number;
   elapsedMs: number;
   status: AgentResult["status"];

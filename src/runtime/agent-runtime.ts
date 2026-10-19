@@ -167,7 +167,10 @@ export class AgentRuntime {
       const runner = new TurnRunner(this.provider, this.events);
       for (
         let iteration = 0;
-        iteration < (options.maxIterations ?? 100);
+        iteration <
+        (options.recovery === "new_child"
+          ? Infinity
+          : (options.maxIterations ?? 100));
         iteration++
       ) {
         cancelled(options.signal);

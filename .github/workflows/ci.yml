@@ -89,6 +89,9 @@ jobs:
           tests/unit/background-process.test.ts tests/unit/background-owner.test.ts
           tests/unit/tool-actions.test.ts tests/integration/tool-actions-tui.test.ts
           tests/unit/subagent-storage-policy.test.ts
+          tests/unit/subagent-lifecycle.test.ts tests/unit/subagent-budget.test.ts
+          tests/integration/subagents-runtime.test.ts
+          tests/integration/conversation-diagnostics.test.ts
           tests/unit/lsp-transport.test.ts
           tests/unit/extension-authoring.test.ts tests/unit/ui-extension-runtime.test.ts
           tests/integration/ui-extension-tools.test.ts

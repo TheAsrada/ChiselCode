@@ -31,6 +31,12 @@ These instructions are in English; generated extensions need not be.
    Never import React, OpenTUI, ChiselCode private source, or a second renderer.
 5. Check that the code actually handles the request, includes cleanup, preserves
    native input, and has a useful empty/error state. Do not create placeholders.
+   For composer requests, explain the current boundary before installation:
+   `Composer` retains the native editor, frame and controls. A wrapper adds
+   decoration around that existing frame; it cannot restyle or replace the
+   editor. Avoid nested borders and duplicate keyboard hints. Prefer a small
+   `AbovePrompt`/`BelowPrompt` contribution, or the dedicated `PromptHints` and
+   `PromptControls` surfaces. Do not promise a full input redesign through a wrapper.
 6. Call `create_extension` with a `files` object containing the complete
    `chisel-extension.json`, `index.mjs`, and optional README/assets/modules.
    This passively parses JavaScript and validates paths/import closure, then uses the
@@ -62,9 +68,9 @@ These instructions are in English; generated extensions need not be.
 ```
 
 IDs have at least two dot-separated lowercase Latin components. `builtin.*`
-and `core.*` are reserved. UI composition is an Unreleased feature after
-0.6.32; do not claim it works in the published 0.6.32. Do not invent a minimum
-released version. The `kind` field makes old hosts reject unsupported packages.
+and `core.*` are reserved. UI composition is available starting with ChiselCode
+0.6.33; 0.6.32 does not support it. The `kind` field makes old hosts reject
+unsupported packages.
 
 A complete `index.mjs`:
 

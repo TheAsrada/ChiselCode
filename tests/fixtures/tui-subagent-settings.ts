@@ -32,6 +32,8 @@ await writeFile(
       outputTokens: 1,
       childTokens: 1,
       ownerTokens: 1,
+      maxActive: 1,
+      deadlineMs: 1,
     },
   }),
 );
@@ -86,10 +88,10 @@ try {
       !!ui.renderer.root.findDescendantById("settings-route-tools.subagents"),
   );
   await click("settings-route-tools.subagents");
-  await until(() => ui.captureCharFrame().includes("Одновременно: 2"));
+  await until(() => ui.captureCharFrame().includes("Без квот на ходы"));
   assert.doesNotMatch(
     ui.captureCharFrame(),
-    /Токены|токенов|Owner tokens|Child tokens/,
+    /Токены|токенов|Owner tokens|Child tokens|Одновременно:|Время, мс|шаги 12|задачи 32/,
   );
   const captures = process.env.CHISEL_SUBAGENT_SETTINGS_CAPTURES;
   for (const [width, height] of [
@@ -132,9 +134,11 @@ try {
   );
 } finally {
   if (application) {
-    process.emit("SIGTERM");
-    await application;
+    await act(async () => {
+      process.emit("SIGTERM");
+      await application;
+    });
   }
-  ui.renderer.destroy();
+  await act(async () => ui.renderer.destroy());
   await rm(storage, { recursive: true, force: true });
 }

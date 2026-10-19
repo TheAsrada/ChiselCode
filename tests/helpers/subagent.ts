@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { emptySpend } from "../../src/models/accounting.js";
 import { captureConversation } from "../../src/models/context.js";
-import { SUBAGENT_LIMITS } from "../../src/subagents/config.js";
 import type { SubagentRecord } from "../../src/subagents/contracts.js";
 export function childFixture(
   ownerId: string = randomUUID(),
@@ -48,12 +47,6 @@ export function childFixture(
     spend: emptySpend(),
     attempts: [],
     consumption: { tools: 0, iterations: 0 },
-    limits: {
-      deadlineMs: SUBAGENT_LIMITS.deadlineMs,
-      iterations: 12,
-      attempts: 24,
-      tools: 100,
-    },
     cleanup: { quiescent: false },
     operationKey: randomUUID(),
   };

@@ -778,6 +778,9 @@ async function runPromptInWorkspace(
     afterMessage: result.session.messages.length,
     elapsedMs: result.elapsedMs,
     status: result.status,
+    ...(result.error
+      ? { error: { code: result.errorCode, message: result.error } }
+      : {}),
   });
   await sessionStore.save(result.session);
   if (

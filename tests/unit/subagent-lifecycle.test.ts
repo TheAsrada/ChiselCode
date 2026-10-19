@@ -21,20 +21,15 @@ import {
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import { WorktreeService } from "../../src/worktrees/service.js";
 
-test("core lifecycle: durable FIFO, queued cancel, wait cancellation, duplicate operation and closed/depth/foreign owner fencing", async () => {
+test("core lifecycle: unbounded admission, queued/running cancel, duplicate operation and closed/depth/foreign owner fencing", async () => {
   const temp = await mkdtemp(join(tmpdir(), "chisel-child-lifecycle-"));
   const key = process.platform === "win32" ? "LOCALAPPDATA" : "XDG_DATA_HOME";
   const previous = process.env[key];
   process.env[key] = temp;
   const starts: ChildRunInput[] = [];
-  let entered = () => {};
-  let next = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
   const releases = new Map<string, () => void>();
   const service = new SubagentService(new WorktreeService(), async (input) => {
     starts.push(input);
-    entered();
     await new Promise<void>((resolve) => {
       releases.set(input.record.id, resolve);
       input.abort.signal.addEventListener("abort", () => resolve(), {
@@ -69,7 +64,7 @@ test("core lifecycle: durable FIFO, queued cancel, wait cancellation, duplicate 
       JSON.stringify({
         schemaVersion: 2,
         profiles: {},
-        subagents: { maxActive: 1 },
+        subagents: { maxActive: 1, deadlineMs: 1 },
       }),
     );
     const global = await loadGlobalConfig(configPath);
@@ -104,10 +99,32 @@ test("core lifecycle: durable FIFO, queued cancel, wait cancellation, duplicate 
       redactor: new SecretRedactor(),
       instructions: "",
     };
+    const waitForStarts = async (count: number) => {
+      const deadline = Date.now() + 10000;
+      while (starts.length < count) {
+        if (Date.now() > deadline)
+          throw new Error(
+            `Expected ${count} running tasks, got ${starts.length}`,
+          );
+        await Bun.sleep(5);
+      }
+    };
+    let queuedCancel: Promise<unknown> | undefined;
     let selectedModel = "selected-at-submit";
     const liveBinding = {
       ...binding,
       captureModel: () => ({ ...binding.capturedModel, model: selectedModel }),
+      onEvent: (
+        event: import("../../src/subagents/contracts.js").SubagentEvent,
+      ) => {
+        if (
+          event.type === "accepted" &&
+          event.child.label === "Отменить до старта"
+        )
+          queuedCancel = service
+            .controlFor(session.id, session.id, 0)
+            .cancel(event.child.id);
+      },
     };
     const port = await service.bind(liveBinding);
     const tools = createLocalToolRuntime(
@@ -130,37 +147,49 @@ test("core lifecycle: durable FIFO, queued cancel, wait cancellation, duplicate 
         input: { task: "Изучи файл", label, context: "none" },
       });
     const a = JSON.parse((await submit("first", "Первая")).output);
-    await next;
+    await waitForStarts(1);
     expect(starts).toHaveLength(1);
     const b = JSON.parse((await submit("second", "Вторая")).output);
     const c = JSON.parse((await submit("third", "Третья")).output);
     selectedModel = "changed-after-submit";
     const control = service.controlFor(session.id, session.id, 0);
-    expect((await control.status(b.id)).status).toBe("queued");
+    await waitForStarts(3);
+    expect((await control.status(b.id)).status).not.toBe("queued");
     await control.cancel(b.id);
-    expect((await control.status(b.id)).status).toBe("cancelled");
+    expect((await control.wait([b.id], 30000))[0]?.status).toBe("cancelled");
+    const queued = JSON.parse(
+      (await submit("queued-cancel", "Отменить до старта")).output,
+    );
+    await queuedCancel;
+    expect((await control.status(queued.id)).status).toBe("cancelled");
+    expect(starts.some((input) => input.record.id === queued.id)).toBe(false);
     const duplicate = JSON.parse((await submit("first", "Первая")).output);
     expect(duplicate.id).toBe(a.id);
-    expect(await control.list()).toHaveLength(3);
+    expect(await control.list()).toHaveLength(4);
     const waiting = new AbortController();
     const wait = control.wait([a.id], 30000, waiting.signal);
     waiting.abort();
     await expect(wait).rejects.toThrow();
     expect(starts[0]?.abort.signal.aborted).toBe(false);
-    next = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    releases.get(a.id)?.();
-    await next;
-    expect(starts.map((item) => item.record.id)).toEqual([a.id, c.id]);
-    expect(starts[1]?.owner.capturedModel.model).toBe("selected-at-submit");
-    expect(starts[1]?.record.model).toBe("selected-at-submit");
+    for (let index = 0; index < 33; index++) {
+      const task = JSON.parse(
+        (await submit(`extra-${index}`, `Задача ${index}`)).output,
+      );
+      expect(task).not.toHaveProperty("limits");
+    }
+    await waitForStarts(36);
+    expect(await control.list()).toHaveLength(37);
+    expect(starts.filter((input) => !input.abort.signal.aborted)).toHaveLength(
+      35,
+    );
+    expect(starts[2]?.owner.capturedModel.model).toBe("selected-at-submit");
+    expect(starts[2]?.record.model).toBe("selected-at-submit");
     await expect(control.status(crypto.randomUUID())).rejects.toThrow(
       "другому",
     );
     await service.closeOwner(session.id);
-    expect(starts[1]?.abort.signal.aborted).toBe(true);
-    expect(starts[1]?.record.status).toBe("failed");
+    expect(starts[2]?.abort.signal.aborted).toBe(true);
+    expect(starts[2]?.record.status).toBe("failed");
     const saved = await store.load(session.id);
     expect(saved.children?.[c.id]?.child.cleanup.recoveryRequired).toBe(true);
     expect(saved.children?.[c.id]?.child.status).toBe("failed");

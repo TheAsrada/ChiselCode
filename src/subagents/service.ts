@@ -31,11 +31,13 @@ import type {
 } from "../types/domain.js";
 import { terminalSafeText } from "../ui/opentui-transcript.js";
 import type { WorktreeService } from "../worktrees/service.js";
-import { ChildBudget } from "./budget.js";
+import { ChildAccounting } from "./accounting.js";
 import { ownSubagentPlan } from "./capability.js";
 import {
   effectiveSubagentConfig,
-  SUBAGENT_LIMITS,
+  SUBAGENT_PRESENTATION,
+  SUBAGENT_SHUTDOWN_MS,
+  SUBAGENT_WAIT_MS,
   type SubagentConfig,
 } from "./config.js";
 import {
@@ -78,7 +80,7 @@ export interface ChildRunInput {
   owner: SubagentOwnerBinding;
   capture: ConversationCapture;
   abort: AbortController;
-  budget: ChildBudget;
+  accounting: ChildAccounting;
   worktrees: WorktreeService;
   checkpoint(): Promise<void>;
   progress(event: {
@@ -118,7 +120,6 @@ interface Active {
   binding: SubagentOwnerBinding;
   capture: ConversationCapture;
   abort: AbortController;
-  timer: ReturnType<typeof setTimeout>;
   run?: Promise<void>;
   writes: Promise<void>;
   dirty: boolean;
@@ -128,26 +129,10 @@ interface Active {
 }
 const submission = z
   .object({
-    task: z
-      .string()
-      .trim()
-      .min(1)
-      .refine(
-        (value) =>
-          Buffer.byteLength(value, "utf8") <= SUBAGENT_LIMITS.taskBytes,
-      ),
+    task: z.string().trim().min(1),
     label: z.string().trim().min(1).max(120),
     mode: z.enum(["readonly", "coding"]),
     context: z.enum(["conversation", "none"]).default("conversation"),
-    limits: z
-      .object({
-        deadlineMs: z.number().int().positive().optional(),
-        iterations: z.number().int().positive().optional(),
-        attempts: z.number().int().positive().optional(),
-        tools: z.number().int().positive().optional(),
-      })
-      .strict()
-      .optional(),
   })
   .strict();
 const titles: Record<SubagentStatus, string> = {
@@ -186,8 +171,6 @@ export class SubagentService {
   private readonly approvals = new ApprovalArbiter();
   private readonly owners = new Map<string, Owner>();
   private readonly active = new Map<string, Active>();
-  private readonly order: string[] = [];
-  private cursor = 0;
   private pumpPending = false;
   private closed = false;
   private heartbeat?: ReturnType<typeof setInterval>;
@@ -229,7 +212,6 @@ export class SubagentService {
     if (owner?.closed && !this.busy(input.session.id)) {
       owner.detach();
       this.owners.delete(input.session.id);
-      this.order.splice(this.order.indexOf(input.session.id), 1);
       owner = undefined;
     }
     if (owner) {
@@ -272,7 +254,6 @@ export class SubagentService {
       input.signal.addEventListener("abort", close, { once: true });
       owner.detach = () => input.signal.removeEventListener("abort", close);
       this.owners.set(input.session.id, owner);
-      this.order.push(input.session.id);
       for (const record of restored.records)
         await this.persist(capturedOwner, record);
     }
@@ -343,7 +324,7 @@ export class SubagentService {
           else if (action === "list") result = await port.list();
           else if (action === "wait")
             result = await port.wait(
-              z.array(z.uuid()).min(1).max(32).parse(values.ids),
+              z.array(z.uuid()).min(1).parse(values.ids),
               typeof values.timeoutMs === "number"
                 ? values.timeoutMs
                 : undefined,
@@ -431,7 +412,7 @@ export class SubagentService {
         let artifact = item.artifact;
         if (
           !artifact &&
-          Buffer.byteLength(item.text) > SUBAGENT_LIMITS.inlineResultBytes
+          Buffer.byteLength(item.text) > SUBAGENT_PRESENTATION.inlineResultBytes
         ) {
           let cached = this.resultArtifacts.get(id);
           if (!cached || cached.revision !== item.revision) {
@@ -450,10 +431,11 @@ export class SubagentService {
           id: item.id,
           mode: item.mode,
           status: item.status,
-          text: utf8Prefix(item.text, SUBAGENT_LIMITS.inlineResultBytes),
+          text: utf8Prefix(item.text, SUBAGENT_PRESENTATION.inlineResultBytes),
           textTruncated:
             item.textTruncated ||
-            Buffer.byteLength(item.text) > SUBAGENT_LIMITS.inlineResultBytes,
+            Buffer.byteLength(item.text) >
+              SUBAGENT_PRESENTATION.inlineResultBytes,
           sessionId: item.sessionId,
           root: item.root,
           worktree: item.worktree,
@@ -472,7 +454,7 @@ export class SubagentService {
       },
       wait: async (
         ids: readonly string[],
-        timeoutMs = SUBAGENT_LIMITS.waitMs,
+        timeoutMs = SUBAGENT_WAIT_MS,
         signal?: AbortSignal,
       ) => {
         const selected = ids.map(lookup);
@@ -489,7 +471,7 @@ export class SubagentService {
                   new Promise<void>((resolve) => {
                     timer = setTimeout(
                       resolve,
-                      Math.max(0, Math.min(timeoutMs, SUBAGENT_LIMITS.waitMs)),
+                      Math.max(0, Math.min(timeoutMs, SUBAGENT_WAIT_MS)),
                     );
                   }),
                 ]),
@@ -550,16 +532,6 @@ export class SubagentService {
         );
       if (!owner.config.enabled)
         throw new RuntimeError("SUBAGENT_UNAVAILABLE", "Помощники отключены.");
-      if (
-        owner.records.size >= SUBAGENT_LIMITS.acceptedPerOwner ||
-        [...owner.records.values()].filter(
-          (record) => record.status === "queued",
-        ).length >= SUBAGENT_LIMITS.queuedPerOwner
-      )
-        throw new RuntimeError(
-          "SUBAGENT_LIMIT",
-          "Лимит задач или очереди помощников достигнут; новое поручение не принято.",
-        );
       if (input.mode === "coding" && binding.session.mode === "plan")
         throw new RuntimeError(
           "MODE_RESTRICTION",
@@ -597,24 +569,6 @@ export class SubagentService {
         spend: emptySpend(),
         attempts: [],
         consumption: { tools: 0, iterations: 0 },
-        limits: {
-          deadlineMs: Math.min(
-            input.limits?.deadlineMs ?? Infinity,
-            owner.config.deadlineMs,
-          ),
-          iterations: Math.min(
-            input.limits?.iterations ?? Infinity,
-            SUBAGENT_LIMITS.iterations,
-          ),
-          attempts: Math.min(
-            input.limits?.attempts ?? Infinity,
-            SUBAGENT_LIMITS.attempts,
-          ),
-          tools: Math.min(
-            input.limits?.tools ?? Infinity,
-            SUBAGENT_LIMITS.toolInvocations,
-          ),
-        },
         cleanup: { quiescent: true },
         operationKey,
         process: {
@@ -641,12 +595,6 @@ export class SubagentService {
         throw error;
       }
       const abort = new AbortController();
-      const timer = setTimeout(() => {
-        abort.abort(
-          new RuntimeError("SUBAGENT_LIMIT", "Время помощника истекло."),
-        );
-        void this.stop(record, "timed_out").catch(() => {});
-      }, record.limits.deadlineMs);
       let finish = () => {};
       const done = new Promise<void>((resolve) => {
         finish = resolve;
@@ -678,7 +626,6 @@ export class SubagentService {
         },
         capture: boundedCapture,
         abort,
-        timer,
         writes: Promise.resolve(),
         dirty: false,
         done,
@@ -770,9 +717,9 @@ export class SubagentService {
     );
     if (event.type === "text") {
       const next = record.text + text;
-      record.text = utf8Prefix(next, SUBAGENT_LIMITS.resultBytes);
+      record.text = utf8Prefix(next, SUBAGENT_PRESENTATION.resultBytes);
       record.textTruncated ||=
-        Buffer.byteLength(next) > SUBAGENT_LIMITS.resultBytes;
+        Buffer.byteLength(next) > SUBAGENT_PRESENTATION.resultBytes;
     } else {
       const sequence = (record.progress.at(-1)?.sequence ?? 0) + 1;
       record.progress.push({
@@ -781,7 +728,7 @@ export class SubagentService {
         sequence,
         at: new Date().toISOString(),
       });
-      if (record.progress.length > SUBAGENT_LIMITS.progressEntries)
+      if (record.progress.length > SUBAGENT_PRESENTATION.progressEntries)
         record.progress.shift();
       record.step = utf8Prefix(text, 1024);
     }
@@ -801,24 +748,15 @@ export class SubagentService {
     });
   }
   private pump(): void {
-    let available =
-      SUBAGENT_LIMITS.activePerApplication -
-      [...this.active.values()].filter((item) => item.run).length;
-    let checked = 0;
-    while (available > 0 && this.order.length && checked < this.order.length) {
-      const id = this.order[this.cursor++ % this.order.length];
-      const owner = id ? this.owners.get(id) : undefined;
-      checked++;
-      if (!owner || owner.closed || !owner.config.enabled) continue;
-      const jobs = [...this.active.values()].filter(
-        (item) => item.owner === owner,
-      );
-      if (jobs.filter((item) => item.run).length >= owner.config.maxActive)
+    for (const queued of this.active.values()) {
+      if (
+        queued.run ||
+        queued.abort.signal.aborted ||
+        queued.record.status !== "queued"
+      )
         continue;
-      const queued = jobs.find(
-        (item) => item.record.status === "queued" && !item.abort.signal.aborted,
-      );
-      if (!queued) continue;
+      const owner = queued.owner;
+      if (owner.closed || !owner.config.enabled) continue;
       queued.record.status = "preparing";
       queued.record.cleanup = { quiescent: false };
       queued.run = this.start(queued).finally(() => {
@@ -831,13 +769,11 @@ export class SubagentService {
         }
       });
       void queued.run.catch(() => {});
-      available--;
-      checked = 0;
     }
   }
   private async start(active: Active): Promise<void> {
     const { record, owner } = active;
-    const budget = new ChildBudget(record, active.abort, () =>
+    const accounting = new ChildAccounting(record, active.abort, () =>
       this.checkpoint(active),
     );
     const transition = async (status: SubagentStatus, step: string) => {
@@ -853,7 +789,7 @@ export class SubagentService {
         owner: active.binding,
         capture: active.capture,
         abort: active.abort,
-        budget,
+        accounting,
         worktrees: this.worktrees,
         checkpoint: () => this.checkpoint(active),
         progress: (event) => this.progress(active, event),
@@ -874,16 +810,11 @@ export class SubagentService {
           : error instanceof RuntimeError
             ? error.code
             : "SUBAGENT_RUNTIME";
-      record.status =
-        record.status === "timed_out"
-          ? "timed_out"
-          : code === "SUBAGENT_BUDGET_EXHAUSTED"
-            ? "budget_exhausted"
-            : active.abort.signal.aborted
-              ? "cancelled"
-              : code === "APPROVAL_UNAVAILABLE"
-                ? "approval_unavailable"
-                : "failed";
+      record.status = active.abort.signal.aborted
+        ? "cancelled"
+        : code === "APPROVAL_UNAVAILABLE"
+          ? "approval_unavailable"
+          : "failed";
       record.error = {
         code,
         message: utf8Prefix(
@@ -894,7 +825,6 @@ export class SubagentService {
         ),
       };
     } finally {
-      clearTimeout(active.timer);
       if (active.notification) clearTimeout(active.notification);
       record.step = titles[record.status];
       record.finishedAt = new Date().toISOString();
@@ -906,20 +836,16 @@ export class SubagentService {
       this.notify(owner, record, "terminal");
     }
   }
-  private async stop(
-    record: SubagentRecord,
-    terminal: SubagentStatus = "cancelled",
-  ): Promise<void> {
+  private async stop(record: SubagentRecord): Promise<void> {
     const active = this.active.get(record.id);
     if (!active || !subagentActive(record.status)) return;
     active.abort.abort(
       new RuntimeError("CANCELLED", "Помощник остановлен пользователем."),
     );
     if (!active.run) {
-      clearTimeout(active.timer);
-      record.status = terminal;
+      record.status = "cancelled";
       record.finishedAt = new Date().toISOString();
-      record.step = titles[terminal];
+      record.step = titles.cancelled;
       record.cleanup = { quiescent: true };
       await this.checkpoint(active);
       this.active.delete(record.id);
@@ -931,7 +857,7 @@ export class SubagentService {
       this.notify(active.owner, record, "terminal");
       this.schedule();
     } else {
-      record.status = terminal === "timed_out" ? "timed_out" : "cancelling";
+      record.status = "cancelling";
       record.step = titles[record.status];
       await this.checkpoint(active);
     }
@@ -949,12 +875,9 @@ export class SubagentService {
     owner.closed = true;
     owner.detach();
     await this.cancelOwner(sessionId);
-    await this.drain(sessionId, SUBAGENT_LIMITS.shutdownMs);
+    await this.drain(sessionId, SUBAGENT_SHUTDOWN_MS);
   }
-  async drain(
-    sessionId: string,
-    timeoutMs: number = SUBAGENT_LIMITS.deadlineMs,
-  ): Promise<void> {
+  async drain(sessionId: string, timeoutMs?: number): Promise<void> {
     const jobs = [...this.active.values()].filter(
       (item) => item.owner.binding.session.id === sessionId,
     );
@@ -962,9 +885,13 @@ export class SubagentService {
     try {
       await Promise.race([
         Promise.allSettled(jobs.map((item) => item.done)),
-        new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, timeoutMs);
-        }),
+        ...(timeoutMs === undefined
+          ? []
+          : [
+              new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, timeoutMs);
+              }),
+            ]),
       ]);
     } finally {
       if (timer) clearTimeout(timer);
@@ -988,7 +915,6 @@ export class SubagentService {
         owner.config = {
           ...owner.config,
           ...config,
-          maxActive: Math.min(owner.config.maxActive, config.maxActive),
         };
         if (!config.enabled) await this.cancelOwner(owner.binding.session.id);
       }

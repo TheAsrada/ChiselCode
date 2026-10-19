@@ -5,7 +5,7 @@ import { RuntimeEventBus } from "../runtime/events.js";
 import { ApprovalGate } from "../security/approval.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession } from "../sessions/store.js";
-import { SUBAGENT_LIMITS } from "../subagents/config.js";
+import { SUBAGENT_SHUTDOWN_MS } from "../subagents/config.js";
 import type {
   SubagentOwnerBinding,
   SubagentService,
@@ -33,7 +33,7 @@ export function subagentControls(
     busy: () => service.busy(owner.session.id),
     cancel: () => service.cancelOwner(owner.session.id),
     close: () => service.closeOwner(owner.session.id),
-    wait: () => service.drain(owner.session.id, SUBAGENT_LIMITS.shutdownMs),
+    wait: () => service.drain(owner.session.id, SUBAGENT_SHUTDOWN_MS),
     inspect: async (id, view) => {
       const record = await port.status(id);
       if (view === "history") {

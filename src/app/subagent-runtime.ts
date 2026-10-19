@@ -32,10 +32,10 @@ import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import { SecretRedactor } from "../security/redaction.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession } from "../sessions/store.js";
-import { boundedChildProvider } from "../subagents/budget.js";
+import { childProvider } from "../subagents/accounting.js";
 import {
   effectiveSubagentConfig,
-  SUBAGENT_LIMITS,
+  SUBAGENT_PRESENTATION,
 } from "../subagents/config.js";
 import type { SubagentStatus } from "../subagents/contracts.js";
 import { ChildToolPolicy } from "../subagents/policy.js";
@@ -215,7 +215,7 @@ async function createCodingRoot(
 
 /** Normal AgentRuntime composition with its own writer and enforced capabilities. */
 export async function runChildAgent(input: ChildRunInput): Promise<void> {
-  const { record, owner, abort, budget } = input;
+  const { record, owner, abort, accounting } = input;
   const signal = abort.signal;
   const redactor = new SecretRedactor();
   for (const value of owner.redactor.knownValues()) redactor.add(value);
@@ -323,7 +323,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       owner.global,
       owner.approvalMode,
       owner.options.allow,
-      () => budget.tool(),
+      () => accounting.tool(),
     );
     const events = new RuntimeEventBus(session.id);
     tools = await createSessionToolRuntime({
@@ -353,7 +353,6 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
         origin: owner.root,
         childId: record.id,
         childLabel: record.label,
-        childDeadline: Date.parse(record.acceptedAt) + record.limits.deadlineMs,
         worktree: record.worktree
           ? {
               id: record.worktree.id,
@@ -406,13 +405,12 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       ],
       schemas,
     );
-    const provider = boundedChildProvider({
+    const provider = childProvider({
       adapter,
       definition,
       capabilities: captured.capabilities,
-      budget,
+      accounting,
       signal,
-      deadline: Date.parse(record.acceptedAt) + record.limits.deadlineMs,
       redactor,
       beforeRequest: () => policy.refresh(),
     });
@@ -473,36 +471,24 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
     const result = await runtime.run(session, task, {
       mode: session.mode,
       signal,
-      maxIterations: record.limits.iterations,
       recovery: "new_child",
       onCheckpoint: checkpoint,
       contextProviders: contextCollection(scope, safe),
     });
     const fullResult = safe(result.text || record.text);
-    record.text = utf8Prefix(fullResult, SUBAGENT_LIMITS.resultBytes);
+    record.text = utf8Prefix(fullResult, SUBAGENT_PRESENTATION.resultBytes);
     record.textTruncated ||= fullResult !== record.text;
     if (result.status === "approval_required")
       terminalStatus = "approval_unavailable";
-    else if (result.status === "failed")
-      terminalStatus =
-        result.errorCode === "SUBAGENT_BUDGET_EXHAUSTED"
-          ? "budget_exhausted"
-          : "failed";
-    else if (result.status === "cancelled")
-      terminalStatus =
-        abort.signal.reason instanceof RuntimeError &&
-        abort.signal.reason.code === "SUBAGENT_BUDGET_EXHAUSTED"
-          ? "budget_exhausted"
-          : record.status === "timed_out"
-            ? "timed_out"
-            : "cancelled";
+    else if (result.status === "failed") terminalStatus = "failed";
+    else if (result.status === "cancelled") terminalStatus = "cancelled";
     else terminalStatus = "completed";
     if (result.error)
       record.error = {
         code: result.errorCode ?? "SUBAGENT_RUNTIME",
         message: utf8Prefix(safe(result.error), 2048),
       };
-    if (Buffer.byteLength(fullResult) > SUBAGENT_LIMITS.inlineResultBytes)
+    if (Buffer.byteLength(fullResult) > SUBAGENT_PRESENTATION.inlineResultBytes)
       record.artifact = await new ToolResultStore(
         join(sessionsRootDir(), "artifacts", owner.session.id),
       ).put(fullResult, "untrusted_external");

@@ -55,7 +55,7 @@ export async function autoLspLaunch(root: string): Promise<LspLaunch> {
   if (!outside(root, cache))
     throw new RuntimeError(
       "LSP_UNAVAILABLE",
-      "ChiselCode LSP data must be outside the analysed workspace.",
+      "Открытая папка включает служебные данные ChiselCode. Для анализа кода откройте папку проекта через /cwd <путь> или chisel --cwd <путь>; runtime LSP должен находиться вне анализируемой папки.",
     );
   const command = process.execPath;
   const args = [

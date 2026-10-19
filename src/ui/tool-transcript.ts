@@ -228,8 +228,11 @@ export function replaySessionIntoTranscript(
       appendChatPresentation(target, record.presentation);
     for (const record of compactions.get(afterMessage) ?? [])
       target.append(compactionNotice(record), "context");
-    for (const timing of timings.get(afterMessage) ?? [])
+    for (const timing of timings.get(afterMessage) ?? []) {
+      if (timing.error && timing.status === "failed")
+        target.append(timing.error.message, "error");
       target.append(requestCompletion(timing.status, timing.elapsedMs), "dim");
+    }
   };
   const compactions = new Map<
     number,

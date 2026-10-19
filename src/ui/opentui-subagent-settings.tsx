@@ -10,7 +10,6 @@ import {
 } from "react";
 import {
   ProjectSubagentConfigSchema,
-  SUBAGENT_LIMITS,
   SubagentConfigSchema,
 } from "../subagents/config.js";
 import type {
@@ -45,8 +44,6 @@ export function OpenTuiSubagentSettings({
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [project, setProject] = useState(false);
   const [selected, setSelected] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [input, setInput] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
@@ -75,8 +72,8 @@ export function OpenTuiSubagentSettings({
     };
   }, [actions]);
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
-  const fields = ["enabled", "maxActive", "deadlineMs"] as const;
-  const names = ["Помощники", "Одновременно", "Время, мс"];
+  const fields = ["enabled"] as const;
+  const names = ["Помощники"];
   const save = () => {
     if (!state || busy) return;
     const validated = project
@@ -109,7 +106,6 @@ export function OpenTuiSubagentSettings({
   };
   const discard = () => {
     if (state) setDraft({ ...(project ? state.project : state.global) });
-    setEditing(false);
   };
   useLayoutEffect(() => {
     controls.current = {
@@ -120,34 +116,13 @@ export function OpenTuiSubagentSettings({
           setNotice(error instanceof Error ? error.message : String(error));
         }
       },
-      back: () => {
-        if (!editing) return false;
-        setEditing(false);
-        return true;
-      },
+      back: () => false,
       discard,
     };
     return () => {
       controls.current = undefined;
     };
   });
-  const accept = () => {
-    if (project && !input.trim()) {
-      const next = { ...draft };
-      delete next[fields[selected - 1]!];
-      setDraft(next);
-      setEditing(false);
-      return;
-    }
-    const value = Number(input);
-    if (!Number.isInteger(value)) {
-      setNotice("Нужно целое число.");
-      return;
-    }
-    setDraft({ ...draft, [fields[selected - 1]!]: value });
-    setEditing(false);
-    setNotice("");
-  };
   const activate = () => {
     if (selected === 0) {
       if (dirty) {
@@ -162,15 +137,6 @@ export function OpenTuiSubagentSettings({
       if (project && draft.enabled === true) delete next.enabled;
       else next.enabled = draft.enabled === undefined ? false : !draft.enabled;
       setDraft(next);
-    } else if (selected <= fields.length) {
-      setInput(
-        String(
-          draft[fields[selected - 1]!] ??
-            state?.global[fields[selected - 1]!] ??
-            "",
-        ),
-      );
-      setEditing(true);
     } else save();
   };
   useUiKeyboard((key) => {
@@ -182,7 +148,6 @@ export function OpenTuiSubagentSettings({
       (key.ctrl && key.name === "s")
     )
       return;
-    if (editing) return;
     if (key.name === "up" || key.name === "down") {
       key.preventDefault();
       setSelected((index) =>
@@ -201,32 +166,10 @@ export function OpenTuiSubagentSettings({
     }
   });
   useLayoutEffect(() => {
-    if (!editing)
-      body.current?.scrollChildIntoView(`subagent-setting-${selected}`);
-  }, [selected, editing]);
+    body.current?.scrollChildIntoView(`subagent-setting-${selected}`);
+  }, [selected]);
   if (!state)
     return <text fg={palette.muted}>{notice || "Загрузка настроек…"}</text>;
-  if (editing)
-    return (
-      <box height={height} flexDirection="column">
-        <text height={1} fg={palette.text}>
-          {names[selected - 1]}
-        </text>
-        <input
-          id="subagent-setting-input"
-          value={input}
-          onInput={setInput}
-          onSubmit={accept}
-          focused={active && focused}
-          backgroundColor={palette.raised}
-          focusedBackgroundColor={palette.raised}
-          textColor={palette.text}
-          focusedTextColor={palette.text}
-        />
-        <text fg={palette.yellow}>{notice}</text>
-        <text fg={palette.muted}>Enter — принять · Esc — назад</text>
-      </box>
-    );
   return (
     <box width={width} height={height} flexDirection="column">
       <TerminalScrollbox ref={body} flexGrow={1} minHeight={1} viewportCulling>
@@ -258,14 +201,6 @@ export function OpenTuiSubagentSettings({
                   next.enabled =
                     draft.enabled === undefined ? false : !draft.enabled;
                 setDraft(next);
-              } else if (index <= fields.length) {
-                setInput(
-                  String(
-                    draft[fields[index - 1]!] ??
-                      state.global[fields[index - 1]!],
-                  ),
-                );
-                setEditing(true);
               } else {
                 try {
                   save();
@@ -283,10 +218,9 @@ export function OpenTuiSubagentSettings({
           только явно. Shell работает на host; это не sandbox.
         </text>
         <text fg={palette.muted}>
-          До {SUBAGENT_LIMITS.activePerApplication} на приложение; очередь 8,
-          задачи 32, шаги 12, запросы 24, инструменты 100. Контекст и ответ
-          определяются моделью. Проект может только сузить ограничения. Цена без
-          тарифа неизвестна.
+          Без квот на ходы, инструменты, время, число задач и параллельность.
+          Контекст и ответ определяются моделью. Остановить помощника можно в
+          панели задач. Цена без тарифа неизвестна.
         </text>
       </TerminalScrollbox>
       <text height={1} fg={notice ? palette.yellow : palette.muted}>

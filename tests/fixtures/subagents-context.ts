@@ -97,9 +97,9 @@ const server = Bun.serve({
     observedInputs.push(Buffer.byteLength(JSON.stringify(body)) / 3);
     assert.equal(body.max_completion_tokens ?? body.max_tokens, 65536);
     assert.ok(JSON.stringify(body.messages).includes("TASK_SENTINEL"));
-    if (generations === 1)
+    if (generations <= 26)
       return new Response(
-        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "read-evidence", type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: "evidence.txt" }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 90000, completion_tokens: 2500 } })}\n\ndata: [DONE]\n\n`,
+        `data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: Array.from({ length: 4 }, (_, index) => ({ index, id: `read-evidence-${generations}-${index}`, type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: "evidence.txt" }) } })) }, finish_reason: "tool_calls" }] })}\n\ndata: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 90000, completion_tokens: 2500 } })}\n\ndata: [DONE]\n\n`,
         { headers: { "Content-Type": "text/event-stream" } },
       );
     assert.ok(
@@ -128,6 +128,11 @@ await writeFile(
       ownerTokens: 1,
       inputTokens: 1,
       outputTokens: 1,
+      maxActive: 1,
+      deadlineMs: 1,
+      iterations: 1,
+      attempts: 1,
+      tools: 1,
     },
   }),
 );
@@ -142,11 +147,7 @@ const service = new SubagentService(new WorktreeService(), runChildAgent);
 const host = new ExtensionHost([createSubagentExtension(service)]);
 try {
   const global = await loadGlobalConfig(configPath);
-  assert.deepEqual(Object.keys(global.subagents!).sort(), [
-    "deadlineMs",
-    "enabled",
-    "maxActive",
-  ]);
+  assert.deepEqual(Object.keys(global.subagents!).sort(), ["enabled"]);
   const scope = await host.open(root);
   const store = await projectSessionStore(root);
   const session = store.create("openai", "fixture-model");
@@ -212,7 +213,9 @@ try {
       id: "large-context",
       name: "ext:builtin.subagents:submit_readonly",
       input: {
-        task: "Прочитай evidence.txt. Сохрани TASK_SENTINEL. Не изменяй файлы.",
+        task:
+          "Прочитай evidence.txt. Сохрани TASK_SENTINEL. Не изменяй файлы. " +
+          "Подробное поручение. ".repeat(500),
         label: "Большой контекст",
       },
     });
@@ -229,7 +232,10 @@ try {
         context: child!.context,
       }),
     );
-    assert.ok(generations >= 2);
+    assert.equal(generations, 27);
+    assert.equal(child!.consumption.tools, 104);
+    assert.equal(child!.consumption.iterations, 27);
+    assert.ok(child!.attempts.length > 24);
     assert.ok(
       observedInputs.every((count) => count > 16000),
       JSON.stringify(observedInputs),
@@ -255,7 +261,7 @@ try {
     );
     const childSession = await store.load(child!.sessionId!);
     assert.ok(childSession.context?.compactions?.length);
-    assert.ok(!("tokens" in child!.limits));
+    assert.ok(!("limits" in child!));
     console.log(
       `Subagent context: ${summaryCalls} model summaries, ${generations} generations above 16000 tokens, provider output 65536, observed spend ${child!.spend.usage.inputTokens}, full artifact verified`,
     );

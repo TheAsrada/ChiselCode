@@ -7,7 +7,6 @@ import type {
   TokenUsage,
   ToolExecutionResult,
 } from "../types/domain.js";
-import type { SUBAGENT_LIMITS } from "./config.js";
 
 export const SUBAGENT_STATES = [
   "queued",
@@ -30,12 +29,6 @@ export interface SubagentInput {
   label: string;
   mode: SubagentMode;
   context?: "conversation" | "none";
-  limits?: {
-    deadlineMs?: number;
-    iterations?: number;
-    attempts?: number;
-    tools?: number;
-  };
 }
 export interface SubagentAttempt {
   id: string;
@@ -92,12 +85,6 @@ export interface SubagentDescriptor {
   spend: ModelSpend;
   attempts: SubagentAttempt[];
   consumption: { tools: number; iterations: number };
-  limits: {
-    deadlineMs: number;
-    iterations: number;
-    attempts: number;
-    tools: number;
-  };
   cleanup: {
     quiescent: boolean;
     incomplete?: boolean;
@@ -176,4 +163,3 @@ export function subagentActive(status: SubagentStatus): boolean {
     "cancelling",
   ].includes(status);
 }
-export type SubagentDefaults = typeof SUBAGENT_LIMITS;

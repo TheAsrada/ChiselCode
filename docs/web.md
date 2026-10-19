@@ -62,6 +62,8 @@ chisel web configure --deny-domain '*.internal.example.com'
 
 `web_fetch` читает HTML, Markdown, plain text и JSON. Удаляются scripts, navigation, footer, очевидные ads/cookie noise и hidden elements; сохраняются title, headings, paragraphs, lists, tables и code examples. JavaScript не исполняется. Title, requested/final URL, fetchedAt и contentType сохраняются в session metadata.
 
+На MediaWiki извлекается тело статьи: список языков, оглавление и ссылки редактирования не занимают лимит текста перед полезным содержимым.
+
 В чате отображаются компактные строки: поисковый запрос и число результатов, открытый домен, title, final URL и объём извлечения. Большие документы сохраняются в закрытый artifact store с коротким preview и `tool-result://…`; агент читает нужные строки через `read_tool_result`. Resume сохраняет источники, результаты и их отображение.
 
 Cache хранит извлечённый текст в пределах сессии: default TTL 5 минут, максимум 16 документов/2 MiB на сессию, ограниченное число активных caches. Fragment удаляется, redirect aliases используют final URL. Cache hit тоже проверяет действующие permissions. `cacheTtlMs: 0` отключает cache.
@@ -81,6 +83,8 @@ Native fetch всегда блокирует localhost, private/reserved IPv4/IP
 Default пределы текстового Fetch: 8 секунд ожидания соединения/headers, 30 секунд полного запроса, 5 redirects, 2 MiB скачанных и 4 MiB распакованных данных, 100000 извлечённых символов. Нормализованные URL, включая redirects и результаты поиска, ограничены 4096 символами. Fetch обычно запрашивает до 30000 символов. DOM ограничен по числу узлов и глубине, очень длинные строки сокращаются. Параллельность — 3 web requests, process rate — до 120/min с интервалом между стартами, turn budget — 24 calls/requests. Ctrl+C отменяет ожидание и socket текущего запроса. [Все настройки](configuration.md#native-web).
 
 Web policy относится к native Web tools, не является OS firewall и не изменяет отдельные полномочия shell/MCP.
+
+При `WEB_REQUEST_LIMIT` диагностика различает бюджет вызовов инструментов (`tool_calls`) и HTTP-запросов (`http_requests`) и указывает использованное число и предел. Поиск через hosted MCP включает служебный handshake и discovery; redirects также расходуют HTTP-бюджет. Поэтому число HTTP-запросов может быть больше числа поисков. Это общий Web budget, а не отдельная квота помощника; HTTP 404 означает ошибочный адрес, а `WEB_UNSAFE_ADDRESS` для `data:` — неподдерживаемую схему.
 
 ## CLI и troubleshooting
 

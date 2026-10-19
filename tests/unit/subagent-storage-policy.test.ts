@@ -36,8 +36,6 @@ test("legacy quota configs and saved child receipts migrate without retaining to
   };
   expect(SubagentConfigSchema.parse(old)).toEqual({
     enabled: true,
-    maxActive: 2,
-    deadlineMs: 600000,
   });
   expect(ProjectSubagentConfigSchema.parse(old)).toEqual({ enabled: true });
   expect(() =>
@@ -47,7 +45,7 @@ test("legacy quota configs and saved child receipts migrate without retaining to
   fixture.spend.usage.inputTokens = 1000000;
   const prior = {
     ...fixture,
-    limits: { ...fixture.limits, tokens: 1 },
+    limits: { deadlineMs: 1, iterations: 1, attempts: 1, tools: 1, tokens: 1 },
     consumption: { ...fixture.consumption, accountedTokens: 1000000 },
     attempts: [
       {
@@ -62,7 +60,7 @@ test("legacy quota configs and saved child receipts migrate without retaining to
     ],
   };
   const migrated = SubagentRecordSchema.parse(prior);
-  expect(migrated.limits).not.toHaveProperty("tokens");
+  expect(migrated).not.toHaveProperty("limits");
   expect(migrated.consumption).not.toHaveProperty("accountedTokens");
   expect(migrated.attempts[0]).not.toHaveProperty("reserved");
   expect(migrated.spend.usage.inputTokens).toBe(1000000);
@@ -71,8 +69,8 @@ test("legacy quota configs and saved child receipts migrate without retaining to
       revision: 1,
       child: prior,
       spend: fixture.spend,
-    }).child.limits,
-  ).not.toHaveProperty("tokens");
+    }).child,
+  ).not.toHaveProperty("limits");
 });
 
 test("child and side patches survive stale parent saves, duplicate receipts and interrupted recovery; no child resume authority", async () => {
@@ -204,7 +202,7 @@ test("Settings save typed fields without losing unrelated data, reject stale wri
       applies++;
     });
     const initial = await actions.load();
-    const config = { ...initial.global, enabled: false, maxActive: 1 };
+    const config = { ...initial.global, enabled: false };
     const updated = await actions.saveGlobal(config, initial.globalRevision);
     expect(updated.global.enabled).toBe(false);
     expect((await loadGlobalConfig(path)).ui?.theme).toBe("paper");
@@ -212,22 +210,25 @@ test("Settings save typed fields without losing unrelated data, reject stale wri
     await expect(
       actions.saveGlobal(initial.global, initial.globalRevision),
     ).rejects.toThrow("изменились");
-    await actions.saveProject(
-      { enabled: true, maxActive: 2 },
-      updated.projectRevision,
-    );
+    await actions.saveProject({ enabled: true }, updated.projectRevision);
     expect(
       JSON.parse(await readFile(join(root, ".chiselrc"), "utf8")).unknownFeature
         .keep,
     ).toBe(true);
-    expect(
-      effectiveSubagentConfig(config, { enabled: true, maxActive: 2 }).enabled,
-    ).toBe(false);
-    expect(effectiveSubagentConfig(config, { maxActive: 2 }).maxActive).toBe(1);
+    expect(effectiveSubagentConfig(config, { enabled: true }).enabled).toBe(
+      false,
+    );
     expect(applies).toBe(2);
-    expect(() =>
-      SubagentConfigSchema.parse({ ...config, maxActive: 99 }),
-    ).toThrow();
+    expect(
+      SubagentConfigSchema.parse({
+        ...config,
+        maxActive: 99,
+        deadlineMs: 1,
+        iterations: 1,
+        attempts: 1,
+        tools: 1,
+      }),
+    ).toEqual(config);
     await writeFile(join(root, ".chiselrc"), "{broken");
     await expect(actions.load()).rejects.toThrow();
     expect(await readFile(join(root, ".chiselrc"), "utf8")).toBe("{broken");

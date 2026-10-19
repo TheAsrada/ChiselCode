@@ -20,22 +20,9 @@ export const subagentServiceToken = createServiceToken<SubagentService>(
 );
 const submit = z
   .object({
-    task: z
-      .string()
-      .trim()
-      .min(1)
-      .refine((text) => Buffer.byteLength(text, "utf8") <= 8192),
+    task: z.string().trim().min(1),
     label: z.string().trim().min(1).max(120),
     context: z.enum(["conversation", "none"]).default("conversation"),
-    limits: z
-      .object({
-        deadlineMs: z.number().int().positive().optional(),
-        iterations: z.number().int().positive().optional(),
-        attempts: z.number().int().positive().optional(),
-        tools: z.number().int().positive().optional(),
-      })
-      .strict()
-      .optional(),
   })
   .strict();
 export interface SubagentCommandInput {
@@ -74,7 +61,7 @@ export function parseSubagentCommand(text: string): SubagentCommandInput {
   if (action === "wait")
     return {
       action,
-      ids: z.array(z.uuid()).min(1).max(32).parse(rest.split(/\s+/)),
+      ids: z.array(z.uuid()).min(1).parse(rest.split(/\s+/)),
     };
   throw new Error(
     "Используйте /agent [list | readonly задача | coding задача | status ID | result ID | wait ID… | stop ID].",
@@ -135,7 +122,7 @@ export function createSubagentExtension(
             : action === "wait"
               ? z
                   .object({
-                    ids: z.array(z.uuid()).min(1).max(32),
+                    ids: z.array(z.uuid()).min(1),
                     timeoutMs: z.number().int().min(0).max(30000).optional(),
                   })
                   .strict()

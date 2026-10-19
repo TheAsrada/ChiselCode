@@ -91,6 +91,68 @@ function setup(
     );
   return { tools, session, events, run };
 }
+test("child runtime continues past the default 100 steps until its answer without a hidden iteration cap", async () => {
+  const root = await fixture();
+  const session = createSession(root, "anthropic", "mock");
+  const events = new RuntimeEventBus(session.id);
+  let generations = 0;
+  let tools = 0;
+  const provider: ProviderAdapter = {
+    providerId: "anthropic",
+    async *streamChat(request) {
+      generations++;
+      expect(request.tools).toHaveLength(1);
+      const final = generations === 102;
+      yield {
+        type: "turn_complete",
+        message: {
+          role: "assistant",
+          content: final
+            ? [{ type: "text", text: "Research complete" }]
+            : [
+                {
+                  type: "tool_use",
+                  id: `read-${generations}`,
+                  name: "read_file",
+                  input: { path: "evidence.txt" },
+                },
+              ],
+        },
+        stopReason: final ? "end_turn" : "tool_use",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+  const runtime = new AgentRuntime(
+    provider,
+    new ContextManager({}, events),
+    {
+      selectForTurn: () => [
+        {
+          name: "read_file",
+          description: "Read evidence",
+          inputSchema: {},
+          requiresApproval: false,
+        },
+      ],
+      execute: async (calls) =>
+        calls.map(() => {
+          tools++;
+          return { output: "Verified evidence" };
+        }),
+    },
+    "system",
+    events,
+  );
+  const result = await runtime.run(session, "Research", {
+    recovery: "new_child",
+    maxIterations: 1,
+  });
+  expect(result.status).toBe("completed");
+  expect(result.text).toBe("Research complete");
+  expect(generations).toBe(102);
+  expect(tools).toBe(101);
+});
 test("protocol partition keeps multiple calls and results atomic, including a pending tail", () => {
   const messages: ChatMessage[] = [
     { role: "user", content: [{ type: "text", text: "goal" }] },

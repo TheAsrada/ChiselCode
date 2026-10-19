@@ -59,7 +59,15 @@ test("request durations survive saving and replay outside provider messages", as
     ];
     session.requestTimings = [
       { afterMessage: 2, elapsedMs: 12345, status: "completed" },
-      { afterMessage: 3, elapsedMs: 4567, status: "failed" },
+      {
+        afterMessage: 3,
+        elapsedMs: 4567,
+        status: "failed",
+        error: {
+          code: "transport",
+          message: "Соединение прервано; ответ не получен.",
+        },
+      },
     ];
     await saveSession(session);
     const restored = await loadSession(session.id, root);
@@ -72,8 +80,14 @@ test("request durations survive saving and replay outside provider messages", as
       "Привет!\n\nЯ помогу.",
       "Завершено за 12,3 с",
       "Ещё",
+      "Соединение прервано; ответ не получен.",
       "Завершено с ошибкой · 4,6 с",
     ]);
+    expect(entries.at(-2)?.tone).toBe("error");
+    view.clear();
+    delete restored.requestTimings?.[1]?.error;
+    replaySessionIntoTranscript(view, restored);
+    expect(entries).toHaveLength(5);
     view.clear();
     delete restored.requestTimings;
     replaySessionIntoTranscript(view, restored);

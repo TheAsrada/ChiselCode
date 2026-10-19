@@ -99,7 +99,7 @@ export function extractDocument(
           queue.push({ node: child, depth: current.depth + 1 });
       }
       for (const node of document.querySelectorAll(
-        "script,style,nav,footer,body>header,aside,form,button,dialog,svg,canvas,noscript,template,[hidden],[aria-hidden='true'],.cookie-banner,.cookie-consent,.advertisement,.ads,[data-ad],.sidebar,.navigation",
+        "script,style,nav,footer,body>header,aside,form,button,dialog,svg,canvas,noscript,template,[hidden],[aria-hidden='true'],[role='navigation'],.cookie-banner,.cookie-consent,.advertisement,.ads,[data-ad],.sidebar,.navigation,.mw-editsection,.mw-jump-link,.interlanguage-link,.vector-language-dropdown,.mw-portlet-lang,#p-lang,#toc,.vector-toc",
       ))
         node.remove();
       for (const node of document.querySelectorAll("[style]"))
@@ -111,6 +111,12 @@ export function extractDocument(
           node.remove();
       let root: Node =
         document.querySelector("main,article,[role='main']") ?? document.body;
+      // MediaWiki puts language menus and page controls inside <main>, before
+      // the article. Select its content before applying the extraction limit.
+      const wikiArticle = (root as HTMLElement).querySelector(
+        ".mw-parser-output",
+      );
+      if (wikiArticle?.textContent?.trim()) root = wikiArticle;
       if (root === document.body) {
         const article = new Readability(document as unknown as Document, {
           charThreshold: 0,

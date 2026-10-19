@@ -15,11 +15,9 @@ import type {
   StreamEvent,
   TokenUsage,
 } from "../types/domain.js";
-import { SUBAGENT_LIMITS } from "./config.js";
 import type { SubagentAttempt, SubagentRecord } from "./contracts.js";
 
-export class ChildBudget {
-  private ended = false;
+export class ChildAccounting {
   constructor(
     readonly record: SubagentRecord,
     private readonly abort: AbortController,
@@ -27,24 +25,14 @@ export class ChildBudget {
   ) {}
   assert(): void {
     cancelled(this.abort.signal);
-    if (this.ended) this.exhaust("Лимит операций помощника исчерпан.");
-  }
-  private exhaust(message: string): never {
-    this.ended = true;
-    this.abort.abort(new RuntimeError("SUBAGENT_BUDGET_EXHAUSTED", message));
-    throw new RuntimeError("SUBAGENT_BUDGET_EXHAUSTED", message);
   }
   async tool(): Promise<void> {
     this.assert();
-    if (this.record.consumption.tools >= this.record.limits.tools)
-      this.exhaust("Лимит инструментов помощника исчерпан.");
     this.record.consumption.tools++;
     await this.checkpoint();
   }
   async start(request: ProviderRequest): Promise<SubagentAttempt> {
     this.assert();
-    if (this.record.attempts.length >= this.record.limits.attempts)
-      this.exhaust("Лимит запросов модели исчерпан.");
     const attempt: SubagentAttempt = {
       id: randomUUID(),
       purpose:
@@ -93,13 +81,12 @@ export class ChildBudget {
 }
 
 /** Same production driver. One controlled retry layer, including compaction requests. */
-export function boundedChildProvider(input: {
+export function childProvider(input: {
   adapter: ProviderAdapter;
   definition: ProviderDefinition;
   capabilities: ModelCapabilities;
-  budget: ChildBudget;
+  accounting: ChildAccounting;
   signal: AbortSignal;
-  deadline: number;
   redactor: SecretRedactor;
   beforeRequest(): Promise<void>;
 }): ProviderAdapter {
@@ -119,9 +106,6 @@ export function boundedChildProvider(input: {
       for (let retry = 0; retry < 3; retry++) {
         cancelled(input.signal);
         await input.beforeRequest();
-        const remaining = input.deadline - Date.now();
-        if (remaining <= 0)
-          throw new ProviderError("cancelled", "Время помощника истекло.");
         const request: ProviderRequest = {
           ...raw,
           signal: raw.signal
@@ -129,12 +113,11 @@ export function boundedChildProvider(input: {
             : input.signal,
           transport: {
             maxRetries: 0,
-            timeoutMs: Math.min(remaining, 120000),
             compatibilityRetries: false,
             validateTerminal: true,
           },
         };
-        const attempt = await input.budget.start(request);
+        const attempt = await input.accounting.start(request);
         const redaction = new StreamingModelRedactor(input.redactor);
         let usage: TokenUsage | undefined;
         let observed = false;
@@ -172,14 +155,6 @@ export function boundedChildProvider(input: {
                 message: input.redactor.value(event.message),
               };
             } else if (event.type === "tool_call") {
-              if (
-                Buffer.byteLength(JSON.stringify(event.call.input), "utf8") >
-                65536
-              )
-                throw new ProviderError(
-                  "output_truncated",
-                  "Аргументы инструмента слишком большие.",
-                );
               yield {
                 type: "tool_call",
                 call: input.redactor.value(event.call),
@@ -191,7 +166,7 @@ export function boundedChildProvider(input: {
               error.code ?? "transport",
               input.redactor.text(error.message),
             );
-            await input.budget.complete(
+            await input.accounting.complete(
               attempt,
               usage,
               false,
@@ -204,10 +179,8 @@ export function boundedChildProvider(input: {
               (error.status === 429 || error.status >= 500)
             ) {
               const wait = error.retryAfterMs ?? 250 * 2 ** retry;
-              if (wait < input.deadline - Date.now()) {
-                await delay(wait, undefined, { signal: request.signal });
-                continue;
-              }
+              await delay(wait, undefined, { signal: request.signal });
+              continue;
             }
             const partial = redaction.flush();
             if (partial) yield { type: "text_delta", text: partial };
@@ -216,7 +189,7 @@ export function boundedChildProvider(input: {
           }
           const tail = redaction.flush();
           if (tail) yield { type: "text_delta", text: tail };
-          await input.budget.complete(
+          await input.accounting.complete(
             attempt,
             usage,
             observed,
@@ -228,7 +201,7 @@ export function boundedChildProvider(input: {
           const tail = redaction.flush();
           if (tail && !input.signal.aborted)
             yield { type: "text_delta", text: tail };
-          await input.budget.complete(
+          await input.accounting.complete(
             attempt,
             usage,
             observed,

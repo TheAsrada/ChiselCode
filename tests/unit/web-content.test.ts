@@ -37,6 +37,39 @@ test("Readability handles article prose without main tags", () => {
   ).text;
   expect(text).toContain("Useful official documentation");
 });
+test("MediaWiki language menus do not consume the article extraction limit", () => {
+  const doc = extractDocument(
+    response(`<html><head><title>Fixture — Wikipedia</title></head><body>
+      <main><h1>Fixture article</h1><div role="navigation">${"Language menu ".repeat(2000)}</div>
+      <div id="p-lang">Other languages</div>
+      <div class="mw-body-content"><div class="mw-parser-output">
+        <div id="toc">Contents menu</div>
+        <p>The article starts here with verified evidence.</p>
+        <h2>Geography<span class="mw-editsection">edit this page</span></h2>
+        <p>Australia. <a href="/wiki/Source">Source</a></p>
+        <table><tr><th>Species</th><th>LD50</th></tr><tr><td>Taipan</td><td>0.025</td></tr></table>
+      </div></div></main></body></html>`),
+    1000,
+  );
+  expect(doc.text).toContain("The article starts here");
+  expect(doc.text).toContain("## Geography");
+  expect(doc.text).toContain("| Taipan | 0.025 |");
+  expect(doc.text).toContain("[Source](https://docs.example/wiki/Source)");
+  expect(doc.text).not.toMatch(
+    /Language menu|Other languages|Contents menu|edit this page/,
+  );
+  expect(doc.truncated).toBe(false);
+});
+test("empty MediaWiki article containers preserve the readable page fallback", () => {
+  expect(
+    extractDocument(
+      response(
+        '<html><body><main><div class="mw-parser-output"></div><p>Useful fallback</p></main></body></html>',
+      ),
+      1000,
+    ).text,
+  ).toContain("Useful fallback");
+});
 test("plain text, Markdown and JSON retain useful content", () => {
   for (const type of ["text/plain", "text/markdown"])
     expect(

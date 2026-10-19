@@ -386,9 +386,10 @@ test("cache can be disabled and successful duplicate calls still consume the tur
       true,
     );
     expect(env.fixture.counts.get("/article")).toBe(2);
-    expect((await env.tools.executor.execute(call("c"))).errorCode).toBe(
-      "WEB_REQUEST_LIMIT",
-    );
+    expect(await env.tools.executor.execute(call("c"))).toMatchObject({
+      errorCode: "WEB_REQUEST_LIMIT",
+      details: { budget: "tool_calls", used: 2, limit: 2, retryable: false },
+    });
   } finally {
     await env.close();
   }

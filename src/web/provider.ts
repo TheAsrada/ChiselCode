@@ -62,8 +62,13 @@ export class WebToolProvider implements ToolProvider {
       if (count >= config.limits.maxRequestsPerTurn)
         throw new RuntimeError(
           "WEB_REQUEST_LIMIT",
-          "Web tool budget for this turn is exhausted. Reuse collected evidence.",
-          { retryable: false },
+          `Web tool budget for this turn is exhausted (${count}/${config.limits.maxRequestsPerTurn}). Reuse collected evidence.`,
+          {
+            retryable: false,
+            budget: "tool_calls",
+            used: count,
+            limit: config.limits.maxRequestsPerTurn,
+          },
         );
       calls.set(scope, count + 1);
       while (calls.size > 512)
