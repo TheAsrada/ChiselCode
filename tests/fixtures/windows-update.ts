@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { execa } from "execa";
@@ -200,9 +200,6 @@ try {
     "saved-123",
   ]);
   assert.equal(resolve(resumed.argv[1]), drive);
-  console.log(
-    "Windows update: production OpenTUI → verified download → cleanup/exit without pause → real NSIS replacement → new console; locked-file preservation/error recovery and root path/session resume passed",
-  );
 } finally {
   if (parent) {
     parent.kill();
@@ -216,5 +213,27 @@ try {
     lock.kill();
     await lock;
   }
-  await rm(root, { recursive: true, force: true });
+  // All owned processes have exited, but Windows can briefly retain an image
+  // or directory handle. Bun does not reliably honor fs.rm's maxRetries here.
+  // Retry the actual removal within a fixed bound; a persistent lock still fails.
+  const cleanupDeadline = Date.now() + 12000;
+  for (;;) {
+    try {
+      await rm(root, { recursive: true, force: true });
+      break;
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        !["EBUSY", "ENOTEMPTY", "EPERM"].includes(String(error.code)) ||
+        Date.now() >= cleanupDeadline
+      )
+        throw error;
+      await new Promise((done) => setTimeout(done, 100));
+    }
+  }
 }
+await assert.rejects(lstat(root), { code: "ENOENT" });
+console.log(
+  "Windows update: production OpenTUI → verified download → cleanup/exit without pause → real NSIS replacement → new console; locked-file preservation/error recovery, root path/session resume and temporary data cleanup passed",
+);

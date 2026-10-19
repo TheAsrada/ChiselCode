@@ -26,7 +26,7 @@ Linux, Bun 1.4.3, сетевое окружение с пользователь�
 | --- | --- | --- | --- |
 | Исходный CLI | Parallel | Exa → Parallel | 12867 мс |
 | Bundle `dist/cli.js` | Exa | Exa | 12913 мс |
-| Установленный через npm tarball | Exa | Exa | 11889 мс |
+| Локальный tarball, установленный через npm | Exa | Exa | 11889 мс |
 | Compiled CLI | Parallel | Exa → Parallel | 13157 мс |
 
 Во всех четырёх случаях получен непустой результат с официальным `https://www.typescriptlang.org/docs/handbook/2/narrowing.html`, exit 0, без `--allow` и изменения Web config. Время зависит от внешнего сервиса и сети; эти наблюдения не являются гарантией задержки или измерением ускорения.
@@ -40,4 +40,12 @@ Linux, Bun 1.4.3, сетевое окружение с пользователь�
 - `bun run test:fast`: 360 pass, 0 fail; `tool-guidance`: 4 pass; `subagents-runtime`: 4 pass. Быстрый профиль не расширялся сетевыми fixtures.
 - `bun run typecheck`, `bun run lint`, `bun run build`, сборка compiled CLI и установка tarball прошли. Lint завершился без ошибок с существующими предупреждениями репозитория.
 
-Полная Native validation и Quick CI для итогового source фиксируются после завершения jobs. Публичные live-запросы выше проверены на Linux; это не live-проверка внешних сервисов на Windows/macOS. UI не менялся, новых кадров OpenTUI нет.
+## CI итогового source
+
+Source: `1731c8af9d75fe26844fbd9f27ff618f185b7c10`.
+
+- [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/39202572568) завершился успешно.
+- [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/39202573903): полный Linux source — 1255 pass, 3 skip, 0 fail, 1258 тестов в 164 файлах, 315,35 с. Typecheck, lint, eval и source UI fixtures прошли. Native smoke Linux и macOS прошли, включая installed/compiled; платформенный набор macOS — 310 pass, 3 skip, 0 fail.
+- Первый Windows job: 311 pass, 1 skip, один timeout и связанная ошибка завершённого процесса. Неизменённый тест `production parent delegates two coding tasks through real Git, protocol driver, executor and stores` был остановлен на 45 секундах во время повторного apply. В предыдущем успешном Windows run этого теста было 24,98 с; функционального assertion failure до остановки не было. Выполнен один повтор только Windows job на том же source по правилам AGENTS.md; тест, его assertions и timeout не менялись. Итог повторного job фиксируется после завершения.
+
+Проверены относительные ссылки и anchors восьми изменённых Markdown: 139 целей. Публичные live-запросы выше проверены на Linux; это не live-проверка внешних сервисов на Windows/macOS. UI не менялся, новых кадров OpenTUI нет.
