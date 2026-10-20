@@ -56,7 +56,7 @@ Profile.baseUrl и --base-url переопределяют definition endpoint, 
 
 `anthropic-messages` использует Messages API, tool translation, streaming и optional native token count. authMode=api-key использует x-api-key; bearer — Authorization. adaptiveThinking и nativeTokenCounting явно задаются options/capabilities. Совместимые шлюзы не получают adaptive thinking автоматически.
 
-В готовящемся CLI 0.6.37 оба драйвера проверяют структуру входящих событий. OpenAI usage без `choices`, пустые `choices` и завершающий `finish_reason` без `delta` обрабатываются без сбоя; частичный usage дополняет уже полученные счётчики. Повреждённые данные возвращают `transport` с названием протокола и проблемного поля. Инструменты такого ответа не выполняются. Настоящие API-ошибки сохраняют причину сервиса. [Форматы, границы совместимости и проверки](architecture/provider-streams.md).
+Начиная с CLI 0.6.37 оба драйвера проверяют структуру входящих событий. OpenAI usage без `choices`, пустые `choices` и завершающий `finish_reason` без `delta` обрабатываются без сбоя; частичный usage дополняет уже полученные счётчики. Повреждённые данные возвращают `transport` с названием протокола и проблемного поля. Инструменты такого ответа не выполняются. Настоящие API-ошибки сохраняют причину сервиса. [Форматы, границы совместимости и проверки](architecture/provider-streams.md).
 
 ## Capabilities и health
 

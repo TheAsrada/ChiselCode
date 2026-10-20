@@ -2,7 +2,7 @@
 
 [Документация](../README.md) · [Архитектура](../architecture.md#provider-architecture) · [Подключение модели](../providers.md) · [Решение проблем](../troubleshooting.md#ошибка-chunkchoices0-или-некорректное-событие-провайдера)
 
-Исправление подготовлено для CLI 0.6.37. Опубликованный 0.6.36 его ещё не содержит. [Подготовка выпуска и проверки](../contributors/reports/release-0.6.37.md).
+Исправление вошло в [CLI 0.6.37](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.37). [Проверки выпуска и опубликованных файлов](../contributors/reports/release-0.6.37.md).
 
 ## Причина сбоя
 
@@ -65,4 +65,4 @@ bun tests/fixtures/manifest-cli.ts bun dist/cli.js --malformed-stream
 
 [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/39358289282) прошла на точном source `17fc326f91c8b29451fce728c7cf21c70ebbf363`: 415 pass, typecheck, lint, CLI/SDK build и запуск собранного CLI под Bun 1.4.2. До исправления два регрессионных теста воспроизвели дословные ошибки `chunk.choices[0]` и `choice.delta.refusal`; после исправления прошли.
 
-При подготовке исправления отдельно проверялся Linux. Проверки Native validation для выпуска и результаты публикации записываются в [отчёт CLI 0.6.37](../contributors/reports/release-0.6.37.md). Изменение не требует обновления схемы сессий, пользовательских настроек или SDK расширений.
+При подготовке исправления отдельно проверялся Linux. Проверки Native validation для выпуска и результаты публикации приведены в [отчёте CLI 0.6.37](../contributors/reports/release-0.6.37.md). Изменение не требует обновления схемы сессий, пользовательских настроек или SDK расширений.
