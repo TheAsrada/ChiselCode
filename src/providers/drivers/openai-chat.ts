@@ -15,6 +15,11 @@ import { ToolNameSchema } from "../../types/domain.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
+import {
+  normalizeStreamError,
+  type OpenAIStreamUsage,
+  parseOpenAIStreamChunk,
+} from "../stream-validation.js";
 import { parseToolArguments } from "../tool-arguments.js";
 import { ProviderToolNames } from "../tool-names.js";
 
@@ -32,13 +37,16 @@ export interface OpenAIAdapterOptions {
 
 /** prompt_tokens already contains cached tokens in OpenAI completions. */
 export function normalizeOpenAIUsage(
-  usage: NonNullable<OpenAI.Chat.Completions.ChatCompletionChunk["usage"]>,
+  usage: OpenAIStreamUsage,
+  previous?: TokenUsage,
 ): TokenUsage {
+  const inputTokens = usage.prompt_tokens ?? previous?.inputTokens ?? 0;
   return {
-    inputTokens: usage.prompt_tokens ?? 0,
-    contextInputTokens: usage.prompt_tokens ?? 0,
-    outputTokens: usage.completion_tokens ?? 0,
-    cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? undefined,
+    inputTokens,
+    contextInputTokens: inputTokens,
+    outputTokens: usage.completion_tokens ?? previous?.outputTokens ?? 0,
+    cacheReadTokens:
+      usage.prompt_tokens_details?.cached_tokens ?? previous?.cacheReadTokens,
   };
 }
 
@@ -74,7 +82,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
     request: ProviderRequest,
     useLegacyMaxTokens: boolean,
     includeUsage = this.usageSupported && (this.options.includeUsage ?? true),
-  ): Promise<AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>> {
+  ): Promise<AsyncIterable<unknown>> {
     const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
       {
         model: request.model,
@@ -144,21 +152,22 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       let terminated = false;
       let refused = false;
 
-      for await (const chunk of stream) {
+      for await (const value of stream) {
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
+        const chunk = parseOpenAIStreamChunk(value);
         if (chunk.usage) {
-          usage = normalizeOpenAIUsage(chunk.usage);
+          usage = normalizeOpenAIUsage(chunk.usage, observedUsage);
           observedUsage = usage;
         }
-        const choice = chunk.choices[0];
+        const choice = chunk.choices?.[0];
         if (!choice) continue;
         if (
-          (request.purpose === "extension_request" ||
-            request.transport?.validateTerminal) &&
           terminated &&
           (choice.finish_reason ||
             choice.delta.content ||
+            choice.delta.refusal ||
+            reasoningText(choice.delta) ||
             choice.delta.tool_calls?.length)
         )
           throw new ProviderError(
@@ -182,11 +191,6 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         }
         for (const call of choice.delta.tool_calls ?? []) {
           const index = call.index;
-          if (!Number.isInteger(index) || index < 0)
-            throw new ProviderError(
-              "transport",
-              "Invalid provider tool call index.",
-            );
           const current = toolCalls.get(index) ?? {
             id: "",
             name: "",
@@ -208,11 +212,10 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
             current.arguments += call.function.arguments;
           toolCalls.set(index, current);
         }
-        if (chunk.usage) {
-          usage = normalizeOpenAIUsage(chunk.usage);
-        }
       }
 
+      if (request.signal?.aborted)
+        throw new ProviderError("cancelled", "Provider request cancelled.");
       if (!terminated)
         throw new ProviderError(
           "transport",
@@ -259,10 +262,13 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         usageObserved: observedUsage !== undefined,
       };
     } catch (error) {
-      const failure = normalizeProviderError(error, request.signal);
+      const failure = normalizeStreamError(error, request.signal);
       yield {
         type: "error",
-        message: formatOpenAIError(error),
+        message:
+          error instanceof SyntaxError
+            ? failure.message
+            : formatOpenAIError(error),
         code: failure.code,
         status: failure.status,
         retryAfterMs: failure.retryAfterMs,
@@ -392,7 +398,7 @@ function reasoningText(delta: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
-function normalizeFinishReason(reason: string | null): string | undefined {
+function normalizeFinishReason(reason?: string | null): string | undefined {
   if (!reason) return undefined;
   if (reason === "tool_calls") return "tool_use";
   if (reason === "content_filter") return "refusal";

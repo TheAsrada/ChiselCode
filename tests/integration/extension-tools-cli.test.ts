@@ -11,3 +11,9 @@ test("ordinary owned CLI composition exposes and executes the real manifest cont
     status: "completed",
   });
 }, 35000);
+
+test("malformed gateway stream executes no prepared tool and persists a typed reason without replay", async () => {
+  expect(
+    await smokeManifestCli(process.execPath, [resolve("src/cli.ts")], true),
+  ).toEqual({ calls: 1, status: "failed" });
+}, 35000);

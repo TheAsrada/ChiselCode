@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import {
   mkdir,
   mkdtemp,
@@ -11,7 +12,11 @@ import { join } from "node:path";
 import { execa } from "execa";
 
 /** Offline real-process harness shared by source, installed-package and compiled-CLI smoke. */
-export async function smokeManifestCli(command: string, args: string[]) {
+export async function smokeManifestCli(
+  command: string,
+  args: string[],
+  malformedStream = false,
+) {
   const root = await mkdtemp(join(tmpdir(), "chisel-manifest-smoke-"));
   let calls = 0;
   let failure: unknown;
@@ -88,12 +93,27 @@ export async function smokeManifestCli(command: string, args: string[]) {
                     ],
                   }
                 : { content: "Manifest contribution verified" },
-              finish_reason: first ? "tool_calls" : "stop",
+              finish_reason: null,
             },
           ],
         };
+        const records = [
+          { type: "ping" },
+          chunk,
+          ...(malformedStream
+            ? [{ choices: [{ delta: { tool_calls: [null] } }] }]
+            : []),
+          {
+            choices: [
+              { index: 0, finish_reason: first ? "tool_calls" : "stop" },
+            ],
+          },
+          { usage: { prompt_tokens: 19, completion_tokens: 7 } },
+        ];
         return new Response(
-          `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
+          `${records
+            .map((record) => `data: ${JSON.stringify(record)}\n\n`)
+            .join("")}data: [DONE]\n\n`,
           { headers: { "Content-Type": "text/event-stream" } },
         );
       } catch (error) {
@@ -150,12 +170,25 @@ export async function smokeManifestCli(command: string, args: string[]) {
       },
     );
     if (failure) throw failure;
-    if (result.exitCode !== 0)
+    if (!malformedStream && result.exitCode !== 0)
       throw new Error(
         `Manifest CLI smoke failed (${result.exitCode}): ${result.stderr}`,
       );
     const output = JSON.parse(result.stdout);
-    if (
+    if (malformedStream) {
+      assert.notEqual(result.exitCode, 0);
+      assert.equal(output.status, "failed");
+      assert.equal(output.errorCode, "transport");
+      assert.match(
+        output.error,
+        /Некорректное событие OpenAI Chat Completions/,
+      );
+      assert.equal(
+        calls,
+        1,
+        "Malformed streams must not replay a model/tool request",
+      );
+    } else if (
       output.status !== "completed" ||
       output.text !== "Manifest contribution verified" ||
       calls !== 2
@@ -173,6 +206,13 @@ export async function smokeManifestCli(command: string, args: string[]) {
       const sessionFile = join(projects, directory, `${output.sessionId}.json`);
       try {
         const session = JSON.parse(await readFile(sessionFile, "utf8"));
+        if (malformedStream) {
+          assert.deepEqual(Object.keys(session.runtime?.invocations ?? {}), []);
+          assert.equal(session.messages.length, 1);
+          assert.equal(session.requestTimings.at(-1).error.code, "transport");
+          persisted = true;
+          continue;
+        }
         const invocation = session.runtime.invocations["manifest-acceptance"];
         if (
           invocation.name !== "ext:builtin.project:manifest" ||
@@ -189,6 +229,7 @@ export async function smokeManifestCli(command: string, args: string[]) {
     }
     if (!persisted)
       throw new Error("No actual persisted contribution checkpoint.");
+    if (malformedStream) return { calls, status: output.status };
     return {
       calls,
       canonicalName: "ext:builtin.project:manifest",
@@ -206,8 +247,15 @@ if (import.meta.main) {
     throw new Error(
       "Usage: bun tests/fixtures/manifest-cli.ts <CLI command> [entry path]",
     );
-  await smokeManifestCli(command, args);
+  const malformed = args.includes("--malformed-stream");
+  await smokeManifestCli(
+    command,
+    args.filter((arg) => arg !== "--malformed-stream"),
+    malformed,
+  );
   process.stdout.write(
-    "Manifest contribution smoke: OK (model → tool → model → persisted source)\n",
+    malformed
+      ? "Malformed stream smoke: OK (typed failure, no tools/replay, durable reason)\n"
+      : "Manifest contribution smoke: OK (gateway SSE → tool → model → persisted source)\n",
   );
 }

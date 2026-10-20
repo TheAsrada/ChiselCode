@@ -321,6 +321,8 @@ Resolver: profile lookup (selectProfile) → definition → transient/env/store 
 
 Protocol drivers нормализуют TokenUsage.contextInputTokens: Anthropic input+cache, OpenAI prompt_tokens уже содержит cache. Core не проверяет provider ID. ProviderError расширен generic status/retryable categories; context_overflow/cancelled/transport/refusal сохранены для существующего Core Runtime v2. CostEstimate имеет optional USD, unknown pricing не free.
 
+Данные SSE проверяются на границе драйвера в `providers/stream-validation.ts`: тип SDK не подтверждает структуру JSON совместимого сервиса. Схемы проверяют потребляемые поля до накопления текста, usage и tool calls; дополнительные метаданные допускаются. Core получает прежние `StreamEvent`. [Контракт потоковых событий и обработка ошибок](architecture/provider-streams.md).
+
 ### Инварианты provider слоя
 
 - AgentLoop/AgentRuntime знают только ProviderAdapter, ProviderRequest и StreamEvent; не Registry/Definition/Profile storage или SDK.

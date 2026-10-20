@@ -16,6 +16,12 @@ import type { ModelCapabilities, TokenCountRequest } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
+import {
+  type AnthropicStreamBlock,
+  type AnthropicStreamUsage,
+  normalizeStreamError,
+  parseAnthropicStreamEvent,
+} from "../stream-validation.js";
 import { parseToolArguments } from "../tool-arguments.js";
 import { ProviderToolNames } from "../tool-names.js";
 
@@ -59,7 +65,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
       tools: names.tools(request.tools),
       messages: names.messages(request.messages),
     };
-    let usage: Anthropic.Usage | undefined;
+    let usage: AnthropicStreamUsage | undefined;
     try {
       const maxTokens =
         request.maxTokens ??
@@ -105,43 +111,36 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
 
       const blocks = new Map<
         number,
-        { block: Anthropic.ContentBlock; json: string }
+        { block: AnthropicStreamBlock; json: string; closed: boolean }
       >();
       let stopReason: string | undefined;
       let terminated = false;
       let started = false;
-      for await (const event of stream) {
+      for await (const value of stream) {
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
-        if (
-          (request.purpose === "extension_request" ||
-            request.transport?.validateTerminal) &&
-          terminated
-        )
+        const event = parseAnthropicStreamEvent(value);
+        if (terminated)
           throw new ProviderError(
             "transport",
             "Provider emitted data after its terminal message.",
           );
+        if (!started && event.type !== "message_start")
+          throw new ProviderError(
+            "transport",
+            "Provider emitted data before message_start.",
+          );
         if (event.type === "message_start") {
-          if (
-            (request.purpose === "extension_request" ||
-              request.transport?.validateTerminal) &&
-            started
-          )
+          if (started)
             throw new ProviderError(
               "transport",
               "Provider emitted multiple messages.",
             );
           started = true;
-          if (event.message.role !== "assistant")
-            throw new ProviderError(
-              "transport",
-              "Invalid provider message role.",
-            );
           usage = event.message.usage;
         }
         if (event.type === "message_delta") {
-          if (usage)
+          if (usage && event.usage)
             usage = {
               ...usage,
               input_tokens: event.usage.input_tokens ?? usage.input_tokens,
@@ -157,26 +156,32 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         }
         if (event.type === "message_stop") terminated = true;
         if (event.type === "content_block_start") {
-          if (
-            !Number.isInteger(event.index) ||
-            event.index < 0 ||
-            blocks.has(event.index)
-          )
+          if (blocks.has(event.index))
             throw new ProviderError(
               "transport",
-              "Invalid or duplicate provider content block index.",
+              "Duplicate provider content block index.",
             );
           blocks.set(event.index, {
-            block: { ...event.content_block } as Anthropic.ContentBlock,
+            block: { ...event.content_block },
             json: "",
+            closed: false,
           });
+        }
+        if (event.type === "content_block_stop") {
+          const current = blocks.get(event.index);
+          if (!current || current.closed)
+            throw new ProviderError(
+              "transport",
+              "Invalid or duplicate provider content block stop.",
+            );
+          current.closed = true;
         }
         if (event.type !== "content_block_delta") continue;
         const current = blocks.get(event.index);
-        if (!current)
+        if (!current || current.closed)
           throw new ProviderError(
             "transport",
-            "Provider delta has no content block.",
+            "Provider delta has no open content block.",
           );
         if (event.delta.type === "input_json_delta") {
           if (current.block.type !== "tool_use")
@@ -196,10 +201,17 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           yield { type: "text_delta", text: event.delta.text };
         }
         if (event.delta.type === "thinking_delta") {
+          if (current.block.type !== "thinking")
+            throw new ProviderError(
+              "transport",
+              "Thinking delta has an invalid block type.",
+            );
           yield { type: "thinking_delta", text: event.delta.thinking };
         }
       }
 
+      if (request.signal?.aborted)
+        throw new ProviderError("cancelled", "Provider request cancelled.");
       if (!terminated || !usage)
         throw new ProviderError(
           "transport",
@@ -255,10 +267,13 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         usageObserved: true,
       };
     } catch (error) {
-      const failure = normalizeProviderError(error, request.signal);
+      const failure = normalizeStreamError(error, request.signal);
       yield {
         type: "error",
-        message: formatAnthropicError(error),
+        message:
+          error instanceof SyntaxError
+            ? failure.message
+            : formatAnthropicError(error),
         code: failure.code,
         status: failure.status,
         retryAfterMs: failure.retryAfterMs,
@@ -328,8 +343,8 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
 }
 
 export function normalizeAnthropicUsage(usage: {
-  input_tokens?: number;
-  output_tokens?: number;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
   cache_read_input_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
 }): TokenUsage {
@@ -383,9 +398,7 @@ function toAnthropicContent(content: ChatContent): Anthropic.ContentBlockParam {
   }
 }
 
-function fromAnthropicContent(
-  content: Anthropic.ContentBlock[],
-): ChatContent[] {
+function fromAnthropicContent(content: AnthropicStreamBlock[]): ChatContent[] {
   return content.flatMap((block): ChatContent[] => {
     if (block.type === "text") return [{ type: "text", text: block.text }];
     if (block.type !== "tool_use") return [];

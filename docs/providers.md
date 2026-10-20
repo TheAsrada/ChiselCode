@@ -56,6 +56,8 @@ Profile.baseUrl и --base-url переопределяют definition endpoint, 
 
 `anthropic-messages` использует Messages API, tool translation, streaming и optional native token count. authMode=api-key использует x-api-key; bearer — Authorization. adaptiveThinking и nativeTokenCounting явно задаются options/capabilities. Совместимые шлюзы не получают adaptive thinking автоматически.
 
+В текущих исходниках после 0.6.36 оба драйвера проверяют структуру входящих событий. OpenAI usage без `choices`, пустые `choices` и завершающий `finish_reason` без `delta` обрабатываются без сбоя; частичный usage дополняет уже полученные счётчики. Повреждённые данные возвращают `transport` с названием протокола и проблемного поля. Инструменты такого ответа не выполняются. Настоящие API-ошибки сохраняют причину сервиса. [Форматы, границы совместимости и проверки](architecture/provider-streams.md).
+
 ## Capabilities и health
 
 Definition.capabilities: modelListing, tokenCounting(native/unsupported), usageReporting(stream/final/unknown), toolCalling, thinking. Все built-ins перечисляют модели и поддерживают tool calling; Anthropic-compatible не заявляет thinking. Native token counting — у official Anthropic; остальные unsupported. Usage Anthropic — final, OpenAI-compatible — stream. Model capabilities сообщают известные contextWindow/maxInputTokens/maxOutputTokens. Метаданные API имеют приоритет над встроенным каталогом models.dev; неизвестное окно не выдумывается. Параметры deployment за шлюзом могут отличаться от опубликованных пределов исходной модели.
