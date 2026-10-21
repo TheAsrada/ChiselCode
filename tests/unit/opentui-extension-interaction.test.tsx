@@ -143,6 +143,9 @@ test("extension forms accept input, select and local actions without editing or 
   });
   async function until(check: () => boolean) {
     const deadline = Date.now() + 4000;
+    await act(async () => {
+      await setup.renderOnce();
+    });
     while (!check()) {
       if (Date.now() > deadline) throw Error(setup.captureCharFrame());
       await act(async () => {
@@ -281,6 +284,9 @@ test("repeated message fields have independent focus, presentation context and c
     ) as InputRenderable | undefined;
   async function until(check: () => boolean) {
     const deadline = Date.now() + 4000;
+    await act(async () => {
+      await setup.renderOnce();
+    });
     while (!check()) {
       if (Date.now() > deadline) throw Error(setup.captureCharFrame());
       await act(async () => {
@@ -290,7 +296,10 @@ test("repeated message fields have independent focus, presentation context and c
     }
   }
   try {
-    await until(() => !!field(secondId));
+    await until(() => {
+      const target = field(secondId);
+      return !!target && target.width > 1 && target.height > 0 && target.y > 3;
+    });
     const target = field(secondId)!;
     await act(async () => {
       await setup.mockMouse.click(target.x + 1, target.y);

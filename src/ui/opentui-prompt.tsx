@@ -53,7 +53,7 @@ export function OpenTuiPrompt({
   compact?: boolean;
 }) {
   const native = useUiNativePresentation();
-  const editor = React.Children.map(children, (child) =>
+  const decorateEditor = (child: ReactNode) =>
     React.isValidElement<Record<string, unknown>>(child)
       ? React.cloneElement(child, {
           ...(native.fg
@@ -72,8 +72,12 @@ export function OpenTuiPrompt({
             ? { placeholder: native.placeholder }
             : {}),
         })
-      : child,
-  );
+      : child;
+  // Keep a single native editor a single child in both compact and full layouts.
+  // Children.map wraps it in an array, changing its reconciliation path on resize.
+  const editor = React.isValidElement(children)
+    ? decorateEditor(children)
+    : React.Children.map(children, decorateEditor);
   if (compact)
     return (
       <box

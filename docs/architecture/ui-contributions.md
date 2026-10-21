@@ -118,6 +118,8 @@ UI registry хранит owned handlers `ctx.ui.on`; snapshots содержат 
 
 `opentui-extension-elements` преобразует проверенные элементы в штатные Input/Select/Code/Image и форматирование сообщений; canvas рисуется сегментами с координатной identity. Image принимает bytes, проверяет dimensions до decode и не выполняет сетевые/файловые обращения из snapshot. `extension-presentation` переводит локальные цвета и стили; native props применяются к штатным элементам без передачи значений, events или controller refs. Формы и callback faults используют прежний fallback с видимым уведомлением.
 
+Оформление штатного textarea сохраняет его React key и форму children: единственный редактор остаётся одним элементом как в обычном, так и в компактном layout. Оборачивание его в массив меняло reconciliation path при resize и пересоздавало native editor. Проверки Settings и side query сохраняют assertions на identity, текст и курсор при возврате к вводу.
+
 `slot:pane` независим от штатного Sidebar. Layout резервирует колонку до вычисления ширины ленты. При недостатке места и на главной панель переходит в прокручиваемую область над вводом; несколько панелей сохраняют registry order. Раскрытие принадлежит host и не меняется при новом snapshot. Оно доступно мышью и через Alt+U.
 
 `AgentEventPipeline` принадлежит стандартному workspace scope и регистрируется/снимается тем же activation frame, что guards/context/tools. Narrow port передаётся runtime/executor/model invocation; mutable scope и Session не пересекают его. Цепочка проверяет plain data и однократный `next`, принимает итоговое решение до effects и объединяет signal операции с lifetime. Чужие call IDs, неподдерживаемые fields и превышение output budget отклоняются. UI lifecycle не получает runtime registrations.
