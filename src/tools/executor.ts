@@ -210,6 +210,7 @@ export class ToolExecutor {
             initializeSessionState(execution);
             const bus = new RuntimeEventBus(execution.id);
             bus.agentEvents = this.hooks;
+            bus.agentSignal = taskSignal;
             bus.sanitize = context.events.sanitize;
             bus.subscribe((event) =>
               context.background!.runtimeEvent(ticket, event),

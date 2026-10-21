@@ -474,3 +474,65 @@ test("child event bindings use their own root and cancellation while retaining p
   );
   expect(roots).toEqual([join(f.root, "child"), f.root]);
 });
+
+test("a waiting runtime observer cannot hold Ctrl+C or disable later core events", async () => {
+  let entered!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const f = await fixture((ctx) =>
+    ctx.events.observe((event) => {
+      if (event.type === "provider_request_started") {
+        entered();
+        return new Promise<void>(() => {});
+      }
+    }),
+  );
+  let calls = 0;
+  const runtime = new AgentRuntime(
+    {
+      providerId: "openai",
+      async *streamChat() {
+        ++calls;
+        yield {
+          type: "turn_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "late" }],
+          },
+          stopReason: "end_turn",
+        };
+      },
+    },
+    new ContextManager({}, f.events),
+    { selectForTurn: () => [], execute: async () => [] },
+    "system",
+    f.events,
+  );
+  const abort = new AbortController();
+  const pending = runtime.run(f.session, "Question", {
+    agentEvents: f.scope.events,
+    signal: abort.signal,
+  });
+  await ready;
+  abort.abort();
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    deadline = setTimeout(
+      () => reject(Error("Observer held cancellation")),
+      1000,
+    );
+  });
+  try {
+    const result = await Promise.race([pending, timeout]);
+    expect(result.errorCode).toBe("cancelled");
+    expect(calls).toBe(0);
+    expect(
+      f.records.some(
+        (event) => event.type === "turn_state" && event.state === "cancelled",
+      ),
+    ).toBe(true);
+  } finally {
+    clearTimeout(deadline);
+  }
+});

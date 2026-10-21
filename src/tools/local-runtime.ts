@@ -97,6 +97,7 @@ export function createLocalToolRuntime(
     options.agentEvents,
   );
   context.events.agentEvents = options.agentEvents;
+  context.events.agentSignal = options.signal;
   const scheduler = new ToolScheduler(executor, options.maxParallelReads);
   const getApprovalMode = (requested?: ApprovalMode) =>
     resolveApprovalMode({

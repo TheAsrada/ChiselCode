@@ -44,6 +44,8 @@ export class TurnRunner {
         context,
       );
       request = prepared.request;
+      if (request.signal?.aborted)
+        throw new ProviderError("cancelled", "Provider request cancelled.");
       for await (const event of prepared.synthetic
         ? syntheticModelEvents(prepared.synthetic)
         : this.provider.streamChat(request)) {

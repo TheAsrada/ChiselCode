@@ -61,6 +61,7 @@ export interface RuntimeEvent {
 }
 export class RuntimeEventBus {
   agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
+  agentSignal?: AbortSignal;
   sanitize?: (event: RuntimeEvent) => RuntimeEvent;
   private listeners = new Set<(event: RuntimeEvent) => void | Promise<void>>();
   constructor(
@@ -85,27 +86,47 @@ export class RuntimeEventBus {
     };
     const safe = this.sanitize?.(record) ?? record;
     for (const listener of this.listeners) await listener(safe);
-    if (this.agentEvents && safe.type !== "extension_notice") {
+    if (
+      this.agentEvents &&
+      !this.agentSignal?.aborted &&
+      safe.type !== "extension_notice"
+    ) {
       const result = safe.result;
-      const notices = await this.agentEvents.publish({
-        type: safe.type,
-        sessionId: safe.sessionId,
-        turnId: safe.turnId,
-        invocationId: safe.invocationId,
-        name: safe.name,
-        text: safe.text,
-        state: safe.state,
-        ...(result
-          ? {
-              result: {
-                output: result.output,
-                isError: result.isError,
-                errorCode: result.errorCode,
-                preview: result.preview,
-              },
-            }
-          : {}),
-      });
+      let notices: string[];
+      try {
+        notices = await this.agentEvents.publish(
+          {
+            type: safe.type,
+            sessionId: safe.sessionId,
+            turnId: safe.turnId,
+            invocationId: safe.invocationId,
+            name: safe.name,
+            text: safe.text,
+            state: safe.state,
+            ...(result
+              ? {
+                  result: {
+                    output: result.output,
+                    isError: result.isError,
+                    errorCode: result.errorCode,
+                    preview: result.preview,
+                  },
+                }
+              : {}),
+          },
+          this.agentSignal,
+        );
+      } catch (error) {
+        // Observers cannot prevent cancellation or change a completed core action.
+        if (
+          this.agentSignal?.aborted ||
+          (error instanceof Error &&
+            "code" in error &&
+            error.code === "CANCELLED")
+        )
+          return;
+        throw error;
+      }
       for (const text of notices)
         await this.emit({ type: "extension_notice", text });
     }

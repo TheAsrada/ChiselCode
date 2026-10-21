@@ -79,6 +79,8 @@ export class AgentRuntime {
     if (approvalMode) session.approvalMode = approvalMode;
     const system = `${this.system}\n\n${agentModeInstructions(mode)}${approvalMode ? `\n\n${approvalModeInstructions(approvalMode)}` : ""}`;
     this.events.turnId = runtime.turnId;
+    this.events.agentEvents = options.agentEvents ?? this.events.agentEvents;
+    this.events.agentSignal = options.signal;
     const detach = attachSessionRecorder(session, this.events);
     let finalText = "";
     let overflowRecovered = false;
