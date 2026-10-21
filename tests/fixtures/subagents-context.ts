@@ -22,6 +22,7 @@ import { builtinDefinitions } from "../../src/providers/definitions/index.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
+import { subagentActive } from "../../src/subagents/contracts.js";
 import { SubagentService } from "../../src/subagents/service.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import { WorktreeService } from "../../src/worktrees/service.js";
@@ -223,10 +224,21 @@ try {
     const id = JSON.parse(accepted.output).id as string;
     const control = service.controlFor(session.id, session.id, 0);
     // 104 real tool calls repeatedly persist a large parent/child history.
-    // Windows completed this in 25.59s before varying atomic IO exceeded 30s.
-    // Keep a finite 40s wait within the integration test's existing 45s deadline.
+    // Each control.wait is a poll capped at 30s, not the child's lifetime.
+    // Keep the total fixture wait within 40s and the existing outer 45s deadline.
     const waitingSince = performance.now();
-    const [child] = await control.wait([id], 40000);
+    const waitingDeadline = waitingSince + 40000;
+    let [child] = await control.wait([id]);
+    while (
+      child &&
+      subagentActive(child.status) &&
+      performance.now() < waitingDeadline
+    ) {
+      [child] = await control.wait(
+        [id],
+        Math.max(0, waitingDeadline - performance.now()),
+      );
+    }
     const elapsedMs = Math.round(performance.now() - waitingSince);
     assert.equal(
       child!.status,

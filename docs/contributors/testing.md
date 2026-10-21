@@ -21,6 +21,8 @@ bun run build
 
 Для Windows updater доступен ручной workflow `Windows update regression`: полные `self-update`, `update-controller`, `opentui-update` и `bun tests/fixtures/windows-update.ts` с настоящим NSIS. Сценарий проверяет замену EXE после выхода OpenTUI, отдельную консоль, блокировку файла и восстановление причины ошибки. Он также входит в Windows job обязательного Native validation; Linux/macOS этот Windows-сценарий не исполняют.
 
+`subagents-context.ts` ожидает большой сценарий до 40 с внутри общего test deadline 45 с. Один вызов production `control.wait` ограничен 30 с и может вернуть ещё работающего помощника: fixture продолжает опрос до terminal state или остатка собственного deadline. Это не отмена помощника и не ограничение времени его работы. Сценарий сохраняет 104 настоящих чтения, 27 генераций, model compaction и проверки полного artifact. `subagents-runtime.ts` записывает terminal state, exit code, cleanup и хвост вывода фоновых команд для диагностики Windows.
+
 ## Полный прогон
 
 ```bash

@@ -312,6 +312,22 @@ try {
     },
     { requestApproval: async () => "unavailable" },
     {
+      onBackground: (event) => {
+        if (event.type !== "terminal") return;
+        const task = event.task;
+        console.error(
+          "Child background terminal:",
+          JSON.stringify({
+            childId: task.childId,
+            state: task.state,
+            exitCode: task.exitCode,
+            signal: task.signal,
+            cleanup: task.cleanup,
+            error: task.error,
+            tail: task.tail,
+          }),
+        );
+      },
       onText: (text) => controller.appendToLast(text),
       onToolStart: () => {},
       onToolResult: (name, outcome) => {
