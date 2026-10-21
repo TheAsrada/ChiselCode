@@ -20,6 +20,7 @@
 
 | Возможность | Справка | Материалы реализации |
 | --- | --- | --- |
+| Интерактивные расширения и middleware | [SDK UI](../extensions/interactive-ui.md) · [События](../extensions/agent-events.md) | [Реализация, проверки и кадры](reports/extension-widgets.md) |
 | Действия и навыки в чате | [Сводки и подробности](../agent-actions.md) | [Проверки и кадры](reports/tool-actions.md) |
 | Скачивание и контекст помощников | [Скачать файл](../downloads.md) · [Помощники](../subagents.md) | [Реализация и проверки](reports/internet-subagents.md) |
 | Внешние расширения | [Подключение и доверие](../extensions.md) | [Loader/SDK: реализация и проверки](reports/external-extension-loader.md) |

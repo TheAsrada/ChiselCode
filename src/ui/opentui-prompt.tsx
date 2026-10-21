@@ -1,11 +1,16 @@
 /** @jsxImportSource @opentui/react */
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import { AGENT_MODE_LABELS, type AgentMode } from "../runtime/agent-mode.js";
 import {
   APPROVAL_MODE_LABELS,
   type ApprovalMode,
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
+import {
+  uiBoxStyle,
+  uiColor,
+  useUiNativePresentation,
+} from "./extension-presentation.js";
 import { UiSurface } from "./opentui-composition.js";
 
 import { terminalLine } from "./terminal-text.js";
@@ -47,6 +52,28 @@ export function OpenTuiPrompt({
   onSubmit: () => void;
   compact?: boolean;
 }) {
+  const native = useUiNativePresentation();
+  const editor = React.Children.map(children, (child) =>
+    React.isValidElement<Record<string, unknown>>(child)
+      ? React.cloneElement(child, {
+          ...(native.fg
+            ? {
+                textColor: uiColor(palette, native.fg),
+                focusedTextColor: uiColor(palette, native.fg),
+              }
+            : {}),
+          ...(native.bg
+            ? {
+                backgroundColor: uiColor(palette, native.bg),
+                focusedBackgroundColor: uiColor(palette, native.bg),
+              }
+            : {}),
+          ...(native.placeholder !== undefined
+            ? { placeholder: native.placeholder }
+            : {}),
+        })
+      : child,
+  );
   if (compact)
     return (
       <box
@@ -54,8 +81,9 @@ export function OpenTuiPrompt({
         width="100%"
         flexShrink={0}
         backgroundColor={palette.surface}
+        {...uiBoxStyle(palette, native)}
       >
-        {children}
+        {editor}
       </box>
     );
   const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
@@ -82,14 +110,15 @@ export function OpenTuiPrompt({
       borderStyle="rounded"
       borderColor={focused ? modeColor : palette.border}
       backgroundColor={palette.surface}
-      title={hasDraft ? " Черновик " : " Сообщение "}
       titleColor={palette.muted}
       paddingLeft={2}
       paddingRight={2}
       paddingTop={1}
       flexDirection="column"
+      {...uiBoxStyle(palette, native)}
+      title={native.title ?? (hasDraft ? " Черновик " : " Сообщение ")}
     >
-      {children}
+      {editor}
       <UiSurface name="PromptControls">
         <box
           height={1}

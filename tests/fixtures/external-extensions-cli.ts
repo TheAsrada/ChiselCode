@@ -105,6 +105,19 @@ export async function smokeExternalCli(
         if (definition instanceof Promise) throw Error('Example factory must be synchronous');
         return { ...definition, activate(context) {
           definition.activate(context);
+          if (!input.sdk.capabilities.includes('agent.events')) throw Error('Missing event capability');
+          let observedStart = false;
+          context.events.observe(event => { if (event.type === 'tool_started') observedStart = true; });
+          context.events.on('tool.call', (event, next) => next(event.data.name.endsWith(':read_note') && event.data.input.path === 'hook-alias.txt' ? { ...event.data, input: { path: 'note.txt' } } : { ...event.data }));
+          context.events.on('tool.result', async (event, next) => {
+            const value = await next();
+            return { result: { ...value.result, output: value.result.output + (event.data.name.endsWith(':read_note') && observedStart ? '\\nSDK tool hook verified' : '') } };
+          });
+          context.events.on('model.request', (event, next) => next({ ...event.data, system: event.data.system + '\\nSDK middleware context' }));
+          context.events.on('model.response', async (_event, next) => {
+            const value = await next();
+            return { ...value, message: { ...value.message, content: value.message.content.map(block => block.type === 'text' && block.text === 'Отдельный ответ внешнего SDK' ? { ...block, text: block.text + '\\nSDK model hook verified' } : block) } };
+          });
           context.commands.register({ name: 'sdk-native', description: 'Проверить штатные операции проекта через SDK',
             parse(args) { return JSON.parse(args) as {tool:string;input:JsonObject}; },
             execute(invocation, request) { return invocation.tools.execute(request.tool, request.input); }
@@ -248,7 +261,17 @@ export async function smokeExternalCli(
     const read = await invoke(["--cwd", project, "--json", "/notes note.txt"]);
     assert.equal(read.exitCode, 0, read.stdout + read.stderr);
     assert.match(read.stdout, /Исходная заметка/);
+    assert.match(read.stdout, /SDK tool hook verified/);
     assert.equal(await readFile(sentinel, "utf8"), "import\n");
+    const rewritten = await invoke([
+      "--cwd",
+      project,
+      "--json",
+      "/notes hook-alias.txt",
+    ]);
+    assert.equal(rewritten.exitCode, 0, rewritten.stdout + rewritten.stderr);
+    assert.match(rewritten.stdout, /Исходная заметка/);
+    assert.match(rewritten.stdout, /SDK tool hook verified/);
     const write = await invoke([
       "--cwd",
       project,
@@ -305,6 +328,9 @@ export async function smokeExternalCli(
           messages?: { role: string }[];
         };
         assert.equal(body.model, "fixture-model");
+        assert.ok(
+          JSON.stringify(body.messages).includes("SDK middleware context"),
+        );
         assert.ok(
           (body.max_tokens ?? body.max_completion_tokens ?? 0) <=
             (scenario === "side" ? 64 : 4096),
@@ -391,7 +417,10 @@ export async function smokeExternalCli(
     assert.equal(answer.exitCode, 0, answer.stdout + answer.stderr);
     const modelResult = JSON.parse(answer.stdout);
     assert.equal(modelResult.status, "completed");
-    assert.equal(modelResult.text, "Отдельный ответ внешнего SDK");
+    assert.equal(
+      modelResult.text,
+      "Отдельный ответ внешнего SDK\nSDK model hook verified",
+    );
     assert.equal(modelResult.usage.inputTokens, 11);
     assert.equal(modelResult.usage.outputTokens, 7);
     assert.equal(requests, 1);

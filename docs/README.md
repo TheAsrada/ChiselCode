@@ -42,6 +42,7 @@ ChiselCode — терминальный помощник для работы с 
 
 - [Правила ведения документации](../AGENTS.md#документация-структура-и-навигация) — актуальность, единый стиль, структура, навигация и проверки.
 - [Разработка и проверки](development.md) — окружение, сборка, CI и релизы.
+- [Интерактивные формы и события расширений](extensions/interactive-ui.md) — панели, фокус, оформление и media; [middleware агента](extensions/agent-events.md).
 - [Разработка расширений](extensions/README.md) — готовый пакет, публичный SDK, contributions и проверки.
 - [Карточки расширений OpenTUI 0.6.34](contributors/reports/extensions-cards.md) — новый каталог, управление, кадры и проверки.
 - [Каталог и настройки расширений](architecture/extension-settings.md) — публичные DTO, revision/trust и общие формы обеих оболочек.

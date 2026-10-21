@@ -31,7 +31,8 @@ export type RuntimeEventType =
   | "tool_completed"
   | "tool_failed"
   | "workspace_changed"
-  | "checkpoint_saved";
+  | "checkpoint_saved"
+  | "extension_notice";
 export interface RuntimeEvent {
   id: string;
   sessionId: string;
@@ -53,11 +54,13 @@ export interface RuntimeEvent {
   toolSource?: import("../tools/types.js").ToolSource;
   estimatedInputTokens?: number;
   maxOutputTokens?: number;
+  model?: string;
   contextSnapshot?: ContextSnapshot;
   compactionId?: string;
   compaction?: ContextCompactionRecord;
 }
 export class RuntimeEventBus {
+  agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
   sanitize?: (event: RuntimeEvent) => RuntimeEvent;
   private listeners = new Set<(event: RuntimeEvent) => void | Promise<void>>();
   constructor(
@@ -82,5 +85,29 @@ export class RuntimeEventBus {
     };
     const safe = this.sanitize?.(record) ?? record;
     for (const listener of this.listeners) await listener(safe);
+    if (this.agentEvents && safe.type !== "extension_notice") {
+      const result = safe.result;
+      const notices = await this.agentEvents.publish({
+        type: safe.type,
+        sessionId: safe.sessionId,
+        turnId: safe.turnId,
+        invocationId: safe.invocationId,
+        name: safe.name,
+        text: safe.text,
+        state: safe.state,
+        ...(result
+          ? {
+              result: {
+                output: result.output,
+                isError: result.isError,
+                errorCode: result.errorCode,
+                preview: result.preview,
+              },
+            }
+          : {}),
+      });
+      for (const text of notices)
+        await this.emit({ type: "extension_notice", text });
+    }
   }
 }

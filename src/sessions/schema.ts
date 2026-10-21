@@ -134,6 +134,7 @@ export const SessionRuntimeSchema = z.object({
       createdAt: z.string(),
       updatedAt: z.string(),
       result: ToolResultSchema.optional(),
+      originalResult: ToolResultSchema.optional(),
       approvalPreview: z.string().optional(),
     }),
   ),

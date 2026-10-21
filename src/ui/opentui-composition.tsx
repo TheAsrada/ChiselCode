@@ -1,123 +1,28 @@
 /** @jsxImportSource @opentui/react */
-import React, {
-  createContext,
-  type ReactNode,
-  useContext,
-  useState,
-} from "react";
+import React, { type ReactNode, useContext, useEffect, useState } from "react";
+import type { UiNativeProps } from "../extension-sdk/ui-composition.js";
 import type {
-  OwnedUiContribution,
   UiActionUse,
   UiNode,
   UiSurface as UiSurfaceName,
 } from "../extensions/ui-types.js";
 import { uiNodeInfo } from "../extensions/ui-types.js";
-import { type Palette, THEMES } from "./appearance.js";
+import {
+  UiCompositionContext as Context,
+  type Values,
+} from "./extension-composition-context.js";
+
+export { UiCompositionProvider } from "./extension-composition-context.js";
+
+import {
+  UiNativePresentation,
+  uiBoxStyle,
+  uiTextStyle,
+} from "./extension-presentation.js";
 import { DialogAction, OpenTuiDialog } from "./opentui-dialog.js";
+import { UiElement as Element } from "./opentui-extension-elements.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
-import { terminalSafeText } from "./terminal-text.js";
-
-type Composition = {
-  items: readonly OwnedUiContribution[];
-  palette: Palette;
-  dispatch?(key: string, use: UiActionUse, revision: number): void;
-  interactive?: boolean;
-};
-const Context = createContext<Composition>({
-  items: [],
-  palette: THEMES.obsidian,
-});
-export const UiCompositionProvider = Context.Provider;
-type Values = Partial<
-  Record<"text" | "title" | "state" | "count" | "path", string | number>
->;
-function color(palette: Palette, tone?: string) {
-  return tone === "accent"
-    ? palette.accent
-    : tone === "success"
-      ? palette.green
-      : tone === "warning"
-        ? palette.yellow
-        : tone === "error"
-          ? palette.red
-          : tone === "muted"
-            ? palette.muted
-            : palette.text;
-}
-function Element({
-  node,
-  item,
-  native,
-  values,
-}: {
-  node: UiNode;
-  item: OwnedUiContribution;
-  native: ReactNode;
-  values: Values;
-}) {
-  const context = useContext(Context);
-  const fg = color(context.palette, "tone" in node ? node.tone : undefined);
-  switch (node.type) {
-    case "native":
-      return native;
-    case "text":
-      return (
-        <text fg={fg}>
-          {node.bold ? <strong>{node.text}</strong> : node.text}
-        </text>
-      );
-    case "value":
-      return (
-        <text fg={fg}>
-          {terminalSafeText(
-            String(values[node.field] ?? ""),
-            node.maxLength ?? 2000,
-          )}
-        </text>
-      );
-    case "button":
-      return (
-        <DialogAction
-          label={node.label}
-          tone={node.tone}
-          palette={context.palette}
-          disabled={!context.interactive}
-          onSelect={() =>
-            context.dispatch?.(item.key, node.action, item.snapshot.revision)
-          }
-        />
-      );
-    case "box":
-      return (
-        <box
-          width="100%"
-          minWidth={0}
-          flexShrink={0}
-          flexGrow={node.grow ? 1 : undefined}
-          minHeight={0}
-          flexDirection={node.direction ?? "column"}
-          flexWrap={node.direction === "row" ? "wrap" : "no-wrap"}
-          gap={node.gap ?? 0}
-          padding={node.padding ?? 0}
-          border={node.border ?? false}
-          borderStyle="rounded"
-          borderColor={fg}
-        >
-          {node.children.map((child, index) => (
-            <Element
-              // Unkeyed SDK nodes are positional slots; label updates must preserve their native child.
-              key={child.key ?? (child.type === "native" ? "native" : index)}
-              node={child}
-              item={item}
-              native={native}
-              values={values}
-            />
-          ))}
-        </box>
-      );
-  }
-}
 
 /** Compose validated snapshots only; extension JavaScript never runs in React's paint path. */
 export function UiSurface({
@@ -125,14 +30,44 @@ export function UiSurface({
   children,
   values = {},
   preserveNative = false,
+  instanceId,
 }: {
   name: UiSurfaceName;
   children?: ReactNode;
   values?: Values;
   preserveNative?: boolean;
+  instanceId?: string | number;
 }) {
   const context = useContext(Context);
-  let result = children;
+  const props: UiNativeProps = {};
+  const collect = (node?: UiNode) => {
+    if (node?.type === "native") Object.assign(props, node.props);
+    if (node?.type === "box") node.children.forEach(collect);
+  };
+  for (const item of context.items)
+    if (
+      item.descriptor.surfaces?.includes(name) &&
+      item.snapshot.state === "ready"
+    )
+      collect(item.snapshot.render?.content);
+  let native = children;
+  if (
+    React.isValidElement<Record<string, unknown>>(children) &&
+    (children.type === "box" || children.type === "text")
+  ) {
+    native = React.cloneElement(
+      children,
+      children.type === "text"
+        ? uiTextStyle(context.palette, props)
+        : {
+            ...uiBoxStyle(context.palette, props),
+            ...(props.title ? { title: props.title } : {}),
+          },
+    );
+  }
+  let result = (
+    <UiNativePresentation value={props}>{native}</UiNativePresentation>
+  ) as ReactNode;
   for (const item of context.items) {
     if (
       item.descriptor.slot !== "render" ||
@@ -160,6 +95,8 @@ export function UiSurface({
         item={item}
         native={result}
         values={values}
+        instance={`${name}:${instanceId ?? "main"}`}
+        surface={name}
       />
     );
     result =
@@ -181,7 +118,7 @@ export function UiCompositionNotices() {
   const { items, palette } = useContext(Context);
   const failed = items.filter(
     (item) =>
-      item.descriptor.slot === "render" &&
+      (item.descriptor.slot === "render" || item.descriptor.slot === "pane") &&
       ["error", "unavailable"].includes(item.snapshot.state),
   );
   return failed.length ? (
@@ -194,6 +131,100 @@ export function UiCompositionNotices() {
         .join(" · ")}
     </text>
   ) : null;
+}
+
+/** Independent panes remain available even when the built-in sidebar is closed. */
+export const extensionPaneWidth = (width: number) =>
+  Math.min(44, Math.max(24, Math.floor(width / 3)));
+export function UiPaneRegion({
+  placement,
+  width,
+  narrow = false,
+}: {
+  placement: "sidebar" | "above_prompt" | "below_prompt";
+  width: number;
+  narrow?: boolean;
+}) {
+  const context = useContext(Context);
+  const items = context.items.filter(
+    (item) =>
+      item.descriptor.slot === "pane" &&
+      (item.descriptor.placement === placement ||
+        (narrow &&
+          placement === "above_prompt" &&
+          item.descriptor.placement === "sidebar")) &&
+      item.snapshot.render?.mode !== "hide",
+  );
+  const collapsed = context.collapsed ?? new Set<string>();
+  if (!items.length) return null;
+  return (
+    <box
+      width={placement === "sidebar" ? extensionPaneWidth(width) : "100%"}
+      minWidth={0}
+      minHeight={0}
+      flexShrink={0}
+      flexDirection="column"
+    >
+      {items.map((item) => (
+        <box
+          key={item.key}
+          width="100%"
+          minWidth={0}
+          minHeight={0}
+          flexShrink={1}
+          border
+          borderColor={context.palette.border}
+          borderStyle="rounded"
+          flexDirection="column"
+        >
+          <DialogAction
+            label={`${collapsed.has(item.key) ? ">" : "v"} ${item.descriptor.title}`}
+            palette={context.palette}
+            onSelect={() => context.togglePane?.(item.key)}
+          />
+          {!collapsed.has(item.key) &&
+            (item.snapshot.state === "ready" &&
+            item.snapshot.render?.content ? (
+              <TerminalScrollbox
+                maxHeight={placement === "sidebar" ? undefined : 10}
+                minHeight={0}
+              >
+                <Element
+                  instance={`pane:${item.key}`}
+                  node={item.snapshot.render.content}
+                  item={item}
+                  native={null}
+                  values={{}}
+                />
+              </TerminalScrollbox>
+            ) : (
+              <text fg={context.palette.muted}>
+                {item.snapshot.state === "loading"
+                  ? "Загрузка…"
+                  : "Данные недоступны"}
+              </text>
+            ))}
+        </box>
+      ))}
+    </box>
+  );
+}
+
+export function UiCompositionFocusGuard() {
+  const context = useContext(Context);
+  useEffect(() => {
+    if (
+      context.focus &&
+      !context.targets?.some(
+        (target) =>
+          target.key === context.focus?.key &&
+          target.nodeKey === context.focus?.nodeKey &&
+          target.instance === context.focus?.instance,
+      )
+    )
+      context.setFocus?.(undefined);
+  }, [context.focus, context.targets, context.setFocus]);
+  return null;
 }
 
 /** Keyboard access uses a core-owned modal; extensions cannot capture editor input. */
@@ -209,23 +240,31 @@ export function UiCompositionControls({
   onClose(): void;
 }) {
   const context = useContext(Context);
-  const buttons = context.items
-    .filter(
-      (item) =>
-        item.descriptor.slot === "render" &&
-        item.snapshot.state === "ready" &&
-        item.snapshot.render?.mode !== "hide",
-    )
-    .flatMap((item) =>
-      uiNodeInfo(item.snapshot.render?.content).buttons.map(
-        (button, index) => ({
-          item,
-          use: button.action,
-          label: button.label,
-          id: `${item.key}/${index}`,
-        }),
-      ),
-    );
+  const buttons = [
+    ...context.items
+      .filter(
+        (item) =>
+          item.descriptor.slot === "pane" &&
+          item.snapshot.render?.mode !== "hide",
+      )
+      .map((item) => ({
+        item,
+        id: `pane:${item.key}`,
+        label: context.collapsed?.has(item.key)
+          ? "Развернуть панель"
+          : "Свернуть панель",
+        pane: true,
+        use: undefined as UiActionUse | undefined,
+        nodeKey: "",
+        instance: "",
+      })),
+    ...(context.targets ?? []).flatMap((target) => {
+      const item = context.items.find(
+        (item) => item.key === target.key && item.snapshot.state === "ready",
+      );
+      return item ? [{ item, ...target, use: target.action, pane: false }] : [];
+    }),
+  ];
   const [selected, select] = useState(buttons[0]?.id);
   const index = Math.max(
     0,
@@ -235,6 +274,19 @@ export function UiCompositionControls({
   const start = Math.floor(index / pageSize) * pageSize;
   const activate = (button: (typeof buttons)[number]) => {
     onClose();
+    if (button.pane) {
+      context.togglePane?.(button.item.key);
+      return;
+    }
+    if (!button.use) {
+      if (button.nodeKey)
+        context.setFocus?.({
+          key: button.item.key,
+          nodeKey: button.nodeKey,
+          instance: button.instance,
+        });
+      return;
+    }
     context.dispatch?.(
       button.item.key,
       button.use,

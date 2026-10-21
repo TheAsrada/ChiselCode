@@ -58,9 +58,12 @@ import { OpenTuiBackgroundTasks } from "./opentui-background-tasks.js";
 import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import {
+  extensionPaneWidth,
   UiCompositionControls,
+  UiCompositionFocusGuard,
   UiCompositionNotices,
   UiCompositionProvider,
+  UiPaneRegion,
   UiSurface,
 } from "./opentui-composition.js";
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
@@ -474,6 +477,19 @@ function OpenTuiScreen({
   }, [view.focus, view.agentTree?.view]);
   const [uiOverflow, setUiOverflow] = useState(false);
   const [uiControls, setUiControls] = useState(false);
+  const [uiFocus, setUiFocus] = useState<{
+    key: string;
+    nodeKey: string;
+    instance?: string;
+  }>();
+  const focusBinding = `${controller?.conversationId}/${controller?.currentGeneration}`;
+  const focusOwner = useRef(focusBinding);
+  useEffect(() => {
+    if (focusOwner.current !== focusBinding) {
+      focusOwner.current = focusBinding;
+      setUiFocus(undefined);
+    }
+  }, [focusBinding]);
   const extensionActive = !!view.extensionView && !approval;
   const otherOverlay = !!(
     pickerOpen ||
@@ -553,7 +569,9 @@ function OpenTuiScreen({
                     ? sideOwner
                     : sidebarFocused
                       ? sidebarOwner
-                      : "main";
+                      : uiFocus
+                        ? `ui-widget:${controller?.conversationId}:${controller?.currentGeneration}`
+                        : "main";
   useOverlayInputOwner(inputOwner);
   const cancelApprovalChild = approval?.owner?.childId
     ? () => {
@@ -708,7 +726,8 @@ function OpenTuiScreen({
       sideActive ||
       agentActive ||
       backgroundActiveView ||
-      backgroundPanelActive
+      backgroundPanelActive ||
+      uiFocus
     )
       editor.current?.blur();
     else if (!approval && !otherOverlay && focus === "editor")
@@ -721,6 +740,7 @@ function OpenTuiScreen({
     approval,
     otherOverlay,
     focus,
+    uiFocus,
   ]);
   const home = !!workspace && !workspace.activeKey;
   const tabRows = workspace?.tabs.length ? 3 : 0;
@@ -742,7 +762,7 @@ function OpenTuiScreen({
   const sidebarDrawer = layout.placement === "overlay";
   const uiFaultRows = (view.uiContributions ?? []).some(
     (item) =>
-      item.descriptor.slot === "render" &&
+      (item.descriptor.slot === "render" || item.descriptor.slot === "pane") &&
       ["error", "unavailable"].includes(item.snapshot.state),
   )
     ? 1
@@ -754,7 +774,23 @@ function OpenTuiScreen({
     1,
     panelHeight - chrome.header - chrome.footer,
   );
-  const textWidth = layout.feedWidth;
+  const hasExtensionPane = (view.uiContributions ?? []).some(
+    (item) =>
+      item.descriptor.slot === "pane" &&
+      item.descriptor.placement === "sidebar" &&
+      item.snapshot.render?.mode !== "hide",
+  );
+  const dockExtensionPane =
+    !home &&
+    !contextOnly &&
+    !sidebarDrawer &&
+    width >= 100 &&
+    layout.feedWidth - extensionPaneWidth(width) >= 48 &&
+    hasExtensionPane;
+  const textWidth = Math.max(
+    1,
+    layout.feedWidth - (dockExtensionPane ? extensionPaneWidth(width) : 0),
+  );
   const composerWidth = home
     ? Math.max(1, Math.min(86, textWidth - 4))
     : Math.max(1, textWidth - 2);
@@ -936,6 +972,10 @@ function OpenTuiScreen({
       !updateOpen &&
       !backgroundActiveView &&
       !backgroundPanelActive &&
+      !uiFocus &&
+      !uiControls &&
+      !uiOverflow &&
+      !extensionActive &&
       !contextOnly
     ) {
       if (focus === "editor") editor.current?.focus();
@@ -956,6 +996,10 @@ function OpenTuiScreen({
     contextOnly,
     sidebarTab,
     focus,
+    uiFocus,
+    uiControls,
+    uiOverflow,
+    extensionActive,
   ]);
   useEffect(() => {
     if (focus === "sidebar" && !showSidebar) {
@@ -1094,6 +1138,18 @@ function OpenTuiScreen({
 
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== inputOwner) return;
+    if (
+      inputOwner.startsWith("ui-widget:") &&
+      !(
+        (key.ctrl &&
+          ["c", "tab", "w", "g", "b", "t", ",", "comma"].includes(key.name)) ||
+        (key.ctrl && key.shift && key.name === "n") ||
+        ((key.meta || key.option) &&
+          ["u", "left", "right", "n"].includes(key.name)) ||
+        /^f[4-9]$/.test(key.name)
+      )
+    )
+      return;
     if (uiControls) {
       if (key.ctrl && key.name === "c") {
         key.preventDefault();
@@ -2038,6 +2094,12 @@ function OpenTuiScreen({
   const composer = (
     <UiSurface name="Composer" preserveNative>
       <UiSurface name="AbovePrompt" />
+      <UiPaneRegion
+        key={`above:${controller?.conversationId}`}
+        placement="above_prompt"
+        width={width}
+        narrow={!dockExtensionPane}
+      />
       <box width="100%" flexShrink={0} flexDirection="column">
         {visibleSuggestions.map((command, index) => (
           <text
@@ -2071,7 +2133,8 @@ function OpenTuiScreen({
             !sideActive &&
             !agentActive &&
             !backgroundPanelActive &&
-            !backgroundActiveView
+            !backgroundActiveView &&
+            !uiFocus
           }
           hasDraft={!!draft.trim()}
           busy={view.busy}
@@ -2099,6 +2162,7 @@ function OpenTuiScreen({
               if (!approval && !otherOverlay) {
                 setFocus("editor");
                 controller?.setFocus("composer");
+                setUiFocus(undefined);
               }
             }}
             height={editorHeight}
@@ -2117,7 +2181,8 @@ function OpenTuiScreen({
               !backgroundActiveView &&
               !extensionActive &&
               !uiOverflow &&
-              !uiControls
+              !uiControls &&
+              !uiFocus
             }
             initialValue={draft}
             backgroundColor={palette.surface}
@@ -2181,20 +2246,36 @@ function OpenTuiScreen({
         </UiSurface>
       </box>
       <UiSurface name="BelowPrompt" />
+      <UiPaneRegion
+        key={`below:${controller?.conversationId}`}
+        placement="below_prompt"
+        width={width}
+      />
     </UiSurface>
   );
 
   return (
     <UiCompositionProvider
       value={{
+        binding: `${controller?.conversationId}/${controller?.currentGeneration}`,
+        drafts: controller?.uiFormDrafts,
+        paneState: controller?.uiCollapsedPanes,
         items: view.uiContributions ?? [],
         palette,
-        interactive: !approval && !otherOverlay,
-        dispatch: (key, use, revision) => {
-          void uiBinding?.dispatch(key, use, revision);
+        interactive:
+          inputOwner === "main" || inputOwner.startsWith("ui-widget:"),
+        focus: uiFocus,
+        setFocus: setUiFocus,
+        owner: inputOwner,
+        event: (key, nodeKey, event, revision, presentation) => {
+          void uiBinding?.event(key, nodeKey, event, revision, presentation);
+        },
+        dispatch: (key, use, revision, presentation) => {
+          void uiBinding?.dispatch(key, use, revision, false, presentation);
         },
       }}
     >
+      <UiCompositionFocusGuard />
       <box
         width={width}
         height={height}
@@ -2469,6 +2550,7 @@ function OpenTuiScreen({
                           {controller && view.streaming && (
                             <UiSurface
                               name="AssistantMessage"
+                              instanceId="streaming"
                               values={{
                                 text: view.streaming,
                                 state: "streaming",
@@ -2518,6 +2600,13 @@ function OpenTuiScreen({
                     {composer}
                   </box>
                 ))}
+              {dockExtensionPane && (
+                <UiPaneRegion
+                  key={controller?.conversationId}
+                  placement="sidebar"
+                  width={width}
+                />
+              )}
               {showSidebar && (
                 <UiSurface name="Sidebar">
                   <box

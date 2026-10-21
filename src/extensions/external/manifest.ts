@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SDK_CAPABILITIES } from "../../extension-sdk/capabilities.js";
 import { VERSION } from "../../version.js";
 import { SettingsSchemaValidator } from "../settings-schema.js";
 
@@ -29,6 +30,10 @@ export const ExtensionManifestSchema = z
     id: ExternalIdSchema,
     version,
     apiVersion: z.literal(1),
+    requires: z
+      .array(z.string().regex(/^[a-z][a-zA-Z0-9.]{0,63}$/))
+      .max(32)
+      .optional(),
     kind: z.enum(["standard", "ui"]).optional(),
     entry: z
       .string()
@@ -104,6 +109,11 @@ export function compatibleRange(range: string, current = VERSION): boolean {
     .every(Boolean);
 }
 export function compatibility(manifest: ExtensionManifest): string | undefined {
+  const unsupported = manifest.requires?.filter(
+    (feature) => !(SDK_CAPABILITIES as readonly string[]).includes(feature),
+  );
+  if (unsupported?.length)
+    return `ChiselCode не поддерживает возможности SDK: ${unsupported.join(", ")}.`;
   if (
     manifest.platforms &&
     !manifest.platforms.includes(process.platform as "win32")

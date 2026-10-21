@@ -39,6 +39,7 @@ export function createLocalToolRuntime(
     maxParallelReads?: number;
     requireFreshRead?: boolean;
     toolGuards?: ToolGuardPort;
+    agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
     executionConstraint?: import("./types.js").ToolExecutionConstraint;
     approvalOwner?: import("./types.js").ToolContext["approvalOwner"];
     background?: import("../background/binding.js").BackgroundToolBinding;
@@ -93,7 +94,9 @@ export function createLocalToolRuntime(
     context,
     options.maxInlineTokens,
     options.toolGuards,
+    options.agentEvents,
   );
+  context.events.agentEvents = options.agentEvents;
   const scheduler = new ToolScheduler(executor, options.maxParallelReads);
   const getApprovalMode = (requested?: ApprovalMode) =>
     resolveApprovalMode({

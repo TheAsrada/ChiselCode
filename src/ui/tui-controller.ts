@@ -168,6 +168,11 @@ export class TuiController implements TuiTranscript {
     string,
     { selected?: string; cursor?: string; search?: string; scroll?: number }
   >();
+  readonly uiFormDrafts = new Map<
+    string,
+    { value: string; source: string; cursor: number }
+  >();
+  readonly uiCollapsedPanes = new Set<string>();
   setUiContributions(items: TuiViewState["uiContributions"]): void {
     this.update({ uiContributions: items });
   }
@@ -379,6 +384,8 @@ export class TuiController implements TuiTranscript {
   }
 
   trackToolEvent(event: import("../runtime/events.js").RuntimeEvent): void {
+    if (event.type === "extension_notice" && event.text)
+      this.appendNotice(event.text, "error");
     if (!event.invocationId || !event.name) return;
     const state =
       event.type === "tool_queued"
@@ -764,6 +771,8 @@ export class TuiController implements TuiTranscript {
     this.sidebarPresentation.menuIndex = 0;
     this.sidebarPresentation.menuKey = undefined;
     this.uiPresentation.clear();
+    this.uiFormDrafts.clear();
+    this.uiCollapsedPanes.clear();
     this.presentation.actions = createActionPresentation();
     this.generation++;
     this.compactionNotices.clear();
@@ -1521,6 +1530,8 @@ export class TuiController implements TuiTranscript {
     this.gitSource.dispose();
     this.renderer = undefined;
     this.listeners.clear();
+    this.uiFormDrafts.clear();
+    this.uiCollapsedPanes.clear();
   }
 
   private update(fields: Partial<TuiViewState>): void {

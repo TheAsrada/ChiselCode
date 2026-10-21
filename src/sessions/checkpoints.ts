@@ -14,10 +14,11 @@ export function attachSessionRecorder(
   return events.subscribe((event) => {
     if (
       (event.type === "context_summary_usage" ||
-        event.type === "provider_failed") &&
+        event.type === "provider_failed" ||
+        event.type === "extension_notice") &&
       event.usage
     )
-      addUsage(session, event.usage);
+      addUsage(session, event.usage, event.model);
     if (event.type === "context_updated" && event.contextSnapshot)
       session.contextSnapshot = event.contextSnapshot;
     if (event.type === "turn_state" && session.runtime)
@@ -29,7 +30,8 @@ export function attachSessionRecorder(
       event.usage
     ) {
       session.messages.push(event.message);
-      addUsage(session, event.usage);
+      addUsage(session, event.usage, event.model);
+      if (event.model && event.model !== session.model) return;
       const prior = session.contextSnapshot;
       const observed = observedContextSnapshot(
         session.providerId,
@@ -68,12 +70,12 @@ export function attachSessionRecorder(
     }
   });
 }
-function addUsage(session: Session, usage: TokenUsage) {
+function addUsage(session: Session, usage: TokenUsage, model = session.model) {
   const main = ensureMainSpend(session);
   addTokenUsage(main.usage, usage);
   const estimate = estimateCost(
     session.providerId,
-    session.model,
+    model,
     usage.inputTokens,
     usage.outputTokens,
   );

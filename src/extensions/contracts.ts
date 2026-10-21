@@ -93,10 +93,12 @@ export interface ContextCollectionPort {
 }
 
 export interface ExtensionContext {
+  readonly events: import("../extension-sdk/agent-events.js").AgentEvents;
   readonly workspaceRoot: string;
   readonly signal: AbortSignal;
   readonly chat: { register(view: ExtensionChatView): void };
   readonly ui: {
+    on(id: string, handler: import("./ui-types.js").UiEventHandler): void;
     register(contribution: import("./ui-types.js").UiContribution): void;
     registerView(view: import("./ui-types.js").UiDetailsView): void;
   };

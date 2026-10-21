@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "example.studio",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "kind": "ui",
+  "requires": ["ui.controls", "ui.style", "ui.nativeProps", "ui.panes", "ui.media"],
+  "entry": "index.mjs",
+  "displayName": "Студия заметок",
+  "description": "Форма, вкладки, предпросмотр Markdown, код и интерактивная карта в отдельной панели"
+}

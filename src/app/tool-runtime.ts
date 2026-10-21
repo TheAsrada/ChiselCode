@@ -33,6 +33,7 @@ export async function createSessionToolRuntime(input: {
   events: RuntimeEventBus;
   resolver: ApprovalResolver;
   signal: AbortSignal;
+  agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
   sanitizeExtra?: <T>(value: T) => T;
   childPolicy?: import("../subagents/policy.js").ChildToolPolicy;
   approvalOwner?: import("../tools/types.js").ToolContext["approvalOwner"];
@@ -94,6 +95,8 @@ export async function createSessionToolRuntime(input: {
       record.input = sanitize(record.input);
       if (record.toolSource) record.toolSource = sanitize(record.toolSource);
       if (record.result) record.result = sanitize(record.result);
+      if (record.originalResult)
+        record.originalResult = sanitize(record.originalResult);
       if (record.approvalPreview)
         record.approvalPreview = sanitize(record.approvalPreview);
     }
@@ -213,6 +216,7 @@ export async function createSessionToolRuntime(input: {
         sanitizeResult: sanitize,
         sanitizeApproval: sanitize,
         toolGuards: scope.toolGuards,
+        agentEvents: input.agentEvents ?? scope.events,
         executionConstraint: input.childPolicy,
         approvalOwner: input.approvalOwner,
         subagentTools: input.subagentTools,

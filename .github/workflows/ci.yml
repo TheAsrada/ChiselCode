@@ -94,6 +94,7 @@ jobs:
           tests/integration/conversation-diagnostics.test.ts
           tests/unit/lsp-transport.test.ts
           tests/unit/extension-authoring.test.ts tests/unit/ui-extension-runtime.test.ts
+          tests/unit/opentui-extension-interaction.test.tsx
           tests/integration/ui-extension-tools.test.ts
           tests/unit/provider-config.test.ts tests/unit/lsp-config.test.ts
           tests/unit/opentui-terminal-compatibility.test.tsx tests/unit/opentui-settings.test.tsx
@@ -179,6 +180,13 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
           bun build tests/fixtures/tui-settings-tools.ts --compile --outfile="$binary"
           CHISEL_SETTINGS_TOOLS_SMOKE=1 "$binary"
+      - name: Compiled extension controls and media
+        shell: bash
+        run: |
+          binary=dist/chisel-extension-widgets
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/tui-extension-widgets.ts --compile --outfile="$binary"
+          CHISEL_WIDGET_SMOKE=1 "$binary"
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.os }}

@@ -3,9 +3,15 @@ import { z } from "zod";
 import type { CapturedModelConfiguration } from "../app/model-runtime.js";
 import { contextBudget } from "../context/budget.js";
 import { DEFAULT_CONTEXT_OPTIONS } from "../context/types.js";
+import {
+  finishAgentModelResponse,
+  prepareAgentModelRequest,
+  syntheticModelEvents,
+} from "../extensions/agent-provider.js";
 import { abortable, frozenClone } from "../extensions/lifecycle.js";
 import { estimateProviderCost } from "../providers/cost.js";
 import { normalizeProviderError, ProviderError } from "../providers/errors.js";
+import { RuntimeError } from "../runtime/errors.js";
 import type { SecretRedactor } from "../security/redaction.js";
 import type {
   ProviderAdapter,
@@ -56,6 +62,7 @@ const inputSchema = z
   .strict();
 
 export interface ModelInvocationDependencies {
+  agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
   owner: ModelRequestOwner;
   invocationId: string;
   command: string;
@@ -339,6 +346,7 @@ export class ModelRequestService {
       finishAccounting = resolve;
     });
     const observed = new Map<number, TokenUsage>();
+    let routedModel: string | undefined;
     const observe = (attempt: number, usage?: TokenUsage) => {
       if (usage) observed.set(attempt, { ...usage });
     };
@@ -419,7 +427,7 @@ export class ModelRequestService {
       for (let attempt = 1; attempt <= limit("attempts"); attempt++) {
         dependencies.assertAvailable();
         record.attempts = attempt;
-        const request: ProviderRequest = {
+        let request: ProviderRequest = {
           model: dependencies.model.model,
           system: context.system,
           messages: context.messages,
@@ -436,22 +444,36 @@ export class ModelRequestService {
         let terminal = false;
         let failure: Extract<StreamEvent, { type: "error" }> | undefined;
         let invalidTool = false;
+        const eventContext = { sessionId: dependencies.owner.sessionId };
+        const prepared = await prepareAgentModelRequest(
+          request,
+          dependencies.agentEvents,
+          eventContext,
+        );
+        request = prepared.request;
+        if (routedModel && routedModel !== request.model)
+          throw new RuntimeError(
+            "EXTENSION_HOOK_FAILED",
+            "Расширение изменило модель между попытками одного побочного запроса.",
+          );
+        routedModel = request.model;
+        record.model = redactor.text(request.model);
         const worker = (async () => {
-          for await (const event of adapter.streamChat(request)) {
-            if (event.type === "turn_complete" || event.type === "error") {
+          for await (const raw of prepared.synthetic
+            ? syntheticModelEvents(prepared.synthetic)
+            : adapter.streamChat(request)) {
+            // Transport usage is observed before a formatter can fail or be cancelled.
+            if (raw.type === "turn_complete" || raw.type === "error") {
               observe(
                 attempt,
-                event.type === "turn_complete" && event.usageObserved === false
+                raw.type === "turn_complete" && raw.usageObserved === false
                   ? undefined
-                  : event.usage,
+                  : raw.usage,
               );
               if (
                 (fence || signal.aborted) &&
-                event.usage &&
-                !(
-                  event.type === "turn_complete" &&
-                  event.usageObserved === false
-                )
+                raw.usage &&
+                !(raw.type === "turn_complete" && raw.usageObserved === false)
               ) {
                 await accountingReady;
                 const total: TokenUsage = { inputTokens: 0, outputTokens: 0 };
@@ -465,8 +487,18 @@ export class ModelRequestService {
               }
             }
             if (fence || signal.aborted) continue;
+            const event =
+              raw.type === "turn_complete"
+                ? await finishAgentModelResponse(
+                    raw,
+                    dependencies.agentEvents,
+                    eventContext,
+                    signal,
+                  )
+                : raw;
             if (event.type === "text_delta") {
               if (terminal) throw new Error("MODEL_REQUEST_PROTOCOL_ERROR");
+              if (dependencies.agentEvents?.has("model.response")) continue;
               receivedText ||= event.text.length > 0;
               state("receiving");
               outputBytes += Buffer.byteLength(event.text, "utf8");
@@ -580,7 +612,10 @@ export class ModelRequestService {
             : error instanceof Error &&
                 /^MODEL_REQUEST_[A-Z_]+$/.test(error.message)
               ? error.message
-              : failure.code;
+              : error instanceof RuntimeError &&
+                  error.code.startsWith("EXTENSION_")
+                ? error.code
+                : failure.code;
       record.error = {
         code,
         message: redactor
@@ -599,7 +634,10 @@ export class ModelRequestService {
                         ? "Провайдер вернул незавершённый или некорректный ответ."
                         : code === "MODEL_REQUEST_EMPTY_RESPONSE"
                           ? "Модель завершила запрос без текстового ответа."
-                          : failure.message,
+                          : error instanceof RuntimeError &&
+                              error.code.startsWith("EXTENSION_")
+                            ? error.message
+                            : failure.message,
           )
           .slice(0, 1000),
       };
@@ -626,7 +664,7 @@ export class ModelRequestService {
       const cost = record.usage
         ? estimateProviderCost(
             dependencies.model.definition,
-            dependencies.model.model,
+            routedModel ?? dependencies.model.model,
             usage.inputTokens,
             usage.outputTokens,
           )

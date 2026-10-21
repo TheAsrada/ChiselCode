@@ -1,5 +1,12 @@
 import { z } from "zod";
-import type { UI_SURFACES, UiNode } from "../extension-sdk/ui-composition.js";
+import type {
+  UI_SURFACES,
+  UiColor,
+  UiEventUse,
+  UiInputEvent,
+  UiNode,
+  UiStyle,
+} from "../extension-sdk/ui-composition.js";
 import type { Disposable } from "./contracts.js";
 
 export type {
@@ -33,6 +40,95 @@ export const UiActionUseSchema = z
     args: z.record(z.string(), z.json()).optional(),
   })
   .strict();
+export const UiColorSchema = z.union([
+  z.enum([
+    "bg",
+    "surface",
+    "raised",
+    "border",
+    "text",
+    "muted",
+    "accent",
+    "green",
+    "red",
+    "yellow",
+  ]),
+  z.string().regex(/^#[\da-fA-F]{6}$/),
+]) as z.ZodType<UiColor>;
+const dimension = z.union([
+  z.number().int().min(1).max(1000),
+  z.string().regex(/^(?:100|[1-9]?\d)%$/),
+]) as z.ZodType<number | `${number}%`>;
+export const UiStyleSchema = z
+  .object({
+    fg: UiColorSchema.optional(),
+    bg: UiColorSchema.optional(),
+    width: dimension.optional(),
+    height: z.number().int().min(1).max(200).optional(),
+    minWidth: z.number().int().min(0).max(1000).optional(),
+    maxWidth: z.number().int().min(1).max(1000).optional(),
+    padding: z.number().int().min(0).max(8).optional(),
+    gap: z.number().int().min(0).max(8).optional(),
+    grow: z.number().min(0).max(100).optional(),
+    shrink: z.number().min(0).max(100).optional(),
+    border: z.boolean().optional(),
+    borderColor: UiColorSchema.optional(),
+    borderStyle: z.enum(["single", "double", "rounded", "heavy"]).optional(),
+    align: z.enum(["flex-start", "center", "flex-end", "stretch"]).optional(),
+    justify: z
+      .enum([
+        "flex-start",
+        "center",
+        "flex-end",
+        "space-between",
+        "space-around",
+      ])
+      .optional(),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    dim: z.boolean().optional(),
+    wrap: z.enum(["word", "char", "none"]).optional(),
+  })
+  .strict() satisfies z.ZodType<UiStyle>;
+export const UiInputEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("press") }).strict(),
+  z
+    .object({
+      type: z.enum(["change", "submit"]),
+      value: z.string().max(20000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("select"),
+      value: z.string().max(120),
+      index: z.number().int().min(0).max(100),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("pointer"),
+      x: z.number().int().min(0).max(1000),
+      y: z.number().int().min(0).max(200),
+      button: z.number().int().min(0).max(5),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("key"),
+      name: z.string().max(40),
+      sequence: z.string().max(32),
+      ctrl: z.boolean(),
+      shift: z.boolean(),
+      meta: z.boolean(),
+    })
+    .strict(),
+]);
+const nodeBase = {
+  key: UiIdSchema.optional(),
+  style: UiStyleSchema.optional(),
+};
+const eventUse = UiActionUseSchema;
 export const UiRowSchema = z
   .object({
     id: UiIdSchema,
@@ -46,12 +142,21 @@ export const UiRowSchema = z
 export const UiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
   z.discriminatedUnion("type", [
     z
-      .object({ type: z.literal("native"), key: UiIdSchema.optional() })
+      .object({
+        type: z.literal("native"),
+        ...nodeBase,
+        props: UiStyleSchema.extend({
+          title: title.optional(),
+          placeholder: title.optional(),
+        })
+          .strict()
+          .optional(),
+      })
       .strict(),
     z
       .object({
         type: z.literal("text"),
-        key: UiIdSchema.optional(),
+        ...nodeBase,
         text: z.string().max(2000),
         tone: UiToneSchema.optional(),
         bold: z.boolean().optional(),
@@ -60,7 +165,7 @@ export const UiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
     z
       .object({
         type: z.literal("value"),
-        key: UiIdSchema.optional(),
+        ...nodeBase,
         field: z.enum(["text", "title", "state", "count", "path"]),
         tone: UiToneSchema.optional(),
         maxLength: z.number().int().min(1).max(20000).optional(),
@@ -69,16 +174,116 @@ export const UiNodeSchema: z.ZodType<UiNode> = z.lazy(() =>
     z
       .object({
         type: z.literal("button"),
-        key: UiIdSchema.optional(),
+        ...nodeBase,
         label: title,
         action: UiActionUseSchema,
         tone: UiToneSchema.optional(),
+        hotkey: z
+          .string()
+          .regex(/^(?:(?:ctrl|alt|shift)\+)*(?:[a-z0-9]|f\d{1,2})$/)
+          .optional(),
+        disabled: z.boolean().optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("input"),
+        ...nodeBase,
+        key: UiIdSchema,
+        label: title,
+        value: z.string().max(20000),
+        placeholder: title.optional(),
+        maxLength: z.number().int().min(1).max(20000).optional(),
+        onChange: eventUse.optional(),
+        onSubmit: eventUse.optional(),
+        disabled: z.boolean().optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("select"),
+        ...nodeBase,
+        key: UiIdSchema,
+        label: title,
+        value: title.optional(),
+        options: z
+          .array(
+            z
+              .object({
+                value: title,
+                label: title,
+                description: detail.optional(),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(100),
+        onSelect: eventUse,
+        disabled: z.boolean().optional(),
+      })
+      .strict()
+      .refine(
+        (n) => new Set(n.options.map((o) => o.value)).size === n.options.length,
+      ),
+    z
+      .object({
+        type: z.literal("markdown"),
+        ...nodeBase,
+        text: z.string().max(20000),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("code"),
+        ...nodeBase,
+        text: z.string().max(20000),
+        language: z
+          .string()
+          .regex(/^[\w+-]{1,40}$/)
+          .optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("image"),
+        ...nodeBase,
+        data: z
+          .string()
+          .max(48000)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+        alt: title,
+        fit: z.enum(["fit", "cover", "fill"]).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("canvas"),
+        ...nodeBase,
+        key: UiIdSchema,
+        label: title,
+        rows: z
+          .array(
+            z
+              .array(
+                z
+                  .object({
+                    text: z.string().max(1000),
+                    fg: UiColorSchema.optional(),
+                    bg: UiColorSchema.optional(),
+                  })
+                  .strict(),
+              )
+              .max(200),
+          )
+          .max(100),
+        onPointer: eventUse.optional(),
+        onKey: eventUse.optional(),
       })
       .strict(),
     z
       .object({
         type: z.literal("box"),
-        key: UiIdSchema.optional(),
+        ...nodeBase,
         direction: z.enum(["row", "column"]).optional(),
         gap: z.number().int().min(0).max(3).optional(),
         padding: z.number().int().min(0).max(2).optional(),
@@ -109,12 +314,44 @@ export function uiNodeInfo(root?: UiNode) {
     action: z.infer<typeof UiActionUseSchema>;
   }[] = [];
   const pending = root ? [{ node: root, depth: 1 }] : [];
+  const events: {
+    node: UiNode;
+    use: UiEventUse;
+    type: UiInputEvent["type"];
+  }[] = [];
+  const controls: UiNode[] = [];
+  const keys = new Set<string>();
   let count = 0,
     native = 0;
   while (pending.length) {
     const { node, depth } = pending.pop()!;
     if (++count > 128 || depth > 8) throw new Error("UI tree limit exceeded.");
     if (node.type === "native") native++;
+    if (node.key && ["input", "select", "canvas"].includes(node.type)) {
+      if (keys.has(node.key)) throw new Error("Duplicate UI input key.");
+      keys.add(node.key);
+    }
+    if (
+      ((node.type === "input" ||
+        node.type === "select" ||
+        node.type === "button") &&
+        !node.disabled) ||
+      (node.type === "canvas" && (node.onKey || node.onPointer))
+    )
+      controls.push(node);
+    if (node.type === "input") {
+      if (node.onChange)
+        events.push({ node, use: node.onChange, type: "change" });
+      if (node.onSubmit)
+        events.push({ node, use: node.onSubmit, type: "submit" });
+    }
+    if (node.type === "select")
+      events.push({ node, use: node.onSelect, type: "select" });
+    if (node.type === "canvas") {
+      if (node.onPointer)
+        events.push({ node, use: node.onPointer, type: "pointer" });
+      if (node.onKey) events.push({ node, use: node.onKey, type: "key" });
+    }
     if (node.type === "button") {
       actions.push(node.action);
       buttons.push({ label: node.label, action: node.action });
@@ -131,7 +368,7 @@ export function uiNodeInfo(root?: UiNode) {
   }
   if (native > 1)
     throw new Error("A UI patch may embed native content only once.");
-  return { actions, buttons, native, count };
+  return { actions, buttons, native, count, events, controls };
 }
 export const UiSnapshotSchema = z
   .object({
@@ -190,6 +427,7 @@ export interface UiOwnerSummary {
   };
 }
 export interface UiBinding {
+  readonly presentation?: import("../extension-sdk/ui-composition.js").UiPresentationContext;
   readonly workspaceRoot: string;
   readonly scopeInstance: string;
   readonly conversationId?: string;
@@ -207,6 +445,12 @@ export interface UiCoreTarget {
   readonly [coreTarget]: true;
 }
 export type UiAction =
+  | {
+      readonly id: string;
+      readonly label: string;
+      readonly type: "event";
+      readonly eventId: string;
+    }
   | {
       readonly id: string;
       readonly label: string;
@@ -231,7 +475,13 @@ export interface UiSource<T> {
 }
 export interface UiContribution {
   readonly id: string;
-  readonly slot: "status" | "context_section" | "menu_entry" | "render";
+  readonly slot:
+    | "status"
+    | "context_section"
+    | "menu_entry"
+    | "render"
+    | "pane";
+  readonly placement?: "sidebar" | "above_prompt" | "below_prompt";
   readonly surfaces?: readonly (typeof UI_SURFACES)[number][];
   readonly scope: "workspace" | "conversation";
   readonly title: string;
@@ -242,6 +492,11 @@ export interface UiContribution {
   readonly actions?: readonly UiAction[];
   readonly source: UiSource<UiSnapshot>;
 }
+export type UiEventHandler = (
+  binding: UiBinding,
+  event: Readonly<UiInputEvent>,
+  args: Readonly<import("../extension-sdk/index.js").JsonObject>,
+) => void | Promise<void>;
 export interface UiDetailsView {
   readonly id: string;
   readonly scope: "workspace" | "conversation";

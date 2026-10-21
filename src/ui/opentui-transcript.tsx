@@ -286,6 +286,7 @@ export function OpenTuiTranscript({
           <UiSurface
             key={entry.actionGroup?.id ?? entry.id}
             name={name}
+            instanceId={entry.actionGroup?.id ?? entry.id}
             values={{
               text: entry.text,
               state: entry.tone,

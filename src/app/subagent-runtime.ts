@@ -252,6 +252,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       scope = await host.open(descriptor.path);
     }
     const root = scope.workspaceRoot;
+    const agentEvents = owner.scope.events.forWorkspace(root, signal);
     record.root = root;
     const [rawConfig, global, projectInstructions] = await Promise.all([
       loadProjectConfig(root),
@@ -342,6 +343,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
           ? "default"
           : owner.approvalMode,
       scope,
+      agentEvents,
       events,
       resolver: addressedResolver(input),
       signal,
@@ -473,6 +475,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       recovery: "new_child",
       onCheckpoint: checkpoint,
       contextProviders: contextCollection(scope, safe),
+      agentEvents,
     });
     const fullResult = safe(result.text || record.text);
     record.text = utf8Prefix(fullResult, SUBAGENT_PRESENTATION.resultBytes);

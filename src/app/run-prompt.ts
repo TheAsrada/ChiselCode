@@ -689,6 +689,7 @@ async function runPromptInWorkspace(
       signal,
       onCheckpoint: saveCheckpoint,
       contextProviders: contextCollection(extensionScope, sanitize),
+      agentEvents: extensionScope.events,
     });
   } catch (error) {
     runtimeFailed = true;

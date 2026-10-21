@@ -1,7 +1,23 @@
 /** Public API v1. Runtime helpers are injected by the current host into the factory. */
 export const API_VERSION = 1 as const;
+export type { SdkCapability } from "./capabilities.js";
+export { SDK_CAPABILITIES } from "./capabilities.js";
 
 import type { SettingsSchema, SettingValue } from "./settings.js";
+
+export type {
+  AgentEventContext,
+  AgentEventData,
+  AgentEventHandler,
+  AgentEventResult,
+  AgentEvents,
+  AgentMessage,
+  AgentModelRequest,
+  AgentModelResponse,
+  AgentObservedEvent,
+  AgentToolCall,
+  AgentToolResult,
+} from "./agent-events.js";
 
 export type { SettingField, SettingsSchema, SettingValue } from "./settings.js";
 export type Json =
@@ -20,6 +36,7 @@ export interface Manifest {
   readonly id: string;
   readonly version: string;
   readonly apiVersion: 1;
+  readonly requires?: readonly string[];
   /** UI extensions are mounted live in an isolated UI lifecycle. */
   readonly kind?: "standard" | "ui";
   readonly entry: string;
@@ -218,8 +235,14 @@ export interface UiRow {
   action?: UiActionUse;
 }
 export type {
+  UiColor,
+  UiEventUse,
+  UiInputEvent,
+  UiNativeProps,
   UiNode,
+  UiPresentationContext,
   UiRenderPatch,
+  UiStyle,
   UiSurface,
   UiValueField,
 } from "./ui-composition.js";
@@ -245,9 +268,12 @@ export interface UiPage {
   actions?: UiActionUse[];
 }
 export type UiAction =
+  | { id: string; label: string; type: "event"; eventId: string }
   | { id: string; label: string; type: "view"; viewId: string }
   | { id: string; label: string; type: "tool"; tool: string };
 export interface UiBinding {
+  /** Present only while handling an interaction with a particular rendered element. */
+  readonly presentation?: import("./ui-composition.js").UiPresentationContext;
   readonly workspaceRoot: string;
   readonly scopeInstance: string;
   readonly conversationId?: string;
@@ -272,7 +298,13 @@ export interface UiBinding {
 }
 export interface UiContribution {
   readonly id: string;
-  readonly slot: "status" | "context_section" | "menu_entry" | "render";
+  readonly slot:
+    | "status"
+    | "context_section"
+    | "menu_entry"
+    | "render"
+    | "pane";
+  readonly placement?: "sidebar" | "above_prompt" | "below_prompt";
   readonly surfaces?: readonly import("./ui-composition.js").UiSurface[];
   readonly scope: "workspace" | "conversation";
   readonly title: string;
@@ -321,6 +353,7 @@ export type Guard = (
   | { action: "deny"; reason: string }
   | Promise<{ action: "continue" } | { action: "deny"; reason: string }>;
 export interface ActivationContext {
+  readonly events: import("./agent-events.js").AgentEvents;
   readonly workspaceRoot: string;
   readonly signal: AbortSignal;
   readonly tools: { register<Input>(tool: ToolDefinition<Input>): void };
@@ -332,6 +365,14 @@ export interface ActivationContext {
     }): void;
   };
   readonly ui: {
+    on(
+      id: string,
+      handler: (
+        binding: UiBinding,
+        event: Readonly<import("./ui-composition.js").UiInputEvent>,
+        args: Readonly<JsonObject>,
+      ) => void | Promise<void>,
+    ): void;
     register(contribution: UiContribution): void;
     registerView(view: UiDetailsView): void;
   };
@@ -390,6 +431,7 @@ export interface ExtensionDefinition {
   activate(context: ActivationContext): void | Promise<void>;
 }
 export interface HostSdk {
+  readonly capabilities: readonly import("./capabilities.js").SdkCapability[];
   readonly apiVersion: 1;
   readonly chiselVersion: string;
   /** Application-start snapshot; secrets are retrieved only inside trusted core code. */

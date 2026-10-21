@@ -457,6 +457,10 @@ export class ExternalExtensionLoader {
             await definition.activate(
               Object.freeze({
                 ...context,
+                events: Object.freeze({
+                  on: unsupported,
+                  observe: unsupported,
+                }),
                 commands: Object.freeze({ register: unsupported }),
                 services: Object.freeze({
                   provide: unsupported,

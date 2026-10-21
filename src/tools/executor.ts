@@ -36,6 +36,7 @@ export class ToolExecutor {
     readonly context: ToolContext,
     private readonly maxInlineTokens = 10_000,
     private readonly toolGuards?: ToolGuardPort,
+    private readonly hooks?: import("../extensions/agent-events.js").AgentEventPort,
   ) {
     initializeSessionState(context.session);
   }
@@ -125,8 +126,64 @@ export class ToolExecutor {
     let preparedPlan: ToolPlan | undefined;
     try {
       cancelled(context.signal);
+      let intercepted: ToolExecutionResult | undefined;
+      if (this.hooks?.has("tool.call")) {
+        const decision = await this.hooks.run(
+          "tool.call",
+          {
+            callId: call.id,
+            name: call.name,
+            input: call.input,
+          } as import("../extension-sdk/agent-events.js").AgentToolCall,
+          { sessionId: context.session.id, turnId: runtime.turnId },
+          context.signal,
+        );
+        if ("result" in decision)
+          intercepted = {
+            ...decision.result,
+            output: `[Ответ расширения; инструмент не выполнялся]\n${decision.result.output}`,
+            details: { ...decision.result.details, extensionIntercepted: true },
+          };
+        else {
+          if (decision.call.callId !== call.id)
+            throw new RuntimeError(
+              "EXTENSION_HOOK_FAILED",
+              "Расширение изменило идентификатор вызова.",
+            );
+          call = {
+            ...call,
+            name: decision.call.name,
+            input: decision.call.input,
+          };
+          record.name = call.name;
+          record.input = structuredClone(call.input);
+        }
+      }
       const handler = this.catalog.get(call.name);
       record.toolSource = handler.spec.source;
+      if (intercepted) {
+        const result = await normalizeResult(
+          context.sanitizeResult?.(
+            attributed(intercepted, record.toolSource),
+          ) ?? attributed(intercepted, record.toolSource),
+          context.artifacts,
+          outputLimit,
+        );
+        record.result = result;
+        record.state = result.isError ? "failed" : "succeeded";
+        record.updatedAt = new Date().toISOString();
+        await context.checkpoint();
+        await context.events.emit({
+          type: result.isError ? "tool_failed" : "tool_completed",
+          invocationId: call.id,
+          name: call.name,
+          input: call.input,
+          result,
+          state: record.state,
+          toolSource: record.toolSource,
+        });
+        return result;
+      }
       if (
         isNativeShell(handler) &&
         context.background &&
@@ -152,6 +209,7 @@ export class ToolExecutor {
             execution.mode = context.mode ?? context.session.mode;
             initializeSessionState(execution);
             const bus = new RuntimeEventBus(execution.id);
+            bus.agentEvents = this.hooks;
             bus.sanitize = context.events.sanitize;
             bus.subscribe((event) =>
               context.background!.runtimeEvent(ticket, event),
@@ -170,6 +228,7 @@ export class ToolExecutor {
               },
               this.maxInlineTokens,
               this.toolGuards,
+              this.hooks,
             );
             return executor.execute({
               id: randomUUID(),
@@ -629,6 +688,48 @@ export class ToolExecutor {
       }
       if (timeout.signal.aborted)
         throw new RuntimeError("TOOL_TIMEOUT", "Tool execution timed out.");
+      if (!result.isError && this.hooks?.has("tool.result")) {
+        const original =
+          context.sanitizeResult?.(attributed(result, record.toolSource)) ??
+          attributed(result, record.toolSource);
+        record.originalResult = await normalizeResult(
+          original,
+          context.artifacts,
+          outputLimit,
+        );
+        record.result = record.originalResult;
+        record.state = "succeeded";
+        record.updatedAt = new Date().toISOString();
+        // A pending formatter must not leave a completed mutation looking replayable after a crash.
+        await context.checkpoint();
+        try {
+          const changed = await this.hooks.run(
+            "tool.result",
+            {
+              callId: call.id,
+              name: call.name,
+              result: hookResult(original),
+            } as import("../extension-sdk/agent-events.js").AgentEventData["tool.result"],
+            { sessionId: context.session.id, turnId: runtime.turnId },
+            context.signal,
+          );
+          result = {
+            ...original,
+            ...changed.result,
+            requiresApproval: original.requiresApproval,
+          };
+        } catch (error) {
+          result = original;
+          await context.events.emit({
+            type: "extension_notice",
+            text: context.signal?.aborted
+              ? "Обработка результата расширением остановлена; выполненное действие сохранено."
+              : error instanceof RuntimeError
+                ? `${error.message} Сохранён исходный результат инструмента.`
+                : "Ошибка обработки расширением; сохранён исходный результат инструмента.",
+          });
+        }
+      }
       result = await normalizeResult(
         context.sanitizeResult?.(attributed(result, record.toolSource)) ??
           attributed(result, record.toolSource),
@@ -756,6 +857,16 @@ export class ToolExecutor {
     } else if (record.state === "succeeded")
       delete runtime.failedCalls[fingerprint];
   }
+}
+function hookResult(result: ToolExecutionResult) {
+  return {
+    output: result.output,
+    ...(result.rawOutput !== undefined ? { rawOutput: result.rawOutput } : {}),
+    ...(result.isError !== undefined ? { isError: result.isError } : {}),
+    ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+    ...(result.preview !== undefined ? { preview: result.preview } : {}),
+    ...(result.details ? { details: result.details } : {}),
+  };
 }
 function attributed(
   result: ToolExecutionResult,

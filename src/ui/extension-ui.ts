@@ -153,11 +153,35 @@ export class ExtensionUiBinding {
   refresh(): void {
     this.subscription.refresh();
   }
+  async event(
+    key: string,
+    nodeKey: string,
+    event: unknown,
+    revision: number,
+    presentation?: import("../extension-sdk/ui-composition.js").UiPresentationContext,
+  ) {
+    if (!this.live()) return;
+    try {
+      await this.subscription.event(
+        key,
+        nodeKey,
+        event,
+        revision,
+        presentation,
+      );
+    } catch {
+      if (this.live())
+        this.controller.setExtensionNotice(
+          "Обработчик интерфейса завершился с ошибкой.",
+        );
+    }
+  }
   async dispatch(
     key: string,
     raw: UiActionUse,
     revision: number,
     fromView = false,
+    presentation?: import("../extension-sdk/ui-composition.js").UiPresentationContext,
   ): Promise<void> {
     if (!this.live()) return;
     const use = frozenClone(UiActionUseSchema.parse(raw));
@@ -202,7 +226,14 @@ export class ExtensionUiBinding {
     if (this.pending.has(identity)) return;
     this.pending.add(identity);
     try {
-      if (action.type === "view")
+      if (action.type === "event")
+        await this.subscription.invoke(
+          key,
+          action.eventId,
+          use.args ?? {},
+          presentation,
+        );
+      else if (action.type === "view")
         await this.open(`${extensionId}/${action.viewId}`);
       else if (action.type === "core") {
         const target = coreUiTarget(action.target);

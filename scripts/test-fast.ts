@@ -10,6 +10,8 @@ const names = [
   "context-usage",
   "conversation-source",
   "extension-commands",
+  "extension-capabilities",
+  "extension-agent-events",
   "extension-themes",
   "extension-tool-protocol",
   "extensions-context",

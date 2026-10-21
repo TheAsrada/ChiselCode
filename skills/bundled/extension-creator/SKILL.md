@@ -20,7 +20,7 @@ These instructions are in English; generated extensions need not be.
 2. Prefer `kind: "ui"` for interface changes. These packages enable, disable,
    update and apply settings live. They may register UI contributions, details
    views, chat formatters, owned tools and cleanup through `ctx.add`. They may
-   not register commands, services, guards, context providers or themes. Their
+   not register commands, services, agent event middleware, guards, context providers or themes. Their
    tools are UI actions, not additions to the model's tool catalog.
 3. For model-visible tools, slash commands, runtime hooks or application themes,
    use a standard package (omit `kind`). It uses the existing restart lifecycle.
@@ -31,12 +31,12 @@ These instructions are in English; generated extensions need not be.
    Never import React, OpenTUI, ChiselCode private source, or a second renderer.
 5. Check that the code actually handles the request, includes cleanup, preserves
    native input, and has a useful empty/error state. Do not create placeholders.
-   For composer requests, explain the current boundary before installation:
-   `Composer` retains the native editor, frame and controls. A wrapper adds
-   decoration around that existing frame; it cannot restyle or replace the
-   editor. Avoid nested borders and duplicate keyboard hints. Prefer a small
-   `AbovePrompt`/`BelowPrompt` contribution, or the dedicated `PromptHints` and
-   `PromptControls` surfaces. Do not promise a full input redesign through a wrapper.
+   `Composer` keeps the native editor and its input behavior. Use
+   `{type:"native",props:{title,placeholder,borderStyle,borderColor,padding,fg,bg}}`
+   to restyle the existing frame and editor, rather than stacking another border.
+   `PromptHints`/`PromptControls` are separate sites. Native props never replace
+   input callbacks, the draft or permission prompts. For forms and independent
+   panels, use the interactive elements described below.
 6. Call `create_extension` with a `files` object containing the complete
    `chisel-extension.json`, `index.mjs`, and optional README/assets/modules.
    This passively parses JavaScript and validates paths/import closure, then uses the
@@ -70,7 +70,12 @@ These instructions are in English; generated extensions need not be.
 IDs have at least two dot-separated lowercase Latin components. `builtin.*`
 and `core.*` are reserved. UI composition is available starting with ChiselCode
 0.6.33; 0.6.32 does not support it. The `kind` field makes old hosts reject
-unsupported packages.
+unsupported packages. Newer SDK v1 features must be declared in manifest
+`requires`, for example `["ui.controls","ui.panes","ui.nativeProps"]`. Available
+features are `ui.controls`, `ui.style`, `ui.nativeProps`, `ui.panes`, `ui.media`,
+`agent.events`; `sdk.capabilities` reports support. Old hosts reject the new
+manifest field before import. Do not infer these features from API version 1
+alone. Use only capabilities exposed by the user's current host.
 
 A complete `index.mjs`:
 
@@ -129,13 +134,28 @@ Nodes:
   (0–2), `border`, `tone`, `grow` (boolean). Use `grow:true` when wrapping the
   expanding transcript. Rows may wrap; prefer columns for narrow panels.
 - `button`: `label`, `action:{id,args?}`, optional `tone`.
-- `native`: the preceding host/layer content, only for replace.
+- `native`: the preceding host/layer content, only for replace. Optional `props`
+  changes supported native style/title/placeholder, preserving host behavior.
+- `input`: required stable `key`, `label`, `value`; optional `placeholder`,
+  `maxLength`, `onChange:{id,args?}`, `onSubmit:{id,args?}`, `disabled`.
+- `select`: `key`, `label`, `options:[{value,label,description?}]`, `value?`,
+  `onSelect:{id,args?}`, `disabled?`. Option values must be unique.
+- `markdown` and `code`: `text` (up to 20000 characters); code accepts `language`.
+- `image`: `data` contains base64 bytes, never a URL/path; `alt`, optional `fit`.
+  Size belongs to `style.width/height`; decoded images are bounded to 1048576 pixels.
+- `canvas`: `key`, `label`, `rows` of segment arrays `{text,fg?,bg?}`;
+  `onPointer`/`onKey` refer to owned handlers. Use it for a custom animated or
+  pointer-driven terminal region; dispose timers and subscriptions.
 
 Every node may have a stable `key` (UI ID). Sibling keys must be unique; do
-not change keys when labels change. Use keys for reorderable lists.
+not change keys when labels change. Use keys for reorderable lists. Input, select
+and canvas keys must also be unique throughout the contribution tree.
 
-Use semantic tones: `muted`, `accent`, `success`, `warning`, `error`; no raw
-terminal escapes, coordinates, palette mutation, global listeners or JSX.
+Use semantic tones: `muted`, `accent`, `success`, `warning`, `error`. Each node
+also accepts `style`: local `fg/bg` as a theme token or `#RRGGBB`, dimensions,
+flex grow/shrink, padding/gap, borders/alignment and text attributes. Prefer
+palette tokens so both themes remain readable. No raw terminal escapes,
+absolute coordinates, palette mutation, global listeners or JSX.
 Trees allow ≤128 nodes, depth ≤8, ≤32 children per box. Existing source limits
 still apply (64 KiB per snapshot, 256 KiB total cache, 2-second cooperative
 provider deadline, 10 updates/second). A source may list multiple surfaces.
@@ -151,6 +171,12 @@ exactly once; use wrappers there. Customization never hides permission prompts,
 trust/settings dialogs or takes over the native editor. Hidden normal surfaces
 can still be reached through the host's keyboard navigation where applicable.
 
+For an independent panel use `slot:"pane",placement:"sidebar"` (or
+`above_prompt`/`below_prompt`), without `surfaces`. Use a ready render snapshot,
+no native embedding. Sidebar panels work with the built-in sidebar closed;
+the host reserves their width and moves them above the prompt on narrow screens.
+The host supplies collapse/expand through the header and Alt+U.
+
 ## Actions and views
 
 Declare `actions:[{id:"open", label:"Open", type:"view", viewId:"details"}]`
@@ -160,7 +186,22 @@ A button's action must match a declared action. Register owned tools for actual
 file/process actions and use `{id,label,type:"tool",tool:"local_tool_name"}`.
 UI dispatch preserves tool permissions, Plan/Build, approvals, owner queues and
 cancellation; never bypass them with direct filesystem/process calls. Keyboard
-users can open UI actions with Alt+U, then arrows/Tab, Enter, Escape.
+users can open shown controls and panel actions with Alt+U. Enter chooses a
+field; Tab/Shift+Tab move between shown controls, Escape returns to chat.
+Buttons can declare `hotkey`, e.g. `alt+s`, scoped to their extension region.
+Do not override normal text-editing chords. Core cancellation, tabs, settings
+and permission input retain priority.
+
+Register local handlers once with `ctx.ui.on("name",(binding,event,args)=>{})`.
+Inputs emit `change`/`submit` with `value`, selects emit `select` with `value`
+and `index`; canvas emits `pointer` (`x,y,button`) or `key` (name/sequence and
+modifiers). Buttons may declare `{id,label,type:"event",eventId:"name"}` to emit
+`press`. Update activation-owned state, increment revision and notify subscribers;
+no model request is needed. Keep state keyed by conversation ID. The callback's
+`binding.presentation` identifies the concrete surface/instance and structured
+values when a control is repeated in transcript rows. Never parse painted lines.
+Callbacks are serialized per UI binding; errors restore a visible fallback.
+Use a tool action for effects, never raw filesystem/process calls in UI handlers.
 
 Tool definitions use `sdk.defineTool({name,description,effect,inputSchema,
 prepare(invocation,input),execute(invocation,plan)})`, registered with
@@ -174,6 +215,34 @@ Optional manifest settings use `{fields:[{name,type,label,default,...}]}`.
 Read with `await sdk.settings.read()` inside activation. UI settings remount the
 UI scope with a fresh settings snapshot, not the application's core services.
 Keep local state in activation, never in module-global mutable singletons.
+
+## Agent event middleware (standard packages)
+
+Require `agent.events`; do not use `kind:"ui"` for runtime hooks. The standard
+package may own both a pane and event handlers; explain the required restart.
+`ctx.events.on(type,async(event,next)=>...)` receives frozen `data`, `sessionId`,
+optional `turnId`, `workspaceRoot`, and `signal`. Use `next()` or `next(data)`
+once during the handler, or return a synthetic decision without continuing.
+
+- `prompt.submit`: data/result `{text}`.
+- `model.request`: data `{model,system,messages,maxTokens?}`; return `{request:data}`
+  or `{response:{message,stopReason,usage?}}` without contacting a model. Model
+  selection is within the current provider and request; output budget cannot grow.
+- `model.response`: data/result `{message,stopReason,usage?}`. The host preserves
+  real usage/refusal and buffers text until the filter is complete.
+- `tool.call`: data `{callId,name,input}`; return `{call:data}` or
+  `{result:{output,isError?,errorCode?,preview?,rawOutput?,details?}}`. Do not
+  change `callId`. Rewritten calls still go through core preparation/permissions.
+- `tool.result`: data `{callId,name,result}`; return `{result}` after a successful
+  effect. Original failures/denials are protected. The actual result is durable
+  before a post-effect hook waits; a failed formatter cannot undo a completed write.
+
+`ctx.events.observe(event=>...)` reads sanitized runtime events and updates cached
+UI state keyed by session/call identity. A faulty observer is disabled separately.
+For a pause awaiting an owned UI button, honor the handler's signal and clear the
+pending promise in cleanup. No direct permission grant, receipt forgery or replay.
+Internal context summaries are outside this API. Do not describe synthetic output
+as a tool that actually ran.
 
 ## Current request
 

@@ -50,6 +50,8 @@ Linux выбран базовой средой ради скорости и ра
 
 Для встроенных разделов MCP/навыков source-сценарий `settings-tools-runtime.test.ts` входит в полный набор Linux и в затронутые UI-файлы Windows/macOS. Compiled smoke отдельно проверяет загрузку нативного UI, bundled skills, настоящий MCP handshake и возврат черновика; полный сценарий форм, фокуса, ошибок и размеров в compiled не дублируется.
 
+Интерактивные расширения проверяет `extension-widgets-runtime.test.ts` в полном source-наборе: внешний reviewed пакет, поля/выбор, Markdown/code/image/canvas, обычное подтверждение перед записью, перенос панели и ошибка callback. Compiled smoke с `CHISEL_WIDGET_SMOKE=1` проверяет загрузку новых компонентов и media в поставке; запись, ошибки и resize в нём не повторяются. На Windows/macOS отдельно выполняется полный файл `opentui-extension-interaction.test.tsx` с фокусом и переключением бесед. Installed/compiled external SDK smoke проверяет новые declarations и цепочки model/tool hooks, включая coding-помощника.
+
 ## LSP и расширенные проверки поставки
 
 Полный [LSP catalog](../../.github/workflows/lsp-catalog.yml) запускается вручную при изменении backends, каталога или provisioning. В input `languages` можно указать только затронутые fixture names, например `python lua`. По умолчанию проверяются все перечисленные backends на трёх ОС; опция `sourcekit` дополнительно проверяет SourceKit на macOS. Ruby SDK устанавливается только при выборе `ruby`. Обычная правка и каждый несвязанный релиз не требуют скачивания и запуска всего каталога. Native smoke сохраняет настоящие TS/Python diagnostics, tool execution и persistence.

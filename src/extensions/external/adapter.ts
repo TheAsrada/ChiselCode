@@ -1,5 +1,6 @@
 import { Ajv } from "ajv";
 import { z } from "zod";
+import { SDK_CAPABILITIES } from "../../extension-sdk/capabilities.js";
 import type * as Public from "../../extension-sdk/index.js";
 import type {
   ModelRequestPort,
@@ -174,6 +175,7 @@ export function createHostSdk(manifest: ExtensionManifest): Public.HostSdk {
   const settings = new ExtensionSettingsStore(manifest).runtimeSnapshot();
   settings.catch(() => {});
   const sdk: Public.HostSdk = Object.freeze({
+    capabilities: SDK_CAPABILITIES,
     apiVersion: 1 as const,
     chiselVersion: HOST_VERSION,
     settings: Object.freeze({
@@ -494,6 +496,26 @@ export function adaptDefinition(
         return value as unknown as import("../services.js").ServiceToken<T>;
       };
       const context: Public.ActivationContext = Object.freeze({
+        events: Object.freeze({
+          on: <
+            K extends
+              keyof import("../../extension-sdk/agent-events.js").AgentEventData,
+          >(
+            type: K,
+            handler: import("../../extension-sdk/agent-events.js").AgentEventHandler<K>,
+          ) => {
+            alive();
+            core.events.on(type, handler);
+          },
+          observe: (
+            handler: Parameters<
+              Public.ActivationContext["events"]["observe"]
+            >[0],
+          ) => {
+            alive();
+            core.events.observe(handler);
+          },
+        }),
         workspaceRoot: core.workspaceRoot,
         signal: core.signal,
         tools: Object.freeze({
@@ -608,11 +630,23 @@ export function adaptDefinition(
           },
         }),
         ui: Object.freeze({
+          on(
+            id: string,
+            handler: Parameters<Public.ActivationContext["ui"]["on"]>[1],
+          ) {
+            alive();
+            core.ui.on(id, handler);
+          },
           register(contribution: Public.UiContribution) {
             alive();
             if (
               contribution.actions?.some(
-                (action) => !(action.type === "view" || action.type === "tool"),
+                (action) =>
+                  !(
+                    action.type === "view" ||
+                    action.type === "tool" ||
+                    action.type === "event"
+                  ),
               )
             )
               unavailable("Недопустимое external UI action.");
@@ -622,7 +656,12 @@ export function adaptDefinition(
             alive();
             if (
               view.actions?.some(
-                (action) => !(action.type === "view" || action.type === "tool"),
+                (action) =>
+                  !(
+                    action.type === "view" ||
+                    action.type === "tool" ||
+                    action.type === "event"
+                  ),
               )
             )
               unavailable("Недопустимое external UI action.");

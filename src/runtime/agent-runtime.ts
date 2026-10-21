@@ -39,6 +39,7 @@ export interface RuntimeTools {
   ): Promise<ToolExecutionResult[]>;
 }
 export interface RuntimeOptions {
+  agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
   /** Child history is view-only after a crash; unknown mutations never replay. */
   recovery?: "new_child";
   mode?: AgentMode;
@@ -154,7 +155,18 @@ export class AgentRuntime {
         );
       const pending = await executePending();
       if (pending) return pending;
-      const text = typeof input === "string" ? input : input.text;
+      let text = typeof input === "string" ? input : input.text;
+      if (text.trim() && options.agentEvents?.has("prompt.submit")) {
+        text = (
+          await options.agentEvents.run(
+            "prompt.submit",
+            { text },
+            { sessionId: session.id, turnId: runtime.turnId },
+            options.signal,
+          )
+        ).text;
+        input = text;
+      }
       if (text.trim())
         session.messages.push({
           role: "user",
@@ -164,7 +176,11 @@ export class AgentRuntime {
       const capabilities = (await this.provider.getCapabilities?.(
         session.model,
       )) ?? { tokenCounting: "local_estimate" as const };
-      const runner = new TurnRunner(this.provider, this.events);
+      const runner = new TurnRunner(
+        this.provider,
+        this.events,
+        options.agentEvents,
+      );
       for (
         let iteration = 0;
         iteration <
@@ -225,6 +241,16 @@ export class AgentRuntime {
             },
             frame.estimatedInputTokens,
           );
+          if (
+            options.agentEvents?.has("model.response") ||
+            options.agentEvents?.has("model.request")
+          )
+            finalText =
+              textBeforeRequest +
+              response.message.content
+                .filter((c) => c.type === "text")
+                .map((c) => c.text)
+                .join("\n");
         } catch (error) {
           if (
             error instanceof ProviderError &&

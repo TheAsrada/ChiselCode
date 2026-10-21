@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { cancelled } from "../runtime/errors.js";
 import { ThemeCatalog } from "../themes/catalog.js";
 import { inheritThemeSource, themeSource } from "../themes/source.js";
+import { AgentEventPipeline } from "./agent-events.js";
 import { ExtensionChatViews } from "./chat.js";
 import { ExtensionCommandContributions } from "./commands.js";
 import { ContextProviderRegistry } from "./context.js";
@@ -55,6 +56,7 @@ export class WorkspaceExtensionScope implements Disposable {
   readonly commands: ExtensionCommandContributions;
   readonly chat: ExtensionChatViews;
   readonly ui: ExtensionUiRegistry;
+  readonly events: AgentEventPipeline;
   private readonly activations: ActivationResources[] = [];
   private readonly tracked = new Set<Disposable>();
   private disposal?: Promise<void>;
@@ -72,6 +74,7 @@ export class WorkspaceExtensionScope implements Disposable {
     readonly workspaceRoot: string,
     private readonly onClose: () => void = () => {},
   ) {
+    this.events = new AgentEventPipeline(workspaceRoot, this.signal);
     this.chat = new ExtensionChatViews(() => this.assertUsable());
     this.ui = new ExtensionUiRegistry(
       workspaceRoot,
@@ -141,6 +144,26 @@ export class WorkspaceExtensionScope implements Disposable {
         frame.resources.push(resource);
       };
       const context: ExtensionContext = Object.freeze({
+        events: Object.freeze({
+          on: <
+            K extends
+              keyof import("../extension-sdk/agent-events.js").AgentEventData,
+          >(
+            type: K,
+            handler: import("../extension-sdk/agent-events.js").AgentEventHandler<K>,
+          ) => {
+            assertRegistering();
+            track(this.events.on(definition.id, type, handler));
+          },
+          observe: (
+            handler: Parameters<
+              import("../extension-sdk/agent-events.js").AgentEvents["observe"]
+            >[0],
+          ) => {
+            assertRegistering();
+            track(this.events.observe(definition.id, handler));
+          },
+        }),
         workspaceRoot: this.workspaceRoot,
         signal: frameSignal,
         chat: Object.freeze({
@@ -150,6 +173,10 @@ export class WorkspaceExtensionScope implements Disposable {
           },
         }),
         ui: Object.freeze({
+          on: (id: string, handler: import("./ui-types.js").UiEventHandler) => {
+            assertRegistering();
+            track(this.ui.on(definition.id, id, handler));
+          },
           register: (contribution: import("./ui-types.js").UiContribution) => {
             assertRegistering();
             track(this.ui.register(definition.id, contribution));
@@ -270,6 +297,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.commands.seal();
     this.chat.seal();
     this.ui.seal();
+    this.events.seal();
     this.ready = true;
     for (const definition of definitions)
       if (this.activations.some((frame) => frame.extensionId === definition.id))
@@ -325,6 +353,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.commands.dispose();
     this.chat.dispose();
     this.ui.dispose();
+    this.events.dispose();
     this.abortLifetime();
     return this.disposal;
   }

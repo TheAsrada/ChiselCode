@@ -18,6 +18,8 @@ export interface ToolInvocationRecord {
   createdAt: string;
   updatedAt: string;
   result?: ToolExecutionResult;
+  /** Actual effect outcome, saved before an extension transforms its presentation. */
+  originalResult?: ToolExecutionResult;
   approvalPreview?: string;
 }
 export function canonicalInput(value: unknown): string {

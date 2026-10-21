@@ -14,12 +14,15 @@ import {
   UI_SURFACES,
   type UiAction,
   type UiActionUse,
+  UiActionUseSchema,
   type UiBinding,
   type UiContribution,
   type UiDetailsPage,
   UiDetailsPageSchema,
   type UiDetailsView,
+  type UiEventHandler,
   UiIdSchema,
+  UiInputEventSchema,
   type UiSnapshot,
   UiSnapshotSchema,
   uiNodeInfo,
@@ -28,7 +31,8 @@ import {
 const metadata = z
   .object({
     id: UiIdSchema,
-    slot: z.enum(["status", "context_section", "menu_entry", "render"]),
+    slot: z.enum(["status", "context_section", "menu_entry", "render", "pane"]),
+    placement: z.enum(["sidebar", "above_prompt", "below_prompt"]).optional(),
     surfaces: z
       .array(z.enum(UI_SURFACES))
       .min(1)
@@ -45,12 +49,32 @@ const metadata = z
   .refine(
     (value) => (value.slot === "render" ? !!value.surfaces : !value.surfaces),
     "Only render contributions declare surfaces.",
+  )
+  .refine(
+    (value) => (value.slot === "pane" ? !!value.placement : !value.placement),
+    "Only panes declare placement.",
   );
 const viewMetadata = z
   .object({
     id: UiIdSchema,
     scope: z.enum(["workspace", "conversation"]),
     title: z.string().min(1).max(120),
+  })
+  .strict();
+const presentationSchema = z
+  .object({
+    surface: z.enum(UI_SURFACES).optional(),
+    instance: z.string().min(1).max(500),
+    values: z
+      .object({
+        text: z.union([z.string().max(20000), z.number()]).optional(),
+        title: z.union([z.string().max(20000), z.number()]).optional(),
+        state: z.union([z.string().max(20000), z.number()]).optional(),
+        count: z.union([z.string().max(20000), z.number()]).optional(),
+        path: z.union([z.string().max(20000), z.number()]).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 type Entry = {
@@ -90,11 +114,15 @@ export function sanitizeUi<T>(
     if (Array.isArray(value)) return value.map(clean);
     if (value && typeof value === "object")
       return Object.fromEntries(
-        Object.entries(value).map(([key, child]) => [key, clean(child)]),
+        Object.entries(value).map(([key, child]) => [
+          key,
+          clean(key === "args" ? redactor.value(child) : child),
+        ]),
       );
     return value;
   };
-  const result = schema.parse(clean(redactor.value(JSON.parse(serialized))));
+  // `key` is a renderer identity, not a credential. Apply sensitive-field masking only to opaque arguments.
+  const result = schema.parse(clean(JSON.parse(serialized)));
   if (Buffer.byteLength(JSON.stringify(result)) > budget)
     throw new Error("Sanitized UI data limit exceeded.");
   return frozenClone(result);
@@ -107,17 +135,26 @@ function captureActions(
   return Object.freeze(
     actions.map((action) => {
       const allowed =
-        action.type === "view"
-          ? ["id", "label", "type", "viewId"]
-          : action.type === "tool"
-            ? ["id", "label", "type", "tool"]
-            : ["id", "label", "type", "target"];
+        action.type === "event"
+          ? ["id", "label", "type", "eventId"]
+          : action.type === "view"
+            ? ["id", "label", "type", "viewId"]
+            : action.type === "tool"
+              ? ["id", "label", "type", "tool"]
+              : ["id", "label", "type", "target"];
       if (Object.keys(action).some((key) => !allowed.includes(key)))
         throw new Error("Unknown UI action metadata.");
       const id = UiIdSchema.parse(action.id);
       const label = sanitizeUi(z.string().min(1).max(120), action.label);
       if (ids.has(id)) throw new Error("Duplicate UI action.");
       ids.add(id);
+      if (action.type === "event")
+        return Object.freeze({
+          id,
+          label,
+          type: action.type,
+          eventId: UiIdSchema.parse(action.eventId),
+        });
       if (action.type === "view")
         return Object.freeze({
           id,
@@ -155,6 +192,10 @@ export class ExtensionUiRegistry implements Disposable {
   }
   private entries = new Map<string, Entry>();
   private views = new Map<string, View>();
+  private handlers = new Map<
+    string,
+    { extensionId: string; handler: UiEventHandler }
+  >();
   private bindings = new Set<UiSubscription>();
   private sealed = false;
   private closed = false;
@@ -165,6 +206,18 @@ export class ExtensionUiRegistry implements Disposable {
     private commandOwner?: (name: string) => string | undefined,
     private ownsTool?: (extensionId: string, name: string) => boolean,
   ) {}
+  on(extensionId: string, id: string, handler: UiEventHandler): Disposable {
+    if (typeof handler !== "function")
+      throw new Error("Invalid UI event handler.");
+    return this.stage(extensionId, id, this.handlers, 64, 1024, () => ({
+      extensionId,
+      handler,
+    }));
+  }
+  handler(owner: string, id: string) {
+    this.assertAvailable();
+    return this.handlers.get(`${owner}/${id}`)?.handler;
+  }
   register(extensionId: string, contribution: UiContribution): Disposable {
     return this.stage(
       extensionId,
@@ -248,6 +301,16 @@ export class ExtensionUiRegistry implements Disposable {
     const entries = [...this.entries.values(), ...this.views.values()].filter(
       (entry) => !owner || entry.extensionId === owner,
     );
+    for (const entry of entries)
+      for (const action of entry.actions)
+        if (
+          action.type === "event" &&
+          !this.handlers.has(`${entry.extensionId}/${action.eventId}`)
+        )
+          throw new ExtensionLifecycleError(
+            "UI event handler is not registered.",
+            entry.extensionId,
+          );
     for (const entry of entries)
       for (const action of entry.actions)
         if (
@@ -337,6 +400,7 @@ export class ExtensionUiRegistry implements Disposable {
     this.bindings.clear();
     this.entries.clear();
     this.views.clear();
+    this.handlers.clear();
   }
 }
 
@@ -353,6 +417,7 @@ export class UiSubscription implements Disposable {
   private requestSerial = new Map<string, number>();
   private revisions = new Map<string, number>();
   private viewRevisions = new Map<string, number>();
+  private eventTail: Promise<void> = Promise.resolve();
   constructor(
     private registry: ExtensionUiRegistry,
     binding: Omit<UiBinding, "workspaceRoot" | "scopeInstance">,
@@ -498,7 +563,11 @@ export class UiSubscription implements Disposable {
         );
         uiNodeInfo(raw.render?.content);
         snapshot = sanitizeUi(UiSnapshotSchema, raw, this.redactor);
-        if (snapshot.render && entry.descriptor.slot !== "render")
+        if (
+          snapshot.render &&
+          entry.descriptor.slot !== "render" &&
+          entry.descriptor.slot !== "pane"
+        )
           throw new Error("Render patch in a non-render contribution.");
         if (
           snapshot.render &&
@@ -506,6 +575,11 @@ export class UiSubscription implements Disposable {
           uiNodeInfo(snapshot.render.content).native
         )
           throw new Error("Only replace can embed native content.");
+        if (
+          entry.descriptor.slot === "pane" &&
+          uiNodeInfo(snapshot.render?.content).native
+        )
+          throw new Error("Pane cannot embed native content.");
       } finally {
         clearTimeout(timer);
       }
@@ -516,6 +590,9 @@ export class UiSubscription implements Disposable {
       ])
         if (use && !entry.actions.some((action) => action.id === use.id))
           throw new Error("Unknown UI source action.");
+      for (const event of uiNodeInfo(snapshot.render?.content).events)
+        if (!this.registry.handler(entry.extensionId, event.use.id))
+          throw new Error("Unknown UI event handler.");
       const previousRevision = this.revisions.get(key);
       if (
         !this.isLive() ||
@@ -566,6 +643,114 @@ export class UiSubscription implements Disposable {
     )
       return;
     return entry.actions.find((action) => action.id === use.id);
+  }
+  /** Validate against the current node, then invoke outside React with this binding's lifetime. */
+  async event(
+    key: string,
+    nodeKey: string,
+    raw: unknown,
+    revision: number,
+    presentation?: import("../extension-sdk/ui-composition.js").UiPresentationContext,
+  ): Promise<void> {
+    if (!this.isLive()) return;
+    const entry = this.registry.entry(key),
+      snapshot = this.cache.get(key)?.snapshot;
+    if (!entry || snapshot?.state !== "ready" || snapshot.revision !== revision)
+      return;
+    const event = UiInputEventSchema.parse(raw);
+    const match = uiNodeInfo(snapshot.render?.content).events.find(
+      (e) => e.node.key === nodeKey && e.type === event.type,
+    );
+    if (!match || ("disabled" in match.node && match.node.disabled)) return;
+    if (
+      match.node.type === "input" &&
+      "value" in event &&
+      event.value.length > (match.node.maxLength ?? 20000)
+    )
+      return;
+    if (
+      match.node.type === "select" &&
+      event.type === "select" &&
+      match.node.options[event.index]?.value !== event.value
+    )
+      return;
+    const handler = this.registry.handler(entry.extensionId, match.use.id);
+    if (!handler) return;
+    const pending = this.eventTail.then(async () => {
+      if (!this.isLive()) return;
+      try {
+        await abortable(
+          () =>
+            handler(
+              Object.freeze({
+                ...this.sourceBinding(entry.descriptor.scope),
+                ...(presentation
+                  ? {
+                      presentation: sanitizeUi(
+                        presentationSchema,
+                        presentation,
+                        this.redactor,
+                      ),
+                    }
+                  : {}),
+              }),
+              frozenClone(event),
+              frozenClone(match.use.args ?? {}),
+            ),
+          this.binding.signal,
+        );
+        this.refresh(key);
+      } catch (error) {
+        if (this.isLive()) this.unavailable(key);
+        throw error;
+      }
+    });
+    this.eventTail = pending.catch(() => {});
+    await pending;
+  }
+  async invoke(
+    key: string,
+    eventId: string,
+    args: import("../types/domain.js").JsonObject,
+    presentation?: import("../extension-sdk/ui-composition.js").UiPresentationContext,
+  ): Promise<void> {
+    const entry = this.registry.entry(key) ?? this.registry.view(key);
+    if (!this.isLive() || !entry) return;
+    const handler = this.registry.handler(entry.extensionId, eventId);
+    if (handler) {
+      const pending = this.eventTail.then(() =>
+        abortable(
+          () =>
+            handler(
+              Object.freeze({
+                ...this.sourceBinding(entry.descriptor.scope),
+                ...(presentation
+                  ? {
+                      presentation: sanitizeUi(
+                        presentationSchema,
+                        presentation,
+                        this.redactor,
+                      ),
+                    }
+                  : {}),
+              }),
+              Object.freeze({ type: "press" }),
+              frozenClone(
+                UiActionUseSchema.parse({ id: eventId, args }).args ?? {},
+              ),
+            ),
+          this.binding.signal,
+        ),
+      );
+      this.eventTail = pending.catch(() => {});
+      try {
+        await pending;
+      } catch (error) {
+        if (this.isLive()) this.unavailable(key);
+        throw error;
+      }
+    }
+    this.refresh();
   }
   async page(
     key: string,

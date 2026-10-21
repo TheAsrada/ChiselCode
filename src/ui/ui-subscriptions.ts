@@ -65,6 +65,34 @@ export class UiSubscriptions {
   action(key: string, use: UiActionUse, revision: number, fromView = false) {
     return this.source(key)?.subscription.action(key, use, revision, fromView);
   }
+  event(
+    key: string,
+    nodeKey: string,
+    event: unknown,
+    revision: number,
+    presentation?: import("../extension-sdk/ui-composition.js").UiPresentationContext,
+  ) {
+    return this.source(key)?.subscription.event(
+      key,
+      nodeKey,
+      event,
+      revision,
+      presentation,
+    );
+  }
+  invoke(
+    key: string,
+    eventId: string,
+    args: import("../types/domain.js").JsonObject,
+    presentation?: import("../extension-sdk/ui-composition.js").UiPresentationContext,
+  ) {
+    return this.source(key)?.subscription.invoke(
+      key,
+      eventId,
+      args,
+      presentation,
+    );
+  }
   viewDescriptor(key: string) {
     return this.source(key)?.subscription.viewDescriptor(key);
   }

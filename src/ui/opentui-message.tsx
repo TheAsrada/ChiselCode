@@ -11,7 +11,11 @@ import { lexer, type Token, type Tokens } from "marked";
 import type React from "react";
 import { useMemo } from "react";
 import type { Palette } from "./appearance.js";
-
+import {
+  uiBoxStyle,
+  uiColor,
+  useUiNativePresentation,
+} from "./extension-presentation.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
 declare module "@opentui/react" {
@@ -69,7 +73,7 @@ function entities(text: string): string {
 
 type Colors = {
   [K in "text" | "muted" | "accent" | "green" | "surface"]: RGBA;
-};
+} & { attributes: number };
 
 function positioned<T>(values: readonly T[], raw: (value: T) => string) {
   let offset = 0;
@@ -83,7 +87,7 @@ function positioned<T>(values: readonly T[], raw: (value: T) => string) {
 function inline(
   tokens: readonly Token[],
   colors: Colors,
-  attributes = 0,
+  attributes = colors.attributes,
   fg = colors.text,
 ): TextChunk[] {
   const result: TextChunk[] = [];
@@ -169,16 +173,28 @@ export function FormattedMessage({
   id?: string;
   streaming?: boolean;
 }) {
+  const native = useUiNativePresentation();
+  palette = {
+    ...palette,
+    text: uiColor(palette, native.fg) ?? palette.text,
+    surface: uiColor(palette, native.bg) ?? palette.surface,
+  };
   const available = Math.max(1, width - 1);
   const colors = useMemo(
     () =>
-      Object.fromEntries(
-        ["text", "muted", "accent", "green", "surface"].map((name) => [
-          name,
-          RGBA.fromHex(palette[name as keyof Colors]),
-        ]),
-      ) as Colors,
-    [palette],
+      ({
+        ...Object.fromEntries(
+          ["text", "muted", "accent", "green", "surface"].map((name) => [
+            name,
+            RGBA.fromHex(palette[name as Exclude<keyof Colors, "attributes">]),
+          ]),
+        ),
+        attributes:
+          (native.bold ? TextAttributes.BOLD : 0) |
+          (native.italic ? TextAttributes.ITALIC : 0) |
+          (native.dim ? TextAttributes.DIM : 0),
+      }) as Colors,
+    [palette, native.bold, native.italic, native.dim],
   );
   const parsed = useMemo(
     () =>
@@ -261,7 +277,12 @@ export function FormattedMessage({
           (row) => row,
         ).map((row) => row.offset);
         const header = table.header.map((cell) =>
-          inline(cell.tokens, colors, TextAttributes.BOLD, colors.accent),
+          inline(
+            cell.tokens,
+            colors,
+            colors.attributes | TextAttributes.BOLD,
+            colors.accent,
+          ),
         );
         const sourceRows =
           streaming && table.rows.at(-1)?.every((cell) => !cell.text.trim())
@@ -404,7 +425,7 @@ export function FormattedMessage({
                     },
                   ],
                   colors,
-                  heading ? TextAttributes.BOLD : 0,
+                  colors.attributes | (heading ? TextAttributes.BOLD : 0),
                   heading ? colors.accent : colors.text,
                 ),
               )
@@ -423,6 +444,7 @@ export function FormattedMessage({
       flexDirection="column"
       paddingLeft={1}
       flexShrink={0}
+      {...uiBoxStyle(palette, native)}
     >
       {renderBlocks(parsed)}
     </box>

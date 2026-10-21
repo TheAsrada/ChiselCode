@@ -57,6 +57,7 @@ export function commandModelInvocation(input: {
   const records = new Map<string, SideQueryRecord>();
   const redactor = input.redactor ?? new SecretRedactor();
   return input.service.createInvocation({
+    agentEvents: scope.events,
     owner: Object.freeze({
       extensionId: input.prepared.command.source.extensionId,
       conversationId: captured.conversationId,
@@ -103,7 +104,7 @@ export function commandModelInvocation(input: {
       if (!previous) return;
       const cost = estimateProviderCost(
         captured.model.definition,
-        captured.model.model,
+        previous.model,
         usage.inputTokens,
         usage.outputTokens,
       );

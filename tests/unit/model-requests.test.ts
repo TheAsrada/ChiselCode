@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { AgentEventPipeline } from "../../src/extensions/agent-events.js";
 import { captureConversation } from "../../src/models/context.js";
 import {
   type ModelInvocationDependencies,
@@ -65,9 +66,90 @@ function completion(text = "answer"): StreamEvent {
     type: "turn_complete",
     message: { role: "assistant", content: [{ type: "text", text }] },
     stopReason: "end_turn",
-    usage: { inputTokens: 20, outputTokens: 3 },
+    usage: { contextInputTokens: 20, inputTokens: 20, outputTokens: 3 },
   };
 }
+test("command model port applies routing and final response hooks without leaking unfiltered text", async () => {
+  const hooks = new AgentEventPipeline(
+    "/workspace",
+    new AbortController().signal,
+  );
+  hooks.on("routing", "model.request", (event, next) =>
+    next({ ...event.data, model: "routed" }),
+  );
+  hooks.on("filter", "model.response", async (_event, next) => ({
+    ...(await next()),
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "safe final" }],
+    },
+  }));
+  hooks.seal();
+  const service = new ModelRequestService();
+  let actualModel = "";
+  const side = invocation(
+    service,
+    provider(async function* (request) {
+      expect(request.model).toBe("routed");
+      yield { type: "text_delta", text: "unfiltered" };
+      yield completion("original");
+    }),
+    {
+      agentEvents: hooks,
+      onRecord: (record) => {
+        actualModel = record.model;
+      },
+    },
+  );
+  const texts: string[] = [];
+  const result = await side.port.request(
+    { text: "question", context: "none" },
+    (event) => {
+      if (event.type === "text") texts.push(event.text);
+    },
+  );
+  expect(result.status).toBe("completed");
+  expect(result.text).toBe("safe final");
+  expect(texts.join("")).toBe("safe final");
+  expect(actualModel).toBe("routed");
+  await side.close();
+  await service.dispose();
+  hooks.dispose();
+});
+
+test("a failed response hook preserves actual command usage and its own error attribution", async () => {
+  const hooks = new AgentEventPipeline(
+    "/workspace",
+    new AbortController().signal,
+  );
+  hooks.on("broken", "model.response", () => {
+    throw Error("private-value");
+  });
+  hooks.seal();
+  const service = new ModelRequestService();
+  const side = invocation(
+    service,
+    provider(async function* () {
+      yield completion();
+    }),
+    { agentEvents: hooks },
+  );
+  try {
+    const result = await side.port.request({
+      text: "question",
+      context: "none",
+    });
+    expect(result.status).toBe("failed");
+    expect(result.error?.code).toBe("EXTENSION_HOOK_FAILED");
+    expect(result.error?.message).not.toContain("private-value");
+    expect(result.usage).toMatchObject({ inputTokens: 20, outputTokens: 3 });
+    expect(result.usageSource).toBe("observed");
+  } finally {
+    await side.close();
+    await service.dispose();
+    hooks.dispose();
+  }
+});
 
 test("application and conversation limits reserve atomically before bootstrap, then release on completion", async () => {
   const service = new ModelRequestService();
