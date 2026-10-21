@@ -108,9 +108,9 @@ Generic renderer использует shared Dialog, Palette, scrollbox и captu
 
 В официальном [token-weather](https://github.com/anthropics/claude-code-playground/blob/main/claude-code/mods/token-weather/hooks/token-weather.mjs) события начала сеанса и завершения хода обновляют ограниченную историю показаний, а отдельный render handler рисует полосу над вводом. Это подтверждает полезное разделение сбора данных и рисования. Наши source/subscribe и bounded snapshots сохраняют такое разделение в существующей архитектуре.
 
-## Интерактивный UI и middleware — Unreleased
+## Интерактивный UI и middleware — 0.6.38
 
-Решение текущих исходников: дополнить SDK v1 и прежний host lifecycle. `requires` и неизменяемый `SDK_CAPABILITIES` дают проверку дополнений до import, без ложной совместимости со старым host. Отдельный renderer или доступ расширения к OpenTUI/React не добавляется. [Публичные элементы](../extensions/interactive-ui.md) и [события агента](../extensions/agent-events.md) описаны отдельно от исторического контракта 0.6.33.
+Решение 0.6.38: дополнить SDK v1 и прежний host lifecycle. `requires` и неизменяемый `SDK_CAPABILITIES` дают проверку дополнений до import, без ложной совместимости со старым host. Отдельный renderer или доступ расширения к OpenTUI/React не добавляется. [Публичные элементы](../extensions/interactive-ui.md) и [события агента](../extensions/agent-events.md) описаны отдельно от исторического контракта 0.6.33.
 
 UI registry хранит owned handlers `ctx.ui.on`; snapshots содержат ссылки на них, но не функции. `UiSubscription` сверяет revision, узел, тип события и данные поля/выбора, затем последовательно вызывает обработчик вне paint с lifetime владельца. Binding конкретного взаимодействия получает очищенный `presentation` с именем участка, экземпляром и структурированными значениями. Неизвестный/чужой handler отклоняется, rollback/dispose снимает регистрации и прекращает ожидания.
 

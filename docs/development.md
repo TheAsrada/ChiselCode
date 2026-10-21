@@ -265,6 +265,6 @@ bun tests/fixtures/command-packaging.ts
 
 ## Единое графическое оформление OpenTUI
 
-В Unreleased после 0.6.33 удалены ASCII-ветки, context переключения оформления и соответствующая настройка. `TerminalScrollbox` задаёт общие defaults нативного ползунка. `GlobalConfigV2Schema` отбрасывает прежнее поле `ui.unicodeDecorations`, сохраняя неизвестные поля и остальные настройки. Alternate-screen и split-footer используют один renderer и это оформление.
+Начиная с CLI 0.6.34 удалены ASCII-ветки, context переключения оформления и соответствующая настройка. `TerminalScrollbox` задаёт общие defaults нативного ползунка. `GlobalConfigV2Schema` отбрасывает прежнее поле `ui.unicodeDecorations`, сохраняя неизвестные поля и остальные настройки. Alternate-screen и split-footer используют один renderer и это оформление.
 
 `bun test tests/integration/graphics-runtime.test.ts` запускает production `runOpenTuiAgent` с прежним `false`, проверяет тёмную/светлую темы, настройки, черновик, фокус и resize до 24×8. Для кадров: `CHISEL_GRAPHICS_CAPTURES=docs/assets/opentui-graphics bun tests/fixtures/tui-graphics.ts`; для Paper добавьте `CHISEL_CAPTURE_THEME=paper`. [Решение, кадры и фактические проверки](contributors/reports/opentui-graphics.md).

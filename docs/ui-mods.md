@@ -4,7 +4,7 @@
 
 Доступно начиная с [CLI 0.6.33](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.33). Версия 0.6.32 этот контракт не поддерживает.
 
-Формы, самостоятельные панели, media, native props и события агента добавлены в текущие исходники **Unreleased**; опубликованная 0.6.37 их ещё не содержит.
+Формы, самостоятельные панели, media, native props и события агента доступны начиная с [CLI 0.6.38](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.38).
 
 ## Создать под свою задачу
 
