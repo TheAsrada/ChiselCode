@@ -29,7 +29,7 @@
 
 ## Проверки
 
-Production source: [`4f54c6d`](https://github.com/TheAsrada/ChiselCode/commit/4f54c6dfcdbde682f44dbec05c0aea1f9fa3f64f). Последующий [`6dcb1c4`](https://github.com/TheAsrada/ChiselCode/commit/6dcb1c4d433f64253e567fbb3e05ee6db5c7ff4a) изменяет только fixture, выбор платформы CI и документацию, не runtime/UI. Локальная среда — Linux x64, Bun 1.4.3; CI использует Bun 1.4.2.
+Код приложения: [`4f54c6d`](https://github.com/TheAsrada/ChiselCode/commit/4f54c6dfcdbde682f44dbec05c0aea1f9fa3f64f). Последующий [`6dcb1c4`](https://github.com/TheAsrada/ChiselCode/commit/6dcb1c4d433f64253e567fbb3e05ee6db5c7ff4a) изменяет только fixture, выбор платформы CI и документацию, не runtime/UI. Локальная среда — Linux x64, Bun 1.4.3; CI использует Bun 1.4.2.
 
 Локально прошли быстрый профиль (428 tests), typecheck, lint и CLI/SDK build. Lint завершился без ошибок, с предупреждениями. Отдельно проверены middleware, model port, отмена observer и post-effect hook, durable replay, capabilities/редакция ключей, фокус и разделение повторяющихся полей. После исправления identity редактора полностью прошли три затронутых файла Settings/forms/side-query: 10 tests, 88 assertions.
 
@@ -52,7 +52,7 @@ Installed и compiled external SDK smoke на Linux проверили отде�
 
 Первый завершённый [Native run на `0abca1d`](https://github.com/TheAsrada/ChiselCode/actions/runs/39536932757) нашёл регрессию: обёртка native textarea меняла его reconciliation path при компактном layout. Это ломало assertions возврата к тому же редактору в Settings и side query. Исправлено сохранение формы children; assertions на identity, текст и курсор не ослаблены. Тест повторяющихся полей теперь ожидает готовый layout и hit map перед отправкой мыши. Более ранние native runs остановлены при доработках; Quick на `6e12fe3` выявил отсутствующий обязательный usage в тестовом terminal event, исправленный следующим коммитом.
 
-Проверены относительные ссылки и anchors в 16 изменённых Markdown (212 локальных ссылок), существование capture JSON/TXT/PNG и навигация к новым руководствам. Проверки поставки не являются полным набором на каждой ОС; отдельный macOS Intel runtime, установщики и публикация в этой задаче не проверялись. Desktop в эту работу не входит.
+Проверены относительные ссылки и anchors в 16 изменённых Markdown (212 локальных ссылок), существование capture JSON/TXT/PNG и навигация к новым руководствам. Проверки поставки не являются полным набором на каждой ОС; отдельный macOS Intel runtime, сборка полного комплекта релизных установщиков и публикация в этой задаче не проверялись. Desktop в эту работу не входит.
 
 Для воспроизведения кадров:
 
