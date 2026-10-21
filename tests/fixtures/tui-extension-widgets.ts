@@ -137,6 +137,16 @@ async function choose(label: string) {
       if (found) return found;
     }
   };
+  await until(() => {
+    const target = find(popup);
+    return (
+      !!target &&
+      target.width > 0 &&
+      target.height > 0 &&
+      target.y >= popup.y &&
+      target.y < popup.y + popup.height
+    );
+  }, `Элемент ${label} не готов к нажатию`);
   const target = find(popup);
   assert.ok(target, `Нет элемента ${label}\n${ui.captureCharFrame()}`);
   await act(async () => {

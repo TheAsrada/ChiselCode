@@ -21,7 +21,7 @@
                                                                                                                                                  
                                                                                                            ПРОЕКТ                                
                                                                                                            Проект                                
-                                                                                                           /tmp/chisel-widgets-ZeP4fT/Проект     
+                                                                                                           /tmp/chisel-widgets-DBHdN6/Проект     
                                                                                                            Без репозитория                       
                                                                                                                                                  
                                                                                                            Анализ кода                        0  

@@ -501,6 +501,7 @@ test("a waiting runtime observer cannot hold Ctrl+C or disable later core events
             content: [{ type: "text", text: "late" }],
           },
           stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
         };
       },
     },

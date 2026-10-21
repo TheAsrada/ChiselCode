@@ -514,6 +514,7 @@ function ExtensionCode({
       filetype={node.language}
       syntaxStyle={syntaxStyle}
       drawUnstyledText
+      fg={uiColor(palette, node.style?.fg) ?? palette.text}
       width="100%"
       {...uiBoxStyle(palette, node.style)}
     />

@@ -21,7 +21,7 @@
                                                             │   "priority": "normal",                  │                                         
                                                             │   "selected": 1                          │   ПРОЕКТ                                
                                                             │ }                                        │   Проект                                
-                                                            │                                          │   /tmp/chisel-widgets-kvmKlS/Проект     
+                                                            │                                          │   /tmp/chisel-widgets-8hXG3r/Проект     
                                                             │ Карта · мышь или →                       │   Без репозитория                       
                                                             │                                          │                                         
                                                             │                                          │   Анализ кода                        0  
