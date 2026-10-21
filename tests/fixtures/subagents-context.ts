@@ -222,8 +222,24 @@ try {
     assert.ok(!accepted.isError, accepted.output);
     const id = JSON.parse(accepted.output).id as string;
     const control = service.controlFor(session.id, session.id, 0);
-    const [child] = await control.wait([id], 30000);
-    assert.equal(child!.status, "completed", JSON.stringify(child!.error));
+    // 104 real tool calls repeatedly persist a large parent/child history.
+    // Windows completed this in 25.59s before varying atomic IO exceeded 30s.
+    // Keep a finite 40s wait within the integration test's existing 45s deadline.
+    const waitingSince = performance.now();
+    const [child] = await control.wait([id], 40000);
+    const elapsedMs = Math.round(performance.now() - waitingSince);
+    assert.equal(
+      child!.status,
+      "completed",
+      JSON.stringify({
+        elapsedMs,
+        generations,
+        summaryCalls,
+        step: child!.step,
+        consumption: child!.consumption,
+        error: child!.error,
+      }),
+    );
     assert.ok(
       summaryCalls > 0,
       JSON.stringify({
@@ -263,7 +279,7 @@ try {
     assert.ok(childSession.context?.compactions?.length);
     assert.ok(!("limits" in child!));
     console.log(
-      `Subagent context: ${summaryCalls} model summaries, ${generations} generations above 16000 tokens, provider output 65536, observed spend ${child!.spend.usage.inputTokens}, full artifact verified`,
+      `Subagent context: ${summaryCalls} model summaries, ${generations} generations above 16000 tokens, provider output 65536, observed spend ${child!.spend.usage.inputTokens}, full artifact verified; wait ${elapsedMs} ms`,
     );
   } finally {
     detach.dispose();

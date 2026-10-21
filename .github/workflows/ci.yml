@@ -4,6 +4,12 @@ name: Native validation
 # Ordinary pushes use quick.yml; a release requires this workflow on its exact SHA.
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: "ОС для точечной проверки; all включает полный source и обязателен перед релизом"
+        type: choice
+        default: all
+        options: [all, ubuntu-latest, macos-latest, windows-latest]
 
 concurrency:
   group: native-${{ github.ref }}
@@ -14,6 +20,7 @@ permissions:
 
 jobs:
   source:
+    if: inputs.platform == 'all'
     name: Full source (ubuntu-latest)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -67,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(inputs.platform == 'all' && '["ubuntu-latest","macos-latest","windows-latest"]' || format('["{0}"]', inputs.platform)) }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
