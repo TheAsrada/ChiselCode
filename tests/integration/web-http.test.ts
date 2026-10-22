@@ -198,6 +198,37 @@ test("search uses the configured backend, credential header and compact normaliz
     await fixture.close();
   }
 });
+test("HTTP failures identify the remote host and status without retries or exposing response bodies", async () => {
+  const fixture = await startWebFixture();
+  try {
+    for (const status of [401, 403, 404, 429, 451, 503]) {
+      const path = `/http-error/${status}`;
+      let failure: unknown;
+      try {
+        await fixture.client.get(`https://fixture.docs.example${path}`, {
+          authorization,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        code: status === 429 ? "WEB_RATE_LIMITED" : "WEB_HTTP_ERROR",
+        details: {
+          status,
+          hostname: "fixture.docs.example",
+          retryable: status === 429 || status >= 500,
+          ...(status === 429 ? { retryAfterMs: 2000 } : {}),
+        },
+      });
+      expect((failure as Error).message).toContain("fixture.docs.example");
+      expect((failure as Error).message).toContain(`HTTP ${status}`);
+      expect((failure as Error).message).not.toContain("RAW PRIVATE ERROR");
+      expect(fixture.counts.get(path)).toBe(1);
+    }
+  } finally {
+    await fixture.close();
+  }
+});
 test("search never follows redirects with its credential header", async () => {
   const fixture = await startWebFixture();
   try {

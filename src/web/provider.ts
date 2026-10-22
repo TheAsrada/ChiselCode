@@ -168,8 +168,11 @@ export class WebToolProvider implements ToolProvider {
             requestOptions(context),
           );
           const { text, ...source } = this.redactor.value(fetched.document);
+          const warning = source.warnings?.includes("limited_static_content")
+            ? "Предупреждение: статический HTML содержит только заголовки или ссылки. Динамическое содержимое могло не попасть в результат: JavaScript не исполняется. Это не подтверждение полного содержимого страницы.\n\n"
+            : "";
           return {
-            output: `${UNTRUSTED_REFERENCE}Source: ${JSON.stringify(source)}\n\n${text}${source.truncated ? "\n[Document truncated at the requested extraction limit.]" : ""}`,
+            output: `${UNTRUSTED_REFERENCE}Source: ${JSON.stringify(source)}\n\n${warning}${text}${source.truncated ? "\n[Document truncated at the requested extraction limit.]" : ""}`,
             contentTrust: "untrusted_external",
             references: [
               {

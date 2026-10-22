@@ -80,6 +80,31 @@ test("plain text, Markdown and JSON retain useful content", () => {
     extractDocument(response('{"version":2}', "application/json"), 10000).text,
   ).toBe('{\n  "version": 2\n}');
 });
+test("script-driven pages with only headings and links identify limited static content", () => {
+  const doc = extractDocument(
+    response(`<html><head><title>Market</title></head><body>
+      <main><div id="quotes"></div><h2>Connect with Market</h2>
+      <a href="/subscribe">Subscribe</a><a href="/bell">Watch the bell</a></main>
+      <script src="/client-quotes.js"></script></body></html>`),
+    30000,
+  );
+  expect(doc.text).toContain("[Subscribe](https://docs.example/subscribe)");
+  expect(doc.warnings).toEqual(["limited_static_content"]);
+  expect(doc.truncated).toBe(false);
+});
+test("short substantive pages and extraction limits do not imply missing dynamic content", () => {
+  for (const body of [
+    "<main><p>The one-year rate is 3.0%.</p></main><script>analytics()</script>",
+    "<main><p>OK</p></main><script src='/app.js'></script>",
+    fixtureArticle,
+  ]) {
+    const doc = extractDocument(response(body), 10);
+    expect(doc.warnings).toBeUndefined();
+  }
+  expect(
+    extractDocument(response("OK", "text/plain"), 30000).warnings,
+  ).toBeUndefined();
+});
 test("binary, fake text binary, invalid JSON and empty JS-only documents fail safely", () => {
   for (const [body, type] of [
     ["binary", "application/pdf"],

@@ -12,6 +12,7 @@ export interface WebDocument {
   text: string;
   truncated: boolean;
   redirects: string[];
+  warnings?: Array<"limited_static_content">;
 }
 export function textLimit(value: string, count: number): string {
   const text = value.slice(0, count);
@@ -65,6 +66,7 @@ export function extractDocument(
     );
   let title = new URL(response.finalUrl).hostname;
   let text = referenceText(body);
+  let warnings: WebDocument["warnings"];
   if (type === "text/html" || type === "application/xhtml+xml") {
     try {
       if ((body.match(/</g)?.length ?? 0) > 50000)
@@ -73,6 +75,7 @@ export function extractDocument(
           "HTML contains too many elements.",
         );
       const { document } = parseHTML(body);
+      const hasScripts = Boolean(document.querySelector("script"));
       title = textLimit(
         referenceText(
           document.querySelector("title")?.textContent ??
@@ -135,6 +138,11 @@ export function extractDocument(
         .replace(/\n[ \t]+\n/g, "\n\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
+      // A hydrated page may return only a heading/link shell with HTTP 200.
+      // Preserve the useful links, but do not imply its dynamic data was read.
+      // Short prose (rates, API status, etc.) is still a complete static result.
+      if (hasScripts && !hasBodyText(root))
+        warnings = ["limited_static_content"];
     } catch (error) {
       if (error instanceof RuntimeError) throw error;
       throw new RuntimeError(
@@ -178,7 +186,16 @@ export function extractDocument(
     text,
     truncated,
     redirects: response.redirects,
+    ...(warnings ? { warnings } : {}),
   };
+}
+
+function hasBodyText(node: Node): boolean {
+  if (node.nodeType === 3) return Boolean(node.textContent?.trim());
+  if (node.nodeType !== 1 && node.nodeType !== 9) return false;
+  const tag = (node as HTMLElement).tagName?.toLowerCase() ?? "";
+  if (tag === "a" || /^h[1-6]$/.test(tag)) return false;
+  return [...node.childNodes].some(hasBodyText);
 }
 
 function markdown(node: Node, base: string): string {

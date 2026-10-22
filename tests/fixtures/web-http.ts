@@ -193,8 +193,21 @@ export async function startWebFixture(
       send('{"version":2,"function":"fetchFresh"}', "application/json");
       return;
     }
-    if (url.pathname === "/http-error") {
-      res.statusCode = 403;
+    if (url.pathname === "/client-shell") {
+      send(
+        '<html><head><title>Market</title></head><body><main><div id="quotes"></div><h2>Connect</h2><a href="/article">Read more</a></main><script src="/quotes.js"></script></body></html>',
+      );
+      return;
+    }
+    if (
+      url.pathname === "/http-error" ||
+      url.pathname.startsWith("/http-error/")
+    ) {
+      res.statusCode =
+        url.pathname === "/http-error"
+          ? 403
+          : Number(url.pathname.split("/").pop());
+      if (res.statusCode === 429) res.setHeader("Retry-After", "2");
       send("RAW PRIVATE ERROR SHOULD NOT BE SHOWN");
       return;
     }

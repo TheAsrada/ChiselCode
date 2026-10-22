@@ -76,6 +76,8 @@ Traceback, `AttributeError`, `AssertionError` и `FAILED` после успеш�
 
 Проверьте `chisel web status --json`, затем `chisel web test --url https://react.dev/reference/`: с дефолтным Allow approval не требуется. Сохранённый Ask продолжает действовать; переключите его на Allow в Settings или через `chisel web configure --search allow --fetch allow`, если подтверждения не нужны. `WEB_NETWORK_DENIED` требует проверить также user/project deny и отключение Web; `--allow` и Bypass не переопределяют запреты. Для корпоративной сети настройте proxy, дополнительные CA и mTLS в окружении: [инструкция](network.md). TLS-проверка не отключается, proxy не открывает private network через Web. Не прикладывайте пароли proxy, PEM или закрытые ключи к issue.
 
+Для отдельной страницы HTTP 401/403/451 означает отказ её сервера; ключ Brave и переключение Exa/Parallel не предоставляют доступ к этой странице. Найдите другой открытый источник и отличайте проверенный текст от поискового snippet. HTTP 200 тоже не гарантирует наличие данных: JavaScript не исполняется. Текущие исходники после 0.6.38 показывают предупреждение `limited_static_content`, если получены только заголовки или ссылки. [Разбор `web_fetch` и границы исправления](contributors/reports/web-fetch-diagnostics.md).
+
 ## Как оформить баг
 
 Откройте [форму сообщения об ошибке](https://github.com/TheAsrada/ChiselCode/issues/new/choose) и укажите:

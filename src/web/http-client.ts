@@ -168,11 +168,22 @@ export class SafeWebHttpClient {
               redirects,
               ...response,
             };
+          const hostname = urlHostname(new URL(current));
+          const explanation = [401, 403, 451].includes(response.status)
+            ? "Сервер отказал в доступе. Возможны авторизация, защита от автоматических запросов или ограничения сайта; это не внутренняя квота ChiselCode."
+            : response.status === 404
+              ? "Страница не найдена. Проверьте адрес или выберите другой источник."
+              : response.status === 429
+                ? "Сервер ограничил частоту запросов. Учитывайте Retry-After; это ограничение внешнего сервиса."
+                : response.status >= 500
+                  ? "Ошибка внешнего сервера."
+                  : "Запрос отклонён внешним сервером.";
           throw new RuntimeError(
             response.status === 429 ? "WEB_RATE_LIMITED" : "WEB_HTTP_ERROR",
-            `Web request returned HTTP ${response.status}.`,
+            `${hostname}: HTTP ${response.status}. ${explanation}`,
             {
               status: response.status,
+              hostname,
               retryable: response.status === 429 || response.status >= 500,
               ...(response.retryAfterMs !== undefined
                 ? { retryAfterMs: response.retryAfterMs }

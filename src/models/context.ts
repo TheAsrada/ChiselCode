@@ -1,18 +1,13 @@
 import { requestTokens } from "../context/tokenizer.js";
 import { frozenClone } from "../extensions/lifecycle.js";
 import type { ChatMessage, Session } from "../types/domain.js";
+import { utf8Prefix } from "../utils/text.js";
 import {
   MODEL_REQUEST_LIMITS,
   type ModelContextProvenance,
 } from "./contracts.js";
 
-export function utf8Prefix(text: string, maxBytes: number): string {
-  const bytes = Buffer.from(text, "utf8");
-  if (bytes.length <= maxBytes) return text;
-  let end = Math.max(0, maxBytes);
-  while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
-  return bytes.subarray(0, end).toString("utf8");
-}
+export { utf8Prefix } from "../utils/text.js";
 
 export interface ConversationCapture {
   readonly text: string;

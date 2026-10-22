@@ -126,6 +126,67 @@ const call = (id: string, path = "/article") => ({
   input: { url: `https://fixture.docs.example${path}` },
 });
 
+test("limited static content is explicit in tool output, cache and persisted history", async () => {
+  const env = await environment();
+  try {
+    const first = await env.tools.executor.execute(
+      call("shell", "/client-shell"),
+    );
+    expect(first.isError).not.toBe(true);
+    expect(first.output).toContain("Динамическое содержимое могло не попасть");
+    expect(first.output).toContain(
+      "[Read more](https://fixture.docs.example/article)",
+    );
+    expect(first.contentTrust).toBe("untrusted_external");
+    expect(first.details).toMatchObject({
+      web: {
+        source: { warnings: ["limited_static_content"], truncated: false },
+        cached: false,
+      },
+    });
+    const second = await env.tools.executor.execute(
+      call("cached-shell", "/client-shell"),
+    );
+    expect(second.details).toMatchObject({
+      web: { source: { warnings: ["limited_static_content"] }, cached: true },
+    });
+    expect(env.fixture.counts.get("/client-shell")).toBe(1);
+    const saved = await env.store.load(env.session.id);
+    expect(saved.runtime?.invocations.shell?.result).toEqual(first);
+    expect(saved.runtime?.invocations["cached-shell"]?.result).toEqual(second);
+  } finally {
+    await env.close();
+  }
+});
+
+test("remote access denial stays a failed call and does not block public pages on the same host", async () => {
+  const env = await environment();
+  try {
+    const denied = await env.tools.executor.execute(
+      call("denied-page", "/http-error/401"),
+    );
+    expect(denied.isError).toBe(true);
+    expect(denied.errorCode).toBe("WEB_HTTP_ERROR");
+    expect(denied.output).toContain("fixture.docs.example: HTTP 401");
+    expect(denied.output).toContain("Сервер отказал в доступе");
+    expect(denied.output).not.toContain("RAW PRIVATE ERROR");
+    expect(denied.details).toMatchObject({
+      status: 401,
+      hostname: "fixture.docs.example",
+      retryable: false,
+    });
+    const good = await env.tools.executor.execute(call("public-page"));
+    expect(good.isError).not.toBe(true);
+    expect(good.output).toContain("fetchFresh");
+    const saved = await env.store.load(env.session.id);
+    expect(saved.runtime?.invocations["denied-page"]?.state).toBe("failed");
+    expect(saved.runtime?.invocations["denied-page"]?.result).toEqual(denied);
+    expect(env.fixture.counts.get("/http-error/401")).toBe(1);
+  } finally {
+    await env.close();
+  }
+});
+
 for (const mode of ["plan", "build"] as const)
   for (const approval of ["default", "dontAsk"] as const)
     test(`default public search/fetch and redirects need no approval in ${mode}/${approval}, including headless`, async () => {
@@ -596,6 +657,38 @@ test("large documents use artifacts, trust survives partial reads and sources su
     expect(await artifact.read(result.artifact?.uri ?? "", 100, 3)).toStartWith(
       UNTRUSTED_REFERENCE,
     );
+  } finally {
+    await env.close();
+  }
+});
+
+test("a larger extraction request expands cached text without another HTTP request", async () => {
+  const env = await environment();
+  try {
+    const small = await env.tools.executor.execute({
+      ...call("small-document", "/large"),
+      input: { url: "https://fixture.docs.example/large", maxChars: 1000 },
+    });
+    expect(small.details).toMatchObject({
+      web: { source: { truncated: true }, extractedChars: 1000 },
+    });
+    expect(small.output).not.toContain("Section 50:");
+    const larger = await env.tools.executor.execute({
+      ...call("larger-document", "/large"),
+      input: { url: "https://fixture.docs.example/large", maxChars: 12000 },
+    });
+    expect(larger.details).toMatchObject({
+      web: { extractedChars: 12000, cached: true },
+    });
+    expect(larger.artifact).toBeDefined();
+    const full = await env.tools.executor.execute({
+      id: "read-larger-document",
+      name: "read_tool_result",
+      input: { uri: larger.artifact?.uri, offset: 80, limit: 30 },
+    });
+    expect(full.output).toContain("Section 50:");
+    expect(full.output).toStartWith(UNTRUSTED_REFERENCE);
+    expect(env.fixture.counts.get("/large")).toBe(1);
   } finally {
     await env.close();
   }
