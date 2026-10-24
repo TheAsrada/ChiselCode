@@ -903,7 +903,7 @@ test("origin admission from a managed copy returns its verified source without t
   } finally {
     await admitted.dispose();
   }
-});
+}, 30_000);
 
 test("preview fingerprints reject a changed selected file before any origin write", async () => {
   const f = await fixture();
@@ -946,4 +946,6 @@ test("preview fingerprints reject a changed selected file before any origin writ
   expect(await readFile(join(f.root, "a.txt"), "utf8")).toBe(
     "changed after preview\n",
   );
-});
+  // This round trip performs create, two previews and two applies through real
+  // Git processes. Windows CI exceeds Bun's default 5s; keep a finite deadline.
+}, 30_000);
