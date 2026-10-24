@@ -55,11 +55,11 @@ PNG экспортированы из native `captureSpans`. GIF собран и
 
 ## Проверки реализации
 
-Локально, Linux/Bun 1.4.4: быстрый набор 440 pass, 0 fail; typecheck, lint, build и compile успешны. В lint сохраняются прежние предупреждения проекта. Целевые наборы проверили навигацию (21 pass), настройки и motion (29 pass), меню/сообщения/логику (23 pass); наборы пересекаются и не суммируются. Остальные UI-регрессии входят в полный source CI.
+Локально, Linux/Bun 1.4.4: быстрый набор 440 pass, 0 fail; typecheck, lint, build и compile успешны. Lint завершился без ошибок: 401 предупреждение и 58 информационных сообщений. Целевые наборы проверили навигацию (21 pass), настройки и motion (29 pass), меню/сообщения/логику (23 pass); наборы пересекаются и не суммируются. Остальные UI-регрессии входят в полный source CI.
 
 Production-сценарий прошёл в Obsidian и Paper: обычный app/runtime, настоящий OpenAI SDK с локальным endpoint, сохранение настройки, Unicode draft/cursor, resize главной и настроек 120×36 / 80×24 / 40×18 / 24×8, настоящие изменения цветов полосы и кадров индикатора, ответ модели и поиск меню. Переключение экранов не создаёт модельных запросов.
 
-Отдельно прошли compiled UI fixture, установленный npm manifest smoke и production-сценарий рабочих копий с настоящим Git, approval, изолированной записью, переносом и безопасным удалением. Публичные разрешения и lifecycle продолжают проверяться существующими сценариями. Итоговые source, Native CI и ограничения платформ фиксируются после прогона на трёх ОС.
+Отдельно прошли compiled UI fixture, manifest smoke локально упакованного npm-пакета и production-сценарий рабочих копий с настоящим Git, approval, изолированной записью, переносом и безопасным удалением. Публичные разрешения и lifecycle продолжают проверяться существующими сценариями. Итоговый Native CI и границы покрытия приведены ниже.
 
 ## Обратная связь первого Native CI
 
@@ -73,8 +73,25 @@ Production-сценарий прошёл в Obsidian и Paper: обычный ap
 
 [Второй run](https://github.com/TheAsrada/ChiselCode/actions/runs/40125136720) проверил source `c4d889938501174efe5eeb4de44d6042bc97e0fc`. Полный Linux source прошёл: 1363 pass, 3 skip, 0 fail, 353,29 с. Typecheck, lint и eval также прошли. Native Linux и macOS прошли, включая compiled интерфейс; платформенный набор macOS дал 361 pass, 3 skip, 0 fail за 149,24 с.
 
+Платформенный набор Windows прошёл: 363 pass, 1 skip, 0 fail за 378,50 с. Последующие compiled-проверки прошли до controls/media; workflow concurrency отменил Windows job при старте финального run во время worktree fixture. Design fixture тогда не выполнялся, поэтому этот job не считается успешным native результатом Windows.
+
 После полного набора отдельный шаг внешнего SDK обнаружил третье прежнее ожидание бездействующего Enter в `tui-external-extensions.ts`. Сценарий обновлён: Enter открывает выбранное расширение без изменения файла, Esc закрывает окно, Space повторно открывает его. Сохранены проверки approval, реальной записи и undo, недоступного источника, redaction, малого экрана и черновика. Весь fixture и typecheck прошли локально. Эта правка меняет тест и описание меню; продуктовый код остаётся тем же. Финальный Native run проверяет исправленный сценарий вместе с остальными обязательными jobs.
 
+## Итоговая проверка
+
+[Финальный Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/40126152111) полностью прошёл на source `23db8a211a1a18112b0c169b68e330cfd8f453a4`, Bun 1.4.2. [Quick CI того же source](https://github.com/TheAsrada/ChiselCode/actions/runs/40126148864) также успешен.
+
+| Job | Результат | Время job |
+| --- | --- | --- |
+| Full source, Linux | 1363 pass, 3 skip, 0 fail; 1366 тестов в 176 файлах за 261,38 с; typecheck, lint, eval и оба дополнительных source fixtures прошли | 307 с |
+| Native Linux | Installed SDK/runtime, compiled CLI, защищённые UI-действия, Settings, worktrees и design fixture прошли | 150 с |
+| Native macOS | Платформенный набор: 361 pass, 3 skip, 0 fail за 113,81 с; installed/compiled сценарии, включая design fixture, прошли | 266 с |
+| Native Windows | Платформенный набор: 363 pass, 1 skip, 0 fail за 309,93 с; реальное обновление EXE, installed/compiled сценарии, worktrees и design fixture прошли | 674 с |
+
+От создания workflow до завершения последнего job прошло 689 с (11 мин 29 с), сумма длительностей jobs — 1397 с (23 мин 17 с runner time). Это длительности конкретного прогона, а не оценка ускорения интерфейса. Последующая правка отчёта и уточнение формулировки CHANGELOG меняют только документацию.
+
 ## Границы результата
+
+Полный source-набор выполнен на Linux; macOS и Windows получили платформенный набор и installed/compiled smoke. В Linux пропущены native OS clipboard без desktop-сессии и два Windows-only сценария CMD/Python. На macOS пропущены detached orphan и два Windows-only сценария; на Windows — detached orphan. Клавиатура, выделение и Unicode-курсор UI проверены отдельно, но эти результаты не заменяют пропущенные проверки системного clipboard.
 
 Скорость отрисовки физического терминала и 60 FPS не измерялись. Clock задаёт частоту обновления небольших компонентов; реальная плавность зависит от терминала, шрифта, SSH и нагрузки. Тестовый renderer подтверждает кадры, фокус, границы и действия. Основная модель, сетевые задержки и скорость инструментов этим оформлением не ускоряются.
