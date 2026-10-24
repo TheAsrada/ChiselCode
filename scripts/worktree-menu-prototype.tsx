@@ -76,7 +76,9 @@ function Prototype({
       : screen !== "list" && screen !== "detail"
         ? "Esc — вернуться к списку"
         : screen === "detail" || focus === "actions"
-          ? "↑↓ действия · Enter выбрать · Esc назад"
+          ? width < 60
+            ? "↑↓  Enter выбрать  Esc назад"
+            : "↑↓ действия · Enter выбрать · Esc назад"
           : width < 60
             ? "↑↓  Enter открыть  Esc назад"
             : width < 100
@@ -602,6 +604,7 @@ if (captureAt >= 0) {
       });
       await key("RETURN");
       await ready("Проверка сборки");
+      await ready("Esc назад");
       await capture("detail-40x20");
       await act(async () => {
         t.resize(24, 8);
