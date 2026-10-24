@@ -47,6 +47,7 @@ const names = [
   "web-compaction",
   "web-content",
   "web-security",
+  "worktree-actions",
 ];
 
 const child = Bun.spawn(

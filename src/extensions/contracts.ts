@@ -159,7 +159,10 @@ export interface SubagentControlInvocation {
 export interface ExtensionCommandInvocation {
   readonly subagents?: import("../subagents/contracts.js").SubagentPort;
   /** Core-owned open action accepts an owned ID, never an arbitrary cwd. */
-  readonly worktrees: { open(id: string): Promise<ToolExecutionResult> };
+  readonly worktrees: {
+    open(id: string): Promise<ToolExecutionResult>;
+    openOrigin(): Promise<ToolExecutionResult>;
+  };
   readonly workspaceRoot: string;
   readonly sessionId: string;
   readonly invocationId: string;

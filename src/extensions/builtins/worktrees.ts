@@ -37,17 +37,18 @@ const states: Record<string, string> = {
   missing: "Не найдена",
   recovery_required: "Нужна проверка",
   failed: "Не создана",
-  external: "Внешняя (только просмотр)",
+  external: "Вне управления менеджера копий",
 };
 function describe(item: WorktreeDescriptor): string {
-  return `${item.label} · ${states[item.state] ?? item.state}\n${item.id ? `ID: ${item.id}\n` : ""}Path: ${item.path}\n${item.base ? `Base: ${item.base}\n` : ""}${item.head ? `HEAD: ${item.head}${item.head !== item.base ? " (есть commit-result)" : ""}\n` : ""}${item.staged !== undefined ? `Изменения: staged ${item.staged}, unstaged ${item.unstaged}, новые ${item.untracked}, ignored ${item.ignored}, conflicts ${item.conflicted}\n` : ""}${item.activeUsers ? `Открыта: ${item.activeUsers} пользователей\n` : ""}${item.reason ?? ""}${item.retainedRef ? `\nСохранённый результат: ${item.retainedRef}` : ""}`.trim();
+  return `${item.label} · ${item.kind === "origin" ? "Основной проект" : (states[item.state] ?? item.state)}\n${item.id ? `ID: ${item.id}\n` : ""}Path: ${item.path}\n${item.base ? `Base: ${item.base}\n` : ""}${item.head ? `HEAD: ${item.head}${item.kind === "managed" && item.base && item.head !== item.base ? " (есть commit-result)" : ""}\n` : ""}${item.staged !== undefined ? `Изменения: staged ${item.staged}, unstaged ${item.unstaged}, новые ${item.untracked}, ignored ${item.ignored}, conflicts ${item.conflicted}\n` : ""}${item.activeUsers ? `Открыта: ${item.activeUsers} пользователей\n` : ""}${item.reason ?? ""}${item.retainedRef ? `\nСохранённый результат: ${item.retainedRef}` : ""}`.trim();
 }
 interface Parsed {
-  action: WorktreeAction | "open";
+  action: WorktreeAction | "open" | "origin";
   id?: string;
   label?: string;
   ref?: string;
   paths?: string[];
+  expectedFiles?: Record<string, string>;
 }
 export function parseWorktreeCommand(args: string): Parsed {
   const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(args.trim());
@@ -62,7 +63,7 @@ export function parseWorktreeCommand(args: string): Parsed {
       ref: withRef?.[1],
     };
   }
-  if (action === "list" && !rest) return { action };
+  if ((action === "list" || action === "origin") && !rest) return { action };
   if (["status", "diff", "apply", "remove", "open"].includes(action ?? "")) {
     const value = /^(\S+)(?:\s+([\s\S]*))?$/.exec(rest);
     const selected = value?.[2]?.trim();
@@ -103,13 +104,31 @@ export function createWorktreeExtension(
                   .object({ label, ref: z.string().min(1).max(256).optional() })
                   .strict()
               : action === "diff" || action === "apply"
-                ? z.object({ id, paths }).strict()
+                ? z
+                    .object({
+                      id,
+                      paths,
+                      ...(action === "apply"
+                        ? {
+                            expectedFiles: z
+                              .record(
+                                z.string(),
+                                z.string().regex(/^[a-f0-9]{64}$/),
+                              )
+                              .refine(
+                                (files) => Object.keys(files).length <= 200,
+                              )
+                              .optional(),
+                          }
+                        : {}),
+                    })
+                    .strict()
                 : z.object({ id }).strict();
         ctx.tools.register(
           defineTool(
             {
               name: action,
-              description: `${action} managed detached Git worktrees. create starts from committed HEAD/local ref without copying dirty files; diff/apply compare final files to immutable base including commits/staging/new files. apply only targets recorded origin and rejects conflicts/stale/unsupported items. remove never discards dirty/ignored files or active users; retains commit results. Paths/ownership are core-selected. Use list for IDs.`,
+              description: `${action} managed detached Git worktrees. create starts from committed HEAD/local ref without copying dirty files; diff/apply compare final files to immutable base including commits/staging/new files. apply only targets recorded origin and rejects conflicts/stale/unsupported items. remove never discards dirty/ignored files or active users; retains commit results. Paths/ownership are core-selected. readOnly describes worktree management only, never all filesystem access. The origin is the ordinary project; shell there omits targetWorktreeId. Use list for real IDs, never invent one.`,
               effect:
                 action === "apply"
                   ? "workspace_write"
@@ -181,19 +200,21 @@ export function createWorktreeExtension(
         description:
           "Изолированные рабочие копии: создать, открыть, проверить, применить и безопасно удалить",
         usage:
-          "/worktree [list | create [--ref REF] название | status ID | diff ID [path] | open ID | apply ID [path] | remove ID]",
+          "/worktree [list | origin | create [--ref REF] название | status ID | diff ID [path] | open ID | apply ID [path] | remove ID]",
         parse: parseWorktreeCommand,
         execute: (context, input) =>
-          input.action === "open"
-            ? context.worktrees.open(input.id as string)
-            : context.tools.execute(
-                `ext:builtin.worktrees:${input.action}`,
-                Object.fromEntries(
-                  Object.entries(input).filter(
-                    ([key, value]) => key !== "action" && value !== undefined,
-                  ),
-                ) as import("../../types/domain.js").JsonObject,
-              ),
+          input.action === "origin"
+            ? context.worktrees.openOrigin()
+            : input.action === "open"
+              ? context.worktrees.open(input.id as string)
+              : context.tools.execute(
+                  `ext:builtin.worktrees:${input.action}`,
+                  Object.fromEntries(
+                    Object.entries(input).filter(
+                      ([key, value]) => key !== "action" && value !== undefined,
+                    ),
+                  ) as import("../../types/domain.js").JsonObject,
+                ),
       });
     },
   };

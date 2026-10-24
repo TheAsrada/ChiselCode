@@ -101,6 +101,7 @@ async function runExtensionCommandOwned(
   modelOptions: {
     captured?: CapturedCommandModel;
     service?: ModelRequestService;
+    recordPresentation?: boolean;
   } = {},
 ): Promise<{ session: Session; result: ToolExecutionResult }> {
   scope.assertUsable();
@@ -384,45 +385,49 @@ async function runExtensionCommandOwned(
         return frozenClone(JSON.parse(result.output));
       },
     });
+  const openWorktree = (id?: string): Promise<ToolExecutionResult> => {
+    const work = (async () => {
+      if (finished || callbackClosed)
+        return failure(
+          new RuntimeError("CANCELLED", "Command invocation is closed."),
+        );
+      try {
+        cancelled(signal);
+        scope.assertUsable();
+        const port = tools.context.worktrees;
+        if (!port)
+          throw new RuntimeError(
+            "WORKTREE_UNAVAILABLE",
+            "Worktree capability is not available.",
+          );
+        const opened = await (id === undefined
+          ? port.openOrigin()
+          : port.open(id));
+        try {
+          const descriptor = opened.descriptor;
+          cancelled(signal);
+          scope.assertUsable();
+          await handlers.onOpenWorktree?.(descriptor);
+          return tools.sanitize({
+            output: `${descriptor.kind === "origin" ? "Основной проект" : "Рабочая копия"} «${descriptor.label}»\n${descriptor.path}\n${handlers.onOpenWorktree ? "Открыта в новой вкладке." : `Запуск CLI: chisel --cwd ${JSON.stringify(descriptor.path)}`}`,
+            details: { worktree: JSON.parse(JSON.stringify(descriptor)) },
+          });
+        } finally {
+          await opened.dispose();
+        }
+      } catch (error) {
+        return tools.sanitize(failure(error));
+      }
+    })();
+    outstanding.add(work);
+    void work.finally(() => outstanding.delete(work)).catch(() => {});
+    return work;
+  };
   const invocation: ExtensionCommandInvocation = Object.freeze({
     ...(subagentTools ? { subagents: linkedSubagents } : {}),
     worktrees: Object.freeze({
-      open: (id: string) => {
-        const work = (async () => {
-          if (finished || callbackClosed)
-            return failure(
-              new RuntimeError("CANCELLED", "Command invocation is closed."),
-            );
-          try {
-            cancelled(signal);
-            scope.assertUsable();
-            const port = tools.context.worktrees;
-            if (!port)
-              throw new RuntimeError(
-                "WORKTREE_UNAVAILABLE",
-                "Worktree capability is not available.",
-              );
-            const opened = await port.open(id);
-            try {
-              const descriptor = opened.descriptor;
-              cancelled(signal);
-              scope.assertUsable();
-              await handlers.onOpenWorktree?.(descriptor);
-              return tools.sanitize({
-                output: `Рабочая копия «${descriptor.label}»\n${descriptor.path}\n${handlers.onOpenWorktree ? "Открыта в новой вкладке." : `Запуск CLI: chisel --cwd ${JSON.stringify(descriptor.path)}`}`,
-                details: { worktree: JSON.parse(JSON.stringify(descriptor)) },
-              });
-            } finally {
-              await opened.dispose();
-            }
-          } catch (error) {
-            return tools.sanitize(failure(error));
-          }
-        })();
-        outstanding.add(work);
-        void work.finally(() => outstanding.delete(work)).catch(() => {});
-        return work;
-      },
+      open: (id: string) => openWorktree(id),
+      openOrigin: () => openWorktree(),
     }),
     workspaceRoot: root,
     sessionId: session.id,
@@ -544,13 +549,22 @@ async function runExtensionCommandOwned(
         tools.context.artifacts,
         config.context?.maxInlineToolResultTokens,
       );
-    if (result.presentation && !result.isError && !result.requiresApproval) {
+    if (
+      modelOptions.recordPresentation !== false &&
+      result.presentation &&
+      !result.isError &&
+      !result.requiresApproval
+    ) {
       session.chatPresentations ??= [];
       session.chatPresentations.push({
         afterMessage: session.messages.length,
         presentation: result.presentation,
       });
-    } else if (result.output && !result.requiresApproval) {
+    } else if (
+      modelOptions.recordPresentation !== false &&
+      result.output &&
+      !result.requiresApproval
+    ) {
       session.chatPresentations ??= [];
       session.chatPresentations.push({
         afterMessage: session.messages.length,

@@ -361,7 +361,7 @@ test("remove refuses active/dirty/ignored/external trees and retains clean commi
         id: "00000000-0000-4000-8000-000000000000",
       })
     ).errorCode,
-  ).toBe("WORKTREE_RECOVERY_REQUIRED");
+  ).toBe("INVALID_TOOL_INPUT");
 }, 60_000);
 
 test("unsupported items block the selection atomically, checkout hooks/filters do not run, mixed leases retain parallel file access", async () => {
@@ -861,3 +861,89 @@ test("cross-process listing during approval preserves a live create; denial leav
     await readFile(join(denied.path, "a.txt")).catch(() => undefined),
   ).toBeUndefined();
 }, 60_000);
+
+test("origin classification never grants a global readonly policy and nil targets are input errors", async () => {
+  const f = await fixture();
+  const list = await f.call("list");
+  const origin = (
+    (list.details?.worktrees ?? []) as {
+      kind?: string;
+      readOnly: boolean;
+      path: string;
+    }[]
+  ).find((item) => item.kind === "origin");
+  expect(origin?.readOnly).toBe(true);
+  expect(list.output).toContain("Основной проект");
+  expect(list.output).not.toContain("есть commit-result");
+  const write = await f.tools.call("write_file", {
+    path: "ordinary.txt",
+    content: "origin write",
+  });
+  expect(write.isError).not.toBe(true);
+  expect(await readFile(join(f.root, "ordinary.txt"), "utf8")).toBe(
+    "origin write",
+  );
+  const shell = await f.tools.call("run_shell", {
+    command: "echo check",
+    targetWorktreeId: "00000000-0000-0000-0000-000000000000",
+  });
+  expect(shell.errorCode).toBe("INVALID_TOOL_INPUT");
+});
+
+test("origin admission from a managed copy returns its verified source without treating the origin as owned", async () => {
+  const f = await fixture();
+  const tree = await f.create("origin navigation");
+  const scope = await f.host.open(tree.path);
+  const port = scope.services.get(worktreeServiceToken);
+  const admitted = await port.openOrigin();
+  try {
+    expect(admitted.descriptor.kind).toBe("origin");
+    expect(admitted.descriptor.path).toBe(f.root);
+    expect(admitted.descriptor.id).toBeUndefined();
+  } finally {
+    await admitted.dispose();
+  }
+});
+
+test("preview fingerprints reject a changed selected file before any origin write", async () => {
+  const f = await fixture();
+  const tree = await f.create("preview fence");
+  await writeFile(join(tree.path, "a.txt"), "previewed result\n");
+  const preview = await f.call("diff", { id: tree.id });
+  const previewData = preview.details?.worktreePreview as
+    | { files: { path: string; hash: string }[] }
+    | undefined;
+  if (!previewData) throw new Error("Preview fingerprints missing");
+  const files = previewData.files;
+  const expectedFiles = Object.fromEntries(
+    files.map((file) => [file.path, file.hash]),
+  );
+  await writeFile(join(tree.path, "a.txt"), "changed after preview\n");
+  const rejected = await f.call("apply", {
+    id: tree.id,
+    paths: ["a.txt"],
+    expectedFiles,
+  });
+  expect(rejected.errorCode).toBe("WORKTREE_STALE");
+  expect(await readFile(join(f.root, "a.txt"), "utf8")).toBe("base a\r\n");
+  const fresh = await f.call("diff", { id: tree.id });
+  const freshData = fresh.details?.worktreePreview as
+    | { files: { path: string; hash: string }[] }
+    | undefined;
+  if (!freshData) throw new Error("Fresh fingerprints missing");
+  const next = freshData.files;
+  expect(
+    (
+      await f.call("apply", {
+        id: tree.id,
+        paths: ["a.txt"],
+        expectedFiles: Object.fromEntries(
+          next.map((file) => [file.path, file.hash]),
+        ),
+      })
+    ).isError,
+  ).not.toBe(true);
+  expect(await readFile(join(f.root, "a.txt"), "utf8")).toBe(
+    "changed after preview\n",
+  );
+});

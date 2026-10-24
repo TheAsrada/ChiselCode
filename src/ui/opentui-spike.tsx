@@ -92,6 +92,7 @@ import {
   visibleTranscriptWindow,
 } from "./opentui-transcript.js";
 import { OpenTuiUpdate, updateNotice } from "./opentui-update.js";
+import { OpenTuiWorktrees } from "./opentui-worktrees.js";
 import {
   capturedInputOwner,
   useOverlayInputOwner,
@@ -122,6 +123,7 @@ import type { TuiController, TuiViewState } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
 import type { UpdateController } from "./update-controller.js";
 import type { WorkspaceCommandsPort } from "./workspace-commands.js";
+import type { WorktreeManagerActions } from "./worktree-actions.js";
 
 const PATCH = `diff --git a/example.ts b/example.ts
 --- a/example.ts
@@ -232,6 +234,7 @@ function OpenTuiScreen({
   skillsActions,
   getSkillsActions,
   commandActions,
+  getWorktreeActions,
   getMcpActions,
   initialTheme = "obsidian",
   themeCatalog,
@@ -268,6 +271,7 @@ function OpenTuiScreen({
   skillsActions?: OpenTuiSkillsActions;
   getSkillsActions?: () => OpenTuiSkillsActions;
   commandActions?: WorkspaceCommandsPort;
+  getWorktreeActions?: () => WorktreeManagerActions;
   getMcpActions?: (root?: string) => OpenTuiMcpActions;
   initialTheme?: ThemeName;
   themeCatalog?: ThemeCatalog;
@@ -299,6 +303,15 @@ function OpenTuiScreen({
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const palette =
     themeCatalog?.palette(theme, accent) ?? themePalette(theme, accent);
+  const [worktrees, setWorktrees] = useState<WorktreeManagerActions>();
+  useEffect(() => {
+    if (
+      worktrees &&
+      worktrees.owner !==
+        `${controller?.conversationId}:${controller?.currentGeneration}`
+    )
+      setWorktrees(undefined);
+  }, [controller, worktrees]);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [mcpActions, setMcpActions] = useState<OpenTuiMcpActions>();
   const [modelsActions, setModelsActions] = useState<OpenTuiModelsActions>();
@@ -492,6 +505,7 @@ function OpenTuiScreen({
   }, [focusBinding]);
   const extensionActive = !!view.extensionView && !approval;
   const otherOverlay = !!(
+    worktrees ||
     pickerOpen ||
     settingsOpen ||
     skillsOpen ||
@@ -963,6 +977,7 @@ function OpenTuiScreen({
   useEffect(() => {
     if (
       !approval &&
+      !worktrees &&
       !pickerOpen &&
       !settingsOpen &&
       !skillsOpen &&
@@ -984,6 +999,7 @@ function OpenTuiScreen({
     }
   }, [
     approval,
+    worktrees,
     pickerOpen,
     settingsOpen,
     skillsOpen,
@@ -1282,7 +1298,8 @@ function OpenTuiScreen({
     // A pending approval belongs to its tab; users can visit another tab first.
     if (
       !approval &&
-      (pickerOpen ||
+      (worktrees ||
+        pickerOpen ||
         settingsOpen ||
         skillsOpen ||
         mcpActions ||
@@ -1539,6 +1556,23 @@ function OpenTuiScreen({
     }
   });
 
+  const closeWorktrees = () => {
+    setWorktrees(undefined);
+    controller?.setOverlay();
+    controller?.setFocus("composer");
+    editor.current?.focus();
+  };
+  const openWorktrees = () => {
+    if (!getWorktreeActions || approval || otherOverlay) return;
+    try {
+      setWorktrees(getWorktreeActions());
+      editor.current?.blur();
+      controller?.setOverlay("worktrees");
+      controller?.setFocus("modal");
+    } catch (error) {
+      controller?.append(String(error), "error");
+    }
+  };
   const submit = (command?: string) => {
     if (
       approval ||
@@ -1546,6 +1580,7 @@ function OpenTuiScreen({
       mcpActions ||
       settingsOpen ||
       pickerOpen ||
+      worktrees ||
       modelsActions ||
       permissionsOpen ||
       updateOpen
@@ -1573,6 +1608,20 @@ function OpenTuiScreen({
       editor.current?.setText("");
       setDraft("");
     };
+    if (
+      value === "/worktree" &&
+      getWorktreeActions &&
+      commandProjection.commands.some(
+        (item) =>
+          item.name === "/worktree" &&
+          item.source.type === "extension" &&
+          item.source.extensionId === "builtin.worktrees",
+      )
+    ) {
+      clearInput();
+      openWorktrees();
+      return;
+    }
     // Renderer owns core UI commands only. Extension callbacks belong to application dispatch.
     const resolved = parseSlashCommand(value, commandProjection);
     const parsed =
@@ -1983,6 +2032,18 @@ function OpenTuiScreen({
             shortcut: "/model",
             group: "БЕСЕДА",
             run: openModels,
+          },
+        ]
+      : []),
+    ...(getWorktreeActions
+      ? [
+          {
+            id: "worktrees",
+            label: "Рабочие копии",
+            detail: "Создать, открыть, перенести результат и закрыть",
+            shortcut: "/worktree",
+            group: "ПРОЕКТ",
+            run: openWorktrees,
           },
         ]
       : []),
@@ -2691,6 +2752,9 @@ function OpenTuiScreen({
                           <ContextSidebar
                             key={controller?.conversationId}
                             state={view}
+                            onWorktrees={
+                              getWorktreeActions ? openWorktrees : undefined
+                            }
                             width={panelWidth}
                             height={panelBodyHeight}
                             focused={sidebarFocused}
@@ -2722,6 +2786,16 @@ function OpenTuiScreen({
             height={height}
             owner={inputOwner}
             onClose={() => setUiControls(false)}
+          />
+        )}
+        {worktrees && (
+          <OpenTuiWorktrees
+            actions={worktrees}
+            width={width}
+            height={height}
+            palette={palette}
+            active={!approval}
+            onClose={closeWorktrees}
           />
         )}
         {settingsDialog}

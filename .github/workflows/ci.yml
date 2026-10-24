@@ -27,6 +27,7 @@ jobs:
     env:
       CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
       CHISEL_THEME_CAPTURES: dist/theme-captures
+      CHISEL_WORKTREE_CAPTURE_DIR: ${{ github.workspace }}/dist/worktree-manager-captures
       CHISEL_EXTERNAL_CAPTURES: ${{ github.workspace }}/dist/external-extension-captures
       CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
     steps:
@@ -116,6 +117,8 @@ jobs:
           tests/unit/opentui-skills.test.tsx tests/integration/settings-tools-runtime.test.ts
           tests/unit/opentui-extension-settings.test.tsx
           tests/unit/self-update.test.ts tests/unit/update-controller.test.ts
+          tests/unit/worktree-actions.test.ts tests/unit/opentui-worktrees.test.tsx
+          tests/unit/tools.test.ts tests/integration/worktrees-runtime.test.ts
       - name: Prepare NSIS for real Windows updater regression
         if: runner.os == 'Windows'
         shell: pwsh
@@ -194,6 +197,13 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
           bun build tests/fixtures/tui-extension-widgets.ts --compile --outfile="$binary"
           CHISEL_WIDGET_SMOKE=1 "$binary"
+      - name: Compiled worktree manager with real Git, approvals and isolated edits
+        shell: bash
+        run: |
+          binary=dist/chisel-worktree-manager
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/tui-worktree-manager.ts --compile --outfile="$binary"
+          "$binary"
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.os }}

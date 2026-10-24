@@ -24,8 +24,10 @@ export function ContextSidebar({
   palette = THEMES.obsidian,
   presentation,
   onAction,
+  onWorktrees,
 }: {
   state: TuiViewState;
+  onWorktrees?(): void;
   width?: number;
   height?: number;
   focused?: boolean;
@@ -243,12 +245,26 @@ export function ContextSidebar({
             inner,
           )}
         />
-        {state.worktree && (
-          <text
-            height={1}
-            fg={palette.muted}
-            content={terminalLine(`Копия: ${state.worktree.label}`, inner)}
+        {onWorktrees ? (
+          <DialogAction
+            id="context-worktrees"
+            label={terminalLine(
+              state.worktree
+                ? `Копия: ${state.worktree.label}`
+                : "Основной проект · рабочие копии",
+              inner,
+            )}
+            palette={palette}
+            onSelect={onWorktrees}
           />
+        ) : (
+          state.worktree && (
+            <text
+              height={1}
+              fg={palette.muted}
+              content={terminalLine(`Копия: ${state.worktree.label}`, inner)}
+            />
+          )
         )}
       </SidebarSection>
       {state.gitChanges && (

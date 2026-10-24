@@ -73,12 +73,15 @@ export type WorktreeAction =
   | "apply"
   | "remove";
 export interface WorktreeInput {
+  expectedFiles?: Record<string, string>;
   id?: string;
   label?: string;
   ref?: string;
   paths?: string[];
 }
 export interface WorktreeDescriptor {
+  /** Management ownership, never filesystem permissions. Optional for older clients. */
+  kind?: "origin" | "managed" | "external";
   id?: string;
   label: string;
   path: string;
@@ -98,6 +101,10 @@ export interface WorktreeDescriptor {
   reason?: string;
 }
 export interface WorktreeWorkspacePort {
+  openOrigin(): Promise<{
+    readonly descriptor: Readonly<WorktreeDescriptor>;
+    dispose(): void | Promise<void>;
+  }>;
   ownedBackgroundTarget(
     id: string,
     ownerId: string,
@@ -141,6 +148,10 @@ interface ResultSnapshot {
   omitted: number;
   state: ReturnType<typeof counts>;
 }
+const resultHash = (file: ResultFile): string =>
+  createHash("sha256")
+    .update(JSON.stringify([file.before, file.after]))
+    .digest("hex");
 const hash = (value: string | Buffer | null): string | null =>
   value === null ? null : createHash("sha256").update(value).digest("hex");
 const ownership = (
@@ -447,8 +458,12 @@ export class WorktreeService {
     id: string,
   ): WorktreeRecord {
     const record = registry.records[id];
+    if (!record)
+      return fail(
+        "INVALID_TOOL_INPUT",
+        "Неизвестный ID рабочей копии. Получите ID через список копий; для shell в текущем проекте опустите targetWorktreeId.",
+      );
     if (
-      !record ||
       record.id !== id ||
       record.ownership !== ownership(record) ||
       !samePath(record.repository, repository.identity.commonDir) ||
@@ -460,7 +475,7 @@ export class WorktreeService {
     )
       return fail(
         "WORKTREE_RECOVERY_REQUIRED",
-        "Unknown worktree or registry identity mismatch; no filesystem action was authorized.",
+        "Идентичность рабочей копии не совпадает с реестром. Действие не выполнено; проверьте регистрацию и папку.",
       );
     return record;
   }
@@ -605,6 +620,61 @@ export class WorktreeService {
             );
           return Object.freeze(await this.descriptor(repo, record, lifetime));
         });
+      },
+      openOrigin: async () => {
+        assert();
+        const repo = await this.repository(root, lifetime);
+        const registry = await readWorktreeRegistry(repo.registry);
+        const record = Object.values(registry.records).find((entry) =>
+          samePath(entry.path, repo.identity.root),
+        );
+        if (record) await this.verify(repo, record, lifetime);
+        const actual = parseWorktreePorcelain(
+          await gitCommand(
+            repo.identity.root,
+            ["worktree", "list", "--porcelain", "-z"],
+            lifetime,
+          ),
+        );
+        const path = record
+          ? (await this.origin(record, lifetime)).root
+          : actual[0]?.path;
+        const originPath =
+          path ?? fail("WORKTREE_UNAVAILABLE", "Основной проект не найден.");
+        const identity = await gitIdentity(originPath, lifetime);
+        if (!samePath(identity.commonDir, repo.identity.commonDir))
+          fail(
+            "WORKTREE_RECOVERY_REQUIRED",
+            "Основной проект больше не относится к этому репозиторию.",
+          );
+        const lease = await this.acquireUse(identity.root);
+        try {
+          assert();
+          const fresh = await gitIdentity(identity.root, lifetime);
+          if (
+            !samePath(fresh.gitDir, identity.gitDir) ||
+            !samePath(fresh.commonDir, identity.commonDir)
+          )
+            fail(
+              "WORKTREE_RECOVERY_REQUIRED",
+              "Идентичность основного проекта изменилась.",
+            );
+          return Object.freeze({
+            descriptor: Object.freeze({
+              kind: "origin" as const,
+              label: basename(identity.root),
+              path: identity.root,
+              state: "external" as const,
+              readOnly: true,
+              reason:
+                "Основной проект: обычные операции с файлами подчиняются разрешениям проекта. Менеджер не удаляет эту папку.",
+            }),
+            dispose: () => lease.dispose(),
+          });
+        } catch (error) {
+          await lease.dispose();
+          throw error;
+        }
       },
       open: async (id: string) => {
         assert();
@@ -808,6 +878,17 @@ export class WorktreeService {
       input.paths,
       context.signal,
     );
+    if (
+      action === "apply" &&
+      input.expectedFiles &&
+      snapshot.files.some(
+        (file) => input.expectedFiles?.[file.path] !== resultHash(file),
+      )
+    )
+      fail(
+        "WORKTREE_STALE",
+        "Результат копии изменился после просмотра. Обновите сравнение перед переносом.",
+      );
     if (action === "diff")
       return this.plan(
         context,
@@ -819,6 +900,14 @@ export class WorktreeService {
         async (ctx) => {
           await this.recheckSource(repo, record, snapshot, ctx.signal);
           return {
+            details: {
+              worktreePreview: {
+                files: snapshot.files
+                  .filter((file) => !file.unsupported)
+                  .map((file) => ({ path: file.path, hash: resultHash(file) })),
+                omitted: snapshot.omitted,
+              },
+            },
             output: JSON.stringify(
               {
                 worktree: record.id,
@@ -1522,12 +1611,12 @@ export class WorktreeService {
       if ((await this.users(repo, record.id)).length)
         fail(
           "WORKTREE_IN_USE",
-          "Worktree is open in a conversation, scope/LSP or another application. Close its users before removal.",
+          "Копия открыта во вкладке, используется анализом кода, задачей или другим приложением. Завершите её пользователей перед удалением.",
         );
       if ((await statuses(record.path, signal)).length)
         fail(
           "WORKTREE_DIRTY",
-          "Tracked, staged, untracked, ignored or conflicted files block removal. No discard/force is supported.",
+          "Удаление блокируют изменённые, staged, новые, игнорируемые или конфликтующие файлы. Принудительное удаление не выполняется.",
         );
       const list = parseWorktreePorcelain(
         await gitCommand(
@@ -1635,6 +1724,7 @@ export class WorktreeService {
     signal?: AbortSignal,
   ): Promise<WorktreeDescriptor> {
     const descriptor: WorktreeDescriptor = {
+      kind: "managed",
       id: record.id,
       label: record.label,
       path: record.path,
@@ -1782,6 +1872,10 @@ export class WorktreeService {
           }
           result.push(await this.descriptor(repo, record, signal));
         }
+        const current = Object.values(registry.records).find((record) =>
+          samePath(record.path, repo.identity.root),
+        );
+        const origin = current?.origin.root ?? actual[0]?.path;
         for (const item of actual)
           if (
             !Object.values(registry.records).some((record) =>
@@ -1789,13 +1883,17 @@ export class WorktreeService {
             )
           )
             result.push({
+              kind:
+                origin && samePath(item.path, origin) ? "origin" : "external",
               label: basename(item.path),
               path: item.path,
               head: item.head,
               state: "external",
               readOnly: true,
               reason:
-                "External/origin worktree; this service does not own or remove it.",
+                origin && samePath(item.path, origin)
+                  ? "Основной проект. Ограничение менеджера касается удаления копии, а не обычной работы с файлами. Действуют разрешения проекта."
+                  : "Создана вне ChiselCode. Менеджер не удаляет эту папку; разрешения на работу с файлами проверяются отдельно.",
             });
         return result;
       },

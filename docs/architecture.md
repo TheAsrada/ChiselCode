@@ -394,6 +394,8 @@ TUI foreground queue и side operations принадлежат conversation, н�
 
 ## Сервис рабочих копий
 
+Графический менеджер, quiet command lane, origin admission и preview fingerprints описаны в [устройстве менеджера](architecture/worktree-manager.md).
+
 `builtin.worktrees` подключён в явную default composition; пустой `ExtensionHost([])` остаётся пустым. Factory владеет application/repository bookkeeping; workspace service token даёт captured-root port. Registry identity — canonical `git-common-dir`; workspace — working root + worktree-specific git-dir, полученные через Git и realpath, включая linked `.git` file и вызов из subdirectory.
 
 `src/worktrees` готовит immutable private snapshots и планы. Mutation capability находится в core WeakMap, привязана к Session/invocation/lifetime; JSON input и mutable plan.data её не подделывают. Только ToolExecutor после Plan/policy/approvals/guards выдаёт одноразовый grant. Core-issued mixed access plan захватывается один раз: source read, origin write, worktree-local index/HEAD, repository-common Git metadata и registry. Повторного acquire внутри handler нет. File roots независимы; shared refs/config/registrations и generic shell используют common Git write lease. Revisions затрагивают write resources, не все файловые observations соседних worktrees.

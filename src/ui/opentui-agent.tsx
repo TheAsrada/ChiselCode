@@ -119,6 +119,7 @@ import type { QueuedTabOperation } from "./tui-tab-execution.js";
 import { TuiWorkspace } from "./tui-workspace.js";
 import { UpdateController } from "./update-controller.js";
 import { WorkspaceCommands } from "./workspace-commands.js";
+import { sameWorktreePath } from "./worktree-actions.js";
 
 /** The sole interactive terminal renderer. */
 export async function runOpenTuiAgent(
@@ -1528,6 +1529,7 @@ async function runApplication(
         });
       return;
     }
+    const quiet = item.kind !== "prompt" && item.quiet === true;
     const execution = workspace.execution(controller);
     const {
       input,
@@ -1547,7 +1549,7 @@ async function runApplication(
     controller.startRequest();
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
-    controller.append(`> ${input}`, "user");
+    if (!quiet) controller.append(`> ${input}`, "user");
     const tools = toolTranscriptHandlers(() => controller);
     const presentedToolResults = new Set<string>();
     // Install the owner before any provider callback can complete the request.
@@ -1592,7 +1594,7 @@ async function runApplication(
             item.kind === "ui_tool"
               ? "Действие интерфейса"
               : extensionCommandLabel(item.prepared.command);
-          controller.append(heading, "tool");
+          if (!quiet) controller.append(heading, "tool");
           controller.setToolActivity(heading);
           const outcome = await runExtensionCommand(
             item.prepared,
@@ -1643,12 +1645,22 @@ async function runApplication(
               },
               onOpenWorktree: async (descriptor) => {
                 if (
-                  !descriptor.id ||
-                  descriptor.readOnly ||
+                  (descriptor.kind !== "origin" &&
+                    (!descriptor.id || descriptor.readOnly)) ||
                   !controller.isCurrent(requestGeneration) ||
                   signal.aborted
                 )
                   throw new Error("Worktree opening is no longer current.");
+                const existing = workspace.tabs.find((tab) =>
+                  sameWorktreePath(
+                    tab.controller.snapshot.projectPath,
+                    descriptor.path,
+                  ),
+                );
+                if (existing) {
+                  workspace.select(existing.key);
+                  return;
+                }
                 openingRoots.add(descriptor.path);
                 try {
                   // Activation obtains the durable use lease before allocating
@@ -1672,7 +1684,7 @@ async function runApplication(
                   );
                   session.title = descriptor.label;
                   session.titleSource = "user";
-                  if (descriptor.base && descriptor.origin)
+                  if (descriptor.id && descriptor.base && descriptor.origin)
                     session.worktree = {
                       id: descriptor.id,
                       label: descriptor.label,
@@ -1693,7 +1705,9 @@ async function runApplication(
                     throw new Error("Worktree opening cancelled.");
                   const tab = workspace.openSession(session);
                   tab.append(
-                    `Рабочая копия: ${descriptor.label}\nID: ${descriptor.id}\nBase: ${descriptor.base}\n${descriptor.path}\nDetached HEAD · файлы и Session изолированы`,
+                    descriptor.kind === "origin"
+                      ? `Основной проект: ${descriptor.label}\n${descriptor.path}`
+                      : `Рабочая копия: ${descriptor.label}\nID: ${descriptor.id}\nBase: ${descriptor.base}\n${descriptor.path}\nDetached HEAD · файлы и Session изолированы`,
                     "info",
                   );
                 } finally {
@@ -1710,6 +1724,11 @@ async function runApplication(
               onEvent: (event) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
+                if (quiet) {
+                  if (event.type === "checkpoint_saved")
+                    controller.setSessionId(event.sessionId);
+                  return;
+                }
                 controller.trackToolEvent(event);
                 if (event.type === "checkpoint_saved")
                   controller.setSessionId(event.sessionId);
@@ -1719,7 +1738,11 @@ async function runApplication(
                   );
               },
               onToolStart: (name, input, source, invocationId) => {
-                if (controller.isCurrent(requestGeneration) && !signal.aborted)
+                if (
+                  !quiet &&
+                  controller.isCurrent(requestGeneration) &&
+                  !signal.aborted
+                )
                   tools.onToolStart?.(name, input, source, invocationId);
               },
               onToolResult: (name, result, invocationId) => {
@@ -1727,14 +1750,18 @@ async function runApplication(
                   return;
                 if (result.presentation)
                   presentedToolResults.add(JSON.stringify(result.presentation));
-                tools.onToolResult?.(name, result, invocationId);
+                if (!quiet) tools.onToolResult?.(name, result, invocationId);
                 if (result.diffs?.length || result.fileDiff)
                   for (const tab of workspace.tabs)
                     tab.controller.refreshGitChanges();
               },
             },
             signal,
-            { service: modelService, captured: item.capturedModel },
+            {
+              service: modelService,
+              captured: item.capturedModel,
+              recordPresentation: !quiet,
+            },
           );
           item.onResult?.(outcome.result);
           item.onResult = undefined;
@@ -1749,6 +1776,7 @@ async function runApplication(
           if (!controller.isCurrent(requestGeneration) || signal.aborted)
             return;
           controller.setSessionUsage(outcome.session);
+          if (quiet) return;
           const presentation = resultChatPresentation(outcome.result);
           if (
             presentation &&
@@ -2059,6 +2087,83 @@ async function runApplication(
         skillsActions,
         getSkillsActions,
         commandActions,
+        getWorktreeActions: () => {
+          const target = currentController();
+          const generation = target.currentGeneration;
+          const root = target.snapshot.projectPath;
+          const assertOwner = () => {
+            if (
+              abort.signal.aborted ||
+              !target.isCurrent(generation) ||
+              target.ownerSignal.aborted ||
+              target.snapshot.projectPath !== root
+            )
+              throw new Error("Разговор изменён или закрыт.");
+          };
+          return {
+            root,
+            owner: `${target.conversationId}:${generation}`,
+            mode: target.snapshot.agentMode,
+            run: async (action, input = {}) => {
+              assertOwner();
+              const snapshot = await commandActions.load(
+                root,
+                target.ownerSignal,
+              );
+              assertOwner();
+              const command = snapshot.scope?.commands.get("worktree");
+              if (
+                !snapshot.scope ||
+                !command ||
+                command.source.extensionId !== "builtin.worktrees"
+              )
+                throw new Error(
+                  "Менеджер рабочих копий недоступен для этого проекта.",
+                );
+              const scope = snapshot.scope;
+              return new Promise<ToolExecutionResult>((resolve) => {
+                const operation: QueuedTabOperation = {
+                  kind: "command",
+                  quiet: true,
+                  input: `/worktree ${action}`,
+                  prepared: {
+                    command,
+                    input: { ...structuredClone(input), action },
+                  },
+                  scope,
+                  root,
+                  generation,
+                  mode: target.snapshot.agentMode,
+                  approvalMode: target.snapshot.approvalMode,
+                  modelOptions: modelOptions(target),
+                  onResult: resolve,
+                };
+                const execution = workspace.execution(target);
+                if (execution.activeRun) {
+                  execution.pendingOperations.push(operation);
+                  target.setBusy(true);
+                } else void executeOperation(target, operation);
+              });
+            },
+            tabs: () =>
+              workspace.tabs.map((tab) => ({
+                key: tab.key,
+                label:
+                  tab.controller.snapshot.sessionTitle ??
+                  tab.controller.snapshot.projectPath,
+                path: tab.controller.snapshot.projectPath,
+                busy: workspace.execution(tab.controller).closeBlocked,
+                stopsProcesses:
+                  workspace
+                    .execution(tab.controller)
+                    .backgroundControls?.busy() === true,
+              })),
+            closeTab: (key) => {
+              assertOwner();
+              return workspace.close(key);
+            },
+          };
+        },
         getMcpActions: (root) =>
           getMcpController(root ?? currentController().snapshot.projectPath),
         initialSettingsOpen: setupRequired || setupOnly,
