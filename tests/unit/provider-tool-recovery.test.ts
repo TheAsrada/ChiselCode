@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_PROJECT_CONFIG } from "../../src/config/load.js";
 import { ContextManager } from "../../src/context/context-manager.js";
+import { OpenAIProtocolAdapter } from "../../src/providers/drivers/openai-chat.js";
 import { AgentRuntime } from "../../src/runtime/agent-runtime.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
 import { ApprovalGate } from "../../src/security/approval.js";
@@ -214,4 +215,90 @@ test("every registered tool rejects non-object input before preparing or executi
   expect(events).not.toContain("tool_prepared");
   expect(events).not.toContain("tool_started");
   expect(await readdir(setup.root)).toEqual([]);
+});
+
+test("real OpenAI SDK resumes after opaque HTTP 400 without replaying a completed file write", async () => {
+  const setup = await fixture();
+  setup.session.messages.push(
+    { role: "user", content: [{ type: "text", text: "Начни" }] },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "Подготовлю страницу" }],
+    },
+  );
+  let calls = 0;
+  let writes = 0;
+  setup.events.subscribe((event) => {
+    if (event.type === "tool_started") writes++;
+  });
+  const provider = new OpenAIProtocolAdapter({
+    apiKey: "fixture",
+    maxRetries: 0,
+    fetch: async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      for (const message of body.messages)
+        if (message.role === "assistant" && message.tool_calls?.length === 0)
+          return Response.json(
+            { error: { message: "Empty tool_calls" } },
+            { status: 400 },
+          );
+      calls++;
+      if (calls === 2) return new Response("data: [DONE]\n\n", { status: 400 });
+      const first = calls === 1;
+      if (!first) {
+        expect(
+          body.messages.some(
+            (message: { role: string; tool_call_id?: string }) =>
+              message.role === "tool" && message.tool_call_id === "saved",
+          ),
+        ).toBe(true);
+        expect(body.messages.at(-1).role).toBe("user");
+      }
+      const chunk = {
+        choices: [
+          {
+            delta: first
+              ? {
+                  content: "Создам файл",
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "saved",
+                      type: "function",
+                      function: {
+                        name: "write_file",
+                        arguments: JSON.stringify({
+                          path: "landing.html",
+                          content: "<h1>Сохранено</h1>\n",
+                        }),
+                      },
+                    },
+                  ],
+                }
+              : { content: "Продолжил с сохранённого результата" },
+            finish_reason: first ? "tool_calls" : "stop",
+          },
+        ],
+      };
+      return new Response(
+        `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  expect(await setup.run(provider)).toMatchObject({
+    status: "failed",
+    errorCode: "bad_request",
+  });
+  expect(calls).toBe(2);
+  expect(await readFile(join(setup.root, "landing.html"), "utf8")).toBe(
+    "<h1>Сохранено</h1>\n",
+  );
+  expect(setup.session.runtime?.invocations.saved?.state).toBe("succeeded");
+  expect(await setup.run(provider)).toMatchObject({
+    status: "completed",
+    text: "Продолжил с сохранённого результата",
+  });
+  expect(calls).toBe(3);
+  expect(writes).toBe(1);
 });

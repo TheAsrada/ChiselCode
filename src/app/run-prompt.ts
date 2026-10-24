@@ -799,7 +799,7 @@ export async function collectDynamicContext(
 ): Promise<DynamicContext> {
   const [gitBranch, gitStatus] = await Promise.all([
     runGit(["branch", "--show-current"], cwd),
-    runGit(["status", "--short"], cwd),
+    runGit(["status", "--short", "--", "."], cwd),
   ]);
   return {
     os: `${process.platform} ${process.arch}`,

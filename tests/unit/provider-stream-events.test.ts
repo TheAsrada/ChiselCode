@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { AnthropicProtocolAdapter } from "../../src/providers/drivers/anthropic-messages.js";
 import { OpenAIProtocolAdapter } from "../../src/providers/drivers/openai-chat.js";
-import type { ProviderRequest, StreamEvent } from "../../src/types/domain.js";
+import type {
+  ChatMessage,
+  ProviderRequest,
+  StreamEvent,
+} from "../../src/types/domain.js";
 
 const request: ProviderRequest = {
   model: "fixture",
@@ -507,4 +511,109 @@ test("OpenAI terminal gateway event may omit delta", async () => {
     { choices: [{ index: 0, finish_reason: "stop" }] },
   ]);
   expect(events.at(-1)).toMatchObject({ type: "turn_complete" });
+});
+
+test("OpenAI sends a portable history without empty tool arrays, preserving errors and tool-result order", async () => {
+  const messages: ChatMessage[] = [
+    { role: "user", content: [{ type: "text", text: "Начни" }] },
+    { role: "assistant", content: [{ type: "text", text: "Проверю" }] },
+    {
+      role: "assistant",
+      content: [
+        { type: "tool_use", id: "a", name: "read_file", input: { path: "a" } },
+        { type: "tool_use", id: "b", name: "read_file", input: { path: "b" } },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Продолжи" },
+        { type: "tool_result", toolUseId: "a", content: "file contents" },
+        {
+          type: "tool_result",
+          toolUseId: "b",
+          content: "WORKTREE_GIT_ERROR",
+          isError: true,
+        },
+      ],
+    },
+  ];
+  const original = structuredClone(messages);
+  const bodies: Record<string, unknown>[] = [];
+  const provider = new OpenAIProtocolAdapter({
+    apiKey: "fixture",
+    maxRetries: 0,
+    fetch: async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      // A strict Chat Completions gateway rejects these shapes before generation.
+      const pending = new Set<string>();
+      let valid = !Array.isArray(body.tools) || body.tools.length > 0;
+      for (const message of body.messages) {
+        if (message.tool_calls?.length === 0) valid = false;
+        if (message.role === "tool")
+          valid &&= pending.delete(message.tool_call_id);
+        else {
+          if (pending.size) valid = false;
+          for (const call of message.tool_calls ?? []) pending.add(call.id);
+        }
+      }
+      if (!valid || pending.size)
+        return Response.json(
+          { error: { message: "Invalid tool history" } },
+          { status: 400 },
+        );
+      return response([text, stop]);
+    },
+  });
+  const events = [];
+  for await (const event of provider.streamChat({ ...request, messages }))
+    events.push(event);
+  expect(events.at(-1)).toMatchObject({ type: "turn_complete" });
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]?.tools).toBeUndefined();
+  const wire = bodies[0]?.messages as Record<string, unknown>[];
+  expect(wire.map((message) => message.role)).toEqual([
+    "system",
+    "user",
+    "assistant",
+    "assistant",
+    "tool",
+    "tool",
+    "user",
+  ]);
+  expect(wire[5]).toMatchObject({
+    role: "tool",
+    tool_call_id: "b",
+    content: "WORKTREE_GIT_ERROR",
+  });
+  expect(messages).toEqual(original);
+});
+
+test("OpenAI opaque HTTP 400 DONE is an actionable rejection with one attempt, never a successful stream", async () => {
+  let attempts = 0;
+  const provider = new OpenAIProtocolAdapter({
+    apiKey: "fixture",
+    maxRetries: 2,
+    tokenLimitFallback: true,
+    fetch: async () => {
+      attempts++;
+      return new Response("data: [DONE]\n\n", {
+        status: 400,
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+  });
+  const events = [];
+  for await (const event of provider.streamChat(request)) events.push(event);
+  expect(attempts).toBe(1);
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    type: "error",
+    code: "bad_request",
+    status: 400,
+  });
+  expect(events[0]?.type === "error" && events[0].message).toContain(
+    "не сообщил причину",
+  );
 });

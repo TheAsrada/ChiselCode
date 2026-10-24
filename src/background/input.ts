@@ -27,8 +27,18 @@ export const ShellInputSchema = z
       .max(BACKGROUND_LIMITS.outputBytes)
       .optional(),
     readySignal: z.string().min(1).max(240).optional(),
-    targetWorktreeId: z.uuid().optional(),
-    retryOf: z.uuid().optional(),
+    targetWorktreeId: z
+      .uuid()
+      .optional()
+      .describe(
+        "Только реальный ID существующей собственной рабочей копии, полученный от инструмента worktree. Для текущего проекта опустите поле. Не подставляйте нулевой UUID или выдуманный ID.",
+      ),
+    retryOf: z
+      .uuid()
+      .optional()
+      .describe(
+        "Только реальный ID ранее запущенной фоновой задачи при её повторе. Для новой команды опустите поле; не подставляйте нулевой UUID или выдуманный ID.",
+      ),
   })
   .strict();
 export type ShellInput = z.infer<typeof ShellInputSchema>;

@@ -88,7 +88,9 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         model: request.model,
         stream: true,
         messages: toOpenAIMessages(request.system, request.messages),
-        tools: toOpenAITools(request.tools),
+        ...(request.tools.length
+          ? { tools: toOpenAITools(request.tools) }
+          : {}),
         ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
         ...(request.maxTokens === undefined
           ? {}
@@ -370,15 +372,22 @@ function toOpenAIMessages(
       result.push({
         role: "assistant",
         content: text || null,
-        tool_calls: toolUses.map((tool) => ({
-          type: "function",
-          id: tool.id,
-          function: { name: tool.name, arguments: JSON.stringify(tool.input) },
-        })),
+        ...(toolUses.length
+          ? {
+              tool_calls: toolUses.map((tool) => ({
+                type: "function" as const,
+                id: tool.id,
+                function: {
+                  name: tool.name,
+                  arguments: JSON.stringify(tool.input),
+                },
+              })),
+            }
+          : {}),
       });
-    } else if (text) {
-      result.push({ role: "user", content: text });
     }
+    // Tool replies must immediately follow the assistant's calls, before any
+    // user text sharing the domain message. Never discard failed tool output.
     for (const tool of toolResults) {
       result.push({
         role: "tool",
@@ -386,6 +395,8 @@ function toOpenAIMessages(
         content: tool.content,
       });
     }
+    if (message.role === "user" && text)
+      result.push({ role: "user", content: text });
   }
   return result;
 }
@@ -411,6 +422,12 @@ function formatOpenAIError(error: unknown): string {
     return "Provider authentication failed.";
   if (error instanceof OpenAI.RateLimitError)
     return "Provider rate limit exceeded. Try again later.";
+  if (
+    error instanceof OpenAI.APIError &&
+    error.status === 400 &&
+    /^(?:400\s+)?data:\s*\[DONE\]\s*$/.test(error.message)
+  )
+    return "Провайдер отклонил запрос (HTTP 400), но не сообщил причину: тело ответа содержит только data: [DONE]. Проверьте совместимость Chat Completions и поддержку инструментов выбранной моделью на шлюзе. Это не успешное завершение генерации.";
   if (error instanceof OpenAI.APIError)
     return `Provider API error (${error.status ?? "unknown"}): ${error.message}`;
   return error instanceof Error ? error.message : "Unknown provider error.";

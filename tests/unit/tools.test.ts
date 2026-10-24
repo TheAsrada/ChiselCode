@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
+import { collectDynamicContext } from "../../src/app/run-prompt.js";
 import { userSkillsDir } from "../../src/paths/home.js";
 import type { ApprovalRequest } from "../../src/security/approval.js";
 import { ApprovalGate } from "../../src/security/approval.js";
@@ -325,6 +326,76 @@ describe("ToolRegistry", () => {
         .isError,
     ).toBe(true);
   });
+  test("Git reads in a project nested in a repository do not disclose siblings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-nested-git-"));
+    paths.push(root);
+    const project = join(root, "project");
+    await mkdir(project);
+    await execa("git", ["init", "-q", root]);
+    await writeFile(join(root, "private.txt"), "outside-secret\n");
+    await writeFile(join(project, "file.txt"), "inside\n");
+    await execa("git", ["add", "."], { cwd: root });
+    await execa(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-qm",
+        "base",
+      ],
+      { cwd: root },
+    );
+    await writeFile(join(root, "private.txt"), "changed-outside-secret\n");
+    await writeFile(join(root, "untracked-secret.txt"), "outside\n");
+    await writeFile(join(project, "file.txt"), "changed-inside\n");
+    await execa("git", ["add", "."], { cwd: project });
+    await writeFile(join(project, "file.txt"), "unstaged-inside\n");
+    const tools = registry(project);
+    const dynamic = await collectDynamicContext(project);
+    expect(dynamic.gitStatus).toContain("file.txt");
+    expect(dynamic.gitStatus).not.toContain("private.txt");
+    expect(dynamic.gitStatus).not.toContain("untracked-secret");
+    const status = await tools.execute("git_status", {});
+    expect(status.isError).not.toBe(true);
+    expect(status.output).toContain("file.txt");
+    expect(status.output).not.toContain("private.txt");
+    expect(status.output).not.toContain("untracked-secret");
+    for (const scope of ["unstaged", "staged", "all"]) {
+      const diff = await tools.execute("git_diff", { scope });
+      expect(diff.isError).not.toBe(true);
+      expect(diff.output).toContain("inside");
+      expect(diff.output).not.toContain("outside-secret");
+      expect(diff.output).not.toContain("private.txt");
+    }
+  });
+
+  test("git_diff all works before the first commit without staging untracked files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-unborn-git-"));
+    paths.push(root);
+    await execa("git", ["init", "-q", root]);
+    await writeFile(join(root, "new.txt"), "untracked\n");
+    const tools = registry(root);
+    expect(
+      (await tools.execute("git_diff", { scope: "all", path: "new.txt" }))
+        .isError,
+    ).not.toBe(true);
+    expect((await tools.execute("git_status", {})).output).toContain(
+      "?? new.txt",
+    );
+    await execa("git", ["add", "new.txt"], { cwd: root });
+    await writeFile(join(root, "new.txt"), "unstaged\n");
+    const diff = await tools.execute("git_diff", {
+      scope: "all",
+      path: "new.txt",
+    });
+    expect(diff.isError).not.toBe(true);
+    expect(diff.output).toContain("+untracked");
+    expect(diff.output).toContain("+unstaged");
+  });
+
   test("diff paths stay project-relative when the root is a filesystem alias", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-alias-"));
     const links = await mkdtemp(join(tmpdir(), "chiselcode-links-"));

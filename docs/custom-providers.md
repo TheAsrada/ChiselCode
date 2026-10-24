@@ -95,7 +95,7 @@ streamChat поддерживает tool calls, usage, thinking deltas и cancel
 
 openai-chat:
 
-- includeUsage boolean, default false: отправлять stream_options.include_usage.
+- includeUsage boolean, по умолчанию true: отправлять stream_options.include_usage. При HTTP 400 с явным указанием на неподдерживаемый stream_options/include_usage драйвер повторяет запрос без него; непрозрачная HTTP 400 такой повтор не вызывает.
 - tokenLimitFallback boolean, default true для declarative driver: один retry с max_tokens после соответствующей 400 на max_completion_tokens. Official OpenAI definition явно отключает fallback.
 
 anthropic-messages:

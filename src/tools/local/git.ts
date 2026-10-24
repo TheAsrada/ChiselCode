@@ -25,12 +25,14 @@ export function gitHandlers() {
       },
       z.object({}),
       async () => ({ data: {}, preview: "git status", resources: [] }),
-      (context) => git(context, ["--no-optional-locks", "status", "--short"]),
+      (context) =>
+        git(context, ["--no-optional-locks", "status", "--short", "--", "."]),
     ),
     defineTool(
       {
         name: "git_diff",
-        description: "Read unstaged/staged/all Git changes.",
+        description:
+          "Read unstaged/staged/all tracked Git changes within the project. Untracked files appear in git_status; read them with read_file. Works before the first commit.",
         effect: "read",
         permission: "read",
         parallelSafe: true,
@@ -54,19 +56,47 @@ export function gitHandlers() {
           resources: path ? [path] : [],
         };
       },
-      (context, { data }) =>
-        git(context, [
-          "diff",
-          "--no-ext-diff",
-          "--no-textconv",
-          ...(data.scope === "staged"
-            ? ["--cached"]
-            : data.scope === "all"
-              ? ["HEAD"]
-              : []),
-          "--",
-          ...(data.path ? [data.path] : []),
-        ]),
+      async (context, { data }) => {
+        const diff = (revision: string[]) =>
+          gitCommand(
+            context.workspace.root,
+            [
+              "diff",
+              "--no-ext-diff",
+              "--no-textconv",
+              ...revision,
+              "--",
+              data.path || ".",
+            ],
+            context.signal,
+          );
+        const hasHead =
+          data.scope === "all" &&
+          (await gitCommand(
+            context.workspace.root,
+            ["rev-parse", "--verify", "--quiet", "HEAD"],
+            context.signal,
+            true,
+          ));
+        // An unborn branch has no HEAD to diff against. Read the index and
+        // worktree separately, without staging files or creating a commit.
+        const output =
+          data.scope === "all" && !hasHead
+            ? (await diff(["--cached"])) + (await diff([]))
+            : await diff(
+                data.scope === "staged"
+                  ? ["--cached"]
+                  : data.scope === "all"
+                    ? ["HEAD"]
+                    : [],
+              );
+        return {
+          isError: false,
+          output:
+            output ||
+            "Нет изменений отслеживаемых файлов. Новые файлы смотрите через git_status и read_file.",
+        };
+      },
     ),
     defineTool(
       {
