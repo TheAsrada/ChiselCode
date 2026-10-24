@@ -232,9 +232,18 @@ try {
   await capture("external-context-160x50");
   await click("sidebar-tab-menu");
   await key("END");
-  await key("RETURN");
-  assert.ok(!ui.renderer.root.findDescendantById("extension-details-popup"));
   await capture("external-menu-160x50");
+  await key("RETURN");
+  await until(
+    () => !!ui.renderer.root.findDescendantById("extension-details-popup"),
+    "Enter не открыл выбранное внешнее расширение",
+  );
+  assert.equal(
+    await readFile(join(root, "note.txt"), "utf8"),
+    "Внешняя заметка\n",
+    "Просмотр расширения изменил файл",
+  );
+  await key("ESCAPE");
   await key(" ");
   await until(
     () => !!ui.renderer.root.findDescendantById("extension-details-popup"),
