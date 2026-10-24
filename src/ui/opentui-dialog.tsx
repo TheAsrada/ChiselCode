@@ -1,10 +1,10 @@
 /** @jsxImportSource @opentui/react */
 import { RGBA } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { type Palette, THEMES } from "./appearance.js";
+import { useAnimatedColor, useEntrance } from "./opentui-motion.js";
 import { uiInputStamp } from "./overlay-input.js";
-
 import { terminalSafeText } from "./terminal-text.js";
 
 export function dialogLayout(
@@ -62,6 +62,7 @@ export function OpenTuiDialog({
     maxHeight,
     maxWidth,
   );
+  const entrance = useEntrance(160, shadow && !tiny);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape also dismisses the dialog.
     <box
@@ -78,9 +79,12 @@ export function OpenTuiDialog({
               0,
               0,
               0,
-              palette.variant === "light" || palette.bg === THEMES.paper.bg
-                ? 65
-                : 150,
+              Math.round(
+                entrance *
+                  (palette.variant === "light" || palette.bg === THEMES.paper.bg
+                    ? 65
+                    : 150),
+              ),
             )
           : palette.bg
       }
@@ -102,7 +106,7 @@ export function OpenTuiDialog({
           top={top + 1}
           width={popupWidth}
           height={popupHeight}
-          backgroundColor={RGBA.fromInts(0, 0, 0, 85)}
+          backgroundColor={RGBA.fromInts(0, 0, 0, Math.round(85 * entrance))}
         />
       )}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: Popup clicks must not dismiss the backdrop. */}
@@ -163,6 +167,16 @@ export function DialogAction({
   };
 }) {
   const renderer = useRenderer();
+  const [hovered, setHovered] = useState(false);
+  const background = useAnimatedColor(
+    primary && !disabled
+      ? palette.accent
+      : (active || hovered) && !disabled
+        ? palette.raised
+        : palette.surface,
+    140,
+    !primary && !disabled,
+  );
   const pressed = useRef<
     | { activate(): void; stamp: string; width: number; height: number }
     | undefined
@@ -176,13 +190,8 @@ export function DialogAction({
       flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
-      backgroundColor={
-        primary && !disabled
-          ? palette.accent
-          : active
-            ? palette.raised
-            : palette.surface
-      }
+      backgroundColor={background}
+      onMouseOver={() => setHovered(true)}
       onMouseDown={(event) => {
         pressed.current =
           event.button === 0 && !disabled
@@ -200,6 +209,7 @@ export function DialogAction({
       }}
       onMouseOut={() => {
         pressed.current = undefined;
+        setHovered(false);
       }}
       onMouseUp={(event) => {
         const activate = event.button === 0 ? pressed.current : undefined;

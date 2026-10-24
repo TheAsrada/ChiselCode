@@ -22,6 +22,7 @@ import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { OpenTuiExtensions } from "./opentui-extensions.js";
 import { OpenTuiLspSettings } from "./opentui-lsp-settings.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
+import { useMotion } from "./opentui-motion.js";
 import {
   cleanSettingsInput,
   SettingsSecretInput,
@@ -155,6 +156,19 @@ export function OpenTuiSettings({
   onCreateSkill?: () => void;
   onEditSkill?: (skill: Skill) => void;
 }) {
+  const motion = useMotion();
+  const changeMotion = () => {
+    void motion
+      .change?.(motion.preference === "full" ? "reduced" : "full")
+      .catch(
+        (error: unknown) =>
+          lifetime.current.mounted &&
+          setMessage(
+            `Не удалось сохранить анимации: ${error instanceof Error ? error.message : String(error)}`,
+            "error",
+          ),
+      );
+  };
   const [values, setValues] = useState<TuiSettingsValues>({
     provider: "",
     model: "",
@@ -329,7 +343,7 @@ export function OpenTuiSettings({
       "tools.skills",
       "web",
     ].includes(page);
-  const showHint = popupHeight >= 10 && !simpleFooter;
+  const showHint = popupHeight >= 8 && !simpleFooter;
   const contentHeight = Math.max(
     1,
     popupHeight -
@@ -360,7 +374,7 @@ export function OpenTuiSettings({
   );
   const themeVisibleCount = Math.max(
     1,
-    Math.floor(Math.max(1, bodyHeight - 2) / rowHeight),
+    Math.floor(Math.max(1, bodyHeight - 3) / rowHeight),
   );
   const themeFirst = Math.max(
     0,
@@ -911,6 +925,18 @@ export function OpenTuiSettings({
       return;
     }
     if (page === "appearance" && !navigationOnly) {
+      if (
+        name === "m" &&
+        !key.repeated &&
+        !themeSearchFocus &&
+        shellFocus !== "search" &&
+        !key.ctrl
+      ) {
+        key.preventDefault();
+        key.stopPropagation();
+        changeMotion();
+        return;
+      }
       if (name === "/" && !key.ctrl) {
         key.preventDefault();
         setShellFocus("content");
@@ -1310,6 +1336,13 @@ export function OpenTuiSettings({
               </TerminalScrollbox>
             ) : page === "appearance" ? (
               <box flexDirection="column" height="100%" width="100%">
+                <DialogAction
+                  id="settings-motion"
+                  label={`Анимации: ${motion.preference === "full" ? (surfaceWidth < 35 ? "да" : "плавные") : surfaceWidth < 35 ? "мин" : "минимум"} · M`}
+                  palette={palette}
+                  disabled={motion.saving || !motion.change}
+                  onSelect={changeMotion}
+                />
                 <input
                   id="settings-theme-search"
                   value={themeSearch}
@@ -1331,7 +1364,7 @@ export function OpenTuiSettings({
                 />
                 <box
                   flexDirection="row"
-                  height={Math.max(1, bodyHeight - 2)}
+                  height={Math.max(1, bodyHeight - 3)}
                   width="100%"
                 >
                   <box
@@ -1434,8 +1467,9 @@ export function OpenTuiSettings({
                         Завершённые действия
                       </text>
                       <text marginTop={1} fg={palette.muted}>
-                        Coder Mini и округлые рамки. Шрифт должен поддерживать
-                        графические символы.
+                        Coder Mini, единые поверхности, мягкое выделение и
+                        спокойные переходы. Анимации можно свести к минимуму
+                        клавишей M.
                       </text>
                       <text marginTop={1} fg={palette.muted}>
                         Стрелки показывают тему во всём интерфейсе. Примените
@@ -2109,7 +2143,11 @@ export function OpenTuiSettings({
                 : busy === "check"
                   ? "Проверяем подключение... | Esc закрыть"
                   : "Подождите..."
-              : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
+              : innerWidth >= 70
+                ? "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад"
+                : innerWidth >= 32
+                  ? "Tab фокус · Ctrl+S · Esc назад"
+                  : "Tab · Esc назад",
             innerWidth,
           )}
         </text>

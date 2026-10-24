@@ -1,9 +1,9 @@
 /** @jsxImportSource @opentui/react */
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
-import { useRenderer } from "@opentui/react";
-
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Palette } from "./appearance.js";
+import { DialogAction } from "./opentui-dialog.js";
+import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
@@ -19,7 +19,7 @@ export interface SidebarMenuAction {
 }
 
 export function SidebarMenu({
-  actions,
+  actions: catalog,
   controller,
   width,
   height,
@@ -37,30 +37,39 @@ export function SidebarMenu({
   owner: string;
   onFocus(): void;
 }) {
-  const renderer = useRenderer();
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const actions = useMemo(() => {
+    const words = query
+      .normalize("NFKC")
+      .toLocaleLowerCase()
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    return catalog.filter((item) => {
+      const text = `${item.label} ${item.detail} ${item.shortcut} ${item.group}`
+        .normalize("NFKC")
+        .toLocaleLowerCase();
+      return words.every((word) => text.includes(word));
+    });
+  }, [catalog, query]);
   const [selectedKey, setSelectedKey] = useState(
     controller?.sidebarPresentation.menuKey ??
-      actions[controller?.sidebarPresentation.menuIndex ?? 0]?.id,
+      catalog[controller?.sidebarPresentation.menuIndex ?? 0]?.id,
   );
-  const selectedIndex = actions.findIndex(
-    (action) => action.id === selectedKey,
-  );
-  const lastIndex = useRef(controller?.sidebarPresentation.menuIndex ?? 0);
+  const index = actions.findIndex((item) => item.id === selectedKey);
+  // A removed extension action cannot silently turn into another command.
   const selected =
-    selectedIndex >= 0
-      ? selectedIndex
-      : Math.max(0, Math.min(actions.length - 1, lastIndex.current));
-  lastIndex.current = selected;
+    index >= 0 ? index : selectedKey ? -1 : actions.length ? 0 : -1;
   const scroll = useRef<ScrollBoxRenderable>(null);
-  const pressed = useRef<SidebarMenuAction | undefined>(undefined);
   const restored = useRef(false);
+  const compact = height < 12 || width < 30;
+  const canSearch = height >= 5;
   const restore = () => {
     const body = scroll.current;
     if (restored.current || !body || body.scrollHeight === 0) return;
     const position = controller?.sidebarPresentation.scroll.get("menu");
     if (position !== undefined) body.scrollTo(position);
-    else if (actions[selected])
-      body.scrollChildIntoView(`sidebar-menu-${actions[selected].id}`);
     restored.current = true;
   };
   useLayoutEffect(() => {
@@ -70,29 +79,24 @@ export function SidebarMenu({
         controller.sidebarPresentation.scroll.set("menu", body.scrollTop);
     };
   }, [controller]);
-  const compact = height < 12 || width < 30;
-  const pick = (index: number) => {
-    const next = Math.max(0, Math.min(actions.length - 1, index));
-    setSelectedKey(actions[next]?.id);
+  const pick = (nextIndex: number) => {
+    const next = Math.max(0, Math.min(actions.length - 1, nextIndex));
     const id = actions[next]?.id;
+    setSelectedKey(id);
     if (id) scroll.current?.scrollChildIntoView(`sidebar-menu-${id}`);
-    if (controller) controller.sidebarPresentation.menuIndex = next;
-    if (controller) controller.sidebarPresentation.menuKey = id;
+    if (controller && id) {
+      controller.sidebarPresentation.menuKey = id;
+      controller.sidebarPresentation.menuIndex = catalog.findIndex(
+        (item) => item.id === id,
+      );
+    }
   };
   const selectedId = actions[selected]?.id;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: A resized viewport must reveal the selected action again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Resize must reveal the selected command again.
   useLayoutEffect(() => {
-    const body = scroll.current;
-    if (!body) return;
-    if (selectedId) body.scrollChildIntoView(`sidebar-menu-${selectedId}`);
-  }, [selectedId, compact, height]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Resize and owner replacement invalidate a pressed hit area.
-  useLayoutEffect(() => {
-    pressed.current = undefined;
-    return () => {
-      pressed.current = undefined;
-    };
-  }, [width, height, owner]);
+    if (selectedId)
+      scroll.current?.scrollChildIntoView(`sidebar-menu-${selectedId}`);
+  }, [selectedId, height, compact]);
   useUiKeyboard((key) => {
     if (
       !focused ||
@@ -102,7 +106,27 @@ export function SidebarMenu({
       key.option
     )
       return;
-    if (
+    if (searching) {
+      if (
+        ["escape", "tab", "down", "up", "return", "enter"].includes(key.name)
+      ) {
+        key.preventDefault();
+        key.stopPropagation();
+        if (key.name === "escape" && query) {
+          setQuery("");
+          setSelectedKey(undefined);
+        }
+        setSearching(false);
+        if ((key.name === "return" || key.name === "enter") && !key.repeated)
+          actions[selected]?.run();
+      }
+      return;
+    }
+    if (key.name === "/" && canSearch) {
+      key.preventDefault();
+      key.stopPropagation();
+      setSearching(true);
+    } else if (
       ["up", "down", "home", "end", "pageup", "pagedown"].includes(key.name)
     ) {
       key.preventDefault();
@@ -115,107 +139,84 @@ export function SidebarMenu({
             ? actions.length - 1
             : selected + delta * (key.name.startsWith("page") ? 3 : 1),
       );
-    } else if (key.name === "return" || key.name === "enter") {
+    } else if (["return", "enter", "space", " "].includes(key.name)) {
       key.preventDefault();
       key.stopPropagation();
-      // Enter is reserved for the composer. A focused menu consumes it without
-      // opening a dialog or leaking the same event into message submission.
-    } else if (key.name === "space" || key.name === " ") {
-      key.preventDefault();
-      key.stopPropagation();
-      actions[selected]?.run();
+      if (!key.repeated) actions[selected]?.run();
     }
   });
   return (
-    <TerminalScrollbox
-      id="sidebar-menu"
-      ref={scroll}
-      width={width}
-      height={height}
-      focused={false}
-      paddingLeft={1}
-      paddingRight={1}
-      viewportCulling
-      renderBefore={restore}
-    >
-      {actions.map((action, index) => (
-        <box key={action.id} flexDirection="column" flexShrink={0}>
-          {(index === 0 || action.group !== actions[index - 1]?.group) && (
-            <text
-              height={1}
-              marginTop={index ? 1 : 0}
-              marginBottom={compact ? 0 : 1}
-              fg={palette.muted}
-              attributes={TextAttributes.BOLD}
-              selectable={false}
-            >
-              {action.group}
-            </text>
-          )}
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: Arrow keys select; existing command shortcuts open the same dialogs. */}
-          {/* biome-ignore lint/a11y/useKeyWithMouseEvents: Native OpenTUI has no DOM blur; captured keyboard ownership handles focus. */}
-          <box
-            id={`sidebar-menu-${action.id}`}
-            height={compact ? 1 : 3}
-            flexShrink={0}
-            flexDirection="column"
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={selected === index ? palette.raised : palette.bg}
-            onMouseDown={(event) => {
-              if (event.button === 0) pressed.current = action;
-              event.stopPropagation();
-            }}
-            onMouseUp={(event) => {
-              const captured = pressed.current;
-              const accept =
-                event.button === 0 &&
-                captured?.id === action.id &&
-                !event.isDragging &&
-                !renderer.getSelection()?.getSelectedText();
-              pressed.current = undefined;
-              event.stopPropagation();
-              if (accept) {
-                pick(index);
-                onFocus();
-                captured?.run();
-              }
-            }}
-            onMouseDrag={() => {
-              pressed.current = undefined;
-            }}
-            onMouseOut={() => {
-              pressed.current = undefined;
-            }}
-          >
-            <box height={1} flexDirection="row">
-              <text
-                selectable={false}
-                attributes={selected === index ? TextAttributes.BOLD : 0}
-                fg={selected === index ? palette.accent : palette.text}
-                width={Math.max(1, width - 4 - action.shortcut.length)}
-                content={terminalLine(
-                  `${focused && selected === index ? "> " : ""}${action.label}`,
-                  Math.max(1, width - 4 - action.shortcut.length),
-                )}
-              />
-              <text
-                selectable={false}
-                fg={palette.muted}
-                content={action.shortcut}
-              />
-            </box>
-            {!compact && (
+    <box width={width} height={height} flexDirection="column">
+      {canSearch && (
+        <input
+          id="sidebar-menu-search"
+          value={query}
+          width="100%"
+          marginBottom={1}
+          placeholder="Найти действие /"
+          focused={focused && searching}
+          backgroundColor={palette.raised}
+          textColor={palette.text}
+          focusedTextColor={palette.text}
+          placeholderColor={palette.muted}
+          onMouseDown={() => {
+            onFocus();
+            setSearching(true);
+          }}
+          onInput={(value) => {
+            setQuery(cleanSettingsInput(value).slice(0, 200));
+            setSelectedKey(undefined);
+          }}
+        />
+      )}
+      <TerminalScrollbox
+        id="sidebar-menu"
+        ref={scroll}
+        width={width}
+        height={Math.max(1, height - (canSearch ? 2 : 0))}
+        focused={false}
+        paddingLeft={1}
+        paddingRight={1}
+        viewportCulling
+        renderBefore={restore}
+      >
+        {!actions.length && <text fg={palette.muted}>Ничего не найдено</text>}
+        {actions.map((action, row) => (
+          <box key={action.id} flexDirection="column" flexShrink={0}>
+            {(row === 0 || action.group !== actions[row - 1]?.group) && (
               <text
                 height={1}
-                selectable={false}
+                marginTop={row ? 1 : 0}
                 fg={palette.muted}
-                content={terminalLine(action.detail, Math.max(1, width - 4))}
-              />
+                attributes={TextAttributes.BOLD}
+                selectable={false}
+              >
+                {action.group}
+              </text>
             )}
+            <DialogAction
+              id={`sidebar-menu-${action.id}`}
+              palette={palette}
+              active={row === selected}
+              label={terminalLine(
+                `${focused && selected === row ? "> " : ""}${action.label}`,
+                Math.max(1, width - 5 - action.shortcut.length),
+              )}
+              subtitle={
+                compact
+                  ? undefined
+                  : terminalLine(action.detail, Math.max(1, width - 4))
+              }
+              trailing={{ label: action.shortcut }}
+              onSelect={() => {
+                pick(row);
+                onFocus();
+                action.run();
+              }}
+            />
           </box>
-        </box>
-      ))}
-    </TerminalScrollbox>
+        ))}
+      </TerminalScrollbox>
+    </box>
   );
 }

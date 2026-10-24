@@ -51,6 +51,7 @@ import {
   type UiToolSubmit,
 } from "./extension-ui.js";
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
+import type { MotionPreference } from "./motion.js";
 import { OpenTuiAgentDetails } from "./opentui-agent-details.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import { OpenTuiBackgroundDetails } from "./opentui-background-details.js";
@@ -69,6 +70,7 @@ import {
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
+import { OpenTuiMotion } from "./opentui-motion.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPermissions } from "./opentui-permissions.js";
 import { OpenTuiPrompt } from "./opentui-prompt.js";
@@ -135,7 +137,11 @@ const PATCH = `diff --git a/example.ts b/example.ts
 
 /** The regular agent supplies a workspace; standalone probes keep their fixture. */
 export function OpenTuiSpike(
-  props: Parameters<typeof OpenTuiScreen>[0] & { clipboard?: ClipboardService },
+  props: Parameters<typeof OpenTuiScreen>[0] & {
+    clipboard?: ClipboardService;
+    motion?: MotionPreference;
+    onMotionChange?(preference: MotionPreference): void | Promise<void>;
+  },
 ) {
   const [, refresh] = useState(0);
   const [theme, setTheme] = useState(props.initialTheme ?? "obsidian");
@@ -161,46 +167,48 @@ export function OpenTuiSpike(
     props.initialSettingsOpen ? currentScreenKey : undefined,
   );
   return (
-    <OpenTuiClipboard
-      palette={
-        props.themeCatalog?.palette(previewTheme ?? theme, props.accent) ??
-        themePalette(previewTheme ?? theme, props.accent)
-      }
-      clipboard={props.clipboard}
-    >
-      <OpenTuiScreen
-        key={settingsOwnerKey ?? currentScreenKey}
-        {...props}
-        onSettingsVisibility={(open) =>
-          setSettingsOwnerKey(open ? currentScreenKey : undefined)
+    <OpenTuiMotion preference={props.motion} onChange={props.onMotionChange}>
+      <OpenTuiClipboard
+        palette={
+          props.themeCatalog?.palette(previewTheme ?? theme, props.accent) ??
+          themePalette(previewTheme ?? theme, props.accent)
         }
-        controller={controller}
-        approvalResolver={
-          props.approvalResolver ??
-          (controller
-            ? props.workspace?.execution(controller).approvalResolver
-            : undefined)
-        }
-        onThemePreview={setPreviewTheme}
-        initialTheme={theme}
-        initialSettingsOpen={setupOpen}
-        allowBypassPermissions={bypassAllowed}
-        onBypassAvailabilityChange={
-          props.onBypassAvailabilityChange
-            ? async (allowed) => {
-                await props.onBypassAvailabilityChange?.(allowed);
-                setBypassAllowed(allowed);
-              }
-            : undefined
-        }
-        onInitialSettingsComplete={() => setSetupOpen(false)}
-        onThemeChange={async (next) => {
-          await props.onThemeChange?.(next);
-          setTheme(next);
-          setPreviewTheme(undefined);
-        }}
-      />
-    </OpenTuiClipboard>
+        clipboard={props.clipboard}
+      >
+        <OpenTuiScreen
+          key={settingsOwnerKey ?? currentScreenKey}
+          {...props}
+          onSettingsVisibility={(open) =>
+            setSettingsOwnerKey(open ? currentScreenKey : undefined)
+          }
+          controller={controller}
+          approvalResolver={
+            props.approvalResolver ??
+            (controller
+              ? props.workspace?.execution(controller).approvalResolver
+              : undefined)
+          }
+          onThemePreview={setPreviewTheme}
+          initialTheme={theme}
+          initialSettingsOpen={setupOpen}
+          allowBypassPermissions={bypassAllowed}
+          onBypassAvailabilityChange={
+            props.onBypassAvailabilityChange
+              ? async (allowed) => {
+                  await props.onBypassAvailabilityChange?.(allowed);
+                  setBypassAllowed(allowed);
+                }
+              : undefined
+          }
+          onInitialSettingsComplete={() => setSetupOpen(false)}
+          onThemeChange={async (next) => {
+            await props.onThemeChange?.(next);
+            setTheme(next);
+            setPreviewTheme(undefined);
+          }}
+        />
+      </OpenTuiClipboard>
+    </OpenTuiMotion>
   );
 }
 
@@ -818,7 +826,8 @@ function OpenTuiScreen({
     (homeCompact ? 1 : 2) +
     (homeHeight >= 10 ? 1 : 0) +
     (homeHeight >= 18 ? 1 : 0) +
-    5;
+    4 +
+    (textWidth >= 64 && homeHeight >= 28 ? 2 : 0);
   const editorLimit = Math.max(
     1,
     Math.min(
@@ -1260,6 +1269,13 @@ function OpenTuiScreen({
       return;
     }
     if (sidebarFocused) {
+      if (
+        nativeRenderer.currentFocusedRenderable?.id === "sidebar-menu-search" &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.option
+      )
+        return;
       if (key.ctrl && key.name === "b") {
         key.preventDefault();
         key.stopPropagation();
@@ -2298,7 +2314,9 @@ function OpenTuiScreen({
                         ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
                         : composerWidth >= 45
                           ? "Enter отправить | Shift+Tab режим | F4 разрешения"
-                          : "Shift+Tab режим | F4",
+                          : composerWidth >= 30
+                            ? "Shift+Tab режим · F4"
+                            : "Enter · F4 доступ",
                   composerWidth,
                 )}
               </text>
@@ -2365,6 +2383,11 @@ function OpenTuiScreen({
                       palette={palette}
                       updateNotice={notice}
                       onUpdate={openUpdate}
+                      onSettings={() => openSettings("connection")}
+                      onModels={getModelsActions ? openModels : undefined}
+                      onSessions={
+                        sessionPicker ? () => submit("/sessions") : undefined
+                      }
                       feedback={
                         view.transcript.length > 0 &&
                         !visibleSuggestions.length ? (

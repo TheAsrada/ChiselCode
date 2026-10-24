@@ -191,7 +191,7 @@ export function OpenTuiTranscript({
             return (
               <box
                 key={entry.id}
-                width="100%"
+                width={Math.max(1, Math.min(104, contentWidth))}
                 backgroundColor={palette.surface}
                 paddingLeft={1}
                 paddingRight={1}

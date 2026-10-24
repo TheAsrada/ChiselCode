@@ -4,6 +4,8 @@ import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
 import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import { UiSurface } from "./opentui-composition.js";
+import { DialogAction } from "./opentui-dialog.js";
+import { ActivityIndicator } from "./opentui-motion.js";
 
 import { terminalLine } from "./terminal-text.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
@@ -28,10 +30,10 @@ function TabAction({
       width={width}
       height={3}
       flexShrink={0}
-      border
-      borderStyle="rounded"
-      borderColor={palette.border}
-      backgroundColor={palette.surface}
+      border={["bottom"]}
+      borderColor={palette.bg}
+      backgroundColor={palette.bg}
+      paddingTop={1}
       alignItems="center"
       onMouseUp={(event) => {
         if (event.button !== 0) return;
@@ -117,24 +119,27 @@ export function SessionTabs({
             width={tabWidth}
             height={3}
             flexShrink={0}
-            border
-            borderStyle="rounded"
+            border={["bottom"]}
             borderColor={
               awaitingApproval
                 ? palette.yellow
                 : active
                   ? palette.accent
-                  : palette.border
+                  : palette.bg
             }
             backgroundColor={active ? palette.surface : palette.bg}
             flexDirection="row"
             gap={1}
             paddingLeft={1}
             paddingRight={1}
+            paddingTop={1}
             onMouseUp={(event) => {
               if (event.button === 0) workspace.select(tab.key);
             }}
           >
+            {busy && (
+              <ActivityIndicator palette={palette} paused={awaitingApproval} />
+            )}
             <text
               fg={
                 awaitingApproval
@@ -143,19 +148,20 @@ export function SessionTabs({
                     ? palette.text
                     : palette.muted
               }
-              width={Math.max(1, tabWidth - 6)}
+              width={Math.max(1, tabWidth - 6 - (busy ? 2 : 0))}
               height={1}
               selectable={false}
             >
               {terminalLine(
-                `${awaitingApproval ? "? " : busy ? "* " : ""}${activeChildren ? `${activeChildren}п · ` : ""}${title}`,
-                Math.max(1, tabWidth - 6),
+                `${awaitingApproval && !busy ? "? " : ""}${activeChildren ? `${activeChildren}п · ` : ""}${title}`,
+                Math.max(1, tabWidth - 6 - (busy ? 2 : 0)),
               )}
             </text>
             {/* biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+W also closes the selected tab. */}
             <box
-              width={1}
+              width={3}
               height={1}
+              alignItems="center"
               onMouseUp={(event) => {
                 if (event.button !== 0) return;
                 event.stopPropagation();
@@ -200,6 +206,9 @@ export function OpenTuiHome({
   feedback,
   updateNotice,
   onUpdate,
+  onSettings,
+  onModels,
+  onSessions,
 }: {
   projectPath: string;
   width: number;
@@ -209,6 +218,9 @@ export function OpenTuiHome({
   feedback?: ReactNode;
   updateNotice?: string;
   onUpdate?: () => void;
+  onSettings?: () => void;
+  onModels?: () => void;
+  onSessions?: () => void;
 }) {
   const logoWidth = LOGO_WIDTH;
   const logoRows = renderLogoRows();
@@ -261,6 +273,42 @@ export function OpenTuiHome({
         </UiSurface>
         <box height={height >= 12 ? 1 : 0} flexShrink={0} />
         {children}
+        {width >= 64 && height >= 28 && (
+          <box
+            height={2}
+            paddingTop={1}
+            flexShrink={0}
+            width="100%"
+            flexDirection="row"
+            justifyContent="center"
+            gap={2}
+          >
+            {onModels && (
+              <DialogAction
+                id="home-models"
+                label="Модель /model"
+                palette={{ ...palette, surface: palette.bg }}
+                onSelect={onModels}
+              />
+            )}
+            {onSessions && (
+              <DialogAction
+                id="home-sessions"
+                label="История /sessions"
+                palette={{ ...palette, surface: palette.bg }}
+                onSelect={onSessions}
+              />
+            )}
+            {onSettings && (
+              <DialogAction
+                id="home-settings"
+                label="Настройки Ctrl+,"
+                palette={{ ...palette, surface: palette.bg }}
+                onSelect={onSettings}
+              />
+            )}
+          </box>
+        )}
         {updateNotice && (
           // biome-ignore lint/a11y/noStaticElementInteractions: /update also opens the updater.
           <box

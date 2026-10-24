@@ -28,6 +28,7 @@ jobs:
       CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
       CHISEL_THEME_CAPTURES: dist/theme-captures
       CHISEL_WORKTREE_CAPTURE_DIR: ${{ github.workspace }}/dist/worktree-manager-captures
+      CHISEL_DESIGN_CAPTURES: ${{ github.workspace }}/dist/ui-design-captures
       CHISEL_EXTERNAL_CAPTURES: ${{ github.workspace }}/dist/external-extension-captures
       CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
     steps:
@@ -118,6 +119,7 @@ jobs:
           tests/unit/opentui-extension-settings.test.tsx
           tests/unit/self-update.test.ts tests/unit/update-controller.test.ts
           tests/unit/worktree-actions.test.ts tests/unit/opentui-worktrees.test.tsx
+          tests/unit/motion.test.ts tests/unit/opentui-motion.test.tsx
           tests/unit/tools.test.ts tests/integration/worktrees-runtime.test.ts
       - name: Prepare NSIS for real Windows updater regression
         if: runner.os == 'Windows'
@@ -203,6 +205,13 @@ jobs:
           binary=dist/chisel-worktree-manager
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
           bun build tests/fixtures/tui-worktree-manager.ts --compile --outfile="$binary"
+          "$binary"
+      - name: Compiled design, motion preferences, stable editor and menu search
+        shell: bash
+        run: |
+          binary=dist/chisel-ui-design
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/tui-ui-design.ts --compile --outfile="$binary"
           "$binary"
       - uses: actions/upload-artifact@v4
         with:

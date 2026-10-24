@@ -1,0 +1,8 @@
+     <i> ChiselCode     
+┌─ Черновик ────────────
+│  Изучи интерфейс 👩‍💻   
+│  汉字 é               
+│   Build   Manual ▾    
+│  fixture-des...       
+│                       
+Enter · F4 доступ       

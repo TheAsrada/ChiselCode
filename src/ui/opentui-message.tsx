@@ -179,7 +179,7 @@ export function FormattedMessage({
     text: uiColor(palette, native.fg) ?? palette.text,
     surface: uiColor(palette, native.bg) ?? palette.surface,
   };
-  const available = Math.max(1, width - 1);
+  const available = Math.max(1, Math.min(104, width) - 1);
   const colors = useMemo(
     () =>
       ({
@@ -440,9 +440,10 @@ export function FormattedMessage({
   return (
     <box
       id={id}
-      width="100%"
+      width={Math.max(1, Math.min(104, width))}
       flexDirection="column"
       paddingLeft={1}
+      marginTop={1}
       flexShrink={0}
       {...uiBoxStyle(palette, native)}
     >

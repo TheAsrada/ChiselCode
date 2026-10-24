@@ -227,6 +227,7 @@ export interface GlobalConfig {
   /** @deprecated Only unambiguous legacy provider configurations are projected. */
   providers: Partial<Record<ProviderId, ProviderConfig>>;
   ui?: {
+    motion?: "full" | "reduced";
     /** @deprecated Legacy input only; panel visibility is local to the current screen. */
     sidebarMode?: "auto" | "show" | "hide";
     theme?:

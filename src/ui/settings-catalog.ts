@@ -47,8 +47,18 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     id: "appearance",
     group: "Внешний вид",
     title: "Тема",
-    description: "Цветовая тема и предпросмотр",
-    keywords: ["appearance", "theme", "тема", "цвет", "terminal", "графика"],
+    description: "Тема, предпросмотр и плавность интерфейса",
+    keywords: [
+      "appearance",
+      "theme",
+      "тема",
+      "цвет",
+      "terminal",
+      "графика",
+      "motion",
+      "анимации",
+      "плавность",
+    ],
     fields: [
       {
         id: "theme",

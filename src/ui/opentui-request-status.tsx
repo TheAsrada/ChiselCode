@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 import { useEffect, useState } from "react";
 import type { Palette } from "./appearance.js";
+import { ActivityIndicator, ActivityRail } from "./opentui-motion.js";
 import { elapsedSeconds } from "./request-timing.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiController } from "./tui-controller.js";
@@ -26,11 +27,23 @@ export function OpenTuiRequestStatus({
   }, [startedAt]);
   if (startedAt === undefined) return null;
   return (
-    <box width="100%" height={1} flexShrink={0} paddingLeft={1}>
+    <box
+      width="100%"
+      height={1}
+      flexShrink={0}
+      paddingLeft={1}
+      flexDirection="row"
+      gap={1}
+    >
+      {width >= 70 && !awaitingApproval ? (
+        <ActivityRail palette={palette} />
+      ) : (
+        <ActivityIndicator palette={palette} paused={awaitingApproval} />
+      )}
       <text id="request-status" fg={palette.muted} height={1}>
         {terminalLine(
           `${awaitingApproval ? "Ожидаю подтверждения" : "Думаю"} · ${elapsedSeconds(controller.requestElapsedMs)}`,
-          Math.max(1, width - 1),
+          Math.max(1, width - (width >= 70 && !awaitingApproval ? 10 : 3)),
         )}
       </text>
     </box>

@@ -110,14 +110,15 @@ export function OpenTuiPrompt({
       id="prompt"
       width="100%"
       flexShrink={0}
-      border
-      borderStyle="rounded"
+      border={["left", "top"]}
+      borderStyle="single"
       borderColor={focused ? modeColor : palette.border}
       backgroundColor={palette.surface}
       titleColor={palette.muted}
       paddingLeft={2}
       paddingRight={2}
-      paddingTop={1}
+      paddingTop={0}
+      paddingBottom={1}
       flexDirection="column"
       {...uiBoxStyle(palette, native)}
       title={native.title ?? (hasDraft ? " Черновик " : " Сообщение ")}
@@ -180,31 +181,33 @@ export function OpenTuiPrompt({
                   : width < 45 && approvalMode === "dontAsk"
                     ? "Allowed"
                     : APPROVAL_MODE_LABELS[approvalMode]}{" "}
-                v
+                ▾
               </text>
             </box>
           </box>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: Enter also submits the message. */}
-          <box
-            id="prompt-send"
-            flexShrink={0}
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={hasDraft ? palette.raised : palette.surface}
-            onMouseUp={(event) => {
-              if (event.button !== 0) return;
-              event.stopPropagation();
-              if (hasDraft) onSubmit();
-            }}
-          >
-            <text
-              fg={hasDraft ? palette.accent : palette.muted}
-              height={1}
-              selectable={false}
+          {width >= 30 && (
+            // biome-ignore lint/a11y/noStaticElementInteractions: Enter also submits the message.
+            <box
+              id="prompt-send"
+              flexShrink={0}
+              paddingLeft={1}
+              paddingRight={1}
+              backgroundColor={hasDraft ? palette.accent : palette.surface}
+              onMouseUp={(event) => {
+                if (event.button !== 0) return;
+                event.stopPropagation();
+                if (hasDraft) onSubmit();
+              }}
             >
-              {width >= 60 ? `Отправить | ${ENTER_KEY}` : ENTER_KEY}
-            </text>
-          </box>
+              <text
+                fg={hasDraft ? palette.bg : palette.muted}
+                height={1}
+                selectable={false}
+              >
+                {width >= 60 ? `Отправить | ${ENTER_KEY}` : ENTER_KEY}
+              </text>
+            </box>
+          )}
         </box>
       </UiSurface>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: /model also opens the model picker. */}
@@ -220,7 +223,7 @@ export function OpenTuiPrompt({
         }}
       >
         {terminalLine(
-          `${caption || "Модель не выбрана"}${onModelSelect ? " v" : ""}`,
+          `${caption || "Модель не выбрана"}${onModelSelect ? " ▾" : ""}`,
           Math.max(1, width - 6),
         )}
       </text>

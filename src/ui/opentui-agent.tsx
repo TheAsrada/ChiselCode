@@ -2218,6 +2218,17 @@ async function runApplication(
           });
         },
         initialTheme: currentTheme,
+        motion: config.ui?.motion,
+        onMotionChange: (motion) => {
+          const saved = pendingSave.then(async () => {
+            await updateGlobalConfig(options.configPath, (current) => ({
+              ...current,
+              ui: { ...current.ui, motion },
+            }));
+          });
+          pendingSave = saved.catch(() => {});
+          return saved;
+        },
         themeCatalog: extensionHost.themes,
         accent: config.ui?.accent,
         onThemeChange: (theme) => {

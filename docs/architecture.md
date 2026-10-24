@@ -1,5 +1,7 @@
 # Архитектура ChiselCode
 
+[Визуальная система и анимации OpenTUI](architecture/interface-motion.md) описывают общие поверхности, локальные переходы, поиск меню и сохранение native фокуса.
+
 [Документация](README.md) · [Главная](../README.md)
 
 Внешний ESM loader проверяет подготовленный package, exact trust и immutable runtime snapshot, затем подключает optional frame к существующему host. Публичный SDK использует узкие adapters тех же tools/commands/chat/UI; встроенные linked contracts остаются внутренними. Подробности: [external loader](architecture/external-extensions.md), [SDK автора](extensions/README.md).

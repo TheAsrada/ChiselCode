@@ -165,11 +165,10 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
       await key(setup, "ARROW_DOWN");
       await key(setup, "ARROW_DOWN");
       await key(setup, "RETURN");
-      expect(controller.snapshot.overlay).toBeUndefined();
-      expect(controller.snapshot.focus).toBe("sidebar");
+      expect(controller.snapshot.overlay).toBe("settings");
+      expect(controller.snapshot.focus).toBe("modal");
       expect(submissions).toHaveLength(0);
       expect(controller.snapshot.draft).toBe("Черновик следующего сообщения");
-      await click(setup, "sidebar-menu-appearance");
       expect(controller.snapshot.overlay).toBe("settings");
       expect(
         setup.renderer.root.findDescendantById("settings-popup"),

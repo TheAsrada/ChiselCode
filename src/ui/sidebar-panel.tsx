@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/react */
 import { TextAttributes } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 
 import { type ReactNode, useRef, useState } from "react";
 import type { Palette } from "./appearance.js";
@@ -51,11 +52,19 @@ export function SidebarPanel({
   children: ReactNode;
 }) {
   const [hovered, setHovered] = useState<SidebarTab>();
+  const renderer = useRenderer();
   const pressed = useRef<SidebarTab | undefined>(undefined);
   const chrome = sidebarChrome(height);
   const tabWidth = Math.max(1, Math.floor((width - (width >= 30 ? 2 : 0)) / 3));
   useUiKeyboard((key) => {
     if (!focused || capturedInputOwner(key) !== owner) return;
+    if (
+      renderer.currentFocusedRenderable?.id === "sidebar-menu-search" &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.option
+    )
+      return;
     if (key.name === "f7" && tab !== "agents") {
       key.preventDefault();
       key.stopPropagation();
@@ -234,7 +243,7 @@ export function SidebarPanel({
           content={terminalLine(
             focused
               ? tab === "menu"
-                ? "Space открыть · 1-3 · Esc в чат"
+                ? "Enter открыть · / поиск · Esc в чат"
                 : "1-3 разделы · [ ] · Esc в чат"
               : "Ctrl+B панель · F7 агенты",
             Math.max(1, width - 1),

@@ -31,6 +31,7 @@ export const GlobalConfigV2Schema = z.looseObject({
     .optional(),
   ui: z
     .looseObject({
+      motion: z.enum(["full", "reduced"]).optional(),
       theme: z
         .union([
           z.enum(["obsidian", "graphite", "ember", "paper"]),
