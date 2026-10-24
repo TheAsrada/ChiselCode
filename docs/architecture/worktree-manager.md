@@ -2,7 +2,7 @@
 
 [Архитектура](../architecture.md#сервис-рабочих-копий) · [Документация](../README.md) · [Руководство](../worktrees.md)
 
-Реализация подготовлена для CLI 0.6.40. OpenTUI использует штатные `builtin.worktrees`, `WorktreeService`, ToolExecutor и механизм вкладок. Демонстрационный прототип из [плана](../contributors/plans/worktree-manager.md) не импортируется в продукт.
+Менеджер выпущен в [CLI 0.6.40](../contributors/reports/release-0.6.40.md). OpenTUI использует штатные `builtin.worktrees`, `WorktreeService`, ToolExecutor и механизм вкладок. Демонстрационный прототип из [плана](../contributors/plans/worktree-manager.md) не импортируется в продукт.
 
 ## Модель состояния и область прав
 
