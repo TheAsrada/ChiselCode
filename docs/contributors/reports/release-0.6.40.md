@@ -19,7 +19,7 @@ Release source — `f987268db7c0344107720e6787fa12057b93c956`, отправле�
 
 Полный Linux source: **1357 pass, 3 skip, 0 fail**, 12092 expect-вызова, 1360 тестов в 173 файлах за 345,98 с. На Linux пропущены системный clipboard и две проверки CMD/Windows Python. Typecheck, lint, eval и дополнительные OpenTUI/extension fixtures также прошли. Lint не содержит блокирующих ошибок; прежние предупреждения не отключались.
 
-Дополнительный платформенный набор из 359 тестов в 45 файлах: Windows — 358 pass, 1 skip, 0 fail за 358,98 с; macOS — 356 pass, 3 skip, 0 fail за 106,58 с. Пропуск Windows относится к проверке detached orphan; пропуски macOS — clipboard и две проверки CMD/Windows Python.
+Дополнительный платформенный набор из 359 тестов в 45 файлах: Windows — 358 pass, 1 skip, 0 fail за 358,98 с; macOS — 356 pass, 3 skip, 0 fail за 106,58 с. Пропуск Windows относится к проверке detached orphan; пропуски macOS — detached orphan и две проверки CMD/Windows Python.
 
 На трёх ОС прошли installed npm и compiled smoke, настоящий OpenTUI, инструменты, рабочие копии, LSP, MCP, навыки и расширения. Compiled production-сценарий нового менеджера на каждой ОС создал копию через настоящий Git approval, выполнил обычный model → read/write → model, сохранил origin до переноса, показал diff, перенёс результат с проверкой fingerprints, вернулся в origin, закрыл вкладку, отказал в опасном удалении и удалил отдельную чистую копию. Проверены resize и отсутствие лишних модельных запросов/представлений чата. Windows дополнительно прошёл реальное обновление исполняемого файла и перезапуск консоли.
 

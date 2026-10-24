@@ -335,6 +335,12 @@ test("repeated message fields have independent focus, presentation context and c
     await act(async () => setup.renderer.destroy());
     await host.dispose();
     workspace.dispose();
-    await rm(root, { recursive: true, force: true });
+    // Windows may briefly retain a handle after disposal; bound fixture cleanup.
+    await rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 50,
+    });
   }
 });

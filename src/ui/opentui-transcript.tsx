@@ -182,6 +182,7 @@ export function OpenTuiTranscript({
               <FormattedMessage
                 key={entry.id}
                 id={`assistant-${entry.id}`}
+                marginTop={1}
                 content={entry.text}
                 palette={palette}
                 width={contentWidth}

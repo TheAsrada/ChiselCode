@@ -1,4 +1,5 @@
 /** @jsxImportSource @opentui/react */
+import { RGBA, StyledText, type TextRenderable } from "@opentui/core";
 import {
   createContext,
   type ReactNode,
@@ -134,7 +135,7 @@ export function ActivityIndicator({
   id?: string;
 }) {
   const { clock, enabled } = useMotion();
-  const [frame, setFrame] = useState(0);
+  const node = useRef<TextRenderable>(null);
   useEffect(() => {
     if (!clock || !enabled || paused) return;
     const start = performance.now();
@@ -143,7 +144,8 @@ export function ActivityIndicator({
       const next = Math.floor((now - start) / 80) % 10;
       if (next !== previous) {
         previous = next;
-        setFrame(next);
+        if (node.current && !node.current.isDestroyed)
+          node.current.content = SPINNER_FRAMES[next] ?? "⠋";
       }
       return true;
     });
@@ -151,48 +153,75 @@ export function ActivityIndicator({
   return (
     <text
       id={id}
+      ref={node}
       width={1}
       height={1}
       flexShrink={0}
       selectable={false}
       fg={paused ? palette.yellow : palette.accent}
-    >
-      {paused
-        ? "◆"
-        : enabled
-          ? ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"][frame]
-          : "·"}
-    </text>
+      content={paused ? "◆" : enabled ? SPINNER_FRAMES[0] : "·"}
+    />
+  );
+}
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+function activityText(
+  palette: Pick<Palette, "border" | "accent">,
+  phase: number,
+  enabled: boolean,
+): StyledText {
+  const front = phase * 14 - 3;
+  return new StyledText(
+    [0, 1, 2, 3, 4, 5, 6, 7].map((column) => ({
+      __isChunk: true as const,
+      text: "━",
+      fg: RGBA.fromHex(
+        mixColor(
+          palette.border,
+          palette.accent,
+          enabled ? Math.max(0, 1 - Math.abs(column - front) / 2.5) : 0,
+        ),
+      ),
+    })),
   );
 }
 
 /** An indeterminate light band: activity feedback, never a fabricated percentage. */
 export function ActivityRail({ palette }: { palette: Palette }) {
   const { clock, enabled } = useMotion();
-  const [phase, setPhase] = useState(0);
+  const node = useRef<TextRenderable>(null);
+  const colors = useRef(palette);
+  colors.current = palette;
+  const initial = useMemo(
+    () =>
+      activityText(
+        { border: palette.border, accent: palette.accent },
+        0,
+        enabled,
+      ),
+    [palette.border, palette.accent, enabled],
+  );
   useEffect(() => {
     if (!clock || !enabled) return;
     const start = performance.now();
     return clock.add((now) => {
-      setPhase(((now - start) % 1400) / 1400);
+      if (node.current && !node.current.isDestroyed)
+        node.current.content = activityText(
+          colors.current,
+          ((now - start) % 1400) / 1400,
+          true,
+        );
       return true;
     });
   }, [clock, enabled]);
-  const front = phase * 14 - 3;
   return (
-    <text width={8} height={1} flexShrink={0} selectable={false}>
-      {[0, 1, 2, 3, 4, 5, 6, 7].map((column) => (
-        <span
-          key={column}
-          fg={mixColor(
-            palette.border,
-            palette.accent,
-            enabled ? Math.max(0, 1 - Math.abs(column - front) / 2.5) : 0,
-          )}
-        >
-          ━
-        </span>
-      ))}
-    </text>
+    <text
+      ref={node}
+      width={8}
+      height={1}
+      flexShrink={0}
+      selectable={false}
+      content={initial}
+    />
   );
 }

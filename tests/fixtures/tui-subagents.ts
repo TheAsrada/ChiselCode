@@ -506,18 +506,29 @@ try {
   ) as TextareaRenderable;
   assert.ok(menuEditor, "Нет редактора сообщения");
   const menuDraft = menuEditor.plainText;
+  await key("/");
+  await until(
+    () => ui.renderer.currentFocusedRenderable?.id === "sidebar-menu-search",
+    "Поиск меню не получил фокус",
+  );
+  await act(async () => {
+    await ui.mockInput.pasteBracketedText("Внешний вид");
+  });
+  await frame();
+  await capture("ordinary-tui-120x40-menu");
   await key("RETURN");
-  assert.ok(
-    ui.captureCharFrame().includes("> Меню"),
-    "Enter изменил фокус меню",
+  await until(
+    () => !!ui.renderer.root.findDescendantById("settings-popup"),
+    "Enter не открыл выбранные настройки",
   );
   assert.equal(
     ui.renderer.root.findDescendantById("background-tasks-popup"),
     undefined,
-    "Enter открыл окно из меню",
+    "Enter открыл другое окно вместо выбранных настроек",
   );
   assert.equal(menuEditor.plainText, menuDraft, "Enter изменил черновик чата");
-  await capture("ordinary-tui-120x40-menu");
+  assert.equal(parentCalls, 2, "Меню изменило выполняющийся запрос модели");
+  await key("ESCAPE");
   const appearance = ui.renderer.root.findDescendantById(
     "sidebar-menu-appearance",
   );

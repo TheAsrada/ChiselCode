@@ -166,12 +166,14 @@ export function FormattedMessage({
   width,
   id,
   streaming = false,
+  marginTop = 0,
 }: {
   content: string;
   palette: Palette;
   width: number;
   id?: string;
   streaming?: boolean;
+  marginTop?: number;
 }) {
   const native = useUiNativePresentation();
   palette = {
@@ -443,7 +445,7 @@ export function FormattedMessage({
       width={Math.max(1, Math.min(104, width))}
       flexDirection="column"
       paddingLeft={1}
-      marginTop={1}
+      marginTop={marginTop}
       flexShrink={0}
       {...uiBoxStyle(palette, native)}
     >

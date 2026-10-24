@@ -157,9 +157,14 @@ try {
   assert.ok(ui.captureCharFrame().includes("Файлы ещё не проверены"));
   await click("sidebar-tab-menu");
   await key("END");
-  await key("RETURN");
-  assert.ok(!ui.renderer.root.findDescendantById("extension-details-popup"));
   await capture("production-menu-160x50");
+  await key("RETURN");
+  await until(
+    () => !!ui.renderer.root.findDescendantById("extension-details-popup"),
+    "Enter не открыл выбранный generic view",
+  );
+  assert.equal(fixture.writes(), 0, "Открытие view не выполняет запись");
+  await key("ESCAPE");
   await key(" ");
   await until(
     () => !!ui.renderer.root.findDescendantById("extension-details-popup"),
