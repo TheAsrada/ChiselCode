@@ -378,28 +378,33 @@ try {
   await until(() => parentHeld, "Основной агент не продолжил запрос");
   const store = await projectSessionStore(root);
   const approved = new Set<string>();
-  for (let index = 0; index < 2; index++) {
+  const handled = new Set<string>();
+  const labels = ["Первая задача", "Вторая задача", "Остановка при разрешении"];
+  // Concurrent helpers may reach approval in any order, especially on Windows.
+  for (let index = 0; index < labels.length; index++) {
+    let label: string | undefined;
     await until(() => {
       if (!ui.renderer.root.findDescendantById("approval-popup")) return false;
-      const label = /Помощник: ([^·]+)/
-        .exec(ui.captureCharFrame())?.[1]
-        ?.trim();
-      return !!label && !approved.has(label);
+      label = /Помощник: ([^·]+)/.exec(ui.captureCharFrame())?.[1]?.trim();
+      return !!label && !handled.has(label);
     }, "Нет отдельного адресованного разрешения помощника");
-    const label = /Помощник: ([^·]+)/.exec(ui.captureCharFrame())?.[1]?.trim();
-    assert.ok(label && ["Первая задача", "Вторая задача"].includes(label));
-    await capture(`ordinary-tui-120x40-approval-${index + 1}`);
-    approved.add(label);
-    await key("y");
+    assert.ok(label && labels.includes(label), ui.captureCharFrame());
+    handled.add(label);
+    if (label === "Остановка при разрешении") {
+      assert.ok(ui.renderer.root.findDescendantById("approval-stop-child"));
+      await capture("ordinary-tui-120x40-approval-stop");
+      await key("s");
+    } else {
+      approved.add(label);
+      await capture(`ordinary-tui-120x40-approval-${approved.size}`);
+      await key("y");
+    }
   }
-  await until(
-    () =>
-      !!ui.renderer.root.findDescendantById("approval-stop-child") &&
-      ui.captureCharFrame().includes("Остановка при разрешении"),
-    "Нет адресованного разрешения для отдельной остановки",
+  assert.deepEqual(
+    [...approved].sort(),
+    ["Первая задача", "Вторая задача"].sort(),
   );
-  await capture("ordinary-tui-120x40-approval-stop");
-  await key("s");
+  assert.equal(handled.size, 3);
   let parent!: Awaited<ReturnType<typeof store.load>>;
   await until(async () => {
     const summary = (await store.list()).find((item) => !item.subagentOwnerId);
