@@ -27,6 +27,8 @@ export function skillSourceHttp() {
       .digest("hex");
   const hits: string[] = [];
   let corrupt = false,
+    corruptAsset = false,
+    holdReference = false,
     link = false,
     redirect = "",
     block: (() => void) | undefined;
@@ -35,6 +37,12 @@ export function skillSourceHttp() {
     hits,
     set corrupt(value: boolean) {
       corrupt = value;
+    },
+    set corruptAsset(value: boolean) {
+      corruptAsset = value;
+    },
+    set holdReference(value: boolean) {
+      holdReference = value;
     },
     set link(value: boolean) {
       link = value;
@@ -98,16 +106,20 @@ export function skillSourceHttp() {
           block();
           return;
         }
-        const bytes = [...files.values()].find(
-          (bytes) => sha(bytes) === url.pathname.split("/").at(-1),
+        const entry = [...files].find(
+          ([, bytes]) => sha(bytes) === url.pathname.split("/").at(-1),
         );
+        const bytes = entry?.[1];
+        if (holdReference && entry?.[0].includes("references/")) return;
         if (bytes) {
           res.end(
             JSON.stringify({
               encoding: "base64",
-              content: (corrupt ? Buffer.from("corrupt") : bytes).toString(
-                "base64",
-              ),
+              content: (corrupt ||
+              (corruptAsset && entry?.[0].includes("assets/"))
+                ? Buffer.from("corrupt")
+                : bytes
+              ).toString("base64"),
               size: bytes.length,
             }),
           );

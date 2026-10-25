@@ -37,9 +37,21 @@ export function validateSkillPackage(
       `Навык должен содержать от 1 до ${SKILL_PACKAGE_LIMITS.files} файлов.`,
     );
   const names = new Set<string>();
+  const spellings = new Map<string, string>();
   let total = 0;
   for (const [name, bytes] of files) {
     packageRelativePath(name);
+    const parts = name.split("/");
+    for (let i = 1; i <= parts.length; i++) {
+      const prefix = parts.slice(0, i).join("/");
+      const folded = prefix.normalize("NFC").toLowerCase();
+      const previous = spellings.get(folded);
+      if (previous !== undefined && previous !== prefix)
+        throw new Error(
+          `Неоднозначный регистр или Unicode в пути навыка: ${prefix}`,
+        );
+      spellings.set(folded, prefix);
+    }
     const key = name.normalize("NFC").toLowerCase();
     if (
       key === SKILL_RECEIPT ||

@@ -176,6 +176,7 @@ export class RemoteSkills {
       : controller.signal;
     const remaining = entries.filter((entry) => entry !== instructionEntry);
     let next = 0;
+    let downloadFailure: unknown;
     try {
       const settled = await Promise.allSettled(
         Array.from({ length: Math.min(4, remaining.length) }, async () => {
@@ -190,13 +191,16 @@ export class RemoteSkills {
           }
         }).map((job) =>
           job.catch((error) => {
-            controller.abort(error);
+            if (!controller.signal.aborted) {
+              downloadFailure = error;
+              controller.abort(error);
+            }
             throw error;
           }),
         ),
       );
       const failed = settled.find((result) => result.status === "rejected");
-      if (failed?.status === "rejected") throw failed.reason;
+      if (failed?.status === "rejected") throw downloadFailure ?? failed.reason;
     } finally {
       controller.abort();
     }

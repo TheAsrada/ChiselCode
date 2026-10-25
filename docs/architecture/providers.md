@@ -60,6 +60,16 @@ Deprecated constructors в providers/openai.ts, anthropic.ts, agentrouter.ts и 
 
 ## Драйверы и AgentRouter
 
+Пользовательские параметры подключения перечислены в [руководстве провайдеров](../providers.md#встроенные-сервисы). Внутри runtime встроенные определения связаны с протоколами так:
+
+| Provider ID | Protocol Driver |
+| --- | --- |
+| `anthropic` | `anthropic-messages` |
+| `anthropic-compatible` | `anthropic-messages` |
+| `openai` | `openai-chat` |
+| `openai-compatible` | `openai-chat` |
+| `agentrouter` | `openai-chat` |
+
 `openai-chat` использует Chat Completions, streaming, ordered tool calls и reasoning deltas. OpenAI Responses API не реализован. includeUsage включает stream_options.include_usage по умолчанию, чтобы получать фактический input usage и у совместимых шлюзов. Если сервер отклоняет именно этот параметр с 400, driver повторяет запрос без него и использует оценку. tokenLimitFallback допускает один повтор при 400 о max_completion_tokens с max_tokens; official OpenAI выключает его, gateways включают. Эти повторы выполняются до принятия запроса сервером. AgentRouter — definition поверх generic OpenAI driver, без собственного wire adapter.
 
 `anthropic-messages` использует Messages API, tool translation, streaming и optional native token count. authMode=api-key использует x-api-key; bearer — Authorization. adaptiveThinking и nativeTokenCounting явно задаются options/capabilities. Совместимые шлюзы не получают adaptive thinking автоматически.

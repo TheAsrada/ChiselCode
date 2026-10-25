@@ -31,13 +31,17 @@ test("architecture: SDK imports only in drivers; generic layers have no provider
 });
 test("documentation examples parse actual schemas and metadata remains consistent", async () => {
   const providers = await readFile("docs/providers.md", "utf8");
+  const architecture = await readFile("docs/architecture/providers.md", "utf8");
   for (const d of builtinDefinitions) {
     const row = providers
       .split("\n")
       .find((line) => line.startsWith(`| \`${d.id}\` |`));
     expect(row).toBeDefined();
     expect(row).toContain(d.label);
-    expect(row).toContain(d.driverId);
+    const binding = architecture
+      .split("\n")
+      .find((line) => line.startsWith(`| \`${d.id}\` |`));
+    expect(binding).toContain(d.driverId);
     for (const env of d.auth.envVars) expect(row).toContain(env);
     if (d.defaults.model) expect(row).toContain(d.defaults.model);
     if (d.endpoint.defaultBaseUrl)

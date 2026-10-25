@@ -108,3 +108,17 @@ test("case collisions, overlapping file paths and oversized instructions fail be
       validateSkillPackage(files, "ui-design", { url: "test" }),
     ).toThrow();
 });
+
+test("portable packages reject different spellings of the same parent directory", () => {
+  expect(() =>
+    validateSkillPackage(
+      new Map([
+        ["SKILL.md", skill],
+        ["references/a.md", skill],
+        ["References/b.md", skill],
+      ]),
+      "ui-design",
+      { url: "test" },
+    ),
+  ).toThrow();
+});

@@ -325,6 +325,20 @@ test("cancellation and redirected private addresses leave no installed directory
   }
 });
 
+test("a failed parallel asset preserves its integrity error while cancelling and draining other downloads", async () => {
+  const env = await fixture();
+  try {
+    env.api.corruptAsset = true;
+    env.api.holdReference = true;
+    const result = await env.call("install_skill", input);
+    expect(result.output).toContain("GitHub blob не совпадает");
+    expect(result.errorCode).not.toBe("CANCELLED");
+    expect(await readdir(userSkillsDir()).catch(() => [])).toEqual([]);
+  } finally {
+    await env.close();
+  }
+});
+
 test("references cannot escape the managed skill or read binary assets", async () => {
   const env = await fixture();
   try {
