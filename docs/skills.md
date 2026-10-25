@@ -48,7 +48,7 @@ $ARGUMENTS
 
 ### Установить по ссылке или команде
 
-В CLI 0.6.42 можно попросить агента установить навык прямо в разговоре:
+В [CLI 0.6.42](contributors/reports/release-0.6.42.md) можно попросить агента установить навык прямо в разговоре:
 
 ```text
 Установи навык: npx skills add https://github.com/msmps/opentui-skill --skill opentui
