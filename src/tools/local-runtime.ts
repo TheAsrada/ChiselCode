@@ -12,6 +12,7 @@ import {
 import { HostSandboxExecutor } from "../security/sandbox.js";
 import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { initializeSessionState } from "../sessions/migrations.js";
+import type { RemoteSkills } from "../skills/remote.js";
 import type { Skill } from "../skills/skills.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
 import { ToolCatalog } from "./catalog.js";
@@ -44,6 +45,8 @@ export function createLocalToolRuntime(
     approvalOwner?: import("./types.js").ToolContext["approvalOwner"];
     background?: import("../background/binding.js").BackgroundToolBinding;
     subagentTools?: import("../subagents/service.js").SubagentToolBinding;
+    skillsCatalog?: () => readonly Skill[];
+    remoteSkills?: RemoteSkills;
     worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
   } = {},
 ) {
@@ -59,7 +62,10 @@ export function createLocalToolRuntime(
   );
   for (const handler of [
     ...new LocalToolProvider().handlers,
-    ...new SkillsToolProvider(skills).handlers,
+    ...new SkillsToolProvider(
+      options.skillsCatalog ?? skills,
+      options.remoteSkills,
+    ).handlers,
   ])
     catalog.register(handler);
   const context: ToolContext = {

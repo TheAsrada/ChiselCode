@@ -121,6 +121,7 @@ jobs:
           tests/unit/worktree-actions.test.ts tests/unit/opentui-worktrees.test.tsx
           tests/unit/motion.test.ts tests/unit/opentui-motion.test.tsx
           tests/unit/tools.test.ts tests/integration/worktrees-runtime.test.ts
+          tests/unit/skill-source.test.ts tests/integration/skill-install-runtime.test.ts
       - name: Prepare NSIS for real Windows updater regression
         if: runner.os == 'Windows'
         shell: pwsh
@@ -154,6 +155,7 @@ jobs:
           bun "$entry" --version
           bun tests/fixtures/manifest-cli.ts bun "$entry"
           bun tests/fixtures/web-download-cli.ts bun "$entry"
+          bun tests/fixtures/skill-install-cli.ts bun "$entry"
           bun tests/fixtures/external-extensions-cli.ts bun "$entry"
       - name: Compiled CLI, real LSP, helpers, worktrees and background processes
         shell: bash
@@ -163,6 +165,7 @@ jobs:
           bun build src/cli.ts --compile --outfile="$binary"
           "$binary" --version
           bun tests/fixtures/web-download-cli.ts "$binary"
+          bun tests/fixtures/skill-install-cli.ts "$binary"
           bun tests/fixtures/lsp-cli.ts "$binary"
           bun tests/fixtures/subagents-cli.ts "$binary"
           bun tests/fixtures/worktree-cli.ts "$binary"

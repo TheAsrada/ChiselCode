@@ -2,12 +2,10 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import {
-  chiselHomeDir,
-  skillsRootDir,
-  userSkillsDir,
-} from "../../paths/home.js";
+import { userSkillsDir } from "../../paths/home.js";
 import { WorkspacePolicy } from "../../security/workspace-policy.js";
+import { withSkillsLibraryLock } from "../../skills/library.js";
+import { readSkillReference } from "../../skills/references.js";
 import {
   isReservedSkillName,
   parseSkillFile,
@@ -16,30 +14,36 @@ import {
 import { exists } from "../../utils/paths.js";
 import { EditingService } from "../editing/service.js";
 import { defineTool } from "../handler.js";
-export function skillHandlers(skills: readonly Skill[]) {
+export type SkillsCatalog = readonly Skill[] | (() => readonly Skill[]);
+export function skillHandlers(skills: SkillsCatalog) {
   return [
     defineTool(
       {
         name: "load_skill",
         description:
-          "Read an advertised skill's instructions without granting permissions.",
+          "Read an advertised or just installed skill without granting permissions. Optional path reads a relative UTF-8 reference/script file (up to 64 KiB) within that skill; never executes it.",
         effect: "read",
         permission: "read",
         parallelSafe: true,
       },
-      z.object({ name: z.string().min(1) }),
+      z.object({
+        name: z.string().min(1),
+        path: z.string().min(1).max(512).optional(),
+      }),
       async (_context, input) => ({
         data: input,
         preview: input.name,
         resources: [],
       }),
-      async (_context, { data }) => {
-        const skill = skills.find(
+      async (context, { data }) => {
+        const skill = (typeof skills === "function" ? skills() : skills).find(
           (item) => item.name === data.name && !item.disableModelInvocation,
         );
         return skill
           ? {
-              output: skill.instructions,
+              output: data.path
+                ? await readSkillReference(skill.dir, data.path, context.signal)
+                : skill.instructions,
               details: {
                 skill: {
                   name: skill.name,
@@ -137,50 +141,43 @@ export function skillHandlers(skills: readonly Skill[]) {
           resources: [destination],
         };
       },
-      async (context, { data }) => {
-        const { input, files, destination, updatePlan } = data;
-        for (const path of [
-          chiselHomeDir(),
-          skillsRootDir(),
-          userSkillsDir(),
-        ]) {
-          await mkdir(path, { recursive: true });
-          const info = await lstat(path);
-          if (!info.isDirectory() || info.isSymbolicLink())
-            throw new Error(`Unsafe ChiselCode skills directory: ${path}`);
-        }
-        if (isReservedSkillName(input.name))
-          throw new Error("Bundled skill names are reserved.");
-        if (input.mode === "create") {
-          if (await pathExistsNoFollow(destination))
-            throw new Error(`User skill already exists: ${input.name}`);
-          const temporary = join(userSkillsDir(), `.create-${randomUUID()}`);
-          try {
-            await mkdir(temporary);
-            await writeSkillFiles(temporary, files, context.signal);
+      async (context, { data }) =>
+        withSkillsLibraryLock(async (assertOwned) => {
+          const { input, files, destination, updatePlan } = data;
+          if (isReservedSkillName(input.name))
+            throw new Error("Bundled skill names are reserved.");
+          if (input.mode === "create") {
             if (await pathExistsNoFollow(destination))
               throw new Error(`User skill already exists: ${input.name}`);
-            await rename(temporary, destination);
-          } finally {
-            if (await exists(temporary))
-              await rm(temporary, { recursive: true, force: true });
+            const temporary = join(userSkillsDir(), `.create-${randomUUID()}`);
+            try {
+              await mkdir(temporary);
+              await writeSkillFiles(temporary, files, context.signal);
+              if (await pathExistsNoFollow(destination))
+                throw new Error(`User skill already exists: ${input.name}`);
+              await assertOwned();
+              await rename(temporary, destination);
+            } finally {
+              if (await exists(temporary))
+                await rm(temporary, { recursive: true, force: true });
+            }
+          } else {
+            const info = await lstat(destination);
+            if (!info.isDirectory() || info.isSymbolicLink())
+              throw new Error(`Unsafe user skill directory: ${destination}`);
+            await validateSkillWritePaths(destination, files);
+            if (!updatePlan) throw new Error("Missing skill update preflight.");
+            await assertOwned();
+            await new EditingService(
+              new WorkspacePolicy(destination, []),
+              {},
+              false,
+            ).commit(updatePlan, context.signal);
           }
-        } else {
-          const info = await lstat(destination);
-          if (!info.isDirectory() || info.isSymbolicLink())
-            throw new Error(`Unsafe user skill directory: ${destination}`);
-          await validateSkillWritePaths(destination, files);
-          if (!updatePlan) throw new Error("Missing skill update preflight.");
-          await new EditingService(
-            new WorkspacePolicy(destination, []),
-            {},
-            false,
-          ).commit(updatePlan, context.signal);
-        }
-        return {
-          output: `User skill ${input.mode === "create" ? "created" : "updated"}: ${destination}`,
-        };
-      },
+          return {
+            output: `User skill ${input.mode === "create" ? "created" : "updated"}: ${destination}`,
+          };
+        }, context.signal),
     ),
   ];
 }

@@ -12,6 +12,7 @@ import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import { SecretRedactor } from "../security/redaction.js";
 import type { projectSessionStore } from "../sessions/project-store.js";
+import { RemoteSkills } from "../skills/remote.js";
 import { loadSkills } from "../skills/skills.js";
 import { createLocalToolRuntime } from "../tools/local-runtime.js";
 import type { GlobalConfig, ProjectConfig, Session } from "../types/domain.js";
@@ -206,6 +207,8 @@ export async function createSessionToolRuntime(input: {
       skills,
       {
         events,
+        skillsCatalog: () => loadSkills(root),
+        remoteSkills: new RemoteSkills(web.http),
         mode,
         approvalMode,
         signal,

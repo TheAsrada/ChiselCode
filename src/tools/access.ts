@@ -10,6 +10,7 @@ import {
   localGitResource,
 } from "../git/driver.js";
 import { RuntimeError } from "../runtime/errors.js";
+import { isNativeSkillSource } from "../skills/capability.js";
 import { subagentPlanAccess } from "../subagents/capability.js";
 import { isNativeDownload } from "../web/download.js";
 import { worktreePlanAccess } from "../worktrees/capability.js";
@@ -51,7 +52,12 @@ export async function preparationAccess(
   input: unknown,
   scope: readonly string[],
 ): Promise<readonly WorkspaceAccess[]> {
-  if (isBackgroundControl(handler) || isNativeDownload(handler)) return [];
+  if (
+    isBackgroundControl(handler) ||
+    isNativeDownload(handler) ||
+    isNativeSkillSource(handler)
+  )
+    return [];
   if (isNativeShell(handler) && context.background) {
     const plan = await context.background.prepareShell(
       context,
@@ -108,7 +114,7 @@ export async function executionAccess(
   plan: ToolPlan,
   scope: readonly string[],
 ): Promise<readonly WorkspaceAccess[]> {
-  if (isNativeDownload(handler)) return []; // Network transfer has no workspace-wide lease. The native writer locks only publication.
+  if (isNativeDownload(handler) || isNativeSkillSource(handler)) return []; // Network transfer has no workspace-wide lease. The native writer locks only publication.
   const shell = shellPlanAccess(handler, plan);
   if (shell) return shell;
   const delegated = subagentPlanAccess(plan, handler.spec.source);

@@ -30,7 +30,7 @@ export class WebToolProvider implements ToolProvider {
   readonly redactor: SecretRedactor;
   constructor(
     readonly config: WebConfig,
-    http = new SafeWebHttpClient(config.limits),
+    readonly http = new SafeWebHttpClient(config.limits),
     backend?: WebSearchBackend,
     options: {
       cache?: WebSessionCache;

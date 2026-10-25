@@ -286,6 +286,14 @@ test("readonly ceiling is enforced by the real executor for direct handlers; liv
       { mode: "build", executionConstraint: policy },
     );
     policy.seal(runtime.catalog.handlersSnapshot());
+    for (const name of ["install_skill", "inspect_skills"]) {
+      const denied = await runtime.executor.execute({
+        id: `global-${name}`,
+        name,
+        input: { source: "acme/repo", skill: "design" },
+      });
+      expect(denied.errorCode).toBe("PERMISSION_DENIED");
+    }
     const read = await runtime.executor.execute({
       id: "read",
       name: "read_file",

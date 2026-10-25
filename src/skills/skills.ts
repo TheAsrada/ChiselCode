@@ -134,7 +134,10 @@ export function loadSkills(
     } catch {
       continue;
     }
-    for (const entry of entries.slice(0, MAX_SKILLS_PER_DIR)) {
+    for (const entry of entries
+      .filter((entry) => !entry.startsWith("."))
+      .sort()
+      .slice(0, MAX_SKILLS_PER_DIR)) {
       if (entry.startsWith(".")) continue;
       const skillDir = join(dir, entry);
       let isDirectory = false;
@@ -162,7 +165,7 @@ export function loadSkills(
       } catch {
         continue;
       }
-      if (text.length > MAX_SKILL_FILE_BYTES) continue;
+      if (Buffer.byteLength(text, "utf8") > MAX_SKILL_FILE_BYTES) continue;
       const parsed = parseSkillFile(name, text);
       if (parsed) found.set(name, { ...parsed, source, dir: skillDir });
     }
@@ -371,6 +374,27 @@ export interface ParsedSkill {
   allowedTools?: string[];
   userInvocable?: boolean;
   disableModelInvocation?: boolean;
+}
+
+/** Imported folder names are selectors; frontmatter defines the managed name. */
+export function parseImportedSkill(
+  fallbackName: string,
+  text: string,
+): ParsedSkill | undefined {
+  const { data } = splitFrontmatter(text.replace(/^\uFEFF/, ""));
+  if (
+    typeof data.name !== "string" ||
+    !data.name.trim() ||
+    typeof data.description !== "string" ||
+    !data.description.trim()
+  )
+    return undefined;
+  return parseSkillFile(
+    String(data.name ?? fallbackName)
+      .trim()
+      .toLowerCase(),
+    text,
+  );
 }
 
 /** Скиллы, доступные как /команды (без `user-invocable: false`). */

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 // Keep real process/filesystem/platform scenarios in test:full and Native validation.
 const names = [
   "approval",
+  "skill-source",
   "auto-compaction",
   "background-owner",
   "compatible-base-url",
