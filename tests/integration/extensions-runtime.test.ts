@@ -565,11 +565,12 @@ test("auto/projected compaction and emergency retry use one attempt snapshot; su
   const summaryRequests: ContextSummaryRequest[] = [];
   const counts: string[] = [];
   const requests: ProviderRequest[] = [];
+  let contextWindow = 0;
   const provider: ProviderAdapter = {
     providerId: "openai",
     getCapabilities: async () => ({
       tokenCounting: "provider",
-      contextWindow: 5000,
+      contextWindow,
     }),
     countTokens: async (request) => {
       counts.push(JSON.stringify(request.messages));
@@ -602,10 +603,23 @@ test("auto/projected compaction and emergency retry use one attempt snapshot; su
       };
     },
   );
-  const result = await setup(scope, fixture, provider, session, manager).run(
-    "Keep current constraints",
+  const harness = setup(scope, fixture, provider, session, manager);
+  const tools = harness.tools.catalog.selectForTurn();
+  // Keep history space small independently of unrelated tool schema changes.
+  const fixedTokens = requestTokens(
+    `Core\n\n${harness.tools.catalog.instructionsForTurn(tools)}`,
+    [],
+    tools,
   );
-  expect(result.status).toBe("completed");
+  contextWindow = Math.ceil(
+    (fixedTokens + 1200) / (1 - manager.options.bufferRatio),
+  );
+  const result = await harness.run("Keep current constraints");
+  expect(result.status, result.error).toBe("completed");
+  expect(session.context?.compactions?.map((entry) => entry.reason)).toEqual([
+    "auto",
+    "overflow",
+  ]);
   expect(summaryRequests.length).toBeGreaterThan(0);
   expect(JSON.stringify(summaryRequests)).not.toContain("EPHEMERAL_FIXTURE");
   expect(JSON.stringify(session.context?.activeCheckpoint)).not.toContain(

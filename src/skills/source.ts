@@ -8,7 +8,7 @@ export const SkillSourceInput = z.object({
     .min(1)
     .max(4096)
     .describe(
-      "Public skill URL, owner/repo or a pasted npx skills add command. The command is parsed as data, never executed.",
+      "Public GitHub URL, owner/repo, npx skills add command or direct HTTPS SKILL.md.",
     ),
   skill: z
     .string()
@@ -17,7 +17,7 @@ export const SkillSourceInput = z.object({
     .max(512)
     .nullish()
     .describe(
-      "Optional exact skill name or folder path. Omit or use null if unspecified. A full path can refine the same name in a pasted command.",
+      "Optional exact name/path; omit or null if unspecified. A full path may refine the same --skill name.",
     ),
   revision: z
     .string()
@@ -32,7 +32,7 @@ export const SkillSourceInput = z.object({
     )
     .nullish()
     .describe(
-      "Optional real GitHub commit SHA, only if explicitly supplied by the user or returned by inspect_skills. For the first call normally OMIT this field or use null; the client resolves the commit. Never invent a SHA or use all zeros. An explicit user pin must not be silently replaced.",
+      "Optional real commit SHA. Omit or null initially; never invent/use zeros. Reuse revision from inspect_skills or a user pin.",
     ),
 });
 export type SkillSourceInput = z.infer<typeof SkillSourceInput>;
