@@ -2,16 +2,17 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { cancelled } from "../runtime/errors.js";
 import type { SafeWebHttpClient, WebHttpOptions } from "../web/http-client.js";
+import { githubSkillJson } from "./github.js";
 import {
   SKILL_PACKAGE_LIMITS,
   type SkillPackage,
-  utf8,
   validateSkillPackage,
 } from "./package.js";
+import { selectSkillPath } from "./selection.js";
 import {
   parseSkillSource,
   type SkillSource,
-  type SkillSourceInput,
+  SkillSourceInput,
   skillSourceUrl,
 } from "./source.js";
 
@@ -38,16 +39,24 @@ export interface SkillInspection {
   revision?: string;
   candidates: string[];
   selected?: SkillPackage;
+  selectionReason?: "choose_skill" | "ambiguous_name";
+  selection?: {
+    reason: "canonical_directory";
+    path: string;
+    alternatives: string[];
+    alternativeCount: number;
+  };
 }
 
 /** Uses only the executor-issued network capability and the normal pinned HTTP client. */
 export class RemoteSkills {
   constructor(readonly http: SafeWebHttpClient) {}
   async inspect(
-    input: SkillSourceInput,
+    rawInput: SkillSourceInput,
     options: WebHttpOptions,
     download = false,
   ): Promise<SkillInspection> {
+    const input = SkillSourceInput.parse(rawInput);
     const source = parseSkillSource(input);
     if (source.kind === "markdown") {
       const response = await this.http.get(source.url, options);
@@ -67,11 +76,15 @@ export class RemoteSkills {
       return { source, candidates: ["SKILL.md"], selected };
     }
     const base = `https://api.github.com/repos/${source.repository}`;
+    const requestedRevision = input.revision?.toLowerCase();
     const revision =
-      input.revision ??
+      requestedRevision ??
       Commit.parse(
-        JSON.parse(
-          utf8((await this.http.get(skillSourceUrl(source), options)).bytes),
+        await githubSkillJson(
+          this.http,
+          skillSourceUrl(source),
+          options,
+          "commit",
         ),
       )[0]?.sha;
     if (!revision) throw new Error("GitHub не вернул коммит источника.");
@@ -79,7 +92,11 @@ export class RemoteSkills {
     // subtree. This also works for large plugin monorepositories.
     let treeSha = revision;
     for (const part of source.path.split("/").filter(Boolean)) {
-      const tree = await this.tree(`${base}/git/trees/${treeSha}`, options);
+      const tree = await this.tree(
+        `${base}/git/trees/${treeSha}`,
+        options,
+        treeSha === revision ? requestedRevision : undefined,
+      );
       const folder = tree.find(
         (entry) =>
           entry.path === part &&
@@ -92,6 +109,7 @@ export class RemoteSkills {
     const tree = await this.tree(
       `${base}/git/trees/${treeSha}?recursive=1`,
       options,
+      treeSha === revision ? requestedRevision : undefined,
     );
     const candidates = tree
       .filter(
@@ -101,27 +119,35 @@ export class RemoteSkills {
       )
       .map((entry) => entry.path)
       .sort();
-    let matches = source.skill
-      ? candidates.filter(
-          (path) =>
-            path === source.skill ||
-            path.slice(0, -9) === source.skill ||
-            path.split("/").at(-2) === source.skill ||
-            (path === "SKILL.md" &&
-              (source.path.split("/").at(-1) ||
-                source.repository.split("/").at(-1)) === source.skill),
-        )
-      : candidates;
-    const needsMetadataMatch =
-      !!source.skill && matches.length === 0 && candidates.length === 1;
-    if (needsMetadataMatch) matches = candidates;
-    if (source.skill && matches.length !== 1)
-      throw new Error(
-        `${matches.length ? "Имя навыка неоднозначно; укажите полный путь" : `Навык ${source.skill} не найден`}. Доступные пути: ${candidates.slice(0, 100).join(", ") || "нет SKILL.md"}.`,
-      );
-    if (matches.length !== 1) return { source, revision, candidates };
-    const selectedPath = matches[0];
-    if (!selectedPath) return { source, revision, candidates };
+    const selection = selectSkillPath(candidates, source);
+    const fullPath = (path: string) =>
+      source.path ? `${source.path}/${path}` : path;
+    if (!selection.path) {
+      if (source.skill && !selection.matches.length)
+        throw new Error(
+          `Навык ${source.skill} не найден. Проверьте имя или вызовите inspect_skills без skill. Доступные пути: ${candidates.slice(0, 100).map(fullPath).join(", ") || "нет SKILL.md"}.`,
+        );
+      return {
+        source,
+        revision,
+        candidates: selection.matches.map(fullPath),
+        selectionReason: source.skill ? "ambiguous_name" : "choose_skill",
+      };
+    }
+    const selectedPath = selection.path;
+    const resolution = selection.reason
+      ? {
+          selection: {
+            reason: selection.reason,
+            path: fullPath(selectedPath),
+            alternatives: selection.matches
+              .filter((path) => path !== selectedPath)
+              .map(fullPath)
+              .slice(0, 20),
+            alternativeCount: selection.matches.length - 1,
+          },
+        }
+      : {};
     const prefix = selectedPath.slice(0, -8);
     const entries = tree.filter(
       (entry) => entry.type !== "tree" && entry.path.startsWith(prefix),
@@ -164,12 +190,21 @@ export class RemoteSkills {
       fallback || "imported-skill",
       origin,
     );
-    if (needsMetadataMatch && metadataOnly.metadata.name !== source.skill)
+    if (
+      selection.needsMetadataMatch &&
+      metadataOnly.metadata.name !== source.skill
+    )
       throw new Error(
         `Навык ${source.skill} не найден. Имя в SKILL.md: ${metadataOnly.metadata.name}.`,
       );
     if (!download)
-      return { source, revision, candidates, selected: metadataOnly };
+      return {
+        source,
+        revision,
+        candidates: candidates.map(fullPath),
+        selected: metadataOnly,
+        ...resolution,
+      };
     const controller = new AbortController();
     const signal = options.signal
       ? AbortSignal.any([options.signal, controller.signal])
@@ -207,16 +242,18 @@ export class RemoteSkills {
     return {
       source,
       revision,
-      candidates,
+      candidates: candidates.map(fullPath),
+      ...resolution,
       selected: validateSkillPackage(files, metadataOnly.metadata.name, origin),
     };
   }
   private async tree(
     url: string,
     options: WebHttpOptions,
+    revision?: string,
   ): Promise<TreeEntry[]> {
     const tree = Tree.parse(
-      JSON.parse(utf8((await this.http.get(url, options)).bytes)),
+      await githubSkillJson(this.http, url, options, "tree", revision),
     );
     if (tree.truncated)
       throw new Error(
@@ -229,17 +266,20 @@ export class RemoteSkills {
     entry: TreeEntry,
     options: WebHttpOptions,
   ): Promise<Uint8Array> {
-    const response = await this.http.get(
-      `${base}/git/blobs/${entry.sha}`,
-      options,
-    );
     const data = z
       .object({
         encoding: z.literal("base64"),
         content: z.string(),
         size: z.number().int().nonnegative(),
       })
-      .parse(JSON.parse(utf8(response.bytes)));
+      .parse(
+        await githubSkillJson(
+          this.http,
+          `${base}/git/blobs/${entry.sha}`,
+          options,
+          "blob",
+        ),
+      );
     const bytes = Buffer.from(data.content.replace(/\s/g, ""), "base64");
     const sha = createHash("sha1")
       .update(`blob ${bytes.length}\0`)

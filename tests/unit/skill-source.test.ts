@@ -1,6 +1,106 @@
 import { expect, test } from "bun:test";
 import { validateSkillPackage } from "../../src/skills/package.js";
-import { parseSkillSource } from "../../src/skills/source.js";
+import { selectSkillPath } from "../../src/skills/selection.js";
+import { parseSkillSource, SkillSourceInput } from "../../src/skills/source.js";
+
+test("optional skill arguments accept omission/null while placeholder revisions fail with a repair hint", () => {
+  for (const revision of [undefined, null, "A".repeat(40)])
+    expect(
+      SkillSourceInput.safeParse({ source: "acme/repo", skill: null, revision })
+        .success,
+    ).toBe(true);
+  for (const revision of ["0".repeat(40), "", "HEAD", "g".repeat(40)]) {
+    const result = SkillSourceInput.safeParse({
+      source: "acme/repo",
+      revision,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.message).toContain("revision");
+  }
+  expect(() =>
+    SkillSourceInput.parse({ source: "acme/repo", revision: "0".repeat(40) }),
+  ).toThrow("уберите revision");
+});
+
+test("a full path refines the skill named in a pasted command, but cannot substitute another skill", () => {
+  const source = "npx skills add acme/repo --skill caveman";
+  expect(parseSkillSource({ source, skill: "skills/caveman" })).toMatchObject({
+    skill: "skills/caveman",
+  });
+  expect(
+    parseSkillSource({
+      source,
+      skill: "plugins/caveman/skills/caveman/SKILL.md",
+    }),
+  ).toMatchObject({ skill: "plugins/caveman/skills/caveman/SKILL.md" });
+  expect(() => parseSkillSource({ source, skill: "skills/other" })).toThrow(
+    "противоречит",
+  );
+});
+
+test("a bare name prefers canonical skills packaging, independent of Git tree order; an exact plugin path wins", () => {
+  const candidates = [
+    "plugins/caveman/skills/caveman/SKILL.md",
+    "caveman/SKILL.md",
+    "skills/caveman/SKILL.md",
+    "skills/other/SKILL.md",
+  ];
+  const source = {
+    kind: "github" as const,
+    repository: "acme/repo",
+    path: "",
+    skill: "caveman",
+  };
+  for (const paths of [candidates, [...candidates].reverse()])
+    expect(selectSkillPath(paths, source)).toMatchObject({
+      path: "skills/caveman/SKILL.md",
+      reason: "canonical_directory",
+    });
+  expect(
+    selectSkillPath(candidates, {
+      ...source,
+      skill: "plugins/caveman/skills/caveman",
+    }).path,
+  ).toBe(candidates[0]);
+});
+
+test("an explicit commit URL cannot be silently replaced by another revision", () => {
+  expect(() =>
+    parseSkillSource({
+      source: `https://github.com/acme/repo/tree/${"a".repeat(40)}/skills/caveman`,
+      revision: "b".repeat(40),
+    }),
+  ).toThrow("противоречит");
+});
+
+test("folder-scoped selection accepts full repository paths and does not resolve unrelated ambiguous names", () => {
+  const source = {
+    kind: "github" as const,
+    repository: "acme/repo",
+    path: "plugins/example/skills/caveman",
+    skill: "plugins/example/skills/caveman",
+  };
+  expect(selectSkillPath(["SKILL.md"], source).path).toBe("SKILL.md");
+  expect(
+    selectSkillPath(
+      [
+        "variants/a/caveman/SKILL.md",
+        "variants/b/caveman/SKILL.md",
+        "skills/other/SKILL.md",
+      ],
+      { ...source, path: "", skill: "caveman" },
+    ),
+  ).toEqual({
+    matches: ["variants/a/caveman/SKILL.md", "variants/b/caveman/SKILL.md"],
+  });
+  expect(
+    selectSkillPath(["skills/caveman/SKILL.md", "skills/other/SKILL.md"], {
+      ...source,
+      path: "",
+      skill: undefined,
+    }).path,
+  ).toBeUndefined();
+});
 
 test("pasted skills commands are source data with a single selector", () => {
   expect(

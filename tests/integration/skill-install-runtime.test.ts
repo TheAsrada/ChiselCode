@@ -11,6 +11,7 @@ import { createServer, request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { DEFAULT_PROJECT_CONFIG } from "../../src/config/load.js";
 import { ContextManager } from "../../src/context/context-manager.js";
 import { buildSystemPrompt } from "../../src/core/prompt.js";
@@ -41,6 +42,7 @@ async function fixture(
     denyWrite?: boolean;
     mode?: "plan" | "build";
     signal?: AbortSignal;
+    onResponse?: () => void;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "chisel-install-"));
@@ -67,7 +69,10 @@ async function fixture(
           path: target.url.pathname + target.url.search,
           agent: false,
         },
-        onResponse,
+        (response) => {
+          onResponse(response);
+          options.onResponse?.();
+        },
       ),
   );
   const session = createSession(directory, "test", "scripted");
@@ -118,6 +123,274 @@ async function fixture(
 const input = {
   source: "npx skills add https://github.com/acme/repo --skill folder-name",
 };
+
+test("all three calls from the reported session reject the zero revision before network, approval or writes", async () => {
+  const env = await fixture();
+  try {
+    for (const [name, source] of [
+      [
+        "inspect_skills",
+        "npx skills add https://github.com/juliusbrussee/caveman --skill caveman",
+      ],
+      ["inspect_skills", "https://github.com/juliusbrussee/caveman"],
+      [
+        "install_skill",
+        "npx skills add https://github.com/juliusbrussee/caveman --skill caveman",
+      ],
+    ] as const) {
+      const result = await env.call(name, {
+        source,
+        skill: "caveman",
+        revision: "0".repeat(40),
+      });
+      expect(result.errorCode).toBe("INVALID_TOOL_INPUT");
+      expect(result.output).toContain("уберите revision");
+    }
+    expect(env.api.hits).toHaveLength(0);
+    expect(env.approvals).toHaveLength(0);
+    expect(await readdir(userSkillsDir()).catch(() => [])).toEqual([]);
+  } finally {
+    await env.close();
+  }
+});
+
+test("null means automatic resolution, and an uppercase explicit pin is retained without a HEAD lookup", async () => {
+  const env = await fixture();
+  try {
+    const auto = await env.call("inspect_skills", {
+      ...input,
+      skill: null,
+      revision: null,
+    });
+    expect(JSON.parse(auto.output)).toMatchObject({
+      status: "inspected",
+      revision: skillCommit,
+      origin: { revision: skillCommit },
+    });
+    env.api.hits.length = 0;
+    const pinned = await env.call("install_skill", {
+      ...input,
+      revision: skillCommit.toUpperCase(),
+    });
+    expect(JSON.parse(pinned.output)).toMatchObject({
+      status: "installed",
+      revision: skillCommit,
+    });
+    expect(env.api.hits.some((path) => path.includes("/commits"))).toBe(false);
+  } finally {
+    await env.close();
+  }
+});
+
+for (const explicitPlugin of [false, true])
+  test(`canonical packaging and explicit plugin packaging keep their own files: ${explicitPlugin}`, async () => {
+    const env = await fixture();
+    try {
+      env.api.files.set(
+        "plugins/example/skills/folder-name/SKILL.md",
+        importedSkill,
+      );
+      env.api.files.set(
+        "plugins/example/skills/folder-name/agents/openai.yaml",
+        Buffer.from("interface: fixture"),
+      );
+      const result = await env.call("install_skill", {
+        ...input,
+        ...(explicitPlugin
+          ? { skill: "plugins/example/skills/folder-name" }
+          : {}),
+      });
+      expect(result.isError, result.output).not.toBe(true);
+      const data = JSON.parse(result.output);
+      expect(data.origin.path).toBe(
+        explicitPlugin
+          ? "plugins/example/skills/folder-name/SKILL.md"
+          : "skills/folder-name/SKILL.md",
+      );
+      expect(data.files).toEqual(
+        explicitPlugin
+          ? ["SKILL.md", "agents/openai.yaml"]
+          : ["SKILL.md", "assets/pixel.bin", "references/guide.md"],
+      );
+      if (!explicitPlugin)
+        expect(data.selection).toMatchObject({
+          reason: "canonical_directory",
+          path: "skills/folder-name/SKILL.md",
+        });
+    } finally {
+      await env.close();
+    }
+  });
+
+test("unresolved collisions return only matching choices with a pin and accept a full path refinement", async () => {
+  const env = await fixture();
+  try {
+    env.api.files.delete("skills/folder-name/SKILL.md");
+    for (const prefix of ["variants/first", "variants/second"])
+      env.api.files.set(`${prefix}/folder-name/SKILL.md`, importedSkill);
+    const first = await env.call("inspect_skills", input);
+    const choices = JSON.parse(first.output);
+    expect(choices).toMatchObject({
+      status: "selection_required",
+      reason: "ambiguous_name",
+      revision: skillCommit,
+      total: 2,
+      candidates: [
+        "variants/first/folder-name/SKILL.md",
+        "variants/second/folder-name/SKILL.md",
+      ],
+    });
+    expect(env.api.hits.some((path) => path.includes("/git/blobs/"))).toBe(
+      false,
+    );
+    env.api.hits.length = 0;
+    const installed = await env.call("install_skill", {
+      ...input,
+      skill: choices.candidates[1],
+      revision: choices.revision,
+    });
+    expect(installed.isError, installed.output).not.toBe(true);
+    expect(JSON.parse(installed.output).origin.path).toBe(
+      choices.candidates[1],
+    );
+    expect(env.api.hits.some((path) => path.includes("/commits"))).toBe(false);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a nonexistent explicit revision preserves GitHub's explanation and never falls back to a different commit", async () => {
+  const env = await fixture();
+  try {
+    const result = await env.call("install_skill", {
+      ...input,
+      revision: "f".repeat(40),
+    });
+    expect(result.errorCode).toBe("INVALID_TOOL_INPUT");
+    expect(result.output).toContain("Invalid object requested");
+    expect(result.output).toContain("revision");
+    expect(result.details).toMatchObject({
+      status: 422,
+      stage: "tree",
+      revision: "f".repeat(40),
+      retryable: false,
+    });
+    expect(env.api.hits).toHaveLength(1);
+    expect(env.api.hits[0]).toContain("f".repeat(40));
+    expect(await readdir(userSkillsDir()).catch(() => [])).toEqual([]);
+  } finally {
+    await env.close();
+  }
+});
+
+test("GitHub errors expose only a bounded message and preserve Retry-After without automatic repeats", async () => {
+  const env = await fixture();
+  try {
+    env.api.responseError = {
+      status: 429,
+      body: JSON.stringify({
+        message: `Rate limit exceeded. ${"x".repeat(700)}`,
+        private: "DO_NOT_ECHO",
+      }),
+      retryAfter: "7",
+    };
+    const result = await env.call("inspect_skills", input);
+    expect(result.errorCode).toBe("WEB_RATE_LIMITED");
+    expect(result.output).toContain("Rate limit exceeded");
+    expect(result.output).toContain("через 7 с");
+    expect(result.output).not.toContain("DO_NOT_ECHO");
+    expect(result.details).toMatchObject({
+      status: 429,
+      retryable: true,
+      retryAfterMs: 7000,
+    });
+    expect(String(result.details?.apiMessage).length).toBeLessThanOrEqual(400);
+    expect(env.api.hits).toHaveLength(1);
+  } finally {
+    await env.close();
+  }
+});
+
+test("HTML error bodies are not exposed as GitHub diagnostics", async () => {
+  const env = await fixture();
+  try {
+    env.api.responseError = {
+      status: 502,
+      body: "<html>DO_NOT_ECHO_ERROR_PAGE</html>",
+    };
+    const result = await env.call("inspect_skills", input);
+    expect(result.errorCode).toBe("WEB_HTTP_ERROR");
+    expect(result.output).not.toContain("DO_NOT_ECHO_ERROR_PAGE");
+    expect(result.details).toMatchObject({ status: 502, retryable: true });
+    expect(env.api.hits).toHaveLength(1);
+  } finally {
+    await env.close();
+  }
+});
+
+test("compressed oversized API errors retain their HTTP status without exposing the body", async () => {
+  const env = await fixture();
+  try {
+    env.api.responseError = {
+      status: 503,
+      body: gzipSync(
+        JSON.stringify({ message: "DO_NOT_ECHO_OVERSIZED".repeat(4000) }),
+      ),
+      encoding: "gzip",
+    };
+    const result = await env.call("inspect_skills", input);
+    expect(result.errorCode).toBe("WEB_HTTP_ERROR");
+    expect(result.details).toMatchObject({ status: 503, retryable: true });
+    expect(result.output).not.toContain("DO_NOT_ECHO_OVERSIZED");
+    expect(env.api.hits).toHaveLength(1);
+  } finally {
+    await env.close();
+  }
+});
+
+test("a stalled JSON error body has a finite diagnostic deadline and preserves the known HTTP status", async () => {
+  const env = await fixture();
+  try {
+    env.api.responseError = { status: 403, body: "", hold: true };
+    const result = await env.call("inspect_skills", input);
+    expect(result.errorCode).toBe("WEB_HTTP_ERROR");
+    expect(result.details).toMatchObject({ status: 403, retryable: false });
+    expect(env.api.hits).toHaveLength(1);
+  } finally {
+    await env.close();
+  }
+});
+
+test("truncated JSON diagnostics do not replace the original HTTP error with a protocol failure", async () => {
+  const env = await fixture();
+  try {
+    env.api.responseError = { status: 422, body: "{", contentLength: 100 };
+    const result = await env.call("inspect_skills", input);
+    expect(result.errorCode).toBe("WEB_HTTP_ERROR");
+    expect(result.details).toMatchObject({ status: 422, retryable: false });
+  } finally {
+    await env.close();
+  }
+});
+
+test("request cancellation still takes precedence over a known HTTP status during diagnostic reading", async () => {
+  const abort = new AbortController();
+  const received = Promise.withResolvers<void>();
+  const env = await fixture({
+    signal: abort.signal,
+    onResponse: () => received.resolve(),
+  });
+  try {
+    env.api.responseError = { status: 403, body: "", hold: true };
+    const pending = env.call("inspect_skills", input);
+    await received.promise;
+    abort.abort();
+    const result = await pending;
+    expect(result.errorCode).toBe("CANCELLED");
+  } finally {
+    await env.close();
+  }
+});
 
 test("a direct HTTPS SKILL.md installs only that file and respects its registered name", async () => {
   const env = await fixture();

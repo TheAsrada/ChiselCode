@@ -1,12 +1,39 @@
 import { z } from "zod";
+import { RuntimeError } from "../runtime/errors.js";
 
 export const SkillSourceInput = z.object({
-  source: z.string().trim().min(1).max(4096),
-  skill: z.string().trim().min(1).max(512).optional(),
+  source: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4096)
+    .describe(
+      "Public skill URL, owner/repo or a pasted npx skills add command. The command is parsed as data, never executed.",
+    ),
+  skill: z
+    .string()
+    .trim()
+    .min(1)
+    .max(512)
+    .nullish()
+    .describe(
+      "Optional exact skill name or folder path. Omit or use null if unspecified. A full path can refine the same name in a pasted command.",
+    ),
   revision: z
     .string()
-    .regex(/^[a-f0-9]{40}$/)
-    .optional(),
+    .trim()
+    .regex(
+      /^[a-fA-F0-9]{40}$/,
+      "revision: нужен настоящий SHA коммита из 40 hex-символов. Если пользователь не задавал коммит, уберите revision или передайте null: клиент определит его сам.",
+    )
+    .refine(
+      (value) => value !== "0".repeat(40),
+      "revision: 40 нулей — заглушка, а не коммит. Если пользователь не задавал коммит, уберите revision или передайте null. Не придумывайте SHA; используйте revision из результата inspect_skills.",
+    )
+    .nullish()
+    .describe(
+      "Optional real GitHub commit SHA, only if explicitly supplied by the user or returned by inspect_skills. For the first call normally OMIT this field or use null; the client resolves the commit. Never invent a SHA or use all zeros. An explicit user pin must not be silently replaced.",
+    ),
 });
 export type SkillSourceInput = z.infer<typeof SkillSourceInput>;
 export type SkillSource =
@@ -49,7 +76,8 @@ function tokens(command: string): string[] {
 export function parseSkillSource(input: SkillSourceInput): SkillSource {
   const args = tokens(input.source);
   let source: string | undefined;
-  let selector = input.skill;
+  let selector = input.skill ?? undefined;
+  let commandSelector: string | undefined;
   if (args.at(0) === "npx") {
     args.shift();
     if (args[0] === "--yes" || args[0] === "-y") args.shift();
@@ -63,9 +91,13 @@ export function parseSkillSource(input: SkillSourceInput): SkillSource {
       if (["--yes", "-y", "--global", "-g"].includes(arg)) continue;
       if (arg === "--skill" || arg === "-s") {
         const value = args[++i];
-        if (!value || value.startsWith("-") || (selector && selector !== value))
+        if (
+          !value ||
+          value.startsWith("-") ||
+          (commandSelector && commandSelector !== value)
+        )
           throw new Error("Укажите один навык через --skill.");
-        selector = value;
+        commandSelector = value;
       } else if (arg === "--agent" || arg === "-a") {
         if (args[++i] !== "chiselcode")
           throw new Error(
@@ -76,6 +108,17 @@ export function parseSkillSource(input: SkillSourceInput): SkillSource {
       else source = arg;
     }
   } else if (args.length === 1) source = args[0];
+  if (selector && commandSelector && selector !== commandSelector) {
+    const folder = selector.replace(/\/SKILL\.md$/, "");
+    if (
+      commandSelector.includes("/") ||
+      folder.split("/").at(-1) !== commandSelector
+    )
+      throw new Error(
+        "skill противоречит --skill в команде. Укажите одно имя или полный путь к этому же навыку.",
+      );
+  }
+  selector ??= commandSelector;
   if (!source)
     throw new Error(
       "Нужна ссылка на GitHub, owner/repo или публичный SKILL.md.",
@@ -138,6 +181,17 @@ export function parseSkillSource(input: SkillSourceInput): SkillSource {
     if ((raw || kind === "blob") && fileParts.at(-1) !== "SKILL.md")
       throw new Error("Передайте ссылку на SKILL.md или папку навыка.");
     if (fileParts.at(-1) === "SKILL.md") fileParts.pop();
+    const selectedRef = raw ? kind : ref;
+    if (
+      input.revision &&
+      selectedRef &&
+      /^[a-fA-F0-9]{40}$/.test(selectedRef) &&
+      input.revision.toLowerCase() !== selectedRef.toLowerCase()
+    )
+      throw new RuntimeError(
+        "INVALID_TOOL_INPUT",
+        "revision противоречит коммиту в source. Сохраните версию, указанную пользователем; не подменяйте её другим SHA.",
+      );
     return {
       kind: "github",
       repository: `${owner}/${repository.replace(/\.git$/, "")}`,

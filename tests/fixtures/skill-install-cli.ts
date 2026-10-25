@@ -21,6 +21,22 @@ export async function smokeSkillInstallCli(command: string, prefix: string[]) {
   const root = join(storage, "project with spaces");
   await mkdir(root);
   const api = skillSourceHttp();
+  const cavemanSkill = Buffer.from(
+    importedSkill.toString().replace("name: ui-design", "name: caveman"),
+  );
+  for (const [path, bytes] of [...api.files]) {
+    if (!path.startsWith("skills/folder-name/")) continue;
+    api.files.delete(path);
+    api.files.set(
+      path.replace("skills/folder-name/", "skills/caveman/"),
+      path.endsWith("SKILL.md") ? cavemanSkill : bytes,
+    );
+  }
+  api.files.set("plugins/caveman/skills/caveman/SKILL.md", cavemanSkill);
+  api.files.set(
+    "plugins/caveman/skills/caveman/agents/openai.yaml",
+    Buffer.from("interface: plugin packaging"),
+  );
   const certificates = await networkCertificates();
   const certPath = resolve("tests/fixtures/network-tls/skill-origin.pem");
   const origin = createServer(
@@ -55,14 +71,25 @@ export async function smokeSkillInstallCli(command: string, prefix: string[]) {
         (message) => message.role === "tool",
       );
       let delta: unknown;
-      if (results.length === 3) {
-        const installed = JSON.parse(String(results[0]?.content));
+      if (results.length === 1) {
+        assert.match(String(results[0]?.content), /уберите revision/);
+        assert.equal(
+          api.hits.length,
+          0,
+          "A placeholder revision must fail before network",
+        );
+      }
+      if (results.length === 4) {
+        const installed = JSON.parse(String(results[1]?.content));
         assert.equal(installed.status, "installed");
-        assert.equal(installed.name, "ui-design");
+        assert.equal(installed.name, "caveman");
+        assert.equal(installed.revision, skillCommit);
+        assert.equal(installed.origin.path, "skills/caveman/SKILL.md");
+        assert.equal(installed.selection.reason, "canonical_directory");
         assert.equal(installed.origin.revision, skillCommit);
-        assert.match(String(results[1]?.content), /Read references\/guide\.md/);
+        assert.match(String(results[2]?.content), /Read references\/guide\.md/);
         assert.match(
-          String(results[2]?.content),
+          String(results[3]?.content),
           /preserve keyboard navigation/,
         );
         verified = true;
@@ -71,19 +98,30 @@ export async function smokeSkillInstallCli(command: string, prefix: string[]) {
             "Навык установлен; инструкции и справочный файл доступны в этой же задаче.",
         };
       } else {
-        assert.ok(results.length < 3);
+        assert.ok(results.length < 4);
         const call = [
+          {
+            name: "inspect_skills",
+            input: {
+              source:
+                "npx skills add https://github.com/juliusbrussee/caveman --skill caveman",
+              skill: "caveman",
+              revision: "0".repeat(40),
+            },
+          },
           {
             name: "install_skill",
             input: {
               source:
-                "npx skills add https://github.com/acme/repo --skill folder-name",
+                "npx skills add https://github.com/juliusbrussee/caveman --skill caveman",
+              skill: null,
+              revision: null,
             },
           },
-          { name: "load_skill", input: { name: "ui-design" } },
+          { name: "load_skill", input: { name: "caveman" } },
           {
             name: "load_skill",
-            input: { name: "ui-design", path: "references/guide.md" },
+            input: { name: "caveman", path: "references/guide.md" },
           },
         ][results.length];
         assert.ok(call);
@@ -170,14 +208,14 @@ export async function smokeSkillInstallCli(command: string, prefix: string[]) {
           request.target.endsWith(":443") && !request.target.startsWith("127."),
       ),
     );
-    const target = join(home, "skills/user/ui-design");
-    assert.deepEqual(await readFile(join(target, "SKILL.md")), importedSkill);
+    const target = join(home, "skills/user/caveman");
+    assert.deepEqual(await readFile(join(target, "SKILL.md")), cavemanSkill);
     assert.deepEqual(
       await readFile(join(target, "assets/pixel.bin")),
       Buffer.from([0, 255, 128, 13, 10]),
     );
     console.log(
-      "Skill install CLI: shipped core, HTTPS/proxy, pinned snapshot, managed library and immediate reference loading passed",
+      "Skill install CLI: shipped core, placeholder recovery before network, canonical packaging, HTTPS/proxy and immediate reference loading passed",
     );
   } finally {
     model.stop(true);

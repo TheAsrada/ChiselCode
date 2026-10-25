@@ -38,6 +38,9 @@ export interface WebHttpOptions {
   method?: "GET" | "POST" | "DELETE";
   body?: string;
   acceptHttpErrors?: boolean;
+  /** Core opt-in for API diagnostics: at most 8 KiB of JSON, bounded to 1 s.
+   * Requires acceptHttpErrors. Redirects and non-JSON error bodies stay unread. */
+  captureErrorJson?: boolean;
   /** Core streaming consumer; never supplied by tool input. */
   bodySink?: {
     maxBytes: number;
@@ -249,8 +252,11 @@ export class SafeWebHttpClient {
       let writing: Promise<void> | undefined;
       let request: ReturnType<typeof httpRequest> | undefined;
       let connectTimer: ReturnType<typeof setTimeout> | undefined;
+      let errorBodyTimer: ReturnType<typeof setTimeout> | undefined;
+      let errorBodyFallback: (() => void) | undefined;
       const cleanup = () => {
         if (connectTimer) clearTimeout(connectTimer);
+        if (errorBodyTimer) clearTimeout(errorBodyTimer);
         signal.removeEventListener("abort", abort);
       };
       const dispose = (settle: () => void) => {
@@ -280,6 +286,16 @@ export class SafeWebHttpClient {
       };
       const fail = (error: unknown) => {
         if (finished) return;
+        if (
+          errorBodyFallback &&
+          !(
+            error instanceof RuntimeError &&
+            (error.code === "CANCELLED" || error.code === "WEB_TIMEOUT")
+          )
+        ) {
+          errorBodyFallback();
+          return;
+        }
         finished = true;
         cleanup();
         const failure =
@@ -369,7 +385,24 @@ export class SafeWebHttpClient {
               typeof retryAfter === "string"
                 ? parseRetryAfter(retryAfter)
                 : undefined;
-            if (status < 200 || status >= 300) {
+            const errorJson =
+              status >= 400 &&
+              status < 600 &&
+              options.acceptHttpErrors &&
+              options.captureErrorJson &&
+              /^application\/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)/i.test(
+                contentType,
+              );
+            const errorResponse = () =>
+              done({
+                status,
+                contentType,
+                location,
+                retryAfterMs,
+                bytes: new Uint8Array(),
+                headers: responseHeaders,
+              });
+            if ((status < 200 || status >= 300) && !errorJson) {
               done({
                 status,
                 contentType,
@@ -380,12 +413,25 @@ export class SafeWebHttpClient {
               });
               return;
             }
+            const sink = errorJson ? undefined : options.bodySink;
+            if (errorJson) errorBodyFallback = errorResponse;
+            const wireLimit = errorJson
+              ? Math.min(8192, this.limits.maxResponseBytes)
+              : (sink?.maxBytes ?? this.limits.maxResponseBytes);
+            const decodedLimit = errorJson
+              ? Math.min(8192, this.limits.maxDecompressedBytes)
+              : (sink?.maxBytes ?? this.limits.maxDecompressedBytes);
+            if (errorJson)
+              errorBodyTimer = setTimeout(
+                errorResponse,
+                Math.min(1000, this.limits.requestTimeoutMs),
+              );
             const length = Number(incoming.headers["content-length"]);
-            if (
-              Number.isFinite(length) &&
-              length >
-                (options.bodySink?.maxBytes ?? this.limits.maxResponseBytes)
-            ) {
+            if (Number.isFinite(length) && length > wireLimit) {
+              if (errorJson) {
+                errorResponse();
+                return;
+              }
               fail(
                 new RuntimeError(
                   "WEB_TOO_LARGE",
@@ -400,6 +446,10 @@ export class SafeWebHttpClient {
               .trim()
               .toLowerCase();
             if (!["identity", "gzip", "deflate", "br"].includes(encoding)) {
+              if (errorJson) {
+                errorResponse();
+                return;
+              }
               fail(
                 new RuntimeError(
                   "WEB_UNSUPPORTED_CONTENT",
@@ -411,10 +461,18 @@ export class SafeWebHttpClient {
             let wireBytes = 0;
             encoded = new Transform({
               transform: (chunk: Buffer, _encoding, callback) => {
+                if (finished) {
+                  callback();
+                  return;
+                }
                 wireBytes += chunk.length;
+                if (errorJson && wireBytes > wireLimit) {
+                  errorResponse();
+                  callback(new Error("API error JSON exceeds its byte limit."));
+                  return;
+                }
                 callback(
-                  wireBytes >
-                    (options.bodySink?.maxBytes ?? this.limits.maxResponseBytes)
+                  wireBytes > wireLimit
                     ? new RuntimeError(
                         "WEB_TOO_LARGE",
                         "Web response exceeds the wire byte limit.",
@@ -435,23 +493,28 @@ export class SafeWebHttpClient {
                         transform: (chunk, _encoding, callback) =>
                           callback(null, chunk),
                       });
-            encoded.on("error", fail);
-            decoder.on("error", fail);
+            encoded.on("error", errorJson ? errorResponse : fail);
+            decoder.on("error", errorJson ? errorResponse : fail);
             const chunks: Buffer[] = [];
             let size = 0;
-            options.bodySink?.start?.(
+            sink?.start?.(
               encoding === "identity" && Number.isFinite(length)
                 ? length
                 : undefined,
             );
             receiver = new Writable({
               write: (chunk: Buffer, _encoding, callback) => {
+                if (finished) {
+                  callback();
+                  return;
+                }
                 size += chunk.length;
-                if (
-                  size >
-                  (options.bodySink?.maxBytes ??
-                    this.limits.maxDecompressedBytes)
-                ) {
+                if (errorJson && size > decodedLimit) {
+                  errorResponse();
+                  callback(new Error("API error JSON exceeds its byte limit."));
+                  return;
+                }
+                if (size > decodedLimit) {
                   callback(
                     new RuntimeError(
                       "WEB_TOO_LARGE",
@@ -460,10 +523,8 @@ export class SafeWebHttpClient {
                   );
                   return;
                 }
-                if (options.bodySink) {
-                  writing = Promise.resolve().then(() =>
-                    options.bodySink!.write(chunk),
-                  );
+                if (sink) {
+                  writing = Promise.resolve().then(() => sink.write(chunk));
                   writing.then(() => callback(), callback);
                 } else {
                   chunks.push(chunk);
@@ -471,15 +532,14 @@ export class SafeWebHttpClient {
                 }
               },
             });
-            receiver.on("error", fail);
+            receiver.on("error", errorJson ? errorResponse : fail);
             receiver.on("finish", () =>
               done({
                 status,
                 contentType,
-                bytes: options.bodySink
-                  ? new Uint8Array()
-                  : Buffer.concat(chunks, size),
+                bytes: sink ? new Uint8Array() : Buffer.concat(chunks, size),
                 headers: responseHeaders,
+                ...(errorJson ? { retryAfterMs } : {}),
               }),
             );
             incoming.pipe(encoded).pipe(decoder).pipe(receiver);

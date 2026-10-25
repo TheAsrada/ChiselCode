@@ -31,6 +31,12 @@ export function skillSourceHttp() {
     holdReference = false,
     link = false,
     redirect = "",
+    errorStatus = 0,
+    errorBody: string | Buffer = "",
+    errorEncoding: string | undefined,
+    errorLength: number | undefined,
+    holdError = false,
+    retryAfter: string | undefined,
     block: (() => void) | undefined;
   return {
     files,
@@ -47,6 +53,21 @@ export function skillSourceHttp() {
     set link(value: boolean) {
       link = value;
     },
+    set responseError(value: {
+      status: number;
+      body: string | Buffer;
+      encoding?: string;
+      contentLength?: number;
+      hold?: boolean;
+      retryAfter?: string;
+    }) {
+      errorStatus = value.status;
+      errorBody = value.body;
+      errorEncoding = value.encoding;
+      errorLength = value.contentLength;
+      holdError = value.hold === true;
+      retryAfter = value.retryAfter;
+    },
     set redirect(value: string) {
       redirect = value;
     },
@@ -57,6 +78,20 @@ export function skillSourceHttp() {
       const url = new URL(req.url ?? "/", "https://api.github.com");
       hits.push(req.url ?? "");
       res.setHeader("Content-Type", "application/json");
+      if (errorStatus) {
+        if (errorLength !== undefined) {
+          res.setHeader("Content-Length", errorLength);
+          res.setHeader("Connection", "close");
+        }
+        if (errorEncoding) res.setHeader("Content-Encoding", errorEncoding);
+        res.writeHead(
+          errorStatus,
+          retryAfter ? { "Retry-After": retryAfter } : {},
+        );
+        if (holdError) res.flushHeaders();
+        else res.end(errorBody);
+        return;
+      }
       if (redirect) {
         res.writeHead(302, { Location: redirect });
         res.end();
@@ -74,6 +109,19 @@ export function skillSourceHttp() {
       if (url.pathname.includes("/git/trees/")) {
         const recursive = url.searchParams.has("recursive");
         const treeSha = url.pathname.split("/").at(-1);
+        if (
+          ![skillCommit, "b".repeat(40), "c".repeat(40)].includes(treeSha ?? "")
+        ) {
+          res.writeHead(422);
+          res.end(
+            JSON.stringify({
+              message:
+                "Invalid object requested. SHA must identify a commit or a tree.",
+              status: "422",
+            }),
+          );
+          return;
+        }
         const folder =
           treeSha === "b".repeat(40)
             ? "skills/"
