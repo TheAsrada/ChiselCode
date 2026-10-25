@@ -2,7 +2,7 @@
 
 [Материалы для участников](../README.md) · [Темы и анимации](../../themes.md) · [Архитектура](../../architecture/interface-motion.md)
 
-Реализация 25 октября 2026 года заменяет полосу активности фирменными скобками с искрой. Изменение находится в Unreleased; опубликованный CLI 0.6.40 сохраняет свой интерфейс.
+Реализация 25 октября 2026 года заменяет полосу активности фирменными скобками с искрой и включена в [CLI 0.6.41](release-0.6.41.md). Ниже сохранены результаты этапа реализации; опубликованный CLI 0.6.40 сохраняет свой интерфейс.
 
 ## Движение и смысл
 
@@ -74,4 +74,4 @@ Paper:
 
 От создания workflow до последнего job прошло 833 с (13 мин 53 с), сумма jobs — 1745 с (29 мин 5 с runner time). Эти длительности относятся к проверкам, а не к скорости интерфейса. Последующая фиксация этого результата меняет только отчёт; продуктовый код остаётся проверенным source.
 
-Полный source-набор выполнен на Linux. Windows и macOS получили платформенные tests и installed/compiled smoke; production-сценарий анимации в CI использует Obsidian. Paper отдельно прошла локальный production fixture и native unit tests обеих тем на Linux. На Linux пропущены системный clipboard без desktop-сессии и два Windows-only сценария CMD/Python; на macOS — detached orphan и два Windows-only сценария; на Windows — detached orphan. Скорость физического терминала, SSH и аппаратный clipboard новым сценарием не измеряются. Релиз и tags не создавались; изменение остаётся в Unreleased.
+Полный source-набор выполнен на Linux. Windows и macOS получили платформенные tests и installed/compiled smoke; production-сценарий анимации в CI использует Obsidian. Paper отдельно прошла локальный production fixture и native unit tests обеих тем на Linux. На Linux пропущены системный clipboard без desktop-сессии и два Windows-only сценария CMD/Python; на macOS — detached orphan и два Windows-only сценария; на Windows — detached orphan. Скорость физического терминала, SSH и аппаратный clipboard новым сценарием не измеряются. На этом этапе релиз и tags ещё не создавались; последующая публикация описана в [отчёте CLI 0.6.41](release-0.6.41.md).
