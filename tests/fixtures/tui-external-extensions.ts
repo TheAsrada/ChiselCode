@@ -202,6 +202,14 @@ try {
   );
   assert.ok(!ui.captureCharFrame().includes("never-display-raw-cause"));
   assert.ok(!ui.renderer.root.findDescendantById("ui-status-more"));
+  assert.ok(ui.renderer.root.findDescendantById("command-feedback-popup"));
+  await key("RETURN");
+  await until(
+    () =>
+      !ui.renderer.root.findDescendantById("command-feedback-popup") &&
+      !!ui.renderer.currentFocusedEditor,
+    "Startup error did not close and restore home input",
+  );
   await key("F9");
   await until(
     () =>
