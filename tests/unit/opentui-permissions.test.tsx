@@ -54,6 +54,14 @@ for (const [width, height] of [
       await command(setup, "/permissions bypassPermissions");
       expect(workspace.controller.snapshot.approvalMode).toBe("default");
       expect(saved).toEqual([]);
+      expect(
+        setup.renderer.root.findDescendantById("command-feedback-popup"),
+      ).toBeTruthy();
+      await act(async () => setup.mockInput.pressEnter());
+      await frame(setup);
+      expect(
+        setup.renderer.root.findDescendantById("command-feedback-popup"),
+      ).toBeUndefined();
       for (const expected of ["acceptEdits", "dontAsk", "default"]) {
         await act(async () => setup.mockInput.pressKey("F4"));
         await frame(setup);

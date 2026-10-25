@@ -310,6 +310,8 @@ export class TuiController implements TuiTranscript {
     tone: TranscriptTone,
     fileDiff?: FileDiff,
   ): void {
+    // Successful local actions already update their UI; home keeps no success log.
+    if (tone !== "error" && tone !== "warn") return;
     const entry = { id: this.serial++, text, tone, fileDiff };
     this.update({
       commandFeedback: {

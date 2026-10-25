@@ -46,9 +46,6 @@ export function OpenTuiCommandFeedback({
     else if (key.name === "end")
       scroll.current?.scrollTo(Number.MAX_SAFE_INTEGER);
   });
-  const failed = feedback.entries.some(
-    (entry) => entry.tone === "error" || entry.tone === "warn",
-  );
   return (
     <OpenTuiDialog
       id="command-feedback"
@@ -59,12 +56,8 @@ export function OpenTuiCommandFeedback({
       maxHeight={20}
       maxWidth={88}
     >
-      <text
-        height={1}
-        flexShrink={0}
-        fg={failed ? palette.yellow : palette.accent}
-      >
-        {failed ? "Ошибка команды" : "Результат команды"}
+      <text height={1} flexShrink={0} fg={palette.yellow}>
+        Ошибка команды
       </text>
       <TerminalScrollbox ref={scroll} flexGrow={1} minHeight={0} width="100%">
         {feedback.entries.map((entry) => (

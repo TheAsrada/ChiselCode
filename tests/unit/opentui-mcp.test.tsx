@@ -166,7 +166,7 @@ function destroy(setup: Setup) {
 test("/mcp opens a native popup, preserves the conversation and shows server health", async () => {
   const { api } = actions();
   const workspace = new TuiWorkspace("/project");
-  workspace.controller.append("Conversation stays visible", "assistant");
+  workspace.newTab().append("Conversation stays visible", "assistant");
   const submitted: string[] = [];
   const setup = await testRender(
     <OpenTuiSpike
@@ -192,6 +192,7 @@ test("/mcp opens a native popup, preserves the conversation and shows server hea
     expect(workspace.controller.snapshot.overlay).toBe("mcp");
     await press(setup, "ESCAPE");
     expect(workspace.controller.snapshot.overlay).toBeUndefined();
+    expect(setup.captureCharFrame()).toContain("Conversation stays visible");
   } finally {
     destroy(setup);
     workspace.dispose();

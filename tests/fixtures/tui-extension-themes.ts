@@ -9,11 +9,12 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { BoxRenderable } from "@opentui/core";
+import { type BoxRenderable, RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
 import { PackageManagementService } from "../../src/extensions/packages/service.js";
+import { THEMES } from "../../src/ui/appearance.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -167,6 +168,17 @@ async function start() {
       ui.mockInput.pasteBracketedText("Сохранённый черновик темы"),
     );
   await frame();
+}
+function assertFallback() {
+  assert.deepEqual(
+    ui.captureSpans().lines[0]?.spans[0]?.bg.toInts().slice(0, 3),
+    RGBA.fromHex(THEMES.obsidian.bg).toInts().slice(0, 3),
+    "Unavailable theme did not fall back to the actual Obsidian palette",
+  );
+  assert.ok(
+    !ui.captureCharFrame().includes("Выбранная тема расширения недоступна"),
+    "Theme fallback polluted home",
+  );
 }
 async function stop() {
   if (application) {
@@ -337,11 +349,7 @@ try {
   await capture("update-before-restart-160x50");
   await stop();
   await start();
-  await until(
-    () =>
-      ui.captureCharFrame().includes("Выбранная тема расширения недоступна"),
-    "Update did not revalidate missing desired theme",
-  );
+  assertFallback();
   await capture("update-after-restart-fallback-160x50");
   await key("t", true);
   assert.ok(
@@ -370,11 +378,7 @@ try {
     revision: status.revision,
   });
   await start();
-  await until(
-    () =>
-      ui.captureCharFrame().includes("Выбранная тема расширения недоступна"),
-    "Disable did not fall back",
-  );
+  assertFallback();
   await capture("disabled-fallback-160x50");
   await stop();
   status = await packages.status(candidate.preview.id);
@@ -399,11 +403,7 @@ try {
   await capture("remove-before-restart-160x50");
   await stop();
   await start();
-  await until(
-    () =>
-      ui.captureCharFrame().includes("Выбранная тема расширения недоступна"),
-    "Нет fallback notice",
-  );
+  assertFallback();
   await capture("unavailable-fallback-160x50");
   await act(async () => ui.renderer.resize(24, 8));
   await capture("removed-fallback-24x8");

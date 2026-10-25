@@ -1680,13 +1680,13 @@ function OpenTuiScreen({
         } catch (error) {
           controller?.append(
             error instanceof Error ? error.message : String(error),
-            "info",
+            "warn",
           );
         }
       } else {
         controller?.append(
           "/permissions открывает выбор. Режимы: default, acceptEdits, dontAsk, bypassPermissions. Bypass включается в Settings / Разрешения. F4 переключает следующий запрос.",
-          "info",
+          "warn",
         );
       }
       return;
@@ -1702,7 +1702,7 @@ function OpenTuiScreen({
       else
         controller?.append(
           "Режим: /plan, /build или /mode plan|build. Shift+Tab переключает режим следующего запроса.",
-          "info",
+          "warn",
         );
       clearInput();
       return;

@@ -113,6 +113,10 @@ test("home notices use an owned dialog, preserve drafts and discard stale dismis
   const workspace = new TuiWorkspace("/project-a");
   try {
     workspace.home.setDraft("Черновик 😀");
+    workspace.home.append("Скилл закреплён", "info");
+    workspace.home.appendNotice("Сохранено", "success");
+    expect(workspace.home.snapshot.commandFeedback).toBeUndefined();
+    expect(workspace.home.snapshot.transcript).toEqual([]);
     workspace.home.append("Неизвестная команда", "warn");
     const first = workspace.home.snapshot.commandFeedback;
     expect(first).toBeDefined();

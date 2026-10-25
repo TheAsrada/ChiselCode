@@ -133,7 +133,7 @@ async function paste(value: string) {
 }
 async function click(id: string) {
   const target = ui.renderer.root.findDescendantById(id);
-  assert.ok(target, `Нет ${id}`);
+  assert.ok(target, `Нет ${id}\n${ui.captureCharFrame()}`);
   await act(async () => {
     for (let parent = target.parent; parent; parent = parent.parent)
       if (parent instanceof ScrollBoxRenderable) parent.scrollChildIntoView(id);
