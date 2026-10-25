@@ -1,0 +1,32 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths: ["**/*.md", "docs/assets/**", "scripts/check-docs.ts", "tests/unit/documentation.test.ts", ".github/workflows/docs.yml", "package.json"]
+  pull_request:
+    branches: [main]
+    paths: ["**/*.md", "docs/assets/**", "scripts/check-docs.ts", "tests/unit/documentation.test.ts", ".github/workflows/docs.yml", "package.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: Links and navigation
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Check the documentation validator
+        run: bun --no-install test tests/unit/documentation.test.ts
+      - name: Check local links, anchors, images and reachable pages
+        run: bun --no-install run docs:check

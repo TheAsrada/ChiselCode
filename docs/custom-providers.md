@@ -1,30 +1,30 @@
+<a id="что-такое-custom-provider"></a>
+<a id="поддерживаемые-типы-providers"></a>
+
 # Пользовательские провайдеры
 
-[Документация](README.md) · [Providers](providers.md) · [Архитектура](architecture.md)
+[Документация](README.md) · [Подключение сервиса](providers.md) · [Контракт manifest](architecture/providers.md)
 
-## Что такое custom provider
+Пользовательский провайдер подключает свой сервис к одному из установленных протоколов: OpenAI Chat Completions или Anthropic Messages. Настройки описываются в `provider.json`; изменение исходников и сборка приложения не нужны.
 
-Declarative definition конкретного сервиса на поддерживаемом API. Это данные для bundled protocol driver, а не plugin с исполняемым кодом. Новый gateway подключается без изменения source, rebuild или npm install.
+<a id="где-находится-каталог-providers"></a>
+<a id="chisel-providers-path"></a>
+<a id="структура-provider-package"></a>
 
-## Где находится каталог providers
-
-`ChiselCode Home/providers/` создаётся автоматически и пуст по умолчанию. Windows: %LOCALAPPDATA%/ChiselCode/providers; macOS/Linux: $XDG_DATA_HOME/chiselcode/providers или ~/.local/share/chiselcode/providers. Built-ins и credentials туда не копируются.
-
-## chisel providers path
+## Найти каталог
 
 ```bash
 chisel providers path
 ```
 
-Печатает реальный абсолютный путь и создаёт Home layout. Не вычисляйте XDG/AppData путь вручную.
+Команда создаёт пользовательскую структуру данных и показывает абсолютный путь `Home/providers`. Внутри создайте отдельную папку, например `example-gateway`, с файлом `provider.json`. Читаются только непосредственные подпапки. Имя папки и ID сервиса независимы: `/` в ID не означает вложенную папку.
 
-## Поддерживаемые типы providers
+<a id="быстрый-старт"></a>
+<a id="openai-compatible-provider"></a>
 
-OpenAI-compatible gateways, corporate proxies, local servers и Anthropic-compatible services. Если API не совместим с openai-chat или anthropic-messages, одного manifest недостаточно.
+## Подключить OpenAI-совместимый API
 
-## Быстрый старт
-
-Создайте example-gateway/provider.json в выведенном каталоге:
+Создайте `example-gateway/provider.json`:
 
 ```json
 {
@@ -39,6 +39,31 @@ OpenAI-compatible gateways, corporate proxies, local servers и Anthropic-compat
 }
 ```
 
+Замените адрес и модель на реальные параметры сервиса. `EXAMPLE_API_KEY` — имя переменной окружения, а не сам ключ. Ключ также можно сохранить в мастере подключения.
+
+## Локальный сервер без ключа
+
+Для сервера с OpenAI-совместимым API на порту 11434 создайте `local-ollama/provider.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "local/ollama",
+  "label": "Local Ollama",
+  "driver": "openai-chat",
+  "auth": { "required": false, "envVars": [] },
+  "endpoint": { "required": false, "defaultBaseUrl": "http://localhost:11434/v1", "normalization": "openai-v1" },
+  "defaults": { "model": "your-local-model" },
+  "capabilities": { "modelListing": true, "tokenCounting": "unsupported", "usageReporting": "unknown", "toolCalling": true, "thinking": false }
+}
+```
+
+Запустите сервер и загрузите модель. Вместо `your-local-model` укажите её точный ID. Ключ при `auth.required: false` необязателен. Если сервер не поддерживает список моделей, задайте `modelListing: false` и выбирайте ID вручную. Возможности вызова инструментов должны поддерживаться и сервером, и самой моделью.
+
+<a id="проверка-через-chisel-providers-validate"></a>
+
+## Проверить и сохранить профиль
+
 ```bash
 chisel providers validate
 chisel providers list
@@ -46,77 +71,21 @@ chisel setup --provider example/gateway --profile example-work
 chisel --profile example-work "Объясни проект"
 ```
 
-example.com — placeholder: замените endpoint/model на реальные параметры своего API. В setup найдите provider по ID/label, введите ключ или используйте EXAMPLE_API_KEY, сохраните profile. После изменения manifests перезапустите ChiselCode.
+Для локального примера замените ID на `local/ollama`, а профиль — на `local-work`. В мастере сохраните ключ, если он требуется, и выберите модель. После изменения manifest перезапустите ChiselCode.
 
-## Структура provider package
+`validate` работает без сети и не проверяет ключ или доступность API. Код завершения 0 означает отсутствие ошибок, 1 — ошибки. Предупреждение об удалённом HTTP не делает проверку неуспешной. После сохранения выполните короткий запрос через обычный runtime.
 
-```text
-providers/
-└── example-gateway/
-    └── provider.json
-```
+<a id="anthropic-compatible-provider"></a>
 
-Только immediate child directories. Recursive discovery нет. Folder name — deployment detail, manifest.id — persistent identity. Лишние файлы, включая index.js, не исполняются.
+## Подключить Anthropic-совместимый API
 
-## provider.json
-
-Обычный UTF-8 JSON до 256 KiB. Обязательная schemaVersion=1. Optional description, author, homepage, license информационные; network на homepage не выполняется. Unknown top-level fields отклоняются; driverOptions проверяется driver. Не помещайте секреты ни на верхний уровень, ни внутрь options.
-
-## Manifest schema
-
-| Поле | Contract |
-| --- | --- |
-| schemaVersion | Только 1 |
-| id | Namespaced ID |
-| label | Непустая строка до 100 символов |
-| description | Optional, до 500 символов |
-| driver | ID зарегистрированного protocol driver |
-| auth | required boolean; envVars array до 10 имён |
-| endpoint | required boolean; optional HTTP(S) defaultBaseUrl; normalization policy |
-| defaults | Optional model в объекте |
-| capabilities | modelListing, tokenCounting, usageReporting, toolCalling, thinking |
-| driverOptions | Optional object, validated by selected driver |
-| author/homepage/license | Optional informational strings; homepage URL |
-
-## Provider ID и namespace
-
-Формат `^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`: acme/gateway, local/ollama. Не ../, не absolute path, не встроенные anthropic/openai/agentrouter. Namespace slash не означает вложенную папку.
-
-## Driver
-
-| Driver | API | Auth | Endpoint |
-| --- | --- | --- | --- |
-| openai-chat | POST /chat/completions, streaming; optional GET /models | Bearer token | Например https://api.example/v1 |
-| anthropic-messages | POST /v1/messages; optional GET /v1/models и token count | x-api-key или bearer option | Корень сервера |
-
-streamChat поддерживает tool calls, usage, thinking deltas и cancellation. OpenAI Responses API и произвольные protocols не реализованы. Реальный gateway должен поддерживать ожидаемые stream termination и tool formats.
-
-### driverOptions
-
-openai-chat:
-
-- includeUsage boolean, по умолчанию true: отправлять stream_options.include_usage. При HTTP 400 с явным указанием на неподдерживаемый stream_options/include_usage драйвер повторяет запрос без него; непрозрачная HTTP 400 такой повтор не вызывает.
-- tokenLimitFallback boolean, default true для declarative driver: один retry с max_tokens после соответствующей 400 на max_completion_tokens. Official OpenAI definition явно отключает fallback.
-
-anthropic-messages:
-
-- authMode: api-key (default) или bearer.
-- adaptiveThinking boolean, default false: adaptive thinking / high effort, только если сервер их понимает.
-- nativeTokenCounting boolean: default из tokenCounting capability; true включает model metadata/count endpoint. Не заявляйте native там, где endpoints отсутствуют.
-
-Другие options, включая fetch, headers, JS paths или arbitrary SDK flags, отклоняются. Options — данные, не способ загрузить код.
-
-## OpenAI-compatible provider
-
-Используйте quick-start example. Для локального сервера: defaultBaseUrl="http://localhost:11434/v1", auth.required=false, envVars=[], model — точный ID локальной модели. Если /models нет, modelListing=false; вводите model вручную. Передача tool schemas требует совместимой модели и сервера.
-
-## Anthropic-compatible provider
+Используйте `driver: "anthropic-messages"`, базовый адрес корня сервера и `normalization: "anthropic-root"`. Пример с Bearer-токеном:
 
 ```json
 {
   "schemaVersion": 1,
   "id": "example/anthropic-proxy",
-  "label": "Example Messages Proxy",
+  "label": "Messages Proxy",
   "driver": "anthropic-messages",
   "auth": { "required": true, "envVars": ["EXAMPLE_AUTH_TOKEN"] },
   "endpoint": { "required": false, "defaultBaseUrl": "https://messages.example.com", "normalization": "anthropic-root" },
@@ -126,74 +95,82 @@ anthropic-messages:
 }
 ```
 
-Anthropic-root убирает конечный /v1; SDK дописывает /v1/messages. Для x-api-key используйте authMode=api-key. Adaptive thinking не включается автоматически.
+Для `x-api-key` задайте `authMode: "api-key"`. Драйвер сам добавляет `/v1/messages`; конечный `/v1` у корня удаляется. Не объявляйте поддержку рассуждений или подсчёта токенов, если сервер их не предоставляет.
 
-## Authentication
+<a id="providerjson"></a>
+<a id="manifest-schema"></a>
+<a id="provider-id-и-namespace"></a>
+<a id="authentication"></a>
+<a id="environment-variables"></a>
+<a id="endpoint-normalization"></a>
+<a id="capabilities"></a>
+<a id="manifest-versioning"></a>
 
-Manifest задаёт required/envVars, profile — apiKeyRef, CredentialStore — secret. При auth.required=false реальный ключ не обязателен; SDK использует служебное значение при отсутствии credential. Не используйте manifests как хранилище секретов.
+## Поля provider.json
 
-## Environment variables
+Это обычный UTF-8 JSON размером до 256 КиБ. Поддерживается `schemaVersion: 1`; неизвестные поля отклоняются.
 
-Только имена вида `^[A-Z_][A-Z0-9_]*$`, не значения. Resolver выбирает первую непустую переменную по порядку. Env credential имеет приоритет над сохранённым; transient key из текущей проверки выше env.
+| Поле | Значение |
+| --- | --- |
+| `id` | Имя вида `acme/gateway`: две части из строчных букв, цифр, `.`, `_`, `-`, разделённые `/`; части начинаются с буквы или цифры |
+| `label` | Название до 100 символов |
+| `driver` | `openai-chat` или `anthropic-messages` |
+| `auth` | `required` и до 10 имён `envVars`; только имена переменных, без значений секретов |
+| `endpoint` | `required`, необязательный HTTP(S) `defaultBaseUrl` и правило `normalization` |
+| `defaults` | Объект с необязательным ID `model` |
+| `capabilities` | Поддержка списка, подсчёта токенов, статистики, инструментов и рассуждений |
+| `driverOptions` | Необязательные настройки выбранного драйвера из раздела ниже |
+| `description` | Необязательное описание до 500 символов |
+| `author`, `homepage`, `license` | Необязательные сведения об авторе, URL и лицензии; сами по себе не вызывают сетевого запроса |
 
-## Profiles
+`tokenCounting` принимает `native` или `unsupported`, `usageReporting` — `stream`, `final` или `unknown`. `modelListing`, `toolCalling` и `thinking` — логические значения. Окно модели не угадывается по имени. Неизвестная стоимость не считается нулевой.
 
-```json
-{
-  "schemaVersion": 2,
-  "defaultProfileId": "corp-ai",
-  "profiles": {
-    "corp-ai": { "providerId": "example/gateway", "apiKeyRef": "corp-ai", "defaultModel": "example-coder" }
-  }
-}
-```
+Адрес профиля и `--base-url` имеют приоритет над `defaultBaseUrl`. Допустимы только HTTP(S) без логина, пароля, query и fragment. Правила `none`, `openai-v1` и `anthropic-root` описаны в [настройке адреса](providers.md#адрес-api).
 
-Несколько profiles одного provider независимы. Создайте их через setup --profile или «Новый профиль» в /settings. Выберите через --profile или «Профиль». apiKeyRef не обязан совпадать с profile ID: старые ссылки сохраняются.
+<a id="driver"></a>
+<a id="driveroptions"></a>
 
-## Models
+## Настройки драйвера
 
---model → profile.defaultModel → manifest.defaults.model → controlled error. Нет default model — выберите вручную; modelListing optional. Удалённый manifest не удаляет profile/history, но новые requests blocked provider unavailable.
+Для `openai-chat`:
 
-## Endpoint normalization
+- `includeUsage` — отправлять `stream_options.include_usage`, по умолчанию включено. Повтор без поля возможен только при HTTP 400, явно указывающем на его неподдерживаемость.
+- `tokenLimitFallback` — разрешить один повтор с `max_tokens` после соответствующего отказа для `max_completion_tokens`. По умолчанию включён у декларативного драйвера; официальное определение OpenAI выключает его.
 
-none сохраняет путь после удаления trailing slash; openai-v1 добавляет /v1 голому host; anthropic-root убирает конечный /v1. Profile.baseUrl или --base-url переопределяет defaultBaseUrl. Без effective endpoint runtime возвращает controlled invalid_endpoint; укажите defaultBaseUrl или profile.baseUrl. Только HTTP(S), без embedded credentials/query/fragment. HTTP localhost допустим; remote HTTP получает warning и может раскрыть keys/prompts.
+Для `anthropic-messages`:
 
-## Capabilities
+- `authMode` — `api-key` по умолчанию либо `bearer`.
+- `adaptiveThinking` — расширенные рассуждения, по умолчанию выключены; включайте только для совместимого сервера.
+- `nativeTokenCounting` — использовать API подсчёта токенов; по умолчанию определяется `tokenCounting`.
 
-modelListing boolean управляет availability списка. tokenCounting native/unsupported, usageReporting stream/final/unknown, toolCalling boolean и thinking boolean описывают сервис. Не заявляйте unsupported server features. Context window не угадывается по model name. Стоимость неизвестного provider — unknown, не zero.
+Другие настройки, включая `fetch`, произвольные `headers` и пути JavaScript, не принимаются. OpenAI Responses API не поддерживается. [Технический контракт драйверов](architecture/providers.md).
 
-## Проверка через chisel providers validate
+<a id="diagnostics"></a>
+<a id="duplicate-ids"></a>
+<a id="безопасность"></a>
+<a id="ограничения-v1"></a>
+<a id="почему-произвольный-javascript-не-запускается"></a>
 
-Offline проверяет JSON/schema/namespace/duplicate IDs/drivers/options/URL/env vars/size/symlinks. Exit 0 при отсутствии errors, 1 при errors; warning remote HTTP не failure. Не проверяет доступность API или credential. Broken package пропускается, приложение с built-ins работает.
+## Ошибки и безопасность
 
-## Diagnostics
+Проверка сообщает код, путь файла и ID провайдера. Типовые причины: `manifest_invalid`, `manifest_too_large`, `reserved_id`, `duplicate_id`, `unknown_driver`, `unsupported_schema`, `unsafe_symlink`, `invalid_driver_options`. Сырые ключи и содержимое JSON в диагностику не выводятся.
 
-Structured severity/code/path/providerId/message: manifest_invalid, manifest_too_large, reserved_id, duplicate_id, unknown_driver, unsupported_schema, unsafe_symlink, invalid_driver_options; insecure_endpoint — warning. Values секрета и сырой JSON в diagnostics не выводятся. Missing provider.json диагностируется; исправьте файл и перезапустите.
+Два пользовательских пакета с одинаковым ID отключаются оба. Встроенные ID нельзя переопределить. Некорректный пакет не отключает встроенные сервисы.
 
-## Duplicate IDs
+Manifest и его папка не могут быть симлинками или junctions. Поля ключей, токенов, паролей и авторизации запрещены рекурсивно. Секреты сохраняются через профиль и хранилище ключей. Проверяйте адрес до ввода ключа: будущие запросы будут отправляться именно ему. Удалённый HTTP передаёт данные без TLS.
 
-Два packages с одним custom ID отключаются оба. Filesystem order не выбирает победителя. Built-in ID никогда не override.
+Чтение каталога не запускает JavaScript, shell, сетевые запросы или установку npm. Пользовательские исполняемые драйверы, удалённые manifests и автоматическое слежение за файлами не реализованы. Протокол провайдера не является системной песочницей.
 
-## Manifest versioning
+<a id="profiles"></a>
+<a id="models"></a>
+<a id="compatibility"></a>
 
-Поддерживается только schemaVersion=1. Будущая 2 получает unsupported_schema; формат не угадывается.
+## Профили и совместимость
 
-## Безопасность
+Профили одного сервиса независимы. Создавайте их через `setup --profile` или «Новый профиль» в настройках; выбирайте через `--profile` или окно выбора модели. Ссылка `apiKeyRef` не обязана совпадать с ID профиля.
 
-Discovery не получает credentials, не делает network requests и не создаёт SDK clients. Regular manifest file до 256 KiB, package/manifest symlinks и junctions запрещены. ID не применяется как path. API key/token/secret/password/authorization fields запрещены рекурсивно. Manifest может направить будущие запросы к указанному API: проверяйте endpoint перед сохранением ключа.
+После удаления manifest профиль и история остаются читаемыми, но новые запросы к этому сервису недоступны до его восстановления или смены подключения. [Перенос старых настроек](provider-migration.md).
 
-## Ограничения v1
+<a id="как-добавить-новый-protocol-driver"></a>
 
-Нет filesystem watcher, remote manifests, marketplace, npm install, executable drivers, tools/hooks, shell или arbitrary file access. Catalog обновляется после restart. Совместимый protocol не гарантирует одинаковые model/tool capabilities.
-
-## Почему произвольный JavaScript не запускается
-
-Driver потенциально видит credentials/prompts/history и имеет network/process privileges. Наличие index.js не означает доверие. Будущие executable drivers потребуют explicit install/trust digest и отдельного security design; worker process не является автоматически sandbox.
-
-## Как добавить новый protocol driver
-
-Реализуйте ProviderDriver в src/providers/drivers/, validateDefinition для options, create(context) → ProviderAdapter. Зарегистрируйте в DriverRegistry, добавьте shared conformance tests и эту документацию. streamChat обязателен; остальные методы optional. SDK-specific ошибки должны стать ProviderError; signal отменяет stream. Generic config/sessions/UI/core не меняются. Новый bundled driver станет доступен manifests после обновления ChiselCode; arbitrary executable drivers из Home/providers сейчас не загружаются.
-
-## Compatibility
-
-Старые config v1 и sessions v2 читаются lazy. credentials.enc и apiKeyRef не мигрируют. Built-in IDs сохранены, --provider остаётся supported compatibility flag. После удаления manifest config/profile/session остаются читаемыми. [Migration notes](provider-migration.md) описывают backups и запись файлов.
+Добавление нового протокола в исходники описано в [архитектуре провайдеров](architecture/providers.md#добавить-протокольный-драйвер).

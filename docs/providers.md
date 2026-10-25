@@ -1,24 +1,41 @@
-# Провайдеры, profiles и API-ключи
+<a id="провайдеры-profiles-и-api-ключи"></a>
 
-[Документация](README.md) · [Главная](../README.md) · [Custom providers](custom-providers.md)
+# Провайдеры, профили и API-ключи
 
-## Каталог и выбор
+[Документация](README.md) · [Выбор модели](model-picker.md) · [Пользовательские провайдеры](custom-providers.md)
 
-Provider — сервис; protocol driver — реализация API; profile — отдельный аккаунт и его настройки. Один driver обслуживает множество providers, один provider может иметь несколько profiles. Catalog включает встроенные definitions и пользовательские manifests. Актуальный каталог показывает `chisel providers list`; source of truth metadata — `src/providers/definitions/` и provider.json, а не UI/CLI lists.
+**Провайдер** — сервис, которому отправляются запросы. **Профиль** — аккаунт и настройки подключения к этому сервису. **Модель** — выбранная модель этого подключения. Один сервис может иметь несколько профилей, например рабочий и личный.
 
-Встроенные definitions версии 0.6.1:
+<a id="каталог-и-выбор"></a>
 
-| Provider ID | Label | Driver | Env var | Default model | Default endpoint |
-| --- | --- | --- | --- | --- | --- |
-| `anthropic` | Anthropic | `anthropic-messages` | `ANTHROPIC_API_KEY` | `claude-opus-5` | `https://api.anthropic.com` |
-| `anthropic-compatible` | Anthropic-совместимый API | `anthropic-messages` | `ANTHROPIC_AUTH_TOKEN` | ручной выбор | требуется profile.baseUrl |
-| `openai` | OpenAI | `openai-chat` | `OPENAI_API_KEY` | `gpt-5` | `https://api.openai.com/v1` |
-| `openai-compatible` | OpenAI-совместимый API | `openai-chat` | `OPENAI_API_KEY` | ручной выбор | требуется profile.baseUrl |
-| `agentrouter` | AgentRouter | `openai-chat` | `AGENTROUTER_API_KEY` | `claude-opus-5` | `https://agentrouter.org/v1` |
+## Подключить сервис
 
-В setup/settings доступны поиск по id/label/description, ограниченное окно, ↑/↓, Enter, Escape. Custom provider автоматически появляется в том же selector. Никакого числового закрытого каталога нет.
+1. Запустите `chisel setup` либо откройте `/settings` → «Модель и подключение».
+2. Найдите сервис по названию или ID. Для совместимого API укажите базовый адрес.
+3. Введите ключ, выберите доступную модель и сохраните настройки.
+4. Проверьте подключение и отправьте короткую задачу. Успешное получение списка моделей ещё не подтверждает работу генерации и инструментов.
 
-## Profiles и models
+Ключи создаются в [консоли Anthropic](https://console.anthropic.com), [кабинете OpenAI](https://platform.openai.com/api-keys) или [кабинете AgentRouter](https://agentrouter.org/console/token). Совместимый сервис выдаёт собственные параметры.
+
+## Встроенные сервисы
+
+| ID | Сервис | Переменная ключа | Модель по умолчанию | Базовый адрес |
+| --- | --- | --- | --- | --- |
+| `anthropic` | Anthropic | `ANTHROPIC_API_KEY` | `claude-opus-5` | `https://api.anthropic.com` |
+| `anthropic-compatible` | Anthropic-совместимый API | `ANTHROPIC_AUTH_TOKEN` | выбрать вручную | указать при настройке |
+| `openai` | OpenAI | `OPENAI_API_KEY` | `gpt-5` | `https://api.openai.com/v1` |
+| `openai-compatible` | OpenAI-совместимый API | `OPENAI_API_KEY` | выбрать вручную | указать при настройке |
+| `agentrouter` | AgentRouter | `AGENTROUTER_API_KEY` | `claude-opus-5` | `https://agentrouter.org/v1` |
+
+Текущий каталог показывает `chisel providers list`. Модель по умолчанию не гарантирует доступ на вашем аккаунте: используйте точный ID из кабинета сервиса или окна `/model`.
+
+Все встроенные сервисы требуют непустой ключ. Для локального сервера без авторизации используйте [пользовательский manifest](custom-providers.md#локальный-сервер-без-ключа) с `auth.required: false`. Совместимый сервер также может принимать служебный непустой ключ, если это предусмотрено самим сервером.
+
+<a id="profiles-и-models"></a>
+
+## Рабочий и личный аккаунты
+
+Создайте отдельные профили:
 
 ```bash
 chisel setup --provider openai --profile openai-work
@@ -26,56 +43,54 @@ chisel setup --provider openai --profile openai-personal
 chisel --profile openai-work "Объясни проект"
 ```
 
-«Профиль» в /settings выбирает аккаунт; «Новый профиль» запрашивает уникальный ID. apiKeyRef, defaultModel и baseUrl независимы. Смена provider сбрасывает несохранённый ключ и выбирает definition default model. Если profiles несколько, требуется явный выбор.
+В настройках используйте «Новый профиль» для добавления аккаунта и «Профиль» для выбора. Ключ, адрес API и модель каждого профиля независимы. Если у сервиса несколько профилей, CLI требует точный `--profile`; `--provider` не выбирает аккаунт случайно.
 
-Модель новой сессии: --model → profile.defaultModel → definition.defaults.model → controlled error/manual selection. Имена берите из консоли или /model; доступность зависит от сервиса и аккаунта. При resume без overrides используются profile/model сессии. Старый --provider работает с единственным настроенным profile; при нескольких требует --profile, при отсутствии предлагает setup. Env key не заменяет profile configuration.
+Модель запроса выбирается в порядке `--model` → модель профиля → модель сервиса. При продолжении сессии без явных переопределений сохраняются её профиль и модель. [Смена модели в чате](model-picker.md).
 
-## Authentication
+<a id="authentication"></a>
 
-Приоритет: ключ, введённый для проверки текущих настроек → первая непустая definition env var → profile.apiKeyRef в CredentialStore. Definition/manifest не содержит секретов. Config/session migration не расшифровывает и не перемещает credentials.enc. Существующие apiKeyRef сохраняются.
+## Откуда берётся ключ
 
-Anthropic: console.anthropic.com; OpenAI: platform.openai.com/api-keys; AgentRouter: agentrouter.org/console/token. Совместимый сервер выдаёт свой ключ. Мастер маскирует ввод; auth set передаёт секрет в argv и не рекомендуется для ручного ввода. Env var имеет приоритет над сохранённым ключом, поэтому при замене ключа проверяйте окружение.
+Для обычного запуска приоритет имеет первая непустая переменная окружения сервиса, затем сохранённый ключ профиля. Ключ, введённый для текущей проверки в настройках, используется раньше них. Если вы заменили сохранённый ключ, а ошибка авторизации осталась, проверьте переменные окружения.
 
-Все пять built-ins требуют ключ. Для локального сервера без auth можно использовать custom manifest с auth.required=false; тогда реального ключа не требуется. У compatible built-in остаётся прежняя поддержка непустого служебного ключа, если сервер это допускает.
+Мастер скрывает ввод и сохраняет ключ локально в `credentials.enc`. Manifest и конфигурация содержат ссылки на ключи, а не сами секреты. Низкоуровневый `chisel auth set` передаёт ключ в аргументах процесса; для ручной настройки используйте мастер. [Ключи в автоматизации](cli.md#ключи-в-автоматизации).
 
-## Endpoints
+<a id="endpoints"></a>
 
-Profile.baseUrl и --base-url переопределяют definition endpoint, в том числе официальных APIs. Без effective endpoint — controlled invalid_endpoint, SDK defaults не выбирают чужой сервис. Endpoint должен быть HTTP(S), без userinfo, query и fragment. Policies:
+## Адрес API
 
-| Policy | Поведение |
+Адрес профиля или `--base-url` заменяет стандартный адрес сервиса, включая официальные API. Укажите HTTP(S)-адрес без логина, пароля, query и fragment. Не добавляйте конечный `/chat/completions` или `/messages`.
+
+| Настройка адреса | Поведение |
 | --- | --- |
-| none | Удалить trailing slashes, сохранить путь |
-| openai-v1 | Голому хосту добавить /v1; существующий путь сохранить |
-| anthropic-root | Удалить конечный /v1; SDK добавит /v1/messages |
+| `none` | Удаляет конечные `/`, сохраняет путь; используется официальными Anthropic и OpenAI |
+| `openai-v1` | К голому хосту добавляет `/v1`, существующий путь сохраняет; используется OpenAI-compatible и AgentRouter |
+| `anthropic-root` | Удаляет конечный `/v1`; драйвер сам добавляет `/v1/messages` |
 
-Официальные Anthropic/OpenAI используют none; совместимые definitions — соответствующую policy; AgentRouter — openai-v1. Не указывайте полный URL /chat/completions или /messages. HTTP localhost разрешён; remote HTTP manifest получает warning о передаче key/prompts без TLS. ANTHROPIC_BASE_URL автоматически не читается: укажите адрес в profile/setup или --base-url.
+Переменная `ANTHROPIC_BASE_URL` автоматически не читается: задайте адрес в профиле или `--base-url`. HTTP для локального сервера разрешён; удалённый HTTP передаёт ключ и запросы без TLS, о чём проверка manifest предупреждает. [Proxy, сертификаты и корпоративная сеть](network.md).
 
-## Drivers и AgentRouter
+<a id="capabilities-и-health"></a>
 
-`openai-chat` использует Chat Completions, streaming, ordered tool calls и reasoning deltas. OpenAI Responses API не реализован. includeUsage включает stream_options.include_usage по умолчанию, чтобы получать фактический input usage и у совместимых шлюзов. Если сервер отклоняет именно этот параметр с 400, driver повторяет запрос без него и использует оценку. tokenLimitFallback допускает один повтор при 400 о max_completion_tokens с max_tokens; official OpenAI выключает его, gateways включают. Эти повторы выполняются до принятия запроса сервером. AgentRouter — definition поверх generic OpenAI driver, без собственного wire adapter.
+## Если подключение не работает
 
-`anthropic-messages` использует Messages API, tool translation, streaming и optional native token count. authMode=api-key использует x-api-key; bearer — Authorization. adaptiveThinking и nativeTokenCounting явно задаются options/capabilities. Совместимые шлюзы не получают adaptive thinking автоматически.
+- `chisel doctor` проверяет локальные настройки без запроса к API.
+- «Проверить подключение» проверяет соединение или список моделей, если сервис умеет их перечислять.
+- Если список недоступен, введите точный ID вручную через `/model` → «Ввести ID».
+- При 401 проверьте ключ и выбранный профиль; при 404 — базовый адрес и тип API.
+- HTTP 400 с телом только `data: [DONE]` означает отказ сервиса без объяснения. Клиент сохраняет ошибку и не повторяет принятый запрос с произвольно изменёнными параметрами.
 
-Начиная с CLI 0.6.37 оба драйвера проверяют структуру входящих событий. OpenAI usage без `choices`, пустые `choices` и завершающий `finish_reason` без `delta` обрабатываются без сбоя; частичный usage дополняет уже полученные счётчики. Повреждённые данные возвращают `transport` с названием протокола и проблемного поля. Инструменты такого ответа не выполняются. Настоящие API-ошибки сохраняют причину сервиса. [Форматы, границы совместимости и проверки](architecture/provider-streams.md).
+[Диагностика провайдеров](troubleshooting.md#проверка-подключения) описывает дальнейшие проверки. Состояние «проверка не поддерживается» само по себе не означает отказ подключения.
 
-В текущих исходниках OpenAI-запросы без инструментов не содержат `tools`, а текстовые сообщения ассистента — `tool_calls`. Если сообщение содержит и результаты инструментов, и текст пользователя, сначала передаются все `role: tool`, затем текст. Содержимое ошибок инструментов сохраняется. Ответ HTTP 400 с телом только `data: [DONE]` остаётся `bad_request`: шлюз отклонил запрос без объяснения. Клиент сообщает об этом явно и не повторяет запрос с произвольно изменёнными параметрами. Изменение вошло в [CLI 0.6.40](contributors/reports/release-0.6.40.md); [разбор разговора](contributors/reports/provider-client-diagnostics.md) отделяет подтверждённые ошибки клиента от неизвестной причины отказа шлюза.
+<a id="drivers-и-agentrouter"></a>
+<a id="стоимость"></a>
 
-## Capabilities и health
+## Возможности и стоимость
 
-Definition.capabilities: modelListing, tokenCounting(native/unsupported), usageReporting(stream/final/unknown), toolCalling, thinking. Все built-ins перечисляют модели и поддерживают tool calling; Anthropic-compatible не заявляет thinking. Native token counting — у official Anthropic; остальные unsupported. Usage Anthropic — final, OpenAI-compatible — stream. Model capabilities сообщают известные contextWindow/maxInputTokens/maxOutputTokens. Метаданные API имеют приоритет над встроенным каталогом models.dev; неизвестное окно не выдумывается. Параметры deployment за шлюзом могут отличаться от опубликованных пределов исходной модели.
+Поддерживаются OpenAI Chat Completions и Anthropic Messages; OpenAI Responses API не реализован. Совместимость инструментов и рассуждений зависит от сервиса. Известное окно контекста берётся из API модели, затем из каталога точных ID; неизвестное окно не выдумывается. Лимиты конкретного развёртывания сервиса могут отличаться.
 
-Health: checkConnection → listModels → unsupported. Последнее не означает failure. modelListing=false позволяет ручной выбор модели без /models. «Проверить подключение» не гарантирует tool compatibility или успешную генерацию; проверьте коротким запросом. `chisel doctor` проверяет локальную настройку без API-запросов.
+Стоимость — оценка по известному тарифу, а не выписка биллинга. Неизвестная цена показывается как неизвестная, а известная часть расхода не объявляется полной стоимостью. Проверяйте итоговый счёт в кабинете провайдера.
 
-## Стоимость
+<a id="how-to-add-a-new-provider"></a>
+<a id="how-to-add-a-new-protocol-driver"></a>
 
-CostEstimate содержит optional usd и source(provider/estimated/unknown). Unknown pricing не считается $0. Сохранены ориентировочные rates старой 0.6.0 только для точных official Anthropic claude-opus-5 (5/25 USD за миллион input/output) и claude-sonnet-5 (2/10); это estimated, не billing API. Неизвестные модели и остальные providers показывают unknown. Эти оценки не учитывают все cache discounts и изменения тарифов.
-
-Legacy totalCost хранит известный subtotal для compatibility. Когда цена хотя бы части запросов неизвестна, UI/JSON/evals не выдают subtotal за полный total. Старые ненулевые totals остаются estimated; legacy zero не становится доказательством бесплатного запроса.
-
-## How to add a new provider
-
-Для встроенного сервиса на существующем protocol: создайте ProviderDefinition в definitions/, зарегистрируйте в definitions/index.ts, добавьте contract/runtime test и обновите эту справку. Label, env vars, endpoint, default model, capabilities и options принадлежат definition. Не меняйте run-prompt, core, UI, config/session schemas или CLI validation. Для пользовательского сервиса достаточно [provider.json](custom-providers.md), без rebuild.
-
-## How to add a new protocol driver
-
-Реализуйте ProviderDriver(id, optional validateDefinition, create(context)) в drivers/, зарегистрируйте в createDriverRegistry, добавьте conformance tests и документацию. Adapter обязан иметь providerId и streamChat(request); listModels/countTokens/checkConnection/getCapabilities optional. Driver владеет SDK, request/response translation, cancellation и error normalization; не хранит пользовательский config. Проверьте text, multiple tools, malformed arguments, termination, refusal, usage, limits, abort и errors. После регистрации driver доступен и пользовательским manifests. Home/providers не загружает executable drivers.
+Для нового сервиса на поддерживаемом API используйте [provider.json](custom-providers.md). Добавление встроенного сервиса, нового драйвера и формат внутренних метаданных описаны в [архитектуре провайдеров](architecture/providers.md).

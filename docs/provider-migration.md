@@ -1,41 +1,63 @@
-# Provider Architecture: migration и проверка
+<a id="provider-architecture-migration-и-проверка"></a>
 
-Исходная точка: HEAD `9efae37ad2dd9fe8782839ec91c6559fbd412533`, совпадает с последним опубликованным релизом **v0.6.0** (30 сентября 2026). Baseline: typecheck PASS; lint PASS (144 files); bun test **233 pass / 0 fail**. Исходный config не имеет schemaVersion, хранит defaultProvider/defaultModel и закрытый record providers. Session schemaVersion=2 хранит provider; session index schemaVersion=1. Credential storage — существующий credentials.enc, изменения формата не планируются.
+# Перенос настроек и старых разговоров
 
-## Что изменилось относительно v0.6.0
+[Документация](README.md) · [Установка и обновление](installation.md) · [Провайдеры](providers.md)
 
-Provider Definition, Protocol Driver и Profile разделены. Каталог открыт для namespaced manifests; labels/env vars/endpoints/defaults/capabilities имеют source of truth в definitions. Generic app/CLI/UI/config/sessions/core не выбирают поведение по имени provider. SDK imports остались только в drivers. AgentRouter использует generic openai-chat. Core Runtime v2 и его tool/context/editing mechanics сохранены.
+Обычное обновление сохраняет настройки, ключи и разговоры. Для старых форматов приложение выполняет преобразование при чтении; массового переписывания истории при запуске нет.
 
-## Старый config
+## Перед обновлением
 
-Читается без записи, migrates in memory в schemaVersion=2. Provider openai → profile openai-default; остальные аналогично. Unknown fields/providers сохраняются. Global defaultModel переносится только в default profile при отсутствии собственного model. apiKeyRef и baseUrl сохраняются. Multiple profiles имеют независимые настройки; --provider не выбирает случайный account.
+1. Завершите работу приложения и сохраните резервную копию пользовательских данных из [таблицы путей](configuration.md#где-лежат-настройки-и-данные).
+2. Установите новый CLI и откройте прежнюю папку проекта.
+3. Проверьте подключение в `/settings`, затем откройте разговор через `/sessions` и выполните короткий запрос.
 
-## Credentials
+Резервная копия содержит ключи и исходный код разговоров. Храните её в защищённом месте и не прикладывайте к issue.
 
-credentials.enc физически не мигрирует. Config/session migration и provider discovery не расшифровывают store. Credential lookup происходит только при выбранном runtime, explicit key check/doctor/settings; запись — только при сохранении нового ключа пользователем. Existing apiKeyRef не переименовываются. Новому profile по умолчанию соответствует одноимённая запись credential.
+<a id="старый-config"></a>
+<a id="что-изменилось-относительно-v060"></a>
 
-## Когда config переписывается и какие backups
+## Старый формат настроек
 
-Только реальный save настроек (включая изменение UI preferences) сохраняет config v2. Перед первым v2 save исходные bytes записываются в config.v1.backup.json через exclusive create; существующая backup не заменяется. Config пишется в temporary file с fsync и atomic rename. Невалидный config не reset; error показывает path без содержимого/секретов. Unknown future schemaVersion не угадывается.
+Прежний выбор провайдера превращается в профиль: например, `openai` — в `openai-default`. Адрес API, ссылка на сохранённый ключ и выбранная модель сохраняются. Если настроено несколько профилей, выберите нужный в настройках или через `--profile`.
 
-## Старые sessions и indexes
+<a id="когда-config-переписывается-и-какие-backups"></a>
 
-v2 с provider читается в памяти как v3 providerId/profileId/model. Legacy profile ID: provider ID + -default, slash namespace заменяется дефисом. Missing provider получает controlled unknown identity; missing profile требует explicit selection при request. Transcript/runtime/context/summary/undo/diffs сохраняются. Session unknown/removed provider открывается и показывается; новый запрос требует установленный provider и настроенный profile.
+## Когда создаётся резервная копия
 
-Нет mass migration project sessions при startup. Save/checkpoint/rename переписывает только соответствующую session в v3. Отдельный session backup не создаётся; atomic writes сохраняют исходник при ошибке. Совсем старые sessions из прежнего config directory по-прежнему копируются в project storage с сохранением original files. Session index v1 rebuild в v2 — cache; project registry/metadata остаются schemaVersion=1.
+Чтение старого файла само по себе не меняет его на диске. Первое сохранение настроек записывает формат `schemaVersion: 2`; перед этим рядом создаётся `config.v1.backup.json`. Уже существующая резервная копия не заменяется.
 
-## Старые CLI commands
+Некорректный файл или неизвестная будущая версия формата вызывают ошибку. Приложение не сбрасывает их в пустую конфигурацию. Сначала сохраните исходный файл и исправьте указанную причину.
 
-chisel, setup, doctor, --provider, --model, --base-url, --resume, /settings и /model поддерживаются. --provider — compatibility interface, не удалён и не получает deprecation warning. Один profile используется; при нуле предлагается setup, при нескольких требуется --profile. Новые --profile и providers path/list/validate описаны в CLI docs.
+<a id="credentials"></a>
 
-## Deprecated внутренний API
+## Сохранённые ключи
 
-Legacy adapter constructors, URL helpers, ProviderKind/Schema open-string aliases, non-enumerable config defaultProvider/defaultModel/providers projection и session.provider оставлены для compatibility. Диск хранит config v2 и session v3; persisted enum отсутствует. Projection providers не выбирает произвольный profile, если accounts несколько. Runtime не зависит от этих wrappers.
+Файл `credentials.enc` не переносится и не расшифровывается во время преобразования конфигурации. Существующие ссылки на ключи сохраняются. Если после переноса на другую систему ключ не расшифровывается, используйте [инструкцию восстановления](troubleshooting.md#ошибка-расшифровки-ключей).
 
-## Архитектурные адаптации к текущему коду
+<a id="старые-sessions-и-indexes"></a>
 
-ТЗ говорит AgentLoop; текущий HEAD использует AgentRuntime и compatibility AgentLoop. Оба получают только adapter. Context overflow recovery/cancellation требуют context_overflow/cancelled/transport/refusal: generic error model расширен, эти категории не удалены. Если у definition/profile нет effective endpoint, runtime возвращает invalid_endpoint: SDK default не выбирает сервис за пользователя. Пользовательские drivers не загружаются: только manifests для bundled protocols. Discovery выполняет только локальный parsing; registry deterministic ordering выполняется отдельно.
+## Старые разговоры и их индекс
 
-## Ограничения
+Историю можно открыть, даже если её прежний провайдер больше недоступен. Для нового запроса выберите настроенный профиль и доступную модель. Сообщения, результаты инструментов, изменения файлов и учёт расхода сохраняются.
 
-Live-model/API checks не входят в offline test suite и требуют реальные profile/credentials. Health unsupported не failure. Стоимость approximate только для явно известной model/definition, прочее unknown. Никакого marketplace, executable custom JS, watcher или OS sandbox для providers не добавлено.
+Отдельный разговор записывается в новом формате только при его сохранении. Автоматическая отдельная копия каждого файла разговора не создаётся. Индекс — восстанавливаемый список разговоров; старые файлы из прежней папки данных копируются с сохранением оригиналов. Подробности — в [истории сессий](sessions.md).
+
+<a id="старые-cli-commands"></a>
+
+## Совместимость команд
+
+`chisel setup`, `chisel doctor`, `--provider`, `--model`, `--base-url`, `--resume`, `/settings` и `/model` остаются доступны. `--provider` выбирает единственный настроенный профиль сервиса; при нескольких используйте точный `--profile`.
+
+<a id="ограничения"></a>
+
+## Если проверка после обновления не прошла
+
+- Проверьте `chisel --version` в новом терминале: PATH может вести на прежнюю установку.
+- В `/settings` проверьте профиль, адрес API и модель. Переменная окружения с ключом имеет приоритет над сохранённым ключом.
+- Не удаляйте историю и `credentials.enc` ради повторной настройки. Сначала используйте [решение проблем](troubleshooting.md).
+
+<a id="deprecated-внутренний-api"></a>
+<a id="архитектурные-адаптации-к-текущему-коду"></a>
+
+Внутренние версии форматов и совместимость API описаны в [архитектуре провайдеров](architecture/providers.md). Исходный baseline и результаты этапа сохранены в [историческом отчёте](contributors/reports/provider-migration.md).

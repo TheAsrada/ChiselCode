@@ -15,6 +15,7 @@
     "includes": [
       "src/**",
       "scripts/verify-release-ci.ts",
+      "scripts/check-docs.ts",
       "scripts/test-fast.ts",
       "tests/**",
       "evals/**",

@@ -82,7 +82,7 @@ Background Tasks регистрирует menu/status и открывает су
 
 В текущих исходниках `status` отображается в списке F9 и через пункт «Состояние сервисов» меню; footer не содержит кнопок contributions. F8 разрешает owned navigation `/tasks` через ту же subscription/action revision, F7 сохраняет прежнее дерево. Registry, SDK и источники статусов не меняются.
 
-Generic renderer использует shared Dialog, Palette, scrollbox и captured keyboard hub. В текущих исходниках после 0.6.40 Enter/Space в menu focus открывают выбранный пункт, а `/` фокусирует поиск. Captured owner сохраняет черновик и не передаёт Enter новому окну. Details имеют bounded pagination/search и один оконный список. Mouse down/up захватывает действие; drag и поздняя смена owner не перенаправляют effect. Approval имеет priority; Ctrl+C в view не вызывает main cancellation.
+Generic renderer использует shared Dialog, Palette, scrollbox и captured keyboard hub. Enter/Space в menu focus открывают выбранный пункт, а `/` фокусирует поиск. Captured owner сохраняет черновик и не передаёт Enter новому окну. Details имеют bounded pagination/search и один оконный список. Mouse down/up захватывает действие; drag и поздняя смена owner не перенаправляют effect. Approval имеет priority; Ctrl+C в view не вызывает main cancellation.
 
 Связанные контракты: [Chat presentation](extension-chat.md), [Background Tasks](background-tasks.md), [Помощники](subagents.md), [Побочные запросы](../side-questions.md).
 
