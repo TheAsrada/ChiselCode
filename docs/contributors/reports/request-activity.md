@@ -59,4 +59,19 @@ Paper:
 
 В `tui-agent-navigation.test.ts` исправлена внешняя граница времени: дочерний процесс уже имел жёсткий deadline 15 с, а обёртка Bun завершалась через стандартные 5 с при совместном запуске. Теперь она даёт 17 с на выполнение и передачу результата; deadline дочернего процесса и все проверки параллельности и отмены сохранены. Прямой fixture и весь затронутый набор прошли.
 
-Результаты Native validation и Quick CI будут зафиксированы после проверки коммита. Полный source-набор локально повторно не запускался. Скорость физического терминала, SSH и аппаратный clipboard этим сценарием не измеряются.
+Полный source-набор локально повторно не запускался; его выполнила CI один раз на Linux.
+
+## Итоговая CI
+
+[Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/40171937940) и [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/40171933918) прошли на source `95b4e36ccf94b9e8411ef179bd8e8826af1ba7a6`, Bun 1.4.2. Все jobs завершились успешно с первой попытки.
+
+| Job | Результат | Время job |
+| --- | --- | --- |
+| Full source, Linux | 1373 pass, 3 skip, 0 fail; 1376 тестов в 177 файлах за 351,69 с; typecheck, lint, eval и дополнительные source UI-fixtures прошли | 412 с |
+| Native Linux | Installed SDK/runtime, compiled CLI и UI, включая новый сценарий состояний, прошли | 169 с |
+| Native macOS | Платформенный набор: 361 pass, 3 skip, 0 fail за 135,38 с; installed/compiled smoke и новый UI-сценарий прошли | 334 с |
+| Native Windows | Платформенный набор: 363 pass, 1 skip, 0 fail за 380,00 с; настоящее обновление EXE, installed/compiled smoke и новый UI-сценарий прошли | 830 с |
+
+От создания workflow до последнего job прошло 833 с (13 мин 53 с), сумма jobs — 1745 с (29 мин 5 с runner time). Эти длительности относятся к проверкам, а не к скорости интерфейса. Последующая фиксация этого результата меняет только отчёт; продуктовый код остаётся проверенным source.
+
+Полный source-набор выполнен на Linux. Windows и macOS получили платформенные tests и installed/compiled smoke; production-сценарий анимации в CI использует Obsidian. Paper отдельно прошла локальный production fixture и native unit tests обеих тем на Linux. На Linux пропущены системный clipboard без desktop-сессии и два Windows-only сценария CMD/Python; на macOS — detached orphan и два Windows-only сценария; на Windows — detached orphan. Скорость физического терминала, SSH и аппаратный clipboard новым сценарием не измеряются. Релиз и tags не создавались; изменение остаётся в Unreleased.
