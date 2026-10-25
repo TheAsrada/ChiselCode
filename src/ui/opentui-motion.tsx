@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/react */
-import { RGBA, StyledText, type TextRenderable } from "@opentui/core";
+import type { TextRenderable } from "@opentui/core";
 import {
   createContext,
   type ReactNode,
@@ -165,63 +165,3 @@ export function ActivityIndicator({
 }
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-function activityText(
-  palette: Pick<Palette, "border" | "accent">,
-  phase: number,
-  enabled: boolean,
-): StyledText {
-  const front = phase * 14 - 3;
-  return new StyledText(
-    [0, 1, 2, 3, 4, 5, 6, 7].map((column) => ({
-      __isChunk: true as const,
-      text: "━",
-      fg: RGBA.fromHex(
-        mixColor(
-          palette.border,
-          palette.accent,
-          enabled ? Math.max(0, 1 - Math.abs(column - front) / 2.5) : 0,
-        ),
-      ),
-    })),
-  );
-}
-
-/** An indeterminate light band: activity feedback, never a fabricated percentage. */
-export function ActivityRail({ palette }: { palette: Palette }) {
-  const { clock, enabled } = useMotion();
-  const node = useRef<TextRenderable>(null);
-  const colors = useRef(palette);
-  colors.current = palette;
-  const initial = useMemo(
-    () =>
-      activityText(
-        { border: palette.border, accent: palette.accent },
-        0,
-        enabled,
-      ),
-    [palette.border, palette.accent, enabled],
-  );
-  useEffect(() => {
-    if (!clock || !enabled) return;
-    const start = performance.now();
-    return clock.add((now) => {
-      if (node.current && !node.current.isDestroyed)
-        node.current.content = activityText(
-          colors.current,
-          ((now - start) % 1400) / 1400,
-          true,
-        );
-      return true;
-    });
-  }, [clock, enabled]);
-  return (
-    <text
-      ref={node}
-      width={8}
-      height={1}
-      flexShrink={0}
-      selectable={false}
-      content={initial}
-    />
-  );
-}

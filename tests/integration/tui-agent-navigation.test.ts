@@ -16,4 +16,5 @@ test("agent runs tabs concurrently with sequential follow-ups and independent ca
   expect(new TextDecoder().decode(result.stdout)).toContain(
     "Parallel tabs, sequential follow-ups and independent cancellation verified",
   );
-});
+  // The child already has a 15s hard deadline; leave 2s for reporting/cleanup.
+}, 17000);

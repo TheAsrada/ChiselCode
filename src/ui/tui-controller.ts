@@ -48,6 +48,10 @@ import { compactionNotice } from "./context-compaction.js";
 import { createEditorState } from "./editor.js";
 import { GitChangesSource, type GitWorkingState } from "./git-changes.js";
 import type { ModelSelection } from "./opentui-models.js";
+import {
+  type RequestActivity,
+  RequestActivityTracker,
+} from "./request-activity.js";
 import { requestCompletion } from "./request-timing.js";
 import { sideStatus } from "./side-query-state.js";
 import {
@@ -151,6 +155,7 @@ export interface TuiViewState {
   busy?: boolean;
   awaitingApproval?: boolean;
   requestStartedAt?: number;
+  requestActivity?: RequestActivity;
   gitChanges?: GitWorkingState;
   usage?: {
     provider: Session["providerId"];
@@ -231,6 +236,7 @@ export class TuiController implements TuiTranscript {
   private renderer?: TuiTranscript;
   private listeners = new Set<(state: TuiViewState) => void>();
   private serial = 0;
+  private readonly activity = new RequestActivityTracker();
   private generation = 0;
   private compactionNotices = new Set<string>();
   private gitSource = new GitChangesSource();
@@ -415,6 +421,12 @@ export class TuiController implements TuiTranscript {
   }
 
   trackToolEvent(event: import("../runtime/events.js").RuntimeEvent): void {
+    if (this.state.requestStartedAt !== undefined) {
+      const next = this.activity.accept(event);
+      const prior = this.state.requestActivity;
+      if (next.kind !== prior?.kind || next.label !== prior.label)
+        this.update({ requestActivity: next });
+    }
     if (event.type === "extension_notice" && event.text)
       this.appendNotice(event.text, "error");
     if (!event.invocationId || !event.name) return;
@@ -567,13 +579,19 @@ export class TuiController implements TuiTranscript {
   }
 
   /** A queued prompt starts counting only when it actually begins execution. */
-  startRequest(): void {
+  startRequest(initial: "thinking" | "tool" = "thinking"): void {
     this.update({
       busy: true,
       requestStartedAt: this.now(),
+      requestActivity: this.activity.reset(initial),
       toolActivity: undefined,
       compaction: undefined,
     });
+  }
+
+  stopRequestActivity(): void {
+    if (this.state.requestStartedAt !== undefined)
+      this.update({ requestActivity: this.activity.stop() });
   }
 
   get requestElapsedMs(): number {
@@ -609,6 +627,7 @@ export class TuiController implements TuiTranscript {
       streaming: "",
       toolActivity: undefined,
       requestStartedAt: undefined,
+      requestActivity: undefined,
       compaction: undefined,
     });
     this.renderer?.setToolActivity();

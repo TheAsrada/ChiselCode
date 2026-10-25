@@ -7,6 +7,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 regular = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 14)
 bold = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 14)
+# DejaVu Sans Mono has no Braille glyphs; use the same cell width from Sans.
+braille = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
 cjk = ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 14)
 cell_width, cell_height = 9, 19
 for source in Path(sys.argv[1]).glob("*.json"):
@@ -25,7 +27,8 @@ for source in Path(sys.argv[1]).glob("*.json"):
                 if unicodedata.combining(character):
                     continue
                 cells = 2 if unicodedata.east_asian_width(character) in ("W", "F") else 1
-                draw.text((column * cell_width, y * cell_height + 1), character, font=cjk if cells == 2 else bold if span.get("attributes", 0) & 1 else regular, fill=tuple(span["fg"][:3]))
+                font = braille if 0x2800 <= ord(character) <= 0x28FF else cjk if cells == 2 else bold if span.get("attributes", 0) & 1 else regular
+                draw.text((column * cell_width, y * cell_height + 1), character, font=font, fill=tuple(span["fg"][:3]))
                 column += cells
             x += width
     canvas.save(source.with_suffix(".png"))

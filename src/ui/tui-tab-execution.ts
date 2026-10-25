@@ -54,7 +54,7 @@ export class TuiTabExecution {
   readonly pendingSubmissions = new Set<AbortController>();
   readonly approvalResolver;
 
-  constructor(controller: TuiController) {
+  constructor(private readonly controller: TuiController) {
     this.approvalResolver = createTuiApprovalResolver({
       allowUnbound: true,
       onChange: (request) => {
@@ -79,6 +79,7 @@ export class TuiTabExecution {
   }
 
   cancel(): void {
+    this.controller.stopRequestActivity();
     for (const item of this.pendingOperations)
       if (item.kind !== "prompt")
         item.onResult?.({

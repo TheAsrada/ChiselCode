@@ -4,12 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
+import {
+  type ChiselExtension,
+  defaultExtensions,
+} from "../../src/extensions/index.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const storage = await mkdtemp(join(tmpdir(), "chisel-ui-design-"));
 const project = join(storage, "Проект");
 await mkdir(project);
+await writeFile(join(project, "fixture.txt"), "spark fixture file\n");
 for (const name of [
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
@@ -24,6 +29,43 @@ const responseGate = new Promise<void>((resolve) => {
   release = resolve;
 });
 let generations = 0;
+const begun = new Set<string>();
+const toolGates = new Map<string, { wait: Promise<void>; release(): void }>();
+for (const name of [
+  "read_file",
+  "grep",
+  "search-phase",
+  "write_file",
+  "run_shell",
+]) {
+  let release = () => {};
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  toolGates.set(name, { wait, release });
+}
+let releaseAnswer = () => {};
+const answerGate = new Promise<void>((resolve) => {
+  releaseAnswer = resolve;
+});
+const activityObserver: ChiselExtension = {
+  id: "fixture.request-activity",
+  activate(context) {
+    context.events.observe(async (event) => {
+      if (event.type !== "tool_started" || !event.name) return;
+      const gate =
+        toolGates.get(event.invocationId ?? "") ?? toolGates.get(event.name);
+      if (!gate) return;
+      begun.add(event.name);
+      await gate.wait;
+    });
+  },
+};
+const toolResponse = (calls: { name: string; input: object; id?: string }[]) =>
+  new Response(
+    `data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: calls.map((call, index) => ({ index, id: call.id ?? `spark-${generations}-${index}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.input) } })) }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
+    { headers: { "Content-Type": "text/event-stream" } },
+  );
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
@@ -40,11 +82,55 @@ const server = Bun.serve({
       });
     generations++;
     await request.json();
-    await responseGate;
+    if (generations === 1) {
+      await responseGate;
+      return toolResponse([
+        { name: "read_file", input: { path: "fixture.txt" } },
+        { name: "grep", input: { pattern: "spark", path: "fixture.txt" } },
+      ]);
+    }
+    if (generations === 2)
+      return toolResponse([
+        {
+          id: "search-phase",
+          name: "grep",
+          input: { pattern: "spark", path: "fixture.txt" },
+        },
+      ]);
+    if (generations === 3)
+      return toolResponse([
+        {
+          name: "write_file",
+          input: {
+            path: "spark-created.txt",
+            content: "written by real tools\n",
+          },
+        },
+      ]);
+    if (generations === 4)
+      return toolResponse([
+        { name: "run_shell", input: { command: "echo spark-check" } },
+      ]);
     const content =
       "## Интерфейс готов к работе\n\nЯ изучил структуру проекта. Начнём с понятной навигации и проверим изменения в настоящем терминале.\n\n- Сохраним черновик и положение курсора.\n- Покажем состояние текущей задачи.\n- Проверим клавиатуру, мышь и узкое окно.\n\n```ts\nconst interfaceState = { focused: true, draft: 'сохранён' };\n```";
     return new Response(
-      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+      new ReadableStream({
+        async start(stream) {
+          const bytes = new TextEncoder();
+          stream.enqueue(
+            bytes.encode(
+              `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`,
+            ),
+          );
+          await answerGate;
+          stream.enqueue(
+            bytes.encode(
+              `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+            ),
+          );
+          stream.close();
+        },
+      }),
       { headers: { "Content-Type": "text/event-stream" } },
     );
   },
@@ -136,6 +222,12 @@ async function capture(name: string) {
     JSON.stringify({
       ...spans,
       capturedAtMs: performance.now(),
+      requestStatus: (() => {
+        const node = t.renderer.root.findDescendantById("request-status");
+        return node
+          ? { x: node.x, y: node.y, width: node.width, height: node.height }
+          : undefined;
+      })(),
       lines: spans.lines.map((line) => ({
         spans: line.spans.map((span) => ({
           ...span,
@@ -154,7 +246,7 @@ try {
       undefined,
       false,
       false,
-      undefined,
+      defaultExtensions([activityObserver], { configPath }),
       async () => t.renderer,
     );
   });
@@ -341,24 +433,90 @@ try {
       await t.renderOnce();
     });
     frames.add(t.captureCharFrame());
-    const activity = t
-      .captureSpans()
-      .lines.find((line) =>
-        line.spans.some((span) => span.text.includes("Думаю")),
-      );
+    const activity = t.captureSpans().lines.find((line) =>
+      line.spans
+        .map((span) => span.text)
+        .join("")
+        .includes("Думаю"),
+    );
     activityColors.add(
       JSON.stringify(activity?.spans.map((span) => span.fg.toInts())),
     );
     assert.equal(t.renderer.currentFocusedEditor, chatEditor);
     assert.equal(chatEditor?.plainText, "Следующий шаг — проверить результат");
     await capture(`motion-${String(i).padStart(2, "0")}`);
+    await capture(`journey-${String(i).padStart(2, "0")}`);
   }
   assert.ok(frames.size >= 3, "Real running indicator did not animate");
   assert.ok(
     activityColors.size >= 3,
-    "The activity band did not repaint its colors",
+    "The spark and status word did not repaint their colors",
   );
   release();
+  const hasStatus = (text: string, icon?: string) =>
+    t.captureSpans().lines.some((line) => {
+      const value = line.spans.map((span) => span.text).join("");
+      return value.includes(text) && (!icon || value.includes(icon));
+    });
+  await until(
+    () =>
+      begun.has("read_file") &&
+      begun.has("grep") &&
+      hasStatus("Выполняю 2 действия", "⠿"),
+    "Parallel tool state not rendered",
+  );
+  await capture("activity-parallel-120x36");
+  await capture("journey-16");
+  toolGates.get("grep")?.release();
+  await until(
+    () => hasStatus("Читаю файлы", "▤"),
+    "Finishing one parallel tool hid its sibling",
+  );
+  await capture("activity-reading-120x36");
+  await capture("journey-17");
+  assert.equal(t.renderer.currentFocusedEditor, chatEditor);
+  toolGates.get("read_file")?.release();
+  await until(() => hasStatus("Ищу", "⌕"), "Search state missing");
+  await capture("activity-searching-120x36");
+  await capture("journey-18");
+  toolGates.get("search-phase")?.release();
+  await until(
+    () => !!t.renderer.root.findDescendantById("approval-popup"),
+    "Write approval missing",
+  );
+  await capture("activity-approval-120x36");
+  await key("y");
+  await until(
+    () => begun.has("write_file") && hasStatus("Редактирую файлы", "✎"),
+    "Real mutation state missing",
+  );
+  await capture("activity-editing-120x36");
+  await capture("journey-19");
+  toolGates.get("write_file")?.release();
+  await until(
+    () => !!t.renderer.root.findDescendantById("approval-popup"),
+    "Command approval missing",
+  );
+  await key("y");
+  await until(
+    () => begun.has("run_shell") && hasStatus("Выполняю команду", "›"),
+    "Shell command was mislabeled",
+  );
+  await capture("activity-command-120x36");
+  await capture("journey-20");
+  toolGates.get("run_shell")?.release();
+  await until(
+    () => hasStatus("Отвечаю", "✦"),
+    "Streaming response state missing",
+  );
+  await capture("activity-answering-120x36");
+  await capture("journey-21");
+  assert.equal(
+    await readFile(join(project, "spark-created.txt"), "utf8"),
+    "written by real tools\n",
+  );
+  assert.equal(chatEditor?.plainText, "Следующий шаг — проверить результат");
+  releaseAnswer();
   await until(
     () =>
       !t.renderer.root.findDescendantById("request-status") &&
@@ -397,6 +555,8 @@ try {
   );
 } finally {
   release();
+  releaseAnswer();
+  for (const gate of toolGates.values()) gate.release();
   if (application)
     await act(async () => {
       process.emit("SIGTERM");

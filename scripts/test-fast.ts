@@ -35,6 +35,7 @@ const names = [
   "provider-stream-events",
   "provider-tool-arguments",
   "release-ci",
+  "request-activity",
   "skills",
   "subagent-output",
   "terminal-text",
