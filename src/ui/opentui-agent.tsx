@@ -24,7 +24,6 @@ import { BackgroundSettingsStore } from "../background/settings.js";
 import {
   checkProviderConnection,
   getModelCapabilities,
-  hasApiKey,
   listProviderModels,
   type RunOptions,
   runPrompt,
@@ -77,7 +76,7 @@ import {
 import { CredentialStore } from "../security/credentials.js";
 import { SecretRedactor } from "../security/redaction.js";
 import { projectSessionStore } from "../sessions/project-store.js";
-import { createSession, shortSessionId } from "../sessions/store.js";
+import { createSession } from "../sessions/store.js";
 import {
   buildActiveSkillsPrompt,
   expandSkill,
@@ -112,7 +111,7 @@ import {
   settingsKeyReady,
 } from "./provider-settings.js";
 import { loadTerminalDraft, saveTerminalDraft } from "./terminal-drafts.js";
-import { FAIL_MARK, formatStatusDashboard, OK_MARK } from "./theme.js";
+import { FAIL_MARK, OK_MARK } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
 import type { TuiController } from "./tui-controller.js";
 import type { QueuedTabOperation } from "./tui-tab-execution.js";
@@ -1011,38 +1010,6 @@ async function runApplication(
     toggle: (name) => getSkillsActions().toggle(name),
     editSource: (name) => getSkillsActions().editSource?.(name) ?? "",
   };
-  const statusText = async (
-    controller: TuiController,
-    diagnostic = false,
-  ): Promise<string> => {
-    const current = await loadGlobalConfig(options.configPath);
-    const draft = settingsDraft(
-      current,
-      catalog.registry,
-      diagnostic ? {} : modelOptions(controller),
-    );
-    const provider = draft.provider;
-    const selected = draft.profileId
-      ? current.profiles[draft.profileId]
-      : undefined;
-    const usage = diagnostic ? undefined : controller.snapshot.usage;
-    return formatStatusDashboard({
-      providerLabel: catalog.registry.get(provider)?.label ?? provider,
-      model: draft.model || "не выбрана",
-      cwd: controller.snapshot.projectPath,
-      keyReady: await hasApiKey(provider, selected?.apiKeyRef),
-      sessionId:
-        diagnostic || !controller.snapshot.sessionId
-          ? undefined
-          : shortSessionId(controller.snapshot.sessionId),
-      sessionTitle: diagnostic ? undefined : controller.snapshot.sessionTitle,
-      totalTokens: diagnostic
-        ? undefined
-        : (usage?.totalTokens.inputTokens ?? 0) +
-          (usage?.totalTokens.outputTokens ?? 0),
-      totalCost: diagnostic ? undefined : usage?.totalCost,
-    });
-  };
   const updater = new UpdateController(VERSION, {
     canRestart: () => !workspace.busy,
     launch: async (downloaded) => {
@@ -1109,17 +1076,6 @@ async function runApplication(
         workspace.newDraft(controller.snapshot.projectPath);
         return;
       }
-      if (input === "/status" || input === "/doctor") {
-        try {
-          controller.append(
-            await statusText(controller, input === "/doctor"),
-            "info",
-          );
-        } catch (error) {
-          controller.append(String(error), "error");
-        }
-        return;
-      }
       if (input === "/update") return updater.check();
       if (input === "/sessions") {
         const sessions = await sessionPicker.load();
@@ -1153,10 +1109,7 @@ async function runApplication(
         return;
       }
       if (input === "/cwd") {
-        controller.append(
-          `Проект: ${controller.snapshot.projectPath}\nЧтобы сменить папку: /cwd <путь>`,
-          "info",
-        );
+        controller.setDraft("/cwd ");
         return;
       }
       let snapshot:

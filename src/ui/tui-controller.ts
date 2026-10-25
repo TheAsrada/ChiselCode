@@ -140,6 +140,7 @@ export interface TuiViewState {
   sessionTitle?: string;
   worktree?: Session["worktree"];
   projectPath: string;
+  commandFeedback?: { id: number; entries: readonly TranscriptEntry[] };
   transcript: readonly TranscriptEntry[];
   streaming: string;
   toolActivity?: string;
@@ -240,6 +241,7 @@ export class TuiController implements TuiTranscript {
     agentMode: AgentMode = DEFAULT_AGENT_MODE,
     approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
     private readonly now: () => number = () => performance.now(),
+    private readonly feedbackMode: "transcript" | "dialog" = "transcript",
   ) {
     this.state = {
       agentMode,
@@ -289,6 +291,10 @@ export class TuiController implements TuiTranscript {
     tone: TranscriptTone = "assistant",
     fileDiff?: FileDiff,
   ): void {
+    if (this.feedbackMode === "dialog") {
+      this.appendCommandFeedback(text, tone, fileDiff);
+      return;
+    }
     this.update({
       transcript: [
         ...this.withStreaming(),
@@ -299,7 +305,30 @@ export class TuiController implements TuiTranscript {
     this.renderer?.append(text, tone, fileDiff);
   }
 
+  private appendCommandFeedback(
+    text: string,
+    tone: TranscriptTone,
+    fileDiff?: FileDiff,
+  ): void {
+    const entry = { id: this.serial++, text, tone, fileDiff };
+    this.update({
+      commandFeedback: {
+        id: entry.id,
+        entries: [...(this.state.commandFeedback?.entries ?? []), entry],
+      },
+    });
+  }
+
+  dismissCommandFeedback(id: number): void {
+    if (this.state.commandFeedback?.id !== id) return;
+    this.update({ commandFeedback: undefined });
+  }
+
   appendNotice(text: string, tone: TranscriptTone = "info"): void {
+    if (this.feedbackMode === "dialog") {
+      this.appendCommandFeedback(text, tone);
+      return;
+    }
     this.update({
       transcript: [...this.state.transcript, { id: this.serial++, text, tone }],
     });
@@ -504,6 +533,7 @@ export class TuiController implements TuiTranscript {
     this.presentation.actions = createActionPresentation();
     this.compactionNotices.clear();
     this.update({
+      commandFeedback: undefined,
       transcript: [],
       streaming: "",
       toolActivity: undefined,

@@ -57,6 +57,7 @@ import { OpenTuiApproval } from "./opentui-approval.js";
 import { OpenTuiBackgroundDetails } from "./opentui-background-details.js";
 import { OpenTuiBackgroundTasks } from "./opentui-background-tasks.js";
 import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
+import { OpenTuiCommandFeedback } from "./opentui-command-feedback.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import {
   extensionPaneWidth,
@@ -512,7 +513,7 @@ function OpenTuiScreen({
     }
   }, [focusBinding]);
   const extensionActive = !!view.extensionView && !approval;
-  const otherOverlay = !!(
+  const modalOverlay = !!(
     worktrees ||
     pickerOpen ||
     settingsOpen ||
@@ -525,6 +526,21 @@ function OpenTuiScreen({
     uiControls ||
     uiOverflow
   );
+  const commandFeedbackActive =
+    !!view.commandFeedback && !approval && !modalOverlay;
+  const feedbackOwner = `command-feedback:${controller?.conversationId}:${controller?.currentGeneration}:${view.commandFeedback?.id}`;
+  const otherOverlay = modalOverlay || !!view.commandFeedback;
+  useEffect(() => {
+    if (!commandFeedbackActive || !controller) return;
+    controller.setOverlay("command-feedback");
+    controller.setFocus("modal");
+    return () => {
+      if (controller.snapshot.overlay === "command-feedback") {
+        controller.setOverlay();
+        controller.setFocus("composer");
+      }
+    };
+  }, [commandFeedbackActive, controller]);
   const sideActive = !!(
     controller &&
     view.sideView?.visible &&
@@ -573,27 +589,29 @@ function OpenTuiScreen({
   const sideOwner = `side:${controller?.conversationId}:${controller?.currentGeneration}`;
   const inputOwner = approval
     ? "approval"
-    : uiControls
-      ? `ui-controls:${controller?.conversationId}:${controller?.currentGeneration}`
-      : uiOverflow
-        ? `ui-status:${controller?.conversationId}:${controller?.currentGeneration}`
-        : extensionActive
-          ? `extension-view:${controller?.conversationId}:${controller?.currentGeneration}`
-          : otherOverlay
-            ? "dialog"
-            : backgroundPanelActive
-              ? `background:${controller?.conversationId}:${controller?.currentGeneration}`
-              : backgroundActiveView
-                ? `background-view:${controller?.conversationId}:${controller?.currentGeneration}`
-                : agentActive
-                  ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
-                  : sideActive
-                    ? sideOwner
-                    : sidebarFocused
-                      ? sidebarOwner
-                      : uiFocus
-                        ? `ui-widget:${controller?.conversationId}:${controller?.currentGeneration}`
-                        : "main";
+    : commandFeedbackActive
+      ? feedbackOwner
+      : uiControls
+        ? `ui-controls:${controller?.conversationId}:${controller?.currentGeneration}`
+        : uiOverflow
+          ? `ui-status:${controller?.conversationId}:${controller?.currentGeneration}`
+          : extensionActive
+            ? `extension-view:${controller?.conversationId}:${controller?.currentGeneration}`
+            : otherOverlay
+              ? "dialog"
+              : backgroundPanelActive
+                ? `background:${controller?.conversationId}:${controller?.currentGeneration}`
+                : backgroundActiveView
+                  ? `background-view:${controller?.conversationId}:${controller?.currentGeneration}`
+                  : agentActive
+                    ? `agent-view:${controller?.conversationId}:${controller?.currentGeneration}`
+                    : sideActive
+                      ? sideOwner
+                      : sidebarFocused
+                        ? sidebarOwner
+                        : uiFocus
+                          ? `ui-widget:${controller?.conversationId}:${controller?.currentGeneration}`
+                          : "main";
   useOverlayInputOwner(inputOwner);
   const cancelApprovalChild = approval?.owner?.childId
     ? () => {
@@ -749,7 +767,8 @@ function OpenTuiScreen({
       agentActive ||
       backgroundActiveView ||
       backgroundPanelActive ||
-      uiFocus
+      uiFocus ||
+      commandFeedbackActive
     )
       editor.current?.blur();
     else if (!approval && !otherOverlay && focus === "editor")
@@ -763,13 +782,10 @@ function OpenTuiScreen({
     otherOverlay,
     focus,
     uiFocus,
+    commandFeedbackActive,
   ]);
   const home = !!workspace && !workspace.activeKey;
   const tabRows = workspace?.tabs.length ? 3 : 0;
-  useEffect(() => {
-    if (home && view.transcript.length > 0)
-      transcript.current?.scrollTo(Number.MAX_SAFE_INTEGER);
-  }, [home, view.transcript.length]);
   const layout = sidebarLayout(
     width,
     view.agentTree?.temporary
@@ -830,12 +846,7 @@ function OpenTuiScreen({
     (textWidth >= 64 && homeHeight >= 28 ? 2 : 0);
   const editorLimit = Math.max(
     1,
-    Math.min(
-      6,
-      height -
-        tabRows -
-        (home ? homeFixedRows + (view.transcript.length ? 2 : 0) : 8),
-    ),
+    Math.min(6, height - tabRows - (home ? homeFixedRows : 8)),
   );
   const editorHeight = workspace
     ? Math.min(
@@ -1134,6 +1145,7 @@ function OpenTuiScreen({
   };
 
   useClipboardComposer(() => {
+    if (commandFeedbackActive) return null;
     if (
       sideActive ||
       agentActive ||
@@ -1162,7 +1174,7 @@ function OpenTuiScreen({
   });
 
   useUiKeyboard((key) => {
-    if (capturedInputOwner(key) !== inputOwner) return;
+    if (capturedInputOwner(key) !== inputOwner || commandFeedbackActive) return;
     if (
       inputOwner.startsWith("ui-widget:") &&
       !(
@@ -1599,7 +1611,8 @@ function OpenTuiScreen({
       worktrees ||
       modelsActions ||
       permissionsOpen ||
-      updateOpen
+      updateOpen ||
+      view.commandFeedback
     )
       return;
     const value = command ?? editor.current?.plainText.trim();
@@ -1611,8 +1624,9 @@ function OpenTuiScreen({
     }
     history.current = addEditorHistory(history.current, value);
     if (controller) controller.presentation.history = history.current;
-    if (command === "/cwd") {
+    if (value === "/cwd") {
       editor.current?.setText("/cwd ");
+      if (editor.current) editor.current.cursorOffset = 5;
       setDraft("/cwd ");
       controller?.setDraft("/cwd ");
       editor.current?.focus();
@@ -2199,6 +2213,7 @@ function OpenTuiScreen({
           palette={palette}
           width={composerWidth}
           focused={
+            !commandFeedbackActive &&
             focus === "editor" &&
             !skillsOpen &&
             !mcpActions &&
@@ -2244,6 +2259,7 @@ function OpenTuiScreen({
             }}
             height={editorHeight}
             focused={
+              !commandFeedbackActive &&
               focus === "editor" &&
               !skillsOpen &&
               !mcpActions &&
@@ -2387,69 +2403,6 @@ function OpenTuiScreen({
                       onModels={getModelsActions ? openModels : undefined}
                       onSessions={
                         sessionPicker ? () => submit("/sessions") : undefined
-                      }
-                      feedback={
-                        view.transcript.length > 0 &&
-                        !visibleSuggestions.length ? (
-                          <TerminalScrollbox
-                            ref={transcript}
-                            height={Math.min(
-                              6,
-                              Math.max(
-                                1,
-                                homeHeight -
-                                  homeFixedRows -
-                                  editorHeight -
-                                  visibleSuggestions.length -
-                                  1,
-                              ),
-                            )}
-                            marginTop={1}
-                            width="100%"
-                            viewportCulling
-                            scrollbarOptions={{ visible: false }}
-                          >
-                            <OpenTuiTranscript
-                              onOpenSide={(id) => controller?.openSide(id)}
-                              onCardAction={(action, extensionId) => {
-                                if (controller)
-                                  void (uiBinding
-                                    ? uiBinding.chat(
-                                        action.target,
-                                        action.action,
-                                        extensionId,
-                                      )
-                                    : dispatchCoreChat(
-                                        controller,
-                                        action.target,
-                                        action.action,
-                                      ));
-                              }}
-                              onOpenCard={(target, extensionId) => {
-                                if (controller)
-                                  void (uiBinding
-                                    ? uiBinding.chat(
-                                        target,
-                                        "open",
-                                        extensionId,
-                                      )
-                                    : dispatchCoreChat(controller, target));
-                              }}
-                              focusedSideId={focusedSideId}
-                              focusedActionId={focusedActionId}
-                              actionPresentation={actions}
-                              onActionSelect={(target) => {
-                                controller?.activateAction(target);
-                                if (focus === "editor") editor.current?.focus();
-                              }}
-                              entries={view.transcript}
-                              contentWidth={composerWidth - 2}
-                              expandedIds={expandedDiffIds}
-                              onToggleDiff={toggleDiff}
-                              palette={palette}
-                            />
-                          </TerminalScrollbox>
-                        ) : undefined
                       }
                     >
                       {composer}
@@ -2803,6 +2756,20 @@ function OpenTuiScreen({
           </UiSurface>
         </UiSurface>
         <UiCompositionNotices />
+        {commandFeedbackActive && view.commandFeedback && controller && (
+          <OpenTuiCommandFeedback
+            feedback={view.commandFeedback}
+            owner={feedbackOwner}
+            width={width}
+            height={height}
+            palette={palette}
+            onClose={() => {
+              const id = view.commandFeedback?.id;
+              if (id !== undefined) controller.dismissCommandFeedback(id);
+              setFocus("editor");
+            }}
+          />
+        )}
         {uiControls && !approval && (
           <UiCompositionControls
             width={width}

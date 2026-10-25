@@ -399,14 +399,21 @@ try {
     "Removed help command was not rejected",
   );
   assert.ok(!setup.captureCharFrame().includes("быстрые команды"));
-  assert.ok(setup.captureCharFrame().includes("Shift+Tab режим"));
-  assert.ok(setup.captureCharFrame().includes("F4 разрешения"));
   assert.equal(peeks, 0);
   assert.equal(modelCalls, 0);
   assert.equal(
     setup.renderer.root.findDescendantById("session-tabs"),
     undefined,
   );
+  await act(async () => setup.mockInput.pressEnter());
+  await until(
+    () => !setup.renderer.root.findDescendantById("command-feedback-popup"),
+    "Home error did not close",
+  );
+  assert.ok(!setup.captureCharFrame().includes("Неизвестная команда /help"));
+  assert.ok(setup.captureCharFrame().includes("Shift+Tab режим"));
+  assert.ok(setup.captureCharFrame().includes("F4 разрешения"));
+
   await act(async () => {
     await setup.mockInput.pasteBracketedText("/pe");
   });
@@ -711,9 +718,10 @@ try {
   );
   await send("/cwd");
   await until(
-    () => setup.captureCharFrame().includes("Чтобы сменить папку: /cwd <путь>"),
-    "Built-in project feedback waited for the pending workspace activation",
+    () => setup.renderer.currentFocusedEditor?.plainText === "/cwd ",
+    "Project path input waited for the pending workspace activation",
   );
+  await act(async () => setup.mockInput.pressKey("u", { ctrl: true }));
   await send("/peek");
   await act(async () => {
     setup.mockInput.pressCtrlC();
@@ -748,12 +756,23 @@ try {
   });
   await frame();
   await send(`/cwd\n${firstRoot}`);
+  await until(
+    () =>
+      setup.captureCharFrame().includes(firstRoot) &&
+      !!setup.renderer.currentFocusedEditor,
+    "Original project did not restore its editor after cwd",
+  );
   await send("/pe"); // First Enter accepts the suggestion only.
   assert.equal(peeks, beforeCollision);
   await act(async () => {
     setup.mockInput.pressEscape();
+    // A raw Esc uses the terminal decoder deadline; then verify the visible editor.
+    await Bun.sleep(120);
   });
-  await frame();
+  await until(
+    () => !!setup.renderer.currentFocusedEditor,
+    "Escape did not leave the home editor ready",
+  );
   assert.ok(!setup.captureCharFrame().includes("Read workspace-b"));
   await act(async () => {
     setup.mockInput.pressKey("a", { ctrl: true });

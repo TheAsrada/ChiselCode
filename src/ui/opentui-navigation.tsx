@@ -203,7 +203,6 @@ export function OpenTuiHome({
   height,
   palette,
   children,
-  feedback,
   updateNotice,
   onUpdate,
   onSettings,
@@ -215,7 +214,6 @@ export function OpenTuiHome({
   height: number;
   palette: Palette;
   children: ReactNode;
-  feedback?: ReactNode;
   updateNotice?: string;
   onUpdate?: () => void;
   onSettings?: () => void;
@@ -328,7 +326,6 @@ export function OpenTuiHome({
             </text>
           </box>
         )}
-        {feedback}
       </box>
       <box flexGrow={1.3} minHeight={0} />
       {height >= 10 && (

@@ -108,3 +108,37 @@ test("a new draft opens welcome without allocating a tab and keeps existing conv
     workspace.dispose();
   }
 });
+
+test("home notices use an owned dialog, preserve drafts and discard stale dismissals", () => {
+  const workspace = new TuiWorkspace("/project-a");
+  try {
+    workspace.home.setDraft("Черновик 😀");
+    workspace.home.append("Неизвестная команда", "warn");
+    const first = workspace.home.snapshot.commandFeedback;
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Missing command feedback");
+    workspace.home.appendNotice("Подробности ошибки", "error");
+    const current = workspace.home.snapshot.commandFeedback;
+    expect(current).toBeDefined();
+    if (!current) throw new Error("Missing updated feedback");
+    workspace.home.dismissCommandFeedback(first.id);
+    expect(workspace.home.snapshot.commandFeedback).toBe(current);
+    expect(current.entries.map((entry) => entry.text)).toEqual([
+      "Неизвестная команда",
+      "Подробности ошибки",
+    ]);
+    expect(workspace.home.snapshot.transcript).toEqual([]);
+    expect(workspace.home.snapshot.draft).toBe("Черновик 😀");
+    workspace.home.dismissCommandFeedback(current.id);
+    expect(workspace.home.snapshot.commandFeedback).toBeUndefined();
+    workspace.home.append("Ошибка старого проекта", "error");
+    workspace.home.switchSession(undefined, "/project-b");
+    expect(workspace.home.snapshot.commandFeedback).toBeUndefined();
+    const tab = workspace.newTab();
+    tab.append("Ответ в разговоре", "info");
+    expect(tab.snapshot.transcript.at(-1)?.text).toBe("Ответ в разговоре");
+    expect(tab.snapshot.commandFeedback).toBeUndefined();
+  } finally {
+    workspace.dispose();
+  }
+});

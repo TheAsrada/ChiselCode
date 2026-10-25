@@ -25,6 +25,10 @@ describe("interactive commands", () => {
       args: "",
     });
     expect(parseSlashCommand("/help")).toBeUndefined();
+    expect(parseSlashCommand("/status")).toBeUndefined();
+    expect(parseSlashCommand("/doctor")).toBeUndefined();
+    expect(matchingCommands("/status")).toEqual([]);
+    expect(matchingCommands("/doctor")).toEqual([]);
     expect(parseSlashCommand("/unknown")).toBeUndefined();
     expect(parseSlashCommand("/new")).toEqual({ name: "/new", args: "" });
     expect(parseSlashCommand("/home")).toEqual({ name: "/home", args: "" });
@@ -41,7 +45,6 @@ describe("interactive commands", () => {
     expect(matchingCommands("/s").map((command) => command.name)).toEqual([
       "/settings",
       "/skills",
-      "/status",
       "/sessions",
       "/sidebar",
     ]);

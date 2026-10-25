@@ -31,7 +31,13 @@ export class TuiWorkspace {
     mode: AgentMode = DEFAULT_AGENT_MODE,
     approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
   ) {
-    this.home = new TuiController(projectPath, mode, approvalMode);
+    this.home = new TuiController(
+      projectPath,
+      mode,
+      approvalMode,
+      undefined,
+      "dialog",
+    );
     this.executions.set(this.home, new TuiTabExecution(this.home));
   }
 

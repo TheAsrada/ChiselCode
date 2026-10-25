@@ -1,0 +1,36 @@
+                                                                                                                        
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │                                                                                                                  │  
+  │ Рабочие копии                                                                                                    │  
+  │ Данные устарели · R обновить · /tmp/chisel-ui-design-HRxGC3/Проект                                               │  
+  │ Действие не выполнено                                                                                            │  
+  │ WORKTREE_GIT_ERROR: WORKTREE_GIT_ERROR: Git rejected the operation. Inspect repository state before retrying.    │  
+  │ R — обновить сведения. Esc — вернуться. Ошибка не расширяет права проекта.                                       │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  │ WORKTREE_GIT_ERROR: WORKTREE_GIT_ERROR: Git rejected the operation. Inspect repository state before retrying.    │  
+  │                                                                                                                  │  
+  │ ↑↓ действие · Enter выбрать · Tab фокус · PgUp/PgDn · Esc назад                                                  │  
+  │                                                                                                                  │  
+  │                                                                                                                  │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+ /tmp/chisel-ui-design-HRxGC3/Проект                                                                  ChiselCode 0.6.40 

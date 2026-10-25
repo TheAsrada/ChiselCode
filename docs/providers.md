@@ -64,7 +64,7 @@ Profile.baseUrl и --base-url переопределяют definition endpoint, 
 
 Definition.capabilities: modelListing, tokenCounting(native/unsupported), usageReporting(stream/final/unknown), toolCalling, thinking. Все built-ins перечисляют модели и поддерживают tool calling; Anthropic-compatible не заявляет thinking. Native token counting — у official Anthropic; остальные unsupported. Usage Anthropic — final, OpenAI-compatible — stream. Model capabilities сообщают известные contextWindow/maxInputTokens/maxOutputTokens. Метаданные API имеют приоритет над встроенным каталогом models.dev; неизвестное окно не выдумывается. Параметры deployment за шлюзом могут отличаться от опубликованных пределов исходной модели.
 
-Health: checkConnection → listModels → unsupported. Последнее не означает failure. modelListing=false позволяет ручной выбор модели без /models. «Проверить подключение» не гарантирует tool compatibility или успешную генерацию; проверьте коротким запросом. doctor и /doctor проверяют локальную настройку без API-запросов.
+Health: checkConnection → listModels → unsupported. Последнее не означает failure. modelListing=false позволяет ручной выбор модели без /models. «Проверить подключение» не гарантирует tool compatibility или успешную генерацию; проверьте коротким запросом. `chisel doctor` проверяет локальную настройку без API-запросов.
 
 ## Стоимость
 

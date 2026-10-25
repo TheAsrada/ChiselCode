@@ -618,41 +618,64 @@ test("overflow keeps the active tab and plus visible; close buttons belong to th
   }
 });
 
-test("command feedback and suggestions fit the welcome screen without creating a tab", async () => {
+test("home command feedback is dismissible, owns input and never becomes a transcript", async () => {
   const workspace = new TuiWorkspace(process.cwd());
+  let cancellations = 0;
+  let submissions = 0;
   const setup = await testRender(
     <OpenTuiSpike
       workspace={workspace}
       onExit={() => {}}
-      onSubmit={async (input) =>
-        workspace.home.append(`Ответ на ${input}`, "info")
-      }
+      onCancel={() => {
+        cancellations++;
+      }}
+      onSubmit={async (input) => {
+        submissions++;
+        workspace.home.append(`Ошибка ${input}`, "error");
+      }}
     />,
-    { width: 80, height: 24 },
+    { width: 80, height: 24, exitOnCtrlC: false },
   );
   try {
     await frame(setup);
     await act(async () => {
-      await setup.mockInput.typeText("/status");
+      await setup.mockInput.typeText("/unknown-feedback");
       setup.mockInput.pressEnter();
     });
     await frame(setup);
-    expect(setup.captureCharFrame()).toContain("Ответ на /status");
+    expect(
+      setup.renderer.root.findDescendantById("command-feedback-popup"),
+    ).toBeTruthy();
+    expect(setup.captureCharFrame()).toContain("Ошибка /unknown-feedback");
+    expect(workspace.home.snapshot.transcript).toHaveLength(0);
     expect(workspace.tabs).toHaveLength(0);
+    expect(setup.renderer.currentFocusedEditor).toBeFalsy();
+    await act(async () => setup.resize(24, 8));
+    await frame(setup);
+    const close = setup.renderer.root.findDescendantById(
+      "command-feedback-close",
+    );
+    expect(close).toBeTruthy();
+    if (!close) throw new Error("Missing feedback close button");
+    expect(close.y + close.height).toBeLessThanOrEqual(8);
+    await act(async () => setup.mockInput.pressKey("c", { ctrl: true }));
+    await frame(setup);
+    expect(cancellations).toBe(0);
+    expect(
+      setup.renderer.root.findDescendantById("command-feedback-popup"),
+    ).toBeUndefined();
+    expect(setup.captureCharFrame()).not.toContain("Ошибка /unknown-feedback");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("");
     await act(async () => {
-      setup.resize(40, 12);
+      setup.resize(80, 24);
+      await setup.mockInput.typeText("/cwd");
+      setup.mockInput.pressEnter();
     });
     await frame(setup);
-    expect(setup.captureCharFrame()).toContain("Ответ на /status");
-    await act(async () => {
-      await setup.mockInput.typeText("/se");
-    });
-    await frame(setup);
-    const prompt = setup.renderer.root.findDescendantById("prompt");
-    if (!prompt) throw new Error("Prompt is missing");
-    expect(prompt.y + prompt.height).toBeLessThanOrEqual(12);
-    expect(setup.captureCharFrame()).toContain("/settings");
-    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/se");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/cwd ");
+    expect(setup.renderer.currentFocusedEditor?.cursorOffset).toBe(5);
+    expect(submissions).toBe(1);
+    expect(workspace.home.snapshot.commandFeedback).toBeUndefined();
   } finally {
     act(() => setup.renderer.destroy());
     workspace.dispose();

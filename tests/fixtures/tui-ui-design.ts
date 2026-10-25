@@ -166,6 +166,86 @@ try {
   );
   await capture("home-120x36");
   const originalEditor = t.renderer.currentFocusedEditor;
+  // Every rejected command stays outside the welcome transcript, including worktree parsing.
+  for (const command of [
+    "/status",
+    "/doctor",
+    "/unknown-home-command",
+    "/worktree invalid-action",
+    `/cwd ${join(project, "missing-project")}`,
+  ]) {
+    await paste(command);
+    await key("RETURN");
+    await until(
+      () => !!t.renderer.root.findDescendantById("command-feedback-popup"),
+      `Missing feedback for ${command}`,
+    );
+    assert.equal(t.renderer.root.findDescendantById("session-tabs"), undefined);
+    assert.equal(generations, 0);
+    assert.equal(
+      t.renderer.root.findDescendantById("prompt-editor"),
+      originalEditor,
+    );
+    await paste("Вставка в закрытый редактор");
+    assert.equal(
+      originalEditor?.plainText,
+      "",
+      "Feedback leaked paste to the composer",
+    );
+    if (command === "/status") {
+      await capture("command-error-120x36");
+      await act(async () => t.resize(24, 8));
+      await frame();
+      const close = t.renderer.root.findDescendantById(
+        "command-feedback-close",
+      );
+      assert.ok(close && close.y + close.height <= 8);
+      await capture("command-error-24x8");
+    }
+    await key("RETURN");
+    await until(
+      () => t.renderer.currentFocusedEditor === originalEditor,
+      "Feedback did not restore editor focus",
+    );
+    assert.equal(
+      t.renderer.root.findDescendantById("command-feedback-popup"),
+      undefined,
+    );
+    assert.ok(!t.captureCharFrame().includes("Неизвестная команда"));
+    await act(async () => t.resize(120, 36));
+    await frame();
+  }
+  await paste("/cwd");
+  await key("RETURN");
+  assert.equal(originalEditor?.plainText, "/cwd ");
+  await key("u", true);
+  await paste("/worktree");
+  await key("RETURN");
+  await until(
+    () => !!t.renderer.root.findDescendantById("worktrees-popup"),
+    "Worktree manager did not open on home",
+  );
+  assert.equal(
+    t.renderer.root.findDescendantById("command-feedback-popup"),
+    undefined,
+  );
+  await until(
+    () => t.captureCharFrame().includes("Действие не выполнено"),
+    "Worktree diagnostic was not shown inside its manager",
+  );
+  await capture("worktree-error-120x36");
+  await key("ESCAPE");
+  await until(
+    () => !t.captureCharFrame().includes("Действие не выполнено"),
+    "Worktree diagnostic did not return to list",
+  );
+  await key("ESCAPE");
+  await until(
+    () => t.renderer.currentFocusedEditor === originalEditor,
+    "Worktree manager did not restore home",
+  );
+  await capture("home-after-commands-120x36");
+  assert.equal(generations, 0);
   const draft = "Изучи интерфейс 👩‍💻 汉字 e\u0301";
   await paste(draft);
   const originalCursor = originalEditor?.cursorOffset;

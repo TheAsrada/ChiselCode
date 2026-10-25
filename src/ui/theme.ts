@@ -220,55 +220,6 @@ export function formatCost(cost: number): string {
   return `$${text}`;
 }
 
-export interface StatusDashboardInput {
-  providerLabel: string;
-  model: string;
-  cwd: string;
-  keyReady: boolean;
-  sessionId?: string;
-  sessionTitle?: string;
-  totalTokens?: number;
-  totalCost?: number;
-}
-
-/** Панель `/status`: аккуратный дашборд с выровненными значениями. */
-export function formatStatusDashboard(input: StatusDashboardInput): string {
-  const row = (label: string, value: string): string =>
-    `${label.padEnd(9, " ")} ${value}`;
-  const lines = [
-    `${BRAND_MARK} ChiselCode - состояние`,
-    row("Сервис:", input.providerLabel),
-    row("Модель:", input.model),
-    row("Проект:", input.cwd),
-    row(
-      "API-ключ:",
-      input.keyReady
-        ? `${OK_MARK} настроен`
-        : `${FAIL_MARK} не настроен ${DOT} chisel setup`,
-    ),
-    row(
-      "Сессия:",
-      input.sessionId
-        ? `${input.sessionTitle ? `'${input.sessionTitle}' ${DOT} ` : ""}${input.sessionId}`
-        : "новая - откроется следующим запросом",
-    ),
-  ];
-  if (input.totalTokens !== undefined && input.totalTokens > 0) {
-    const cost =
-      input.totalCost !== undefined
-        ? ` ${DOT} ${formatCost(input.totalCost)}`
-        : "";
-    lines.push(
-      row("Контекст:", `${formatTokens(input.totalTokens)} токенов${cost}`),
-    );
-  }
-  lines.push(
-    "",
-    `/model ${DOT} сменить модель    /cwd <путь> ${DOT} сменить проект    /sessions ${DOT} список сеансов`,
-  );
-  return lines.join("\n");
-}
-
 export interface DoneSummaryInput {
   elapsedMs: number;
   totalTokens: number;
