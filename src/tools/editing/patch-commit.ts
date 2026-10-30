@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { cancelled, RuntimeError } from "../../runtime/errors.js";
-import type { WorkspacePolicy } from "../../security/workspace-policy.js";
+import type { FilePathPolicy } from "../../security/workspace-policy.js";
 import type { PatchOperation, PatchPlan } from "./patch-plan.js";
 import { revision, sameRevision } from "./revisions.js";
 
@@ -24,7 +24,7 @@ async function content(path: string): Promise<Buffer | null> {
 }
 export async function validateOperation(
   operation: PatchOperation,
-  workspace: WorkspacePolicy,
+  workspace: FilePathPolicy,
 ): Promise<void> {
   if ((await workspace.resolve(operation.candidate)) !== operation.path)
     throw new RuntimeError(
@@ -64,7 +64,7 @@ async function stage(operation: PatchOperation): Promise<string | undefined> {
 }
 export async function commitPatch(
   plan: PatchPlan,
-  workspace: WorkspacePolicy,
+  workspace: FilePathPolicy,
   signal?: AbortSignal,
   beforeCommit?: (operation: PatchOperation, index: number) => Promise<void>,
 ): Promise<void> {

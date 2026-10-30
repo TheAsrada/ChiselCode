@@ -1,8 +1,8 @@
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
-import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { packageRelativePath } from "../utils/package-path.js";
+import { resolveProjectPath } from "../utils/paths.js";
 import { SKILL_RECEIPT, utf8 } from "./package.js";
 
 export async function readSkillReference(
@@ -20,7 +20,9 @@ export async function readSkillReference(
     if (info.isSymbolicLink())
       throw new Error("Ссылки в файлах навыка не поддерживаются.");
   }
-  const resolved = await new WorkspacePolicy(root, []).resolve(path);
+  // This is an advertised library entry, not a project workspace. Keep its own
+  // canonical boundary and no-symlink checks without granting Home as a project.
+  const resolved = await resolveProjectPath(root, path);
   const file = await open(
     resolved,
     constants.O_RDONLY |

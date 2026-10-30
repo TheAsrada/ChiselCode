@@ -1,7 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { RuntimeError } from "../../runtime/errors.js";
-import type { WorkspacePolicy } from "../../security/workspace-policy.js";
+import type { FilePathPolicy } from "../../security/workspace-policy.js";
 import type { FileRevision } from "../../types/domain.js";
 import { buildFileDiff } from "../file-diff.js";
 import { commitPatch } from "./patch-commit.js";
@@ -11,7 +11,7 @@ import { revision, sameRevision } from "./revisions.js";
 
 export class EditingService {
   constructor(
-    readonly workspace: WorkspacePolicy,
+    readonly workspace: FilePathPolicy,
     readonly observations: Record<string, FileRevision>,
     readonly requireFreshRead = true,
     private readonly beforeCommit?: (

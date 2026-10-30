@@ -9,7 +9,12 @@ import {
 import { isVerifiedManagedRoot } from "../projects/verified-roots.js";
 import { isIgnored, resolveProjectPath } from "../utils/paths.js";
 export class IgnoredPathError extends Error {}
-export class WorkspacePolicy {
+/** The editing engine also serves application-owned libraries with their own boundaries. */
+export interface FilePathPolicy {
+  readonly root: string;
+  resolve(candidate: string): Promise<string>;
+}
+export class WorkspacePolicy implements FilePathPolicy {
   private application?: Promise<ApplicationPaths>;
   constructor(
     readonly root: string,

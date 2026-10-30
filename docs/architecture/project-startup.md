@@ -14,6 +14,8 @@
 
 Служебный root отклоняется. Узкое исключение managed worktree проверяет существующие registry, Git registration, ownership marker, состояние и filesystem stamp в `WorktreeService`. Нативные файловые инструменты используют `WorkspacePolicy`; служебные поддеревья исключаются и при более широком проекте. Это не OS sandbox для shell, MCP/LSP или доверенного JS.
 
+Операции библиотеки навыков имеют собственную файловую границу: `load_skill` читает только объявленный навык с проверкой относительного пути и symlink; `create_skill` передаёт editing engine policy конкретного validated destination или staging. Общий `FilePathPolicy` задаёт только root и resolve; workspace-инструменты по-прежнему получают `WorkspacePolicy` с исключением служебных данных. Библиотечная операция не выдаёт допуск workspace.
+
 ## Владельцы application и workspace
 
 `HomeDraftController` использует общую модель представления, но не имеет executor или искусственного root. Он хранит текст, позицию редактора, режимы, модель и привязку выбранного проекта. `TuiController` беседы продолжает требовать строковый `projectPath`; `Session.projectPath` и публичные SDK не становятся nullable.

@@ -3,7 +3,6 @@ import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { userSkillsDir } from "../../paths/home.js";
-import { WorkspacePolicy } from "../../security/workspace-policy.js";
 import { withSkillsLibraryLock } from "../../skills/library.js";
 import { readSkillReference } from "../../skills/references.js";
 import {
@@ -11,7 +10,7 @@ import {
   parseSkillFile,
   type Skill,
 } from "../../skills/skills.js";
-import { exists } from "../../utils/paths.js";
+import { exists, resolveProjectPath } from "../../utils/paths.js";
 import { EditingService } from "../editing/service.js";
 import { defineTool } from "../handler.js";
 export type SkillsCatalog = readonly Skill[] | (() => readonly Skill[]);
@@ -129,11 +128,7 @@ export function skillHandlers(skills: SkillsCatalog) {
           if (!info.isDirectory() || info.isSymbolicLink())
             throw new Error(`Unsafe user skill directory: ${destination}`);
           await validateSkillWritePaths(destination, files);
-          updatePlan = await new EditingService(
-            new WorkspacePolicy(destination, []),
-            {},
-            false,
-          ).writeBatch(files);
+          updatePlan = await skillEditing(destination).writeBatch(files);
         }
         return {
           data: { input, files, destination, updatePlan },
@@ -168,11 +163,7 @@ export function skillHandlers(skills: SkillsCatalog) {
             await validateSkillWritePaths(destination, files);
             if (!updatePlan) throw new Error("Missing skill update preflight.");
             await assertOwned();
-            await new EditingService(
-              new WorkspacePolicy(destination, []),
-              {},
-              false,
-            ).commit(updatePlan, context.signal);
+            await skillEditing(destination).commit(updatePlan, context.signal);
           }
           return {
             output: `User skill ${input.mode === "create" ? "created" : "updated"}: ${destination}`,
@@ -208,8 +199,17 @@ async function writeSkillFiles(
   files: [string, string][],
   signal?: AbortSignal,
 ): Promise<void> {
-  const editing = new EditingService(new WorkspacePolicy(root, []), {}, false);
+  const editing = skillEditing(root);
   await editing.commit(await editing.writeBatch(files), signal);
+}
+
+/** Called only for the validated user-skill destination or its owned staging tree. */
+function skillEditing(root: string): EditingService {
+  return new EditingService(
+    { root, resolve: (candidate) => resolveProjectPath(root, candidate) },
+    {},
+    false,
+  );
 }
 
 async function pathExistsNoFollow(path: string): Promise<boolean> {
