@@ -8,7 +8,10 @@ import { uiTone } from "./opentui-extension-details.js";
 import { SidebarSection } from "./sidebar-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
-import type { TuiController, TuiViewState } from "./tui-controller.js";
+import type {
+  TuiPresentationController as TuiController,
+  TuiViewState,
+} from "./tui-controller.js";
 
 function leaf(path: string): string {
   return (
@@ -226,12 +229,18 @@ export function ContextSidebar({
           height={1}
           fg={palette.text}
           attributes={TextAttributes.BOLD}
-          content={terminalLine(leaf(state.projectPath), inner)}
+          content={terminalLine(
+            state.projectPath ? leaf(state.projectPath) : "Проект не выбран",
+            inner,
+          )}
         />
         <text
           height={1}
           fg={palette.muted}
-          content={terminalLine(state.projectPath, inner)}
+          content={terminalLine(
+            state.projectPath ?? "Откройте папку для задачи",
+            inner,
+          )}
         />
         <text
           height={1}

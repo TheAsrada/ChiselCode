@@ -29,6 +29,8 @@ const names = [
   "network-retry",
   "onboarding",
   "prompt",
+  "project-admission",
+  "runtime-environment",
   "provider-capabilities",
   "provider-conformance",
   "provider-registry",

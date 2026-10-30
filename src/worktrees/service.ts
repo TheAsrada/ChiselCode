@@ -32,6 +32,8 @@ import {
   rejectExternalFilters,
 } from "../git/driver.js";
 import { chiselHomeDir } from "../paths/home.js";
+import { managedWorkspaceCandidate } from "../projects/paths.js";
+import { recordVerifiedManagedRoot } from "../projects/verified-roots.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import {
   IgnoredPathError,
@@ -394,6 +396,35 @@ async function readText(
  * switching or recursive deletion is implemented here. */
 export class WorktreeService {
   constructor(private readonly home = chiselHomeDir()) {}
+  /** Admission checks existing bookkeeping; a path or a serialized kind grants nothing. */
+  async verifyManagedWorkspace(
+    root: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const home = await realpath(this.home).catch(() => resolve(this.home));
+    if (!managedWorkspaceCandidate(home, root)) return false;
+    try {
+      const repo = await this.repository(root, signal);
+      return await withLock(repo.registry, async () => {
+        const registry = await readWorktreeRegistry(repo.registry);
+        const value = Object.values(registry.records).find((record) =>
+          samePath(record.path, root),
+        );
+        if (!value) return false;
+        const record = this.checkedRecord(repo, registry, value.id);
+        await this.verify(repo, record, signal);
+        return true;
+      });
+    } catch (error) {
+      cancelled(signal);
+      if (
+        error instanceof RuntimeError ||
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      )
+        return false;
+      throw error;
+    }
+  }
   private async repository(
     root: string,
     signal?: AbortSignal,
@@ -514,6 +545,7 @@ export class WorktreeService {
         "WORKTREE_RECOVERY_REQUIRED",
         "Git no longer registers this owned worktree.",
       );
+    await recordVerifiedManagedRoot(record.path);
     return identity;
   }
   private async verifyOwner(

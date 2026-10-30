@@ -108,6 +108,8 @@ jobs:
           tests/unit/provider-config.test.ts tests/unit/lsp-config.test.ts
           tests/unit/opentui-terminal-compatibility.test.tsx tests/unit/opentui-settings.test.tsx
           tests/unit/opentui-navigation.test.tsx tests/unit/opentui-file-diff.test.tsx
+          tests/unit/project-admission.test.ts tests/unit/terminal-drafts.test.ts
+          tests/unit/runtime-environment.test.ts tests/integration/project-startup.test.ts
           tests/unit/opentui-update.test.tsx tests/unit/opentui-sidebar.test.tsx
           tests/unit/opentui-background.test.tsx tests/unit/opentui-subagents.test.tsx
           tests/unit/opentui-side-query.test.tsx tests/unit/opentui-chat-card.test.tsx
@@ -134,6 +136,9 @@ jobs:
       - name: Windows updater, actual executable replacement and console restart
         if: runner.os == 'Windows'
         run: bun tests/fixtures/windows-update.ts
+      - name: Windows shortcuts and finish-page launcher
+        if: runner.os == 'Windows'
+        run: bun tests/fixtures/windows-launcher.ts
       - name: Save actual Windows updater captures
         if: always() && runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -188,13 +193,17 @@ jobs:
           cp -R skills/bundled dist/skills/
           bun build tests/fixtures/tui-extension-creator.ts --compile --outfile="$binary"
           "$binary"
-      - name: Compiled Settings embeds MCP and bundled skills
+      - name: Compiled application startup and Settings
         shell: bash
         run: |
           binary=dist/chisel-settings-tools
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
           bun build tests/fixtures/tui-settings-tools.ts --compile --outfile="$binary"
           CHISEL_SETTINGS_TOOLS_SMOKE=1 "$binary"
+          binary=dist/chisel-project-startup
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/project-startup.ts --compile --outfile="$binary"
+          CHISEL_STARTUP_PACKAGED=1 "$binary"
       - name: Compiled extension controls and media
         shell: bash
         run: |

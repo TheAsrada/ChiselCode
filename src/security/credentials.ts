@@ -18,7 +18,7 @@ export interface CredentialStorage {
   set(name: string, secret: string): Promise<void>;
 }
 
-function configDirectory(): string {
+export function credentialDirectory(): string {
   if (process.platform === "win32")
     return join(
       process.env.APPDATA ?? process.env.USERPROFILE ?? process.cwd(),
@@ -37,7 +37,7 @@ export class CredentialStore implements CredentialStorage {
     try {
       const payload = JSON.parse(
         await readFile(
-          join(this.directory ?? configDirectory(), FALLBACK_FILE),
+          join(this.directory ?? credentialDirectory(), FALLBACK_FILE),
           "utf8",
         ),
       ) as EncryptedCredentialFile;
@@ -60,11 +60,11 @@ export class CredentialStore implements CredentialStorage {
     name: string,
     secret: string | undefined,
   ): Promise<void> {
-    const file = join(this.directory ?? configDirectory(), FALLBACK_FILE);
+    const file = join(this.directory ?? credentialDirectory(), FALLBACK_FILE);
     const task = (writes.get(file) ?? Promise.resolve())
       .catch(() => {})
       .then(async () => {
-        await mkdir(this.directory ?? configDirectory(), {
+        await mkdir(this.directory ?? credentialDirectory(), {
           recursive: true,
           mode: 0o700,
         });
@@ -78,7 +78,7 @@ export class CredentialStore implements CredentialStorage {
     }
   }
   private async write(name: string, secret: string | undefined): Promise<void> {
-    const directory = this.directory ?? configDirectory();
+    const directory = this.directory ?? credentialDirectory();
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const file = join(directory, FALLBACK_FILE);
     let credentials: Record<string, string> = {};

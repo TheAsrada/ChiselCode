@@ -13,7 +13,7 @@ import type { SecretRedactor } from "../security/redaction.js";
 import { subagentActive } from "../subagents/contracts.js";
 import type { ChatCard } from "../types/chat-presentation.js";
 import type { JsonObject, ToolExecutionResult } from "../types/domain.js";
-import type { TuiController } from "./tui-controller.js";
+import type { TuiPresentationController as TuiController } from "./tui-controller.js";
 import { UiSubscriptions } from "./ui-subscriptions.js";
 
 export type UiToolSubmit = (

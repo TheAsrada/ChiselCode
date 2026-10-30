@@ -373,8 +373,11 @@ test("final context uses measured prompt plus retained reply, not cumulative spe
   expect(result.status).toBe("completed");
   if (!request) throw new Error("No request");
   const delta =
-    requestTokens(request.system, session.messages, request.tools) -
-    requestTokens(request.system, request.messages, request.tools);
+    requestTokens(
+      request.system,
+      [request.messages[0]!, ...session.messages],
+      request.tools,
+    ) - requestTokens(request.system, request.messages, request.tools);
   expect(session.contextSnapshot).toMatchObject({
     occupiedTokens: 500 + delta,
     observedInputTokens: 500,

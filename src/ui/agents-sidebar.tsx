@@ -10,7 +10,10 @@ import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { SubagentElapsed } from "./subagent-elapsed.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
-import type { TuiController, TuiViewState } from "./tui-controller.js";
+import type {
+  TuiPresentationController as TuiController,
+  TuiViewState,
+} from "./tui-controller.js";
 
 export function AgentsSidebar({
   controller,

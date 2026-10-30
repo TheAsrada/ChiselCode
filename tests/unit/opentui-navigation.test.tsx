@@ -665,9 +665,14 @@ test("home command feedback is dismissible, owns input and never becomes a trans
       setup.renderer.root.findDescendantById("command-feedback-popup"),
     ).toBeUndefined();
     expect(setup.captureCharFrame()).not.toContain("Ошибка /unknown-feedback");
-    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("");
+    expect(workspace.home.snapshot.draft).toBe("");
+    expect(
+      setup.renderer.root.findDescendantById("compact-terminal"),
+    ).toBeTruthy();
+    await act(async () => setup.resize(80, 24));
+    await frame(setup);
+    expect(setup.renderer.currentFocusedEditor).toBeTruthy();
     await act(async () => {
-      setup.resize(80, 24);
       await setup.mockInput.typeText("/cwd");
       setup.mockInput.pressEnter();
     });

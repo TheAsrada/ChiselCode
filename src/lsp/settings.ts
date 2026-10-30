@@ -16,12 +16,12 @@ import {
 import type { LspStatus } from "./service.js";
 
 export interface LspSettingsState {
-  workspaceRoot: string;
+  workspaceRoot?: string;
   global: LspConfig;
   project: ProjectLspConfig;
   projectRevision: string;
   globalRevision: string;
-  status: LspStatus;
+  status: Omit<LspStatus, "workspaceRoot"> & { workspaceRoot?: string };
 }
 export interface LspSettingsActions {
   load(signal?: AbortSignal): Promise<LspSettingsState>;
@@ -72,17 +72,28 @@ function projectObject(source: string): Record<string, unknown> {
 export class LspSettingsStore implements LspSettingsActions {
   private pending: Promise<unknown> = Promise.resolve();
   constructor(
-    private readonly root: string,
+    private readonly root: string | undefined,
     private readonly configPath: string | undefined,
     private readonly runtime: LspSettingsRuntime,
   ) {}
   async load(signal?: AbortSignal): Promise<LspSettingsState> {
     cancelled(signal);
-    const root = await canonicalWorkspaceRoot(this.root);
+    const root = this.root
+      ? await canonicalWorkspaceRoot(this.root)
+      : undefined;
     const [global, source, status] = await Promise.all([
       loadGlobalConfig(this.configPath),
-      projectSource(root),
-      this.runtime.status(),
+      root ? projectSource(root) : Promise.resolve(""),
+      root
+        ? this.runtime.status()
+        : Promise.resolve({
+            backend: "typescript",
+            state: "unavailable" as const,
+            generation: 0,
+            trackedDocuments: 0,
+            requiresRestart: false,
+            reason: "Для проектного анализа выберите папку.",
+          }),
     ]);
     cancelled(signal);
     const raw = projectObject(source);
@@ -151,6 +162,7 @@ export class LspSettingsStore implements LspSettingsActions {
   ): Promise<LspSettingsState> {
     const config = ProjectLspConfigSchema.parse(value);
     return this.write(async () => {
+      if (!this.root) throw new Error("Для проектных настроек выберите папку.");
       const root = await canonicalWorkspaceRoot(this.root);
       const source = await projectSource(root);
       if (revision(source) !== expectedRevision)
@@ -181,6 +193,7 @@ export class LspSettingsStore implements LspSettingsActions {
   }
   trust(serverId: string, allowed: boolean): Promise<LspSettingsState> {
     return this.write(async () => {
+      if (!this.root) throw new Error("Для доверия проекту выберите папку.");
       const root = await canonicalWorkspaceRoot(this.root);
       await updateGlobalConfig(this.configPath, async (current) => {
         const lsp = structuredClone(current.lsp ?? { servers: {} });
@@ -207,6 +220,7 @@ export class LspSettingsStore implements LspSettingsActions {
     signal?: AbortSignal,
   ): Promise<string> {
     cancelled(signal);
+    if (!this.root) throw new Error("Для проверки запуска LSP выберите папку.");
     const launch = await validateLspLaunch(
       await canonicalWorkspaceRoot(this.root),
       serverId,

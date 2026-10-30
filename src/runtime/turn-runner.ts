@@ -19,6 +19,10 @@ export class TurnRunner {
     readonly provider: ProviderAdapter,
     private readonly events: RuntimeEventBus,
     private readonly hooks?: AgentEventPort,
+    private readonly finalize?: (
+      request: ProviderRequest,
+      estimated: number,
+    ) => Promise<{ request: ProviderRequest; estimated: number }>,
   ) {}
   async run(
     request: ProviderRequest,
@@ -26,11 +30,6 @@ export class TurnRunner {
   ): Promise<AssistantTurn> {
     const started = performance.now();
     let observedUsage: TokenUsage | undefined;
-    await this.events.emit({
-      type: "provider_request_started",
-      estimatedInputTokens,
-      maxOutputTokens: request.maxTokens,
-    });
     let completed: AssistantTurn | undefined;
     const filterText = !!this.hooks?.has("model.response");
     try {
@@ -44,6 +43,16 @@ export class TurnRunner {
         context,
       );
       request = prepared.request;
+      if (this.finalize) {
+        const final = await this.finalize(request, estimatedInputTokens);
+        request = final.request;
+        estimatedInputTokens = final.estimated;
+      }
+      await this.events.emit({
+        type: "provider_request_started",
+        estimatedInputTokens,
+        maxOutputTokens: request.maxTokens,
+      });
       if (request.signal?.aborted)
         throw new ProviderError("cancelled", "Provider request cancelled.");
       for await (const event of prepared.synthetic

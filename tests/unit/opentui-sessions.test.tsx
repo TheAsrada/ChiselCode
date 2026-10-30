@@ -124,7 +124,7 @@ test("session picker searches, previews and resumes without losing the composer"
       setup.mockInput.pressEnter();
     });
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("Возобновить сессию");
+    expect(setup.captureCharFrame()).toContain("История проектов");
     await act(async () => {
       await setup.mockInput.typeText("Первый");
     });
@@ -135,6 +135,18 @@ test("session picker searches, previews and resumes without losing the composer"
     });
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Секретный запрос");
+    expect(setup.captureCharFrame()).toContain("только просмотр");
+    expect(resumed).toEqual([]);
+    await act(async () => setup.mockInput.pressEscape());
+    const deadline = Date.now() + 1000;
+    while (!setup.captureCharFrame().includes("История проектов")) {
+      if (Date.now() >= deadline) throw new Error(setup.captureCharFrame());
+      await act(async () => {
+        await Bun.sleep(5);
+        await setup.renderOnce();
+      });
+    }
+    expect(setup.captureCharFrame()).toContain("История проектов");
     await act(async () => {
       setup.mockInput.pressEnter();
     });

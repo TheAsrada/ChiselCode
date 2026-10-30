@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { registerApplicationPrivatePath } from "../projects/paths.js";
 
 export const RELEASES_LATEST_URL =
   "https://api.github.com/repos/TheAsrada/ChiselCode/releases/latest";
@@ -360,6 +361,9 @@ export async function downloadReleaseAsset(
   signal.throwIfAborted();
   const temporaryDir =
     options.destDir ?? (await mkdtemp(join(tmpdir(), "chisel-update-")));
+  await registerApplicationPrivatePath(
+    options.destDir ? join(temporaryDir, asset) : temporaryDir,
+  );
   const timer = setTimeout(
     () => controller.abort(),
     options.timeoutMs ?? 300_000,
@@ -466,14 +470,19 @@ export const NSIS_SILENT_ARGS: readonly string[] = ["/S"];
 
 /** Keep the selected project and saved conversation after a silent update. */
 export function windowsUpdateArguments(
-  projectPath: string,
+  projectPath: string | undefined,
   sessionId?: string,
   restart?: { parentPid: number; installDirectory: string },
 ): string[] {
-  if (/["\r\n\0]/.test(projectPath))
+  if (
+    projectPath !== undefined &&
+    (!projectPath || /["\r\n\0]/.test(projectPath))
+  )
     throw new Error("Недопустимый путь проекта для перезапуска.");
   if (sessionId && !/^[\w-]+$/.test(sessionId))
     throw new Error("Недопустимый ID сессии для перезапуска.");
+  if (sessionId && !projectPath)
+    throw new Error("Для восстановления сессии нужен проект.");
   if (
     restart &&
     (!Number.isSafeInteger(restart.parentPid) ||
@@ -484,7 +493,7 @@ export function windowsUpdateArguments(
     throw new Error("Недопустимые параметры установки.");
   return [
     ...NSIS_SILENT_ARGS,
-    `/CHISEL_CWD=${projectPath}`,
+    ...(projectPath ? [`/CHISEL_CWD=${projectPath}`] : []),
     ...(sessionId ? [`/CHISEL_RESUME=${sessionId}`] : []),
     ...(restart
       ? [

@@ -22,6 +22,15 @@ import {
   agentModeInstructions,
   DEFAULT_AGENT_MODE,
 } from "./agent-mode.js";
+import {
+  captureRuntimeIdentity,
+  finalizeRuntimeIdentity,
+  observeUi,
+  type RuntimeIdentity,
+  runtimeIdentityPrompt,
+  type UiSnapshotPort,
+  withUiSnapshot,
+} from "./environment.js";
 import { cancelled, RuntimeError } from "./errors.js";
 import type { RuntimeEventBus } from "./events.js";
 import { TurnRunner } from "./turn-runner.js";
@@ -39,6 +48,9 @@ export interface RuntimeTools {
   ): Promise<ToolExecutionResult[]>;
 }
 export interface RuntimeOptions {
+  workspaceRoot?: string;
+  client?: RuntimeIdentity["client"];
+  uiSnapshot?: UiSnapshotPort;
   agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
   /** Child history is view-only after a crash; unknown mutations never replay. */
   recovery?: "new_child";
@@ -77,7 +89,18 @@ export class AgentRuntime {
       requestedApprovalMode;
     runtime.turnApprovalMode = approvalMode;
     if (approvalMode) session.approvalMode = approvalMode;
-    const system = `${this.system}\n\n${agentModeInstructions(mode)}${approvalMode ? `\n\n${approvalModeInstructions(approvalMode)}` : ""}`;
+    const identity = captureRuntimeIdentity(
+      {
+        model: session.model,
+        profileId: session.profileId,
+        projectPath: options.workspaceRoot ?? session.projectPath,
+      },
+      this.provider.providerId,
+      mode,
+      approvalMode,
+      options.client,
+    );
+    const system = `${this.system}\n\n${runtimeIdentityPrompt(identity)}\n\n${agentModeInstructions(mode)}${approvalMode ? `\n\n${approvalModeInstructions(approvalMode)}` : ""}`;
     this.events.turnId = runtime.turnId;
     this.events.agentEvents = options.agentEvents ?? this.events.agentEvents;
     this.events.agentSignal = options.signal;
@@ -182,6 +205,14 @@ export class AgentRuntime {
         this.provider,
         this.events,
         options.agentEvents,
+        (request, estimated) =>
+          finalizeRuntimeIdentity(
+            request,
+            identity,
+            this.provider,
+            this.context.options,
+            estimated,
+          ),
       );
       for (
         let iteration = 0;
@@ -205,7 +236,7 @@ export class AgentRuntime {
         });
         const guidance = this.tools.instructionsForTurn?.(selectedTools);
         cancelled(options.signal);
-        const requestContext = await options.contextProviders?.collect(
+        const extensionContext = await options.contextProviders?.collect(
           {
             sessionId: session.id,
             turnId: runtime.turnId,
@@ -215,6 +246,10 @@ export class AgentRuntime {
             userPrompt: typeof input === "string" ? input : input.text,
           },
           options.signal,
+        );
+        const requestContext = withUiSnapshot(
+          extensionContext,
+          observeUi(options.uiSnapshot),
         );
         cancelled(options.signal);
         const frame = await this.context.build({
@@ -234,7 +269,7 @@ export class AgentRuntime {
         try {
           response = await runner.run(
             {
-              model: session.model,
+              model: identity.model,
               system: frame.system,
               messages: frame.messages,
               tools: frame.tools,

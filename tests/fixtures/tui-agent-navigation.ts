@@ -1,4 +1,7 @@
 import { expect, mock } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as core from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
@@ -18,6 +21,14 @@ import type { Session } from "../../src/types/domain.js";
 
 // This fixture runs in a child process so module mocks cannot affect other tests.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+const isolatedHome = await mkdtemp(join(tmpdir(), "chisel-navigation-"));
+for (const name of [
+  "XDG_DATA_HOME",
+  "XDG_CONFIG_HOME",
+  "LOCALAPPDATA",
+  "APPDATA",
+])
+  process.env[name] = join(isolatedHome, "home");
 const setup = await createTestRenderer({
   width: 80,
   height: 24,
@@ -406,4 +417,5 @@ try {
   releaseFirst?.();
   releaseSecond?.();
   setup.renderer.destroy();
+  await rm(isolatedHome, { recursive: true, force: true });
 }

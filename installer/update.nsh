@@ -3,6 +3,7 @@
 !include "FileFunc.nsh"
 Var WasUpdate
 Var RestartCwd
+!include "${__FILEDIR__}\launcher.nsh"
 Var RestartSession
 Var UpdateParentPid
 Var UpdateLog
@@ -127,7 +128,7 @@ Function ChiselUpdateRelaunch
         ExecShell "open" "$INSTDIR\${EXENAME}" '--cwd "$RestartCwd\."'
       ${EndIf}
     ${Else}
-      ExecShell "open" "$INSTDIR\${EXENAME}"
+      Call ChiselLaunchApplication
     ${EndIf}
     ${If} ${Errors}
       Push "Файлы обновлены, но не удалось открыть терминал. Запустите ChiselCode вручную"

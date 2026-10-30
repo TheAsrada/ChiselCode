@@ -7,7 +7,10 @@ import { BackgroundTaskList } from "./background-task-list.js";
 import { dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 
 import { terminalLine } from "./terminal-text.js";
-import type { TuiController, TuiViewState } from "./tui-controller.js";
+import type {
+  TuiPresentationController as TuiController,
+  TuiViewState,
+} from "./tui-controller.js";
 export function OpenTuiBackgroundTasks({
   controller,
   view,

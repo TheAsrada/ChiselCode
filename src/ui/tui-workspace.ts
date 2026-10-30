@@ -6,8 +6,10 @@ import {
 } from "../security/approval-mode.js";
 import type { Session } from "../types/domain.js";
 import { createEditorState } from "./editor.js";
+import { HomeDraftController } from "./home-draft-controller.js";
 import type { ModelSelection } from "./opentui-models.js";
 import { replaySessionIntoTranscript } from "./tool-transcript.js";
+import type { TuiPresentationController } from "./tui-controller.js";
 import { TuiController } from "./tui-controller.js";
 import { TuiTabExecution } from "./tui-tab-execution.js";
 
@@ -18,30 +20,99 @@ export interface SessionTab {
 
 /** Home is a separate route. Each open tab owns its draft and agent output. */
 export class TuiWorkspace {
-  readonly home: TuiController;
+  readonly home: HomeDraftController;
   tabs: SessionTab[] = [];
   activeKey?: string;
   private serial = 0;
   private listeners = new Set<() => void>();
   private subscriptions = new Map<string, () => void>();
   private executions = new Map<TuiController, TuiTabExecution>();
+  private readonly operationOrigins = new Map<
+    TuiController,
+    { origin: TuiPresentationController; generation: number }
+  >();
+
+  get operationRoots(): readonly string[] {
+    return [...this.operationOrigins.keys()].map(
+      (controller) => controller.snapshot.projectPath,
+    );
+  }
+
+  approvalResolver(origin: TuiPresentationController) {
+    if (origin instanceof TuiController)
+      return this.execution(origin).approvalResolver;
+    const controller = [...this.operationOrigins.entries()]
+      .reverse()
+      .find(
+        ([, owner]) =>
+          owner.origin === origin &&
+          owner.generation === origin.currentGeneration,
+      )?.[0];
+    return controller ? this.execution(controller).approvalResolver : undefined;
+  }
+
+  /** Application UI actions use a concrete project owner without allocating a conversation tab. */
+  projectOperation(origin: TuiPresentationController): {
+    controller: TuiController;
+    release(): void;
+  } {
+    const root = origin.snapshot.projectPath;
+    if (!root) throw new Error("Сначала выберите проект.");
+    const controller = new TuiController(
+      root,
+      origin.snapshot.agentMode,
+      origin.snapshot.approvalMode,
+    );
+    const model = origin.snapshot.modelSelection;
+    if (model)
+      controller.setActiveModel(
+        model.provider,
+        model.model,
+        model.profileId,
+        model.baseUrl,
+      );
+    const execution = new TuiTabExecution(controller);
+    this.executions.set(controller, execution);
+    this.operationOrigins.set(controller, {
+      origin,
+      generation: origin.currentGeneration,
+    });
+    const unsubscribe = controller.subscribe(() => this.notify());
+    this.notify();
+    let released = false;
+    return {
+      controller,
+      release: () => {
+        if (released) return;
+        released = true;
+        const finish = () => {
+          unsubscribe();
+          execution.dispose();
+          this.executions.delete(controller);
+          this.operationOrigins.delete(controller);
+          controller.dispose();
+          this.notify();
+        };
+        if (execution.activeRun)
+          void execution.activeRun.finally(finish).catch(() => {});
+        else finish();
+      },
+    };
+  }
 
   constructor(
-    projectPath: string,
+    projectPath?: string,
     mode: AgentMode = DEFAULT_AGENT_MODE,
     approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
   ) {
-    this.home = new TuiController(
-      projectPath,
-      mode,
-      approvalMode,
-      undefined,
-      "dialog",
-    );
-    this.executions.set(this.home, new TuiTabExecution(this.home));
+    this.home = new HomeDraftController(projectPath, mode, approvalMode);
   }
 
-  execution(controller = this.controller): TuiTabExecution {
+  execution(
+    controller: TuiPresentationController = this.controller,
+  ): TuiTabExecution {
+    if (!(controller instanceof TuiController))
+      throw new Error("Сначала выберите проект и начните беседу.");
     const execution = this.executions.get(controller);
     if (!execution) throw new Error("Conversation is no longer open.");
     return execution;
@@ -69,7 +140,7 @@ export class TuiWorkspace {
     );
   }
 
-  get controller(): TuiController {
+  get controller(): TuiPresentationController {
     return (
       this.tabs.find((tab) => tab.key === this.activeKey)?.controller ??
       this.home
@@ -82,7 +153,9 @@ export class TuiWorkspace {
   }
 
   /** A new conversation starts on the welcome screen, without allocating a tab. */
-  newDraft(projectPath = this.controller.snapshot.projectPath): TuiController {
+  newDraft(
+    projectPath = this.controller.snapshot.projectPath,
+  ): HomeDraftController {
     const mode = this.controller.snapshot.agentMode;
     const approvalMode = this.controller.snapshot.approvalMode;
     const model = this.controller.snapshot.modelSelection;
@@ -112,6 +185,7 @@ export class TuiWorkspace {
     approvalMode = this.controller.snapshot.approvalMode,
     model: ModelSelection | undefined = this.controller.snapshot.modelSelection,
   ): TuiController {
+    if (!projectPath) throw new Error("Проект не выбран.");
     const controller = new TuiController(projectPath, mode, approvalMode);
     this.executions.set(controller, new TuiTabExecution(controller));
     if (model)
@@ -207,6 +281,8 @@ export class TuiWorkspace {
   dispose(): void {
     for (const execution of this.executions.values()) execution.dispose();
     this.executions.clear();
+    for (const controller of this.operationOrigins.keys()) controller.dispose();
+    this.operationOrigins.clear();
     for (const unsubscribe of this.subscriptions.values()) unsubscribe();
     for (const tab of this.tabs) tab.controller.dispose();
     this.home.dispose();

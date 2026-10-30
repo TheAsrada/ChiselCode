@@ -6,7 +6,7 @@ import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { ToolExecutionResult } from "../types/domain.js";
 import { createTuiApprovalResolver } from "./tui-contract.js";
-import type { TuiController } from "./tui-controller.js";
+import type { TuiPresentationController as TuiController } from "./tui-controller.js";
 
 export interface QueuedTabPrompt {
   kind: "prompt";

@@ -16,6 +16,7 @@ import {
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { ExtensionLifecycleError } from "../extensions/lifecycle.js";
 import { shellGuidance } from "../processes/shell.js";
+import { admitWorkspace } from "../projects/admission.js";
 import { resolveCredential } from "../providers/auth.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
@@ -102,6 +103,7 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
+  uiSnapshot?: import("../runtime/environment.js").UiSnapshotPort;
   /** Recovery bootstrap: disables all external imports while retaining builtins. */
   externalExtensions?: boolean;
   /** Conversation lifetime, deliberately separate from a foreground turn signal. */
@@ -137,6 +139,8 @@ export interface RunOptions {
   json?: boolean;
   resume?: string;
   cwd?: string;
+  /** Explicit launcher intent; absence of cwd is a real application-only home. */
+  launcher?: boolean;
 }
 
 export async function hasApiKey(
@@ -388,6 +392,16 @@ export async function runPrompt(
   signal?: AbortSignal,
   extensions?: ExtensionDependencies,
 ): Promise<{ result: AgentResult; exitCode: number }> {
+  const admitted = await admitWorkspace(
+    options.launcher && !options.cwd
+      ? undefined
+      : (options.cwd ?? process.cwd()),
+    {
+      configPath: options.configPath,
+      signal,
+    },
+  );
+  options = { ...options, cwd: admitted.root };
   let completed: { result: AgentResult; exitCode: number } | undefined;
   const release = await acquireExecutionLease(options.cwd ?? process.cwd());
   let children: import("./subagent-binding.js").SubagentControls | undefined;
@@ -684,6 +698,9 @@ async function runPromptInWorkspace(
     );
 
     result = await runtime.run(session, sanitize(prompt), {
+      workspaceRoot: projectRoot,
+      client: options.interactive ? "opentui" : "cli",
+      uiSnapshot: options.uiSnapshot,
       mode,
       approvalMode,
       signal,

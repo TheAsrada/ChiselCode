@@ -430,6 +430,10 @@ export function OpenTuiLspSettings({
     });
   };
   const trust = (id: string) => {
+    if (!state?.workspaceRoot) {
+      setNotice("Для доверия проекту выберите папку.");
+      return;
+    }
     if (dirty) {
       setNotice(
         "Сохраните изменения LSP перед изменением доверия. Global и project формы сохраняются отдельно.",
@@ -438,7 +442,7 @@ export function OpenTuiLspSettings({
     }
     run(async (signal) => {
       const allowed = !state?.global.servers[id]?.trustedWorkspaces.includes(
-        state.workspaceRoot,
+        state.workspaceRoot ?? "",
       );
       const next = await actions.trust(id, allowed);
       if (!alive.current || signal.aborted) return;
@@ -566,7 +570,7 @@ export function OpenTuiLspSettings({
                     selectedId &&
                     state?.global.servers[
                       selectedId
-                    ]?.trustedWorkspaces.includes(state.workspaceRoot)
+                    ]?.trustedWorkspaces.includes(state.workspaceRoot ?? "")
                       ? "Разрешён точный root"
                       : "Нет разрешения",
                   activate() {

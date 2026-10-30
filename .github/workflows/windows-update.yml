@@ -27,6 +27,7 @@ jobs:
           }
       - run: bun test tests/unit/self-update.test.ts tests/unit/update-controller.test.ts tests/unit/opentui-update.test.tsx
       - run: bun tests/fixtures/windows-update.ts
+      - run: bun tests/fixtures/windows-launcher.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

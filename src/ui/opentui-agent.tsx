@@ -34,6 +34,7 @@ import {
   windowsUpdateArguments,
 } from "../commands/update.js";
 import {
+  DEFAULT_PROJECT_CONFIG,
   loadGlobalConfig,
   loadProjectConfig,
   loadProjectInstructions,
@@ -63,6 +64,19 @@ import {
   type SideQueryRecord,
 } from "../models/contracts.js";
 import { ModelRequestService } from "../models/service.js";
+import {
+  admitWorkspace,
+  WorkspaceAdmissionError,
+} from "../projects/admission.js";
+import { resolveLaunchWorkspace } from "../projects/launch.js";
+import { directoryPage, navigationDirectory } from "../projects/navigation.js";
+import { ProjectOpenService } from "../projects/opening.js";
+import {
+  applicationPaths,
+  isPrivatePath,
+  managedWorkspaceCandidate,
+  pathIdentity,
+} from "../projects/paths.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import { selectProfile } from "../providers/profiles.js";
 import {
@@ -75,7 +89,11 @@ import {
 } from "../security/approval-mode.js";
 import { CredentialStore } from "../security/credentials.js";
 import { SecretRedactor } from "../security/redaction.js";
-import { projectSessionStore } from "../sessions/project-store.js";
+import {
+  ProjectSessionStore,
+  projectSessionStore,
+  SessionProjectRegistry,
+} from "../sessions/project-store.js";
 import { createSession } from "../sessions/store.js";
 import {
   buildActiveSkillsPrompt,
@@ -100,6 +118,7 @@ import {
 import { suggestSimilarCommand } from "./commands.js";
 import type { InteractiveExitReason } from "./interactive-exit.js";
 import type { OpenTuiModelsActions } from "./opentui-models.js";
+import type { OpenTuiProjectsActions } from "./opentui-projects.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
 import type { OpenTuiSettingsActions } from "./opentui-settings.js";
@@ -110,10 +129,14 @@ import {
   settingsDraft,
   settingsKeyReady,
 } from "./provider-settings.js";
-import { loadTerminalDraft, saveTerminalDraft } from "./terminal-drafts.js";
+import {
+  loadApplicationDraft,
+  loadTerminalDraft,
+  saveTerminalDraft,
+} from "./terminal-drafts.js";
 import { FAIL_MARK, OK_MARK } from "./theme.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
-import type { TuiController } from "./tui-controller.js";
+import type { TuiPresentationController as TuiController } from "./tui-controller.js";
 import type { QueuedTabOperation } from "./tui-tab-execution.js";
 import { TuiWorkspace } from "./tui-workspace.js";
 import { UpdateController } from "./update-controller.js";
@@ -175,10 +198,17 @@ async function runApplication(
     scopeReady: (root) =>
       extensionHost.readyScopes().some((s) => s.workspaceRoot === root),
   });
-  const initialRoot = await canonicalWorkspaceRoot(
-    options.cwd ?? process.cwd(),
-  );
-  const projectConfig = await loadProjectConfig(initialRoot);
+  const initialWorkspace = await resolveLaunchWorkspace({
+    invocationCwd: process.cwd(),
+    explicitCwd: options.cwd,
+    launcher: options.launcher,
+    resume: options.resume,
+    configPath: options.configPath,
+  });
+  const initialRoot = initialWorkspace?.root;
+  const projectConfig = initialRoot
+    ? await loadProjectConfig(initialRoot)
+    : DEFAULT_PROJECT_CONFIG;
   const initialApprovalMode = resolveApprovalMode({
     ...options,
     saved: initialSession?.approvalMode,
@@ -190,6 +220,7 @@ async function runApplication(
     options.mode ?? DEFAULT_AGENT_MODE,
     initialApprovalMode,
   );
+  if (initialWorkspace) workspace.home.selection = initialWorkspace;
   if (initialSession) {
     if (
       initialSession.sideQueries?.some((record) =>
@@ -202,10 +233,24 @@ async function runApplication(
     }
     workspace.openSession(initialSession);
   }
-  const restoredDraft = await loadTerminalDraft(
-    workspace.controller.snapshot.projectPath,
-    workspace.controller.snapshot.sessionId,
-  ).catch(() => undefined);
+  const restoredDraft = workspace.controller.snapshot.projectPath
+    ? await loadTerminalDraft(
+        workspace.controller.snapshot.projectPath,
+        workspace.controller.snapshot.sessionId,
+      ).catch((cause) => {
+        workspace.controller.append(
+          `Не удалось восстановить черновик: ${String(cause)}`,
+          "error",
+        );
+        return undefined;
+      })
+    : await loadApplicationDraft().catch((cause) => {
+        workspace.home.append(
+          `Не удалось восстановить черновик: ${String(cause)}`,
+          "error",
+        );
+        return undefined;
+      });
   if (restoredDraft !== undefined) {
     workspace.controller.setDraft(restoredDraft);
     workspace.controller.presentation.history.value = restoredDraft;
@@ -215,15 +260,16 @@ async function runApplication(
   if (options.mode) workspace.controller.setAgentMode(options.mode);
   const currentController = () => workspace.controller;
   const mcpProjects = new Map<string, McpController>();
-  const getMcpController = (projectRoot: string) => {
-    let controller = mcpProjects.get(projectRoot);
+  const getMcpController = (projectRoot: string | undefined) => {
+    const key = projectRoot ?? "application";
+    let controller = mcpProjects.get(key);
     if (!controller) {
       controller = new McpController(
         new McpConnectionManager(
           new McpConfigStore(projectRoot, { globalPath: options.configPath }),
         ),
       );
-      mcpProjects.set(projectRoot, controller);
+      mcpProjects.set(key, controller);
     }
     return controller;
   };
@@ -349,9 +395,13 @@ async function runApplication(
     const roots = new Set(
       [
         workspace.home.snapshot.projectPath,
+        ...workspace.operationRoots,
         ...workspace.tabs.map((tab) => tab.controller.snapshot.projectPath),
         ...openingRoots,
-      ].map(rootKey),
+        ...projectOpener.roots,
+      ]
+        .filter((root): root is string => !!root)
+        .map(rootKey),
     );
     for (const scope of extensionHost.readyScopes()) {
       if (
@@ -360,9 +410,12 @@ async function runApplication(
       )
         continue;
       closingRoots.add(scope.workspaceRoot);
+      const mcp = mcpProjects.get(scope.workspaceRoot);
+      if (mcp) mcpProjects.delete(scope.workspaceRoot);
       const work = Promise.all([
         extensionHost.closeWorkspace(scope.workspaceRoot),
         uiRuntime.closeWorkspace(scope.workspaceRoot),
+        mcp?.discard().then(() => mcp.manager.dispose()),
       ]).then(() => {});
       closingScopes.add(work);
       void work
@@ -392,11 +445,6 @@ async function runApplication(
     releaseUnusedScopes();
   });
   syncScrollback();
-  const detachScrollback = classic
-    ? attachTranscriptScrollback(workspace.home, renderer, () =>
-        extensionHost.themes.palette(currentTheme, config.ui?.accent),
-      )
-    : undefined;
   const root = createRoot(renderer);
   const abort = new AbortController();
   const commandActions = new WorkspaceCommands(
@@ -404,7 +452,109 @@ async function runApplication(
     abort.signal,
     uiRuntime,
   );
-  void commandActions.load(currentController().snapshot.projectPath);
+  if (initialRoot) void commandActions.load(initialRoot);
+  const navigationBase = await navigationDirectory();
+  const appPaths = await applicationPaths(options.configPath);
+  const recentProjects = async () =>
+    (await new SessionProjectRegistry().list())
+      .filter(
+        (item) =>
+          !isPrivatePath(appPaths, item.canonicalPath) ||
+          managedWorkspaceCandidate(appPaths.home, item.canonicalPath),
+      )
+      .sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt));
+  const projectOpener = new ProjectOpenService(
+    async (ref) => {
+      await loadProjectConfig(ref.root);
+      return extensionHost.open(ref.root);
+    },
+    releaseUnusedScopes,
+    options.configPath,
+  );
+  const getProjectActions = (): OpenTuiProjectsActions => {
+    const owner = currentController(),
+      generation = owner.currentGeneration;
+    return {
+      base: owner.snapshot.projectPath ?? navigationBase,
+      recent: recentProjects,
+      browse: (path, signal, offset) => {
+        const bounded = AbortSignal.any([
+          signal,
+          abort.signal,
+          AbortSignal.timeout(10_000),
+        ]);
+        return abortable(
+          () => directoryPage(path, navigationBase, bounded, offset),
+          bounded,
+        );
+      },
+      cancel: () => projectOpener.cancel(),
+      open: async (path) => {
+        if (owner === workspace.home)
+          await saveTerminalDraft(
+            { applicationId: workspace.home.draftId },
+            undefined,
+            owner.snapshot.draft,
+          );
+        const ref = await projectOpener.open(
+          path,
+          {
+            base: owner.snapshot.projectPath ?? navigationBase,
+            signal: AbortSignal.any([owner.ownerSignal, abort.signal]),
+            isCurrent: () =>
+              !abort.signal.aborted &&
+              owner.isCurrent(generation) &&
+              currentController() === owner,
+          },
+          (ref) => {
+            const pinned = new Set(activeSkills(workspace.home));
+            workspace.home.selectProject(ref);
+            skillNames.set(workspace.home, {
+              generation: workspace.home.currentGeneration,
+              names: pinned,
+            });
+            workspace.select();
+          },
+        );
+        await projectSessionStore(ref.root).catch((cause) => {
+          if (workspace.home.snapshot.projectPath === ref.root)
+            workspace.home.append(
+              `Не удалось сохранить недавний проект: ${String(cause)}`,
+              "error",
+            );
+        });
+        const draftOwner = workspace.home,
+          draftGeneration = draftOwner.currentGeneration;
+        const draftRevision = draftOwner.currentDraftRevision;
+        if (!draftOwner.snapshot.draft) {
+          const draft = await loadTerminalDraft(ref.root).catch((cause) => {
+            if (draftOwner.isCurrent(draftGeneration))
+              draftOwner.append(
+                `Не удалось восстановить черновик: ${String(cause)}`,
+                "error",
+              );
+            return undefined;
+          });
+          if (
+            draft !== undefined &&
+            draftOwner.isCurrent(draftGeneration) &&
+            draftOwner.currentDraftRevision === draftRevision &&
+            !draftOwner.snapshot.draft
+          )
+            draftOwner.setDraft(draft);
+        }
+      },
+    };
+  };
+  const requireProject = (controller = currentController()): string => {
+    const root = controller.snapshot.projectPath;
+    if (!root)
+      throw new WorkspaceAdmissionError(
+        "WORKSPACE_REQUIRED",
+        "Проект не выбран.",
+      );
+    return root;
+  };
   let homeOperationTarget:
     | { generation: number; root: string; controller: TuiController }
     | undefined;
@@ -436,7 +586,7 @@ async function runApplication(
           busy,
           modelSelection,
         } = controller.snapshot;
-        if (!sessionId || busy) return;
+        if (!sessionId || busy || !projectPath) return;
         const store = await projectSessionStore(projectPath);
         await store.setPreferences(sessionId, {
           mode: agentMode,
@@ -471,6 +621,7 @@ async function runApplication(
   });
   const shutdown = () => {
     abort.abort();
+    projectOpener.cancel();
     workspace.cancelAll();
     for (const { controller } of workspace.tabs) {
       if (!controller.snapshot.runningMode) {
@@ -480,27 +631,94 @@ async function runApplication(
     }
     finish?.();
   };
-  const cancel = () => workspace.execution().cancel();
-  const sessionStore = () =>
-    projectSessionStore(currentController().snapshot.projectPath);
+  const cancel = () => {
+    if (workspace.activeKey) workspace.execution().cancel();
+  };
+  const sessionStore = () => projectSessionStore(requireProject());
+  const historyRefs = new Map<
+    string,
+    { store: ProjectSessionStore; id: string }
+  >();
   const resume = async (ref: string): Promise<void> => {
-    const store = await sessionStore();
-    const session = await store.interruptSideQueries(
-      (await store.resolve(ref)).id,
+    const owner = currentController(),
+      generation = owner.currentGeneration;
+    const signal = AbortSignal.any([
+      owner.ownerSignal,
+      abort.signal,
+      AbortSignal.timeout(15_000),
+    ]);
+    const isCurrent = () =>
+      !signal.aborted &&
+      owner.isCurrent(generation) &&
+      currentController() === owner;
+    const assertOwner = () => {
+      if (!isCurrent()) throw new Error("Открытие истории отменено.");
+    };
+    const selected = historyRefs.get(ref);
+    const store = selected?.store ?? (await sessionStore());
+    const candidate = await store.load(
+      selected?.id ?? (await store.resolve(ref)).id,
     );
-    const project = await loadProjectConfig(session.projectPath);
+    assertOwner();
+    const candidateWorkspace = await abortable(
+      () =>
+        admitWorkspace(candidate.projectPath, {
+          source: "resume",
+          configPath: options.configPath,
+          signal,
+        }),
+      signal,
+    );
+    if (candidateWorkspace.root !== pathIdentity(store.project.canonicalPath))
+      throw new WorkspaceAdmissionError(
+        "WORKSPACE_CHANGED",
+        "Исходная папка истории изменилась.",
+      );
+    assertOwner();
+    const session = await store.interruptSideQueries(candidate.id);
+    assertOwner();
+    const project = await abortable(
+      () => loadProjectConfig(session.projectPath),
+      signal,
+    );
+    assertOwner();
     session.approvalMode = resolveApprovalMode({
       saved: session.approvalMode,
       autoApprove: project.autoApprove,
       allowBypassPermissions: bypassAvailable,
     });
-    const scope = await extensionHost.open(session.projectPath);
-    const controller = workspace.openSession(session, scope.chat);
+    let controller: TuiController | undefined;
+    await projectOpener.open(
+      session.projectPath,
+      {
+        base: navigationBase,
+        signal,
+        isCurrent,
+      },
+      (_ref, scope) => {
+        controller = workspace.openSession(session, scope.chat);
+      },
+    );
+    if (!controller) return;
+    const restoredController = controller;
+    const restoredGeneration = controller.currentGeneration;
+    const restoredRevision = controller.currentDraftRevision;
     const draft = await loadTerminalDraft(
       session.projectPath,
       session.id,
-    ).catch(() => undefined);
-    if (draft !== undefined && !controller.snapshot.draft)
+    ).catch((cause) => {
+      restoredController.append(
+        `Не удалось восстановить черновик: ${String(cause)}`,
+        "error",
+      );
+      return undefined;
+    });
+    if (
+      draft !== undefined &&
+      controller.isCurrent(restoredGeneration) &&
+      controller.currentDraftRevision === restoredRevision &&
+      !controller.snapshot.draft
+    )
       controller.setDraft(draft);
     persistExecutionModes(controller);
     await restoreSubagentControls(controller, session);
@@ -514,7 +732,7 @@ async function runApplication(
       session.backgroundTasks &&
       Object.keys(session.backgroundTasks).length
     ) {
-      const root = controller.snapshot.projectPath;
+      const root = requireProject(controller);
       const generation = controller.currentGeneration;
       const scope = await extensionHost.open(root);
       const service = scope.services.lookup(backgroundServiceToken);
@@ -557,7 +775,7 @@ async function runApplication(
     }
     if (!session.children || !Object.keys(session.children).length) return;
     const generation = controller.currentGeneration;
-    const root = controller.snapshot.projectPath;
+    const root = requireProject(controller);
     const scope = await extensionHost.open(root);
     const service = scope.services.lookup(subagentServiceToken);
     if (!service) return;
@@ -612,13 +830,44 @@ async function runApplication(
       });
   };
   const sessionPicker: OpenTuiSessionsActions = {
-    load: async () =>
-      (await (await sessionStore()).list()).filter(
-        (item) => !item.subagentOwnerId,
-      ),
-    preview: async (id) => (await sessionStore()).load(id),
+    load: async () => {
+      historyRefs.clear();
+      if (currentController().snapshot.projectPath)
+        return (await (await sessionStore()).list()).filter(
+          (item) => !item.subagentOwnerId && !item.backgroundOwnerId,
+        );
+      const entries: import("./opentui-sessions.js").HistorySummary[] = [];
+      for (const project of await new SessionProjectRegistry().list()) {
+        const store = new ProjectSessionStore(project);
+        for (const summary of await store.listReadonly()) {
+          if (summary.subagentOwnerId || summary.backgroundOwnerId) continue;
+          const id = `${project.id}:${summary.id}`;
+          historyRefs.set(id, { store, id: summary.id });
+          entries.push({
+            ...summary,
+            id,
+            projectName: project.name,
+            projectPath: project.path,
+            archive:
+              isPrivatePath(appPaths, project.canonicalPath) &&
+              !managedWorkspaceCandidate(appPaths.home, project.canonicalPath),
+          });
+        }
+      }
+      return entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
+    preview: async (id) => {
+      const selected = historyRefs.get(id);
+      return selected
+        ? selected.store.load(selected.id)
+        : (await sessionStore()).load(id);
+    },
     resume,
     rename: async (id, title) => {
+      if (historyRefs.has(id))
+        throw new Error(
+          "Архив открыт только для просмотра. Для изменения истории откройте исходный проект.",
+        );
       const store = await sessionStore();
       await store.rename(id, title);
       const session = await store.load(id);
@@ -628,6 +877,10 @@ async function runApplication(
       }
     },
     delete: async (id) => {
+      if (historyRefs.has(id))
+        throw new Error(
+          "Архив открыт только для просмотра. Для удаления истории откройте исходный проект.",
+        );
       const projectPath = currentController().snapshot.projectPath;
       const tabs = workspace.tabs.filter(
         ({ controller }) =>
@@ -660,7 +913,7 @@ async function runApplication(
           /* Existing navigation stays available if an extension activation fails. */
         }
         return {
-          workspaceRoot: root,
+          workspaceRoot: requireProject(owner),
           backend: "typescript",
           state: "unavailable",
           generation: 0,
@@ -935,7 +1188,7 @@ async function runApplication(
         )
           throw new Error("Введите корректный ID модели.");
         const { sessionId, projectPath, busy } = controller.snapshot;
-        if (sessionId && !busy) {
+        if (sessionId && !busy && projectPath) {
           const saved = pendingSave.then(async () => {
             const store = await projectSessionStore(projectPath);
             if (abort.signal.aborted || !controller.isCurrent(generation))
@@ -1021,10 +1274,14 @@ async function runApplication(
       const { projectPath, sessionId } = currentController().snapshot;
       await launchWindowsInstaller(
         downloaded.path,
-        windowsUpdateArguments(resolve(projectPath), sessionId, {
-          parentPid: process.pid,
-          installDirectory: dirname(process.execPath),
-        }),
+        windowsUpdateArguments(
+          projectPath ? resolve(projectPath) : undefined,
+          sessionId,
+          {
+            parentPid: process.pid,
+            installDirectory: dirname(process.execPath),
+          },
+        ),
       );
       shutdown();
     },
@@ -1097,19 +1354,18 @@ async function runApplication(
       }
       if (parsed?.name === "/cwd" && parsed.args) {
         try {
-          const cwd = await resolveProjectDir(
-            parsed.args,
-            controller.snapshot.projectPath,
-          );
-          workspace.home.switchSession(undefined, cwd);
-          workspace.select();
+          await getProjectActions().open(parsed.args);
         } catch (error) {
           controller.append(String(error), "error");
         }
         return;
       }
       if (input === "/cwd") {
-        controller.setDraft("/cwd ");
+        controller.requestProjectPicker();
+        return;
+      }
+      if (!originRoot) {
+        controller.requestProjectPicker("Выберите папку для этой задачи");
         return;
       }
       let snapshot:
@@ -1117,15 +1373,17 @@ async function runApplication(
         | undefined;
       const submission = new AbortController();
       if (parsed) {
-        const execution = workspace.execution(controller);
-        execution.pendingSubmissions.add(submission);
+        const execution = workspace.activeKey
+          ? workspace.execution(controller)
+          : undefined;
+        execution?.pendingSubmissions.add(submission);
         try {
           snapshot = await commandActions.load(
             originRoot,
             AbortSignal.any([abort.signal, submission.signal]),
           );
         } finally {
-          execution.pendingSubmissions.delete(submission);
+          execution?.pendingSubmissions.delete(submission);
         }
       }
       if (
@@ -1239,7 +1497,7 @@ async function runApplication(
             throw new Error("Команда изменилась.");
           const result = await selected.command.executeControl!(
             {
-              workspaceRoot: origin.snapshot.projectPath,
+              workspaceRoot: requireProject(origin),
               sessionId: origin.snapshot.sessionId!,
               signal: origin.ownerSignal,
               subagents: origin.subagentControls!.port,
@@ -1781,6 +2039,31 @@ async function runApplication(
             mode: turnMode,
             approvalMode: turnApprovalMode,
             interactive: true,
+            uiSnapshot: {
+              observe: () => {
+                if (
+                  currentController() !== controller ||
+                  !controller.isCurrent(requestGeneration)
+                )
+                  return { ownerVisible: false };
+                const view = controller.snapshot,
+                  next = view.modelSelection;
+                return {
+                  ownerVisible: true,
+                  route: "conversation",
+                  focus: view.focus,
+                  ...(next
+                    ? {
+                        nextModel: {
+                          provider: next.provider,
+                          model: next.model,
+                          profile: next.profileId,
+                        },
+                      }
+                    : {}),
+                };
+              },
+            },
             subagentOwner: {
               conversationId: controller.conversationId,
               modelOptions: () => modelOptions(controller),
@@ -1793,8 +2076,7 @@ async function runApplication(
             },
             isBypassAllowed: () => bypassAvailable,
             getWebConfig: () => webConfigLive,
-            mcpManager: getMcpController(controller.snapshot.projectPath)
-              .manager,
+            mcpManager: getMcpController(requireProject(controller)).manager,
           },
           execution.approvalResolver,
           {
@@ -1979,7 +2261,7 @@ async function runApplication(
   let applicationFailed = false;
   const cleanupErrors: unknown[] = [];
   try {
-    await extensionHost.open(currentController().snapshot.projectPath);
+    if (initialRoot) await extensionHost.open(initialRoot);
     if (!extensionHost.themes.get(currentTheme)) {
       currentTheme = "obsidian";
       currentController().appendNotice(
@@ -1996,9 +2278,12 @@ async function runApplication(
       React.createElement(OpenTuiSpike, {
         onExit: shutdown,
         onCancel: cancel,
-        onSideCancel: () =>
-          workspace.execution(currentController()).cancelSides(),
+        onSideCancel: () => {
+          if (workspace.activeKey)
+            workspace.execution(currentController()).cancelSides();
+        },
         workspace,
+        getProjectActions,
         classic,
         sessionPicker,
         getSettingsActions,
@@ -2023,8 +2308,9 @@ async function runApplication(
                 workspace.home,
                 ...workspace.tabs.map((tab) => tab.controller),
               ]) {
-                for (const queued of workspace.execution(controller)
-                  .pendingOperations)
+                for (const queued of controller === workspace.home
+                  ? []
+                  : workspace.execution(controller).pendingOperations)
                   if (queued.approvalMode === "bypassPermissions")
                     queued.approvalMode = "default";
                 if (controller.snapshot.approvalMode === "bypassPermissions") {
@@ -2042,8 +2328,13 @@ async function runApplication(
         commandActions,
         getWorktreeActions: () => {
           const target = currentController();
+          const projectOperation =
+            target === workspace.home
+              ? workspace.projectOperation(target)
+              : undefined;
+          const operationController = projectOperation?.controller ?? target;
           const generation = target.currentGeneration;
-          const root = target.snapshot.projectPath;
+          const root = requireProject(target);
           const assertOwner = () => {
             if (
               abort.signal.aborted ||
@@ -2054,6 +2345,7 @@ async function runApplication(
               throw new Error("Разговор изменён или закрыт.");
           };
           return {
+            dispose: () => projectOperation?.release(),
             root,
             owner: `${target.conversationId}:${generation}`,
             mode: target.snapshot.agentMode,
@@ -2085,17 +2377,17 @@ async function runApplication(
                   },
                   scope,
                   root,
-                  generation,
+                  generation: operationController.currentGeneration,
                   mode: target.snapshot.agentMode,
                   approvalMode: target.snapshot.approvalMode,
                   modelOptions: modelOptions(target),
                   onResult: resolve,
                 };
-                const execution = workspace.execution(target);
+                const execution = workspace.execution(operationController);
                 if (execution.activeRun) {
                   execution.pendingOperations.push(operation);
-                  target.setBusy(true);
-                } else void executeOperation(target, operation);
+                  operationController.setBusy(true);
+                } else void executeOperation(operationController, operation);
               });
             },
             tabs: () =>
@@ -2132,7 +2424,7 @@ async function runApplication(
           toolScope,
         ) => {
           const generation = controller.currentGeneration;
-          const originRoot = controller.snapshot.projectPath;
+          const originRoot = requireProject(controller);
           const assertOwner = () => {
             if (
               controller.ownerSignal.aborted ||
@@ -2150,25 +2442,35 @@ async function runApplication(
             toolScope,
           );
           assertOwner();
-          return new Promise((resolve) => {
-            const item: QueuedTabOperation = {
-              kind: "ui_tool",
-              input: `Действие: ${tool}`,
-              prepared,
-              scope,
-              root: originRoot,
-              generation,
-              mode: controller.snapshot.agentMode,
-              approvalMode: controller.snapshot.approvalMode,
-              modelOptions: modelOptions(controller),
-              onResult: resolve,
-            };
-            const execution = workspace.execution(controller);
-            if (execution.activeRun) {
-              execution.pendingOperations.push(item);
-              controller.setBusy(true);
-            } else void executeOperation(controller, item);
-          });
+          const projectOperation =
+            controller === workspace.home
+              ? workspace.projectOperation(controller)
+              : undefined;
+          const operationController =
+            projectOperation?.controller ?? controller;
+          try {
+            return await new Promise((resolve) => {
+              const item: QueuedTabOperation = {
+                kind: "ui_tool",
+                input: `Действие: ${tool}`,
+                prepared,
+                scope,
+                root: originRoot,
+                generation: operationController.currentGeneration,
+                mode: controller.snapshot.agentMode,
+                approvalMode: controller.snapshot.approvalMode,
+                modelOptions: modelOptions(controller),
+                onResult: resolve,
+              };
+              const execution = workspace.execution(operationController);
+              if (execution.activeRun) {
+                execution.pendingOperations.push(item);
+                operationController.setBusy(true);
+              } else void executeOperation(operationController, item);
+            });
+          } finally {
+            projectOperation?.release();
+          }
         },
         initialTheme: currentTheme,
         motion: config.ui?.motion,
@@ -2220,15 +2522,26 @@ async function runApplication(
     await cleanup(() => extensionManagement.dispose());
     await cleanup(() => uiRuntime.dispose());
     await cleanup(() =>
+      saveTerminalDraft(
+        { applicationId: workspace.home.draftId },
+        undefined,
+        workspace.home.snapshot.draft,
+        { closed: true },
+      ),
+    );
+    await cleanup(() =>
       Promise.all(
-        [workspace.home, ...workspace.tabs.map((tab) => tab.controller)].map(
-          (controller) =>
+        [workspace.home, ...workspace.tabs.map((tab) => tab.controller)]
+          .filter((controller) => !!controller.snapshot.projectPath)
+          .map((controller) =>
             saveTerminalDraft(
-              controller.snapshot.projectPath,
+              controller.snapshot.projectPath ?? {
+                applicationId: workspace.home.draftId,
+              },
               controller.snapshot.sessionId,
               controller.snapshot.draft,
             ),
-        ),
+          ),
       ),
     );
     await cleanup(() => Promise.allSettled([...closingScopes]));
@@ -2238,7 +2551,6 @@ async function runApplication(
       await cleanup(() => controller.discard());
       await cleanup(() => controller.manager.dispose());
     }
-    await cleanup(() => detachScrollback?.());
     await cleanup(detachWorkspace);
     for (const detach of scrollbackDetachments.values()) await cleanup(detach);
     await cleanup(() => workspace.dispose());

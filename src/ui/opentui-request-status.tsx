@@ -11,7 +11,7 @@ import type { Palette } from "./appearance.js";
 import { useMotion } from "./opentui-motion.js";
 import { requestActivity } from "./request-activity.js";
 import { ACTIVITY_MORPH_MS, activityFrame } from "./request-activity-frame.js";
-import type { TuiController } from "./tui-controller.js";
+import type { TuiPresentationController as TuiController } from "./tui-controller.js";
 
 /** Only this native text buffer animates; the editor and transcript never tick. */
 export function OpenTuiRequestStatus({

@@ -7,6 +7,7 @@ import { McpConnectionManager } from "../mcp/manager.js";
 import { DEFAULT_MCP_PERMISSIONS, McpServerSchema } from "../mcp/schema.js";
 import { McpConfigStore } from "../mcp/storage.js";
 import { mcpTrustPreview } from "../mcp/trust-preview.js";
+import { resolveLaunchWorkspace } from "../projects/launch.js";
 
 export function registerMcpCommands(program: Command): void {
   const root = program
@@ -19,10 +20,13 @@ export function registerMcpCommands(program: Command): void {
   const withManager = async (
     action: (manager: McpConnectionManager) => Promise<void>,
   ) => {
+    const workspace = await resolveLaunchWorkspace({
+      invocationCwd: process.cwd(),
+      explicitCwd: program.optsWithGlobals().cwd,
+      launcher: program.optsWithGlobals().launcher,
+    });
     const manager = new McpConnectionManager(
-      new McpConfigStore(
-        resolve(String(program.optsWithGlobals().cwd ?? process.cwd())),
-      ),
+      new McpConfigStore(workspace?.root),
     );
     try {
       await manager.reload();

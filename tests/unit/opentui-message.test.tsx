@@ -44,6 +44,32 @@ function findTable(setup: Setup): TextTableRenderable | undefined {
   return find(setup.renderer.root);
 }
 
+for (const width of [40, 80, 120]) {
+  test(`HTML line breaks render as separate table rows at ${width} columns while code stays literal`, async () => {
+    const setup = await testRender(
+      view(
+        "| Состояние | Значение |\n| --- | --- |\n| Запрос | Первая<br>Вторая<BR/>Третья<br />Четвёртая |\n\n`<br>` и &lt;br&gt; и <br class='x'>\n\n```html\n<br>\n```",
+        width,
+      ),
+      { width, height: 40 },
+    );
+    try {
+      const rows = await render(setup),
+        text = rows.join("\n");
+      for (const word of ["Первая", "Вторая", "Третья", "Четвёртая"])
+        expect(text).toContain(word);
+      expect(rows.findIndex((row) => row.includes("Первая"))).toBeLessThan(
+        rows.findIndex((row) => row.includes("Вторая")),
+      );
+      expect(text).not.toContain("Первая<br>");
+      expect(text).toContain("<br>");
+      expect(text).toContain("<br class='x'>");
+    } finally {
+      act(() => setup.renderer.destroy());
+    }
+  });
+}
+
 test("prose paragraphs use adjacent rows without empty Markdown separator rows", async () => {
   const setup = await testRender(
     view("\n\nПервый абзац\r\n\r\n\r\n\r\nВторой абзац\r\n\r\n", 40),

@@ -143,7 +143,8 @@ export interface TuiViewState {
   sessionId?: string;
   sessionTitle?: string;
   worktree?: Session["worktree"];
-  projectPath: string;
+  projectPath?: string;
+  projectPicker?: { id: number; message?: string };
   commandFeedback?: { id: number; entries: readonly TranscriptEntry[] };
   transcript: readonly TranscriptEntry[];
   streaming: string;
@@ -168,7 +169,7 @@ export interface TuiViewState {
 }
 
 /** The agent writes to this boundary; either terminal renderer may subscribe. */
-export class TuiController implements TuiTranscript {
+export class TuiPresentationController implements TuiTranscript {
   uiBinding?: import("./extension-ui.js").ExtensionUiBinding;
   readonly uiPresentation = new Map<
     string,
@@ -238,12 +239,16 @@ export class TuiController implements TuiTranscript {
   private serial = 0;
   private readonly activity = new RequestActivityTracker();
   private generation = 0;
+  private draftRevision = 0;
+  get currentDraftRevision(): number {
+    return this.draftRevision;
+  }
   private compactionNotices = new Set<string>();
   private gitSource = new GitChangesSource();
   private state: TuiViewState;
 
   constructor(
-    projectPath: string,
+    projectPath: string | undefined,
     agentMode: AgentMode = DEFAULT_AGENT_MODE,
     approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
     private readonly now: () => number = () => performance.now(),
@@ -262,6 +267,9 @@ export class TuiController implements TuiTranscript {
 
   get snapshot(): TuiViewState {
     return this.state;
+  }
+  requestProjectPicker(message?: string): void {
+    this.update({ projectPicker: { id: this.serial++, message } });
   }
 
   subscribe(listener: (state: TuiViewState) => void): () => void {
@@ -557,6 +565,7 @@ export class TuiController implements TuiTranscript {
   }
 
   setDraft(draft: string): void {
+    if (draft !== this.state.draft) this.draftRevision++;
     this.update({ draft });
   }
   setSessionTitle(title: string): void {
@@ -647,6 +656,7 @@ export class TuiController implements TuiTranscript {
   }
 
   setSessionUsage(session: Session, requestSelection?: ModelSelection): void {
+    if (!this.state.projectPath) return;
     if (resolve(session.projectPath) !== resolve(this.state.projectPath))
       return;
     if (this.state.sessionId && this.state.sessionId !== session.id) return;
@@ -795,6 +805,7 @@ export class TuiController implements TuiTranscript {
   }
 
   refreshGitChanges(): void {
+    if (!this.state.projectPath) return;
     const generation = this.generation;
     this.gitSource.refresh(this.state.projectPath, (gitChanges) => {
       if (this.isCurrent(generation)) this.update({ gitChanges });
@@ -1601,5 +1612,27 @@ export class TuiController implements TuiTranscript {
 
   private notify(): void {
     for (const listener of this.listeners) listener(this.state);
+  }
+}
+
+/** Execution/persistence always receives a concrete project-bound controller. */
+export class TuiController extends TuiPresentationController {
+  constructor(
+    projectPath: string,
+    agentMode: AgentMode = DEFAULT_AGENT_MODE,
+    approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
+    now?: () => number,
+    feedbackMode?: "transcript" | "dialog",
+  ) {
+    super(projectPath, agentMode, approvalMode, now, feedbackMode);
+  }
+  override get snapshot(): TuiViewState & { projectPath: string } {
+    return super.snapshot as TuiViewState & { projectPath: string };
+  }
+  override switchSession(
+    session?: Parameters<TuiPresentationController["switchSession"]>[0],
+    projectPath = session?.projectPath ?? this.snapshot.projectPath,
+  ): void {
+    super.switchSession(session, projectPath);
   }
 }

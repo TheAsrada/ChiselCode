@@ -6,6 +6,7 @@
 
 ```bash
 chisel
+chisel --launcher
 chisel setup
 chisel setup --provider openai
 chisel doctor
@@ -31,6 +32,7 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 | Флаг | Назначение |
 | --- | --- |
 | `--cwd <path>` | Корень проекта; по умолчанию текущая папка терминала |
+| `--launcher` | В текущих исходниках открыть главную без проекта; явный допустимый `--cwd` имеет приоритет |
 | `--profile <profile-id>` | Конкретный аккаунт/profile |
 | `--provider <provider>` | Compatibility выбор provider ID из `chisel providers list`; нужен единственный profile |
 | `--model <model>` | ID модели выбранного сервиса |
@@ -59,6 +61,8 @@ chisel --mode build --cwd ./my-project --resume <session-id> "Выполни п�
 ```
 
 ## JSON и коды завершения
+
+Для задачи или `--resume` нужен допустимый проект. Явный неверный `--cwd` не заменяется другой папкой; служебный invocation cwd и `--launcher` без явного проекта не запускают модель. Ошибка допуска в `--json` возвращает `status: "failed"` и объект `error` с `code` (`WORKSPACE_REQUIRED`, `WORKSPACE_PRIVATE`, `WORKSPACE_UNAVAILABLE` или `WORKSPACE_CHANGED`) и `message`; процесс завершается с кодом 1. Глобальные `setup`, `doctor`, `providers list`, `update` и настройки MCP не требуют проектного root. Для stdio MCP без проекта укажите абсолютный `transport.cwd`.
 
 `--approval acceptEdits` разрешает правки проекта, а shell и Git-запись проверяются отдельно. Старый `auto` — алиас Accept edits, `ask` и `manual` — алиасы `default`. Bypass доступен после включения в пользовательских Settings. Приоритет: `--approval` → `--yes` → сохранённый выбор → `.chiselrc.autoApprove` → Manual. Явные `--allow` и `allowedCommands` сохраняются; `deniedCommands` и ограничения Plan действуют во всех режимах. Подробнее: [разрешения](permissions.md).
 

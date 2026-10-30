@@ -146,6 +146,25 @@ export async function smokeManifestCli(
         },
       }),
     );
+    const isolatedEnv = {
+      XDG_CONFIG_HOME: root,
+      XDG_DATA_HOME: root,
+      APPDATA: root,
+      LOCALAPPDATA: root,
+      OPENAI_API_KEY: "fixture-offline-key",
+    };
+    const launcher = await execa(
+      command,
+      [...args, "--launcher", "--json", "This must not reach the provider"],
+      { reject: false, timeout: 10_000, env: isolatedEnv },
+    );
+    assert.equal(launcher.exitCode, 1);
+    assert.equal(JSON.parse(launcher.stdout).error.code, "WORKSPACE_REQUIRED");
+    assert.equal(
+      Number(calls),
+      0,
+      "Launcher without a workspace must refuse before inference",
+    );
     const result = await execa(
       command,
       [

@@ -1,5 +1,10 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  admitWorkspace,
+  revalidateWorkspace,
+  type WorkspaceRef,
+} from "../projects/admission.js";
 import { cancelled } from "../runtime/errors.js";
 import { ThemeCatalog } from "../themes/catalog.js";
 import { inheritThemeSource, themeSource } from "../themes/source.js";
@@ -369,6 +374,7 @@ export class ExtensionHost implements Disposable {
     {
       scope: WorkspaceExtensionScope;
       pending: Promise<WorkspaceExtensionScope>;
+      workspace: WorkspaceRef;
       closing?: Promise<void>;
     }
   >();
@@ -425,7 +431,8 @@ export class ExtensionHost implements Disposable {
   async open(root: string): Promise<WorkspaceExtensionScope> {
     if (this.closed)
       throw new ExtensionLifecycleError("Extension host is closed.");
-    const canonical = await canonicalWorkspaceRoot(root);
+    const workspace = await admitWorkspace(root);
+    const canonical = workspace.root;
     if (this.closed)
       throw new ExtensionLifecycleError("Extension host is closed.");
     const existing = this.workspaces.get(canonical);
@@ -435,6 +442,7 @@ export class ExtensionHost implements Disposable {
         return this.open(canonical);
       }
       const scope = await existing.pending;
+      await revalidateWorkspace(existing.workspace);
       scope.assertUsable();
       return scope;
     }
@@ -446,6 +454,7 @@ export class ExtensionHost implements Disposable {
     const pending = Promise.resolve().then(async () => {
       try {
         await scope.activate(definitions);
+        await revalidateWorkspace(workspace);
         if (this.closed)
           throw new ExtensionLifecycleError(
             "Extension host closed during activation.",
@@ -484,7 +493,7 @@ export class ExtensionHost implements Disposable {
         throw error;
       }
     });
-    this.workspaces.set(canonical, { scope, pending });
+    this.workspaces.set(canonical, { scope, pending, workspace });
     return pending;
   }
   /** Application closes an unused root only after its conversation owners have

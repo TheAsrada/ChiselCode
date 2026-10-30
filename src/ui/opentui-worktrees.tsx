@@ -222,6 +222,7 @@ export function OpenTuiWorktrees({
     void perform(readList);
     return () => {
       mounted.current = false;
+      actions.dispose?.();
     };
   }, [actions]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Resize and filtering must reveal the selected row after native layout.

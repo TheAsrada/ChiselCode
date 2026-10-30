@@ -5,14 +5,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { FormattedMessage } from "./opentui-message.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { filterSessions } from "./session-filter.js";
 import { clipText, terminalLine } from "./terminal-text.js";
 
+export type HistorySummary = SessionSummary & {
+  projectName?: string;
+  projectPath?: string;
+  archive?: boolean;
+};
 export interface OpenTuiSessionsActions {
-  load(): Promise<SessionSummary[]>;
+  load(): Promise<HistorySummary[]>;
   preview(id: string): Promise<Session>;
   resume(id: string): Promise<void>;
   rename(id: string, title: string): Promise<void>;
@@ -55,10 +61,13 @@ export function OpenTuiSessions({
   palette?: Palette;
   onClose: () => void;
 }) {
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessions, setSessions] = useState<HistorySummary[]>([]);
   const [query, setQuery] = useState("");
   const [selection, setSelection] = useState(0);
   const [preview, setPreview] = useState<Session>();
+  const [readonlySession, setReadonlySession] = useState<Session>();
+  const readonlyScroll =
+    useRef<import("@opentui/core").ScrollBoxRenderable>(null);
   const [mode, setMode] = useState<"search" | "rename" | "delete">("search");
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
@@ -108,6 +117,14 @@ export function OpenTuiSessions({
   };
 
   useUiKeyboard((key) => {
+    if (readonlySession) {
+      if (key.name === "escape" || (key.ctrl && key.name === "c")) {
+        key.preventDefault();
+        key.stopPropagation();
+        setReadonlySession(undefined);
+      }
+      return;
+    }
     if (busy) return;
     const name = key.name.toLowerCase();
     if (mode === "delete") {
@@ -155,8 +172,17 @@ export function OpenTuiSessions({
     else if (name === "down") changeSelection(selection + 1);
     else if (name === "return" && selected)
       run(async () => {
-        await actions.resume(selected.id);
-        onClose();
+        if (selected.archive) {
+          setReadonlySession(await actions.preview(selected.id));
+          return;
+        }
+        try {
+          await actions.resume(selected.id);
+          onClose();
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+          setReadonlySession(await actions.preview(selected.id));
+        }
       });
     else if (key.ctrl && name === "r" && selected) {
       setDraft(selected.title);
@@ -168,8 +194,10 @@ export function OpenTuiSessions({
       else
         run(async () => {
           const item = await actions.preview(selected.id);
-          if (mounted.current && ticket === previewTicket.current)
+          if (mounted.current && ticket === previewTicket.current) {
             setPreview(item);
+            setReadonlySession(item);
+          }
         });
     } else if (name === "backspace" || name === "delete") {
       setQuery((value) => clipText(value, value.length - 1));
@@ -187,7 +215,7 @@ export function OpenTuiSessions({
 
   usePaste((event) => {
     event.preventDefault();
-    if (busy || mode === "delete") return;
+    if (busy || mode === "delete" || readonlySession) return;
     const text = cleanSettingsInput(new TextDecoder().decode(event.bytes));
     if (mode === "rename") setDraft((value) => value + text);
     else {
@@ -204,6 +232,72 @@ export function OpenTuiSessions({
       filtered.length - listHeight,
     ),
   );
+  if (readonlySession)
+    return (
+      <box
+        id="readonly-history"
+        width={width}
+        height={height}
+        backgroundColor={palette.bg}
+        flexDirection="column"
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        <text fg={palette.accent} height={1} flexShrink={0}>
+          <strong>История · только просмотр</strong>
+        </text>
+        <text fg={palette.muted} height={1} flexShrink={0}>
+          {terminalLine(
+            `${selected?.archive ? "Служебный источник · " : ""}${readonlySession.projectPath}`,
+            Math.max(1, width - 2),
+          )}
+        </text>
+        {error && (
+          <text fg={palette.red} height={2} flexShrink={0}>
+            {terminalSafeText(error, 250)}
+          </text>
+        )}
+        <scrollbox ref={readonlyScroll} flexGrow={1} minHeight={1} focused>
+          {readonlySession.messages.map((message, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: This immutable session snapshot is never reordered or edited by the viewer.
+            <box key={index} width="100%" flexDirection="column" flexShrink={0}>
+              <text
+                fg={message.role === "user" ? palette.accent : palette.muted}
+              >
+                {message.role === "user"
+                  ? "Вы"
+                  : message.role === "assistant"
+                    ? "Ассистент"
+                    : "Результат инструмента"}
+              </text>
+              <FormattedMessage
+                width={Math.max(1, width - 2)}
+                palette={palette}
+                content={message.content
+                  .map((block) =>
+                    block.type === "text"
+                      ? block.text
+                      : block.type === "tool_result"
+                        ? typeof block.content === "string"
+                          ? block.content
+                          : JSON.stringify(block.content)
+                        : block.type === "tool_use"
+                          ? `${block.name}\n${JSON.stringify(block.input)}`
+                          : "",
+                  )
+                  .join("\n")}
+              />
+            </box>
+          ))}
+        </scrollbox>
+        <text fg={palette.muted} height={1} flexShrink={0}>
+          {terminalLine(
+            "↑/↓ прокрутка · Esc назад · продолжение — в исходном проекте",
+            Math.max(1, width - 2),
+          )}
+        </text>
+      </box>
+    );
   return (
     <box
       width={width}
@@ -213,7 +307,7 @@ export function OpenTuiSessions({
       paddingRight={1}
       backgroundColor={palette.bg}
     >
-      <text fg={palette.accent}>Возобновить сессию</text>
+      <text fg={palette.accent}>История проектов</text>
       <text fg={palette.text}>Поиск: {terminalSafeText(query, 120)}|</text>
       <text fg={palette.muted}>{filtered.length} сессий</text>
       <box height={listHeight} flexDirection="column">
@@ -227,7 +321,7 @@ export function OpenTuiSessions({
           >
             {start + index === selection ? "> " : "  "}
             {terminalLine(
-              item.title.replace(/\s+/g, " "),
+              `${item.archive ? "Архив · " : ""}${item.projectName ? `${item.projectName} · ` : ""}${item.title.replace(/\s+/g, " ")}`,
               Math.max(8, width - 29),
             )}{" "}
             | {item.messageCount} сообщ.{" "}

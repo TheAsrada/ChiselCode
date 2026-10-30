@@ -542,6 +542,26 @@ export class ProjectSessionStore {
       b.updatedAt.localeCompare(a.updatedAt),
     );
   }
+  /** History browsing is app-owned and never repairs indexes, migrates or opens a root. */
+  async listReadonly(): Promise<SessionSummary[]> {
+    try {
+      return indexSchema
+        .parse(await readJson(this.indexPath))
+        .sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    } catch {
+      const summaries: SessionSummary[] = [];
+      for (const name of await listFiles(this.directory)) {
+        const id = name.endsWith(".json") ? name.slice(0, -5) : "";
+        if (!idSchema.safeParse(id).success) continue;
+        try {
+          summaries.push(toSummary(await this.load(id)));
+        } catch {
+          /* Preserve damaged history. */
+        }
+      }
+      return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    }
+  }
   async getSummary(id: string): Promise<SessionSummary | undefined> {
     return (await this.list()).find((item) => item.id === assertSessionId(id));
   }

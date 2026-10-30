@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import {
+  DEFAULT_PROJECT_CONFIG,
   globalConfigPath,
   loadGlobalConfig,
   loadProjectConfig,
@@ -22,7 +23,7 @@ import {
 export interface McpServerEntry {
   id: string;
   scope: "global" | "project";
-  projectRoot: string;
+  projectRoot?: string;
   config: McpServerConfig;
   fingerprint: string;
   trusted: boolean;
@@ -54,9 +55,18 @@ export async function serializedMcpWrite<T>(
     if (writes.get(path) === current) writes.delete(path);
   }
 }
-export function mcpFingerprint(root: string, config: McpServerConfig): string {
+export function mcpFingerprint(
+  root: string | undefined,
+  config: McpServerConfig,
+): string {
   return createHash("sha256")
-    .update(canonicalInput({ root: resolve(root), config }))
+    .update(
+      canonicalInput({
+        root: root ? resolve(root) : undefined,
+        scope: root ? undefined : "application",
+        config,
+      }),
+    )
     .digest("hex");
 }
 export async function writeMcpJson(path: string, data: unknown): Promise<void> {
@@ -75,12 +85,23 @@ export async function writeMcpJson(path: string, data: unknown): Promise<void> {
     await rm(temp, { force: true });
   }
 }
+export function mcpProcessDirectory(entry: McpServerEntry): string {
+  const transport = entry.config.transport;
+  if (transport.type !== "stdio")
+    throw new Error("У HTTP MCP нет рабочей папки процесса.");
+  if (entry.projectRoot)
+    return resolve(entry.projectRoot, transport.cwd ?? ".");
+  if (transport.cwd && isAbsolute(transport.cwd)) return resolve(transport.cwd);
+  throw new Error(
+    "Для запуска stdio MCP выберите проект или задайте абсолютный cwd сервера.",
+  );
+}
 export class McpConfigStore {
   diagnostics: import("./configuration.js").McpConfigDiagnostic[] = [];
   readonly globalPath: string;
   readonly trustPath: string;
   constructor(
-    readonly projectRoot: string,
+    readonly projectRoot: string | undefined,
     options: { globalPath?: string; trustPath?: string } = {},
   ) {
     this.globalPath = options.globalPath ?? globalConfigPath();
@@ -89,10 +110,17 @@ export class McpConfigStore {
   }
   private key(id: string): string {
     return (
-      createHash("sha256").update(resolve(this.projectRoot)).digest("hex") +
+      createHash("sha256")
+        .update(this.projectRoot ? resolve(this.projectRoot) : "application")
+        .digest("hex") +
       ":" +
       id
     );
+  }
+  private requireProject(): string {
+    if (!this.projectRoot)
+      throw new Error("Для проектных настроек MCP выберите папку.");
+    return this.projectRoot;
   }
   private async trustData(): Promise<TrustData> {
     try {
@@ -111,7 +139,9 @@ export class McpConfigStore {
     let trustError = false;
     const [global, project, trust] = await Promise.all([
       loadGlobalConfig(this.globalPath),
-      loadProjectConfig(this.projectRoot),
+      this.projectRoot
+        ? loadProjectConfig(this.projectRoot)
+        : Promise.resolve(DEFAULT_PROJECT_CONFIG),
       this.trustData().catch(() => {
         trustError = true;
         return { schemaVersion: 1 as const, entries: {} } as TrustData;
@@ -190,7 +220,7 @@ export class McpConfigStore {
     const path =
       scope === "global"
         ? this.globalPath
-        : join(this.projectRoot, ".chiselrc");
+        : join(this.requireProject(), ".chiselrc");
     await serializedMcpWrite(path, async () => {
       if (scope === "global") {
         const current = await loadGlobalConfig(path);
@@ -212,7 +242,7 @@ export class McpConfigStore {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT")
             throw new Error("Невалидный .chiselrc; файл не изменён.");
         }
-        const project = await loadProjectConfig(this.projectRoot);
+        const project = await loadProjectConfig(this.requireProject());
         if (project.mcpDiagnostics?.length)
           throw new Error(
             "Сначала исправьте невалидную MCP-конфигурацию проекта; файл не изменён.",
@@ -231,7 +261,7 @@ export class McpConfigStore {
     const path =
       entry.scope === "global"
         ? this.globalPath
-        : join(this.projectRoot, ".chiselrc");
+        : join(this.requireProject(), ".chiselrc");
     await serializedMcpWrite(path, async () => {
       if (entry.scope === "global") {
         const current = await loadGlobalConfig(path);

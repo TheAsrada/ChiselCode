@@ -8,7 +8,10 @@ import type {
   ChiselExtension,
   ExtensionContext,
 } from "../../src/extensions/contracts.js";
-import { ExtensionHost } from "../../src/extensions/host.js";
+import {
+  canonicalWorkspaceRoot,
+  ExtensionHost,
+} from "../../src/extensions/host.js";
 import { AgentRuntime } from "../../src/runtime/agent-runtime.js";
 import {
   type RuntimeEvent,
@@ -116,6 +119,14 @@ test("middleware rewrites prompt, model and actual tool input; final UI events, 
     async *streamChat(request): AsyncIterable<StreamEvent> {
       requests.push(request);
       expect(request.model).toBe("routed-model");
+      const identity = /<runtime_identity>(.*?)<\/runtime_identity>/.exec(
+        request.system,
+      )?.[1];
+      expect(identity).toBeDefined();
+      expect(JSON.parse(identity ?? "{}")).toMatchObject({
+        model: "routed-model",
+        provider: "openai",
+      });
       const first = requests.length === 1;
       if (!first)
         yield { type: "text_delta", text: "unfiltered text must not reach UI" };
@@ -472,7 +483,10 @@ test("child event bindings use their own root and cancellation while retaining p
     { text: "parent" },
     { sessionId: f.session.id },
   );
-  expect(roots).toEqual([join(f.root, "child"), f.root]);
+  expect(roots).toEqual([
+    join(f.root, "child"),
+    await canonicalWorkspaceRoot(f.root),
+  ]);
 });
 
 test("a waiting runtime observer cannot hold Ctrl+C or disable later core events", async () => {

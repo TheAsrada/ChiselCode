@@ -21,6 +21,7 @@ flowchart LR
 | Цикл запроса, контекст, разрешения и инструменты | [Core runtime](architecture/runtime.md) |
 | Сервисы моделей, профили и драйверы | [Провайдеры](architecture/providers.md) · [Потоковые ответы](architecture/provider-streams.md) |
 | Выбор модели в интерфейсе | [Состояние и сохранение](architecture/model-selection.md) |
+| Запуск и выбор проекта | [Допуск путей, главная, история и контекст запроса](architecture/project-startup.md) |
 | Программно подключённые расширения | [Внутренний API](architecture/linked-extensions.md) |
 | Внешние ESM-пакеты | [Загрузка и доверие](architecture/external-extensions.md) · [Установка и версии](architecture/extension-packages.md) |
 | Представления и настройки расширений | [UI contributions](architecture/ui-contributions.md) · [Настройки](architecture/extension-settings.md) · [Карточки чата](architecture/extension-chat.md) |
@@ -147,8 +148,8 @@ Core управляет разрешениями Git, реестром, блок
 
 [Обновление CLI](architecture/self-update.md) завершает сохранение данных до замены программы.
 
-## Планируемые изменения
+## План и реализация запуска
 
-[Запуск, выбор проекта и контекст приложения](contributors/plans/project-startup.md) описывает будущую главную без проекта, единый допуск рабочей папки, сохранение черновиков и сведений о текущем запросе. План ещё не реализован; действующее поведение описано в руководствах и контрактах выше.
+[План запуска и выбора проекта](contributors/plans/project-startup.md) сохраняет исходные требования. [Принятое решение](architecture/project-startup.md) описывает текущие исходники `Unreleased`, включая главную без проекта, единый допуск, владельцев операций и readonly историю.
 
-[Короткий план контекста агента и Markdown](contributors/plans/agent-environment.md) уточняет будущие источники сведений о работающем запросе, срок жизни UI-снимка и обработку переносов в ответах.
+[План контекста агента и Markdown](contributors/plans/agent-environment.md) задаёт критерии проверки identity, временного UI-снимка и переносов. Проверка payload не заменяет ручной прогон живых моделей.

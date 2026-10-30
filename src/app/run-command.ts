@@ -20,6 +20,7 @@ import {
   type ModelInvocation,
   ModelRequestService,
 } from "../models/service.js";
+import { admitWorkspace } from "../projects/admission.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import { builtinDefinitions } from "../providers/definitions/index.js";
 import { resolveProfileModel, selectProfile } from "../providers/profiles.js";
@@ -63,6 +64,9 @@ export interface PreparedExtensionCommand {
 export async function runExtensionCommand(
   ...args: Parameters<typeof runExtensionCommandOwned>
 ): ReturnType<typeof runExtensionCommandOwned> {
+  await admitWorkspace(args[1].workspaceRoot, {
+    configPath: args[2].configPath,
+  });
   const release = await acquireExecutionLease(args[1].workspaceRoot);
   const handlers = args[4] ?? {};
   let children: import("./subagent-binding.js").SubagentControls | undefined;

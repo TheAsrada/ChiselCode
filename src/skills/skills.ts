@@ -105,7 +105,7 @@ function bundledSourceDir(): string {
 }
 
 export function loadSkills(
-  cwd: string,
+  cwd: string | undefined,
   overrides: SkillLocations = {},
 ): Skill[] {
   const home = overrides.homeDir ?? chiselHomeDir();
@@ -121,7 +121,8 @@ export function loadSkills(
     bundled,
     diagnostic,
   );
-  migrateLegacySkills(cwd, user, root, overrides.legacyDirs, diagnostic);
+  if (cwd)
+    migrateLegacySkills(cwd, user, root, overrides.legacyDirs, diagnostic);
   const found = new Map<string, Skill>();
   for (const { dir, source } of [
     { dir: user, source: "user" },

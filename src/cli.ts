@@ -22,6 +22,8 @@ import {
 import { registerWebCommands } from "./commands/web.js";
 import { loadGlobalConfig } from "./config/load.js";
 import { ensureChiselHomeLayout, providersRootDir } from "./paths/home.js";
+import { WorkspaceAdmissionError } from "./projects/admission.js";
+import { resolveLaunchWorkspace } from "./projects/launch.js";
 import { getProviderCatalog } from "./providers/catalog.js";
 import { formatProviderDiagnostic } from "./providers/custom/diagnostics.js";
 import { resolveEndpoint } from "./providers/endpoint.js";
@@ -49,6 +51,8 @@ import {
   WARN_MARK,
 } from "./ui/theme.js";
 import { VERSION } from "./version.js";
+
+const invocationCwd = process.cwd();
 
 const program = new Command();
 program
@@ -89,7 +93,8 @@ program
     "восстановление: запустить встроенные возможности без внешнего кода",
   )
   .option("--resume <session-id>", "продолжить предыдущую сессию")
-  .option("--cwd <path>", "папка проекта", process.cwd())
+  .option("--cwd <path>", "папка проекта")
+  .option("--launcher", "открыть главную без проекта")
   .option("--pause", "ждать Enter перед выходом (для запуска двойным кликом)")
   .option("--no-pause", "никогда не ждать Enter перед выходом")
   .argument("[prompt...]", "задача для одноразового выполнения")
@@ -98,6 +103,15 @@ program
     const prompt =
       (Array.isArray(promptParts) ? promptParts.join(" ") : "").trim() ||
       undefined;
+    const launch = await resolveLaunchWorkspace({
+      invocationCwd,
+      explicitCwd: options.cwd,
+      launcher: options.launcher,
+      prompt: Boolean(prompt) || Boolean(options.json),
+      resume: options.resume,
+    });
+    options.cwd = launch?.root;
+    options.launcher = !launch;
     if (
       options.provider &&
       !(await getProviderCatalog()).registry.has(options.provider)
@@ -163,6 +177,7 @@ program
     const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
     const reason = await runOpenTuiAgent(
       {
+        launcher: true,
         provider,
         profile:
           (raw.profile as string | undefined) ?? argvFlagValue("--profile"),
@@ -356,6 +371,14 @@ try {
   registerWebCommands(program);
   await program.parseAsync();
 } catch (error: unknown) {
+  if (
+    process.argv.includes("--json") &&
+    error instanceof WorkspaceAdmissionError
+  ) {
+    process.stdout.write(
+      `${JSON.stringify({ status: "failed", error: { code: error.code, message: error.message } })}\n`,
+    );
+  }
   process.stderr.write(
     `ChiselCode: ${error instanceof Error ? error.message : String(error)}\n`,
   );
@@ -387,6 +410,7 @@ function toOptions(raw: Record<string, unknown>): RunOptions {
     json: Boolean(raw.json),
     resume: raw.resume as string | undefined,
     cwd: raw.cwd as string | undefined,
+    launcher: Boolean(raw.launcher),
   };
 }
 

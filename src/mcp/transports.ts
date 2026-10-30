@@ -29,7 +29,7 @@ import type {
 } from "./credentials.js";
 import type { McpRedactor } from "./redaction.js";
 import { McpSdkClient } from "./sdk-client.js";
-import type { McpServerEntry } from "./storage.js";
+import { type McpServerEntry, mcpProcessDirectory } from "./storage.js";
 
 /** SDK error cleanup and application cancellation must await the same close. */
 function coalesceTransportClose(transport: Transport): void {
@@ -92,9 +92,7 @@ class SdkMcpConnection implements McpConnection {
       const transport = new StdioClientTransport({
         command: config.transport.command,
         args: config.transport.args,
-        cwd: await realpath(
-          resolve(this.entry.projectRoot, config.transport.cwd ?? "."),
-        ),
+        cwd: await realpath(mcpProcessDirectory(this.entry)),
         env: {
           ...getDefaultEnvironment(),
           ...(await this.credentials.values(config.env, this.redactor)),

@@ -7,7 +7,13 @@ import type {
   TextareaRenderable,
 } from "@opentui/core";
 import { useRenderer, useTerminalDimensions } from "@opentui/react";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { backgroundActive } from "../background/contracts.js";
 import {
   type CommandProjection,
@@ -74,6 +80,10 @@ import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiMotion } from "./opentui-motion.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPermissions } from "./opentui-permissions.js";
+import {
+  OpenTuiProjects,
+  type OpenTuiProjectsActions,
+} from "./opentui-projects.js";
 import { OpenTuiPrompt } from "./opentui-prompt.js";
 import { OpenTuiRequestStatus } from "./opentui-request-status.js";
 import {
@@ -122,7 +132,10 @@ import {
   groupToolActions,
 } from "./tool-actions.js";
 import type { TuiApprovalResolver } from "./tui-contract.js";
-import type { TuiController, TuiViewState } from "./tui-controller.js";
+import type {
+  TuiPresentationController as TuiController,
+  TuiViewState,
+} from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
 import type { UpdateController } from "./update-controller.js";
 import type { WorkspaceCommandsPort } from "./workspace-commands.js";
@@ -161,8 +174,7 @@ export function OpenTuiSpike(
   );
   const controller = props.workspace?.controller ?? props.controller;
   const currentScreenKey = props.workspace
-    ? (props.workspace.activeKey ??
-      `home:${controller?.snapshot.projectPath}:${controller?.currentGeneration}`)
+    ? (props.workspace.activeKey ?? `home:${controller?.conversationId}`)
     : "probe";
   const [settingsOwnerKey, setSettingsOwnerKey] = useState<string | undefined>(
     props.initialSettingsOpen ? currentScreenKey : undefined,
@@ -186,7 +198,7 @@ export function OpenTuiSpike(
           approvalResolver={
             props.approvalResolver ??
             (controller
-              ? props.workspace?.execution(controller).approvalResolver
+              ? props.workspace?.approvalResolver(controller)
               : undefined)
           }
           onThemePreview={setPreviewTheme}
@@ -245,6 +257,7 @@ function OpenTuiScreen({
   commandActions,
   getWorktreeActions,
   getMcpActions,
+  getProjectActions,
   initialTheme = "obsidian",
   themeCatalog,
   accent,
@@ -282,6 +295,7 @@ function OpenTuiScreen({
   commandActions?: WorkspaceCommandsPort;
   getWorktreeActions?: () => WorktreeManagerActions;
   getMcpActions?: (root?: string) => OpenTuiMcpActions;
+  getProjectActions?: () => OpenTuiProjectsActions;
   initialTheme?: ThemeName;
   themeCatalog?: ThemeCatalog;
   accent?: string;
@@ -308,6 +322,7 @@ function OpenTuiScreen({
   const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [approval, setApproval] = useState<ApprovalRequest>();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [projects, setProjects] = useState<OpenTuiProjectsActions>();
   const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
   const palette =
@@ -371,6 +386,17 @@ function OpenTuiScreen({
         focus: "composer",
       },
   );
+  const openProjects = () => {
+    if (!getProjectActions || approval || projects || otherOverlay) return;
+    editor.current?.blur();
+    setProjects(getProjectActions());
+    controller?.setOverlay("projects");
+    controller?.setFocus("modal");
+  };
+  const requestProjects = useEffectEvent(openProjects);
+  useEffect(() => {
+    if (view.projectPicker) requestProjects();
+  }, [view.projectPicker]);
   const compositionPosition = useRef<
     | {
         owner: string;
@@ -451,6 +477,7 @@ function OpenTuiScreen({
     let active = true;
     let binding: ExtensionUiBinding | undefined;
     const root = controller.snapshot.projectPath;
+    if (!root) return;
     void (
       commandActions.uiScopes
         ? commandActions.uiScopes(root, controller.ownerSignal)
@@ -516,6 +543,7 @@ function OpenTuiScreen({
   const modalOverlay = !!(
     worktrees ||
     pickerOpen ||
+    projects ||
     settingsOpen ||
     skillsOpen ||
     mcpActions ||
@@ -646,7 +674,7 @@ function OpenTuiScreen({
     const generation = origin?.currentGeneration;
     const root = view.projectPath;
     setCommandProjection(composeCommandProjection());
-    if (commandActions) {
+    if (commandActions && root) {
       void commandActions
         .load(root)
         .then((snapshot) => {
@@ -1194,6 +1222,7 @@ function OpenTuiScreen({
       }
       return;
     }
+    if (!approval && (projects || pickerOpen)) return;
     if (
       (key.option || key.meta) &&
       key.name === "u" &&
@@ -1387,6 +1416,7 @@ function OpenTuiScreen({
     }
     if (
       pickerOpen ||
+      projects ||
       settingsOpen ||
       skillsOpen ||
       mcpActions ||
@@ -1591,6 +1621,10 @@ function OpenTuiScreen({
     editor.current?.focus();
   };
   const openWorktrees = () => {
+    if (!view.projectPath && getProjectActions) {
+      openProjects();
+      return;
+    }
     if (!getWorktreeActions || approval || otherOverlay) return;
     try {
       setWorktrees(getWorktreeActions());
@@ -1608,6 +1642,7 @@ function OpenTuiScreen({
       mcpActions ||
       settingsOpen ||
       pickerOpen ||
+      projects ||
       worktrees ||
       modelsActions ||
       permissionsOpen ||
@@ -1625,11 +1660,24 @@ function OpenTuiScreen({
     history.current = addEditorHistory(history.current, value);
     if (controller) controller.presentation.history = history.current;
     if (value === "/cwd") {
-      editor.current?.setText("/cwd ");
-      if (editor.current) editor.current.cursorOffset = 5;
-      setDraft("/cwd ");
-      controller?.setDraft("/cwd ");
-      editor.current?.focus();
+      if (getProjectActions) openProjects();
+      else {
+        editor.current?.setText("/cwd ");
+        if (editor.current) editor.current.cursorOffset = 5;
+        setDraft("/cwd ");
+        controller?.setDraft("/cwd ");
+      }
+      return;
+    }
+    if (
+      !view.projectPath &&
+      getProjectActions &&
+      !/^\/(settings|model|skills|update|sessions|resume|home|clear|new|cwd|permissions|auto|ask|plan|build|mode|sidebar|mcp)(\s|$)/.test(
+        value,
+      )
+    ) {
+      controller?.setDraft(editor.current?.plainText ?? draft);
+      controller?.requestProjectPicker("Выберите папку для этой задачи");
       return;
     }
     const clearInput = () => {
@@ -1638,16 +1686,7 @@ function OpenTuiScreen({
       editor.current?.setText("");
       setDraft("");
     };
-    if (
-      value === "/worktree" &&
-      getWorktreeActions &&
-      commandProjection.commands.some(
-        (item) =>
-          item.name === "/worktree" &&
-          item.source.type === "extension" &&
-          item.source.extensionId === "builtin.worktrees",
-      )
-    ) {
+    if (value === "/worktree" && getWorktreeActions && view.projectPath) {
       clearInput();
       openWorktrees();
       return;
@@ -2349,6 +2388,30 @@ function OpenTuiScreen({
     </UiSurface>
   );
 
+  if ((width < 28 || height < 10) && !approval && !otherOverlay)
+    return (
+      <box
+        id="compact-terminal"
+        width={width}
+        height={height}
+        flexDirection="column"
+        backgroundColor={palette.bg}
+        paddingLeft={1}
+      >
+        <text fg={palette.accent} height={1}>
+          ChiselCode
+        </text>
+        <text fg={palette.text} height={1}>
+          Увеличьте терминал
+        </text>
+        <text fg={palette.muted} height={1}>
+          {width}×{height} · минимум 40×12
+        </text>
+        <text fg={palette.muted} height={1}>
+          Текст в черновике
+        </text>
+      </box>
+    );
   return (
     <UiCompositionProvider
       value={{
@@ -2404,6 +2467,10 @@ function OpenTuiScreen({
                       onSessions={
                         sessionPicker ? () => submit("/sessions") : undefined
                       }
+                      onProjects={getProjectActions ? openProjects : undefined}
+                      projectActions={
+                        getProjectActions ? getProjectActions() : undefined
+                      }
                     >
                       {composer}
                     </OpenTuiHome>
@@ -2443,7 +2510,7 @@ function OpenTuiScreen({
                         >
                           <text fg={palette.muted}>
                             {terminalSafeText(
-                              view.projectPath,
+                              view.projectPath ?? "Проект не выбран",
                               Math.max(8, textWidth - 23),
                             )}
                           </text>
@@ -2756,6 +2823,21 @@ function OpenTuiScreen({
           </UiSurface>
         </UiSurface>
         <UiCompositionNotices />
+        {projects && !approval && (
+          <OpenTuiProjects
+            actions={projects}
+            width={width}
+            height={height}
+            palette={palette}
+            message={view.projectPicker?.message}
+            onClose={() => {
+              setProjects(undefined);
+              controller?.setOverlay();
+              controller?.setFocus("composer");
+              setFocus("editor");
+            }}
+          />
+        )}
         {commandFeedbackActive && view.commandFeedback && controller && (
           <OpenTuiCommandFeedback
             feedback={view.commandFeedback}

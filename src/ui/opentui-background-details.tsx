@@ -14,7 +14,10 @@ import {
   terminalSlice,
   terminalTextRows,
 } from "./terminal-text.js";
-import type { TuiController, TuiViewState } from "./tui-controller.js";
+import type {
+  TuiPresentationController as TuiController,
+  TuiViewState,
+} from "./tui-controller.js";
 export function OpenTuiBackgroundDetails({
   controller,
   view,

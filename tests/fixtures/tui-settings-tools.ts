@@ -272,6 +272,10 @@ try {
           .permissions?.tools?.get_note === "ask",
       "Правило не сохранено",
     );
+    await until(
+      () => !ui.captureCharFrame().includes("Сохраняю"),
+      "Изменение разрешения MCP ещё выполняется",
+    );
     await key("ESCAPE");
     await key("ESCAPE");
     await key("ESCAPE");

@@ -10,6 +10,7 @@ import {
 } from "../extensions/composition.js";
 import { captureConversation } from "../models/context.js";
 import { ModelRequestService } from "../models/service.js";
+import { admitWorkspace } from "../projects/admission.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import type { ApprovalResolver } from "../security/approval.js";
 import { projectSessionStore } from "../sessions/project-store.js";
@@ -28,7 +29,14 @@ export async function runSlashCommand(
   const head = splitSlashCommand(input);
   if (!head) return;
   const acceptedAt = Date.now();
-  const root = options.cwd ?? process.cwd();
+  const { root } = await admitWorkspace(
+    options.launcher && !options.cwd
+      ? undefined
+      : (options.cwd ?? process.cwd()),
+    {
+      configPath: options.configPath,
+    },
+  );
   const store = await projectSessionStore(root);
   const previous = options.resume
     ? await store.interruptSideQueries((await store.resolve(options.resume)).id)

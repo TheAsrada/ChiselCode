@@ -7,6 +7,8 @@ import { InstructionResolver } from "../context/instructions.js";
 import { ProjectLspConfigSchema } from "../lsp/config.js";
 import { readMcpConfig } from "../mcp/configuration.js";
 import { McpConfigSchema } from "../mcp/schema.js";
+import { globalConfigPath } from "../paths/config.js";
+import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { withLock } from "../sessions/lock.js";
 import { ProjectSubagentConfigSchema } from "../subagents/config.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
@@ -63,7 +65,9 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
 export async function loadProjectConfig(
   projectRoot: string,
 ): Promise<ProjectConfig> {
-  const source = await readOptional(join(projectRoot, ".chiselrc"));
+  const source = await readOptional(
+    await new WorkspacePolicy(projectRoot, []).resolve(".chiselrc"),
+  );
   if (!source) return DEFAULT_PROJECT_CONFIG;
 
   let raw: unknown;
@@ -90,15 +94,7 @@ export async function loadProjectInstructions(
   return new InstructionResolver().resolve(projectRoot);
 }
 
-export function globalConfigPath(): string {
-  const base =
-    process.platform === "win32"
-      ? (process.env.APPDATA ??
-        join(process.env.USERPROFILE ?? process.cwd(), ".config"))
-      : (process.env.XDG_CONFIG_HOME ??
-        join(process.env.HOME ?? process.cwd(), ".config"));
-  return join(base, "chiselcode", "config.json");
-}
+export { globalConfigPath } from "../paths/config.js";
 
 const updates = new Map<string, Promise<unknown>>();
 /** Serialize owned-field patches across Settings panels; each patch reads current disk state. */

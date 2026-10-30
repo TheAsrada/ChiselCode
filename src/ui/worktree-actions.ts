@@ -14,6 +14,7 @@ export type WorktreeManagerAction =
   | "origin";
 /** Application-owned command lane; UI receives data, never a filesystem capability. */
 export interface WorktreeManagerActions {
+  dispose?(): void;
   readonly root: string;
   readonly owner: string;
   readonly mode: AgentMode;

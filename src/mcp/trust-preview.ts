@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { displayMcpCommand } from "./command.js";
 import type { McpValue } from "./schema.js";
-import type { McpServerEntry } from "./storage.js";
+import { type McpServerEntry, mcpProcessDirectory } from "./storage.js";
 
 function reference(value: McpValue): string {
   if ("secretRef" in value) return `хранилище: ${value.secretRef}`;
@@ -17,7 +17,7 @@ export function mcpTrustPreview(entry: McpServerEntry): string {
       "Будет выполнена команда:",
       displayMcpCommand(transport.command, transport.args),
       "",
-      `Рабочая папка: ${resolve(entry.projectRoot, transport.cwd ?? ".")}`,
+      `Рабочая папка: ${entry.projectRoot || transport.cwd ? mcpProcessDirectory(entry) : "выберите проект или задайте абсолютный cwd"}`,
       "Окружение:",
       ...Object.entries(entry.config.env).map(
         ([name, value]) => `  ${name} <- ${reference(value)}`,

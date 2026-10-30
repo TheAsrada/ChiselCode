@@ -12,7 +12,10 @@ import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { sideStatus } from "./side-query-state.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
-import type { TuiController, TuiViewState } from "./tui-controller.js";
+import type {
+  TuiPresentationController as TuiController,
+  TuiViewState,
+} from "./tui-controller.js";
 
 /** Presentation only. Unmount/hide never owns or cancels the model request. */
 export function OpenTuiSideQuery({

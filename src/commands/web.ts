@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import type { Command } from "commander";
 import { loadGlobalConfig, loadProjectConfig } from "../config/load.js";
+import { admitWorkspace } from "../projects/admission.js";
+import { resolveLaunchWorkspace } from "../projects/launch.js";
 import { webResultSummary } from "../ui/web-result.js";
 import { testWebAccess } from "../web/diagnostics.js";
 import { createWebToolProvider } from "../web/provider.js";
@@ -37,10 +39,15 @@ export function registerWebCommands(program: Command): void {
   const status = () =>
     safe(async () => {
       const state = await store.load();
-      const project = await loadProjectConfig(
-        resolve(String(program.optsWithGlobals().cwd ?? process.cwd())),
-      );
-      const effective = resolveWebConfig(state.config, project.web);
+      const workspace = await resolveLaunchWorkspace({
+        invocationCwd: process.cwd(),
+        explicitCwd: program.optsWithGlobals().cwd,
+        launcher: program.optsWithGlobals().launcher,
+      });
+      const project = workspace
+        ? await loadProjectConfig(workspace.root)
+        : undefined;
+      const effective = resolveWebConfig(state.config, project?.web);
       const backend = effectiveSearchBackend(effective, state.hasKey);
       const configured = backend !== "brave" || state.hasKey;
       const candidates = searchBackendCandidates(effective, state.hasKey);
@@ -134,8 +141,8 @@ export function registerWebCommands(program: Command): void {
     .option("--search <query>", "проверить поисковый backend")
     .action((raw) =>
       safe(async () => {
-        const cwd = resolve(
-          String(program.optsWithGlobals().cwd ?? process.cwd()),
+        const { root: cwd } = await admitWorkspace(
+          program.optsWithGlobals().cwd ?? process.cwd(),
         );
         const project = await loadProjectConfig(cwd);
         const { config } = await store.load();

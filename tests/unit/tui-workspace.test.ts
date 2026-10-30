@@ -2,6 +2,39 @@ import { expect, test } from "bun:test";
 import { createSession } from "../../src/sessions/store.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
 
+test("unselected home owns no executor or synthetic workspace", () => {
+  const workspace = new TuiWorkspace();
+  try {
+    expect(workspace.home.snapshot.projectPath).toBeUndefined();
+    expect(workspace.tabs).toHaveLength(0);
+    expect(() => workspace.execution()).toThrow("выберите проект");
+    expect(() => workspace.newTab()).toThrow("не выбран");
+    expect(() => workspace.projectOperation(workspace.home)).toThrow(
+      "выберите проект",
+    );
+  } finally {
+    workspace.dispose();
+  }
+});
+
+test("project UI operations retain their own root and approvals without making home executable", () => {
+  const workspace = new TuiWorkspace("/project-a");
+  try {
+    const operation = workspace.projectOperation(workspace.home);
+    expect(workspace.tabs).toHaveLength(0);
+    expect(workspace.approvalResolver(workspace.home)).toBe(
+      workspace.execution(operation.controller).approvalResolver,
+    );
+    workspace.home.switchSession(undefined, "/project-b");
+    expect(operation.controller.snapshot.projectPath).toBe("/project-a");
+    expect(workspace.approvalResolver(workspace.home)).toBeUndefined();
+    operation.release();
+    expect(workspace.operationRoots).toEqual([]);
+  } finally {
+    workspace.dispose();
+  }
+});
+
 test("home and tabs preserve independent drafts, projects and background output", () => {
   const workspace = new TuiWorkspace("/project-a");
   try {

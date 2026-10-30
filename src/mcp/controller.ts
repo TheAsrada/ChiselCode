@@ -58,7 +58,7 @@ export interface OpenTuiMcpActions {
 
 class PreviewConfigStore extends McpConfigStore {
   constructor(
-    projectRoot: string,
+    projectRoot: string | undefined,
     private readonly draft: McpDraft,
   ) {
     super(projectRoot);

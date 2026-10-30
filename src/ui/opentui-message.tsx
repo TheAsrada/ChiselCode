@@ -145,6 +145,9 @@ function inline(
       case "br":
         add("\n");
         break;
+      case "html":
+        add(/^<br(?:>|\/>| \/>)$/i.test(token.raw) ? "\n" : token.raw);
+        break;
       case "text":
         if (children) result.push(...inline(children, colors, attributes, fg));
         else add(entities(text));

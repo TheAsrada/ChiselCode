@@ -22,6 +22,12 @@ import {
 } from "../../src/commands/update.js";
 
 describe("self update helpers", () => {
+  test("restart without a project is launcher intent and cannot carry a session", () => {
+    expect(windowsUpdateArguments(undefined)).toEqual(["/S"]);
+    expect(() => windowsUpdateArguments(undefined, "saved-session")).toThrow(
+      "нужен проект",
+    );
+  });
   test("uses the published release asset and its checksum", async () => {
     const payload = new TextEncoder().encode("installer");
     const digest = createHash("sha256").update(payload).digest("hex");

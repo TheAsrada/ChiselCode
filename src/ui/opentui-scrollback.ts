@@ -9,7 +9,10 @@ import {
   actionRunning,
   groupToolActions,
 } from "./tool-actions.js";
-import type { TranscriptEntry, TuiController } from "./tui-controller.js";
+import type {
+  TranscriptEntry,
+  TuiPresentationController as TuiController,
+} from "./tui-controller.js";
 
 const COMMIT_BATCH = 64;
 

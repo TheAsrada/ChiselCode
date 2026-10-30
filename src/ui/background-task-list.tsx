@@ -11,7 +11,10 @@ import { elapsedSeconds } from "./request-timing.js";
 import { useElapsedClock } from "./subagent-elapsed.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine, terminalTextRows } from "./terminal-text.js";
-import type { TuiController, TuiViewState } from "./tui-controller.js";
+import type {
+  TuiPresentationController as TuiController,
+  TuiViewState,
+} from "./tui-controller.js";
 export function BackgroundTaskList({
   controller,
   view,

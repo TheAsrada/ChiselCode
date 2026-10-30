@@ -7,7 +7,7 @@ import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
-import type { TuiController } from "./tui-controller.js";
+import type { TuiPresentationController as TuiController } from "./tui-controller.js";
 
 export function uiTone(palette: Palette, tone?: UiTone): string {
   return tone === "error"

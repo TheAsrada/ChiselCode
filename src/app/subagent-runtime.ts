@@ -470,6 +470,8 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
     };
     session.messages.push(...handoffMessages);
     const result = await runtime.run(session, task, {
+      workspaceRoot: root,
+      client: "subagent",
       mode: session.mode,
       signal,
       recovery: "new_child",

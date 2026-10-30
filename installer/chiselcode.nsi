@@ -72,6 +72,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 !define MUI_FINISHPAGE_TITLE "${APPNAME} готов к работе"
 !define MUI_FINISHPAGE_TEXT "Откройте новый терминал в папке проекта и выполните команду chisel.$\r$\n$\r$\nПри первом запуске приложение поможет настроить подключение к выбранной модели."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXENAME}"
+!define MUI_FINISHPAGE_RUN_FUNCTION ChiselLaunchApplication
 !define MUI_FINISHPAGE_RUN_TEXT "Запустить ${APPNAME}"
 !define MUI_FINISHPAGE_LINK "Что нового в этом релизе"
 !define MUI_FINISHPAGE_LINK_LOCATION "https://github.com/TheAsrada/ChiselCode/releases"
@@ -136,7 +137,7 @@ Section "ChiselCode" SecMain
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPID}" "NoRepair" 1
 
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
-  CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\${EXENAME}" "" "$INSTDIR\${ICONFILE}" 0
+  !insertmacro ChiselCreateLauncherShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"
   CreateShortcut "$SMPROGRAMS\${APPNAME}\Uninstall.lnk" "$INSTDIR\${UNINSTALLER}"
 
   Push "$INSTDIR"
@@ -147,7 +148,7 @@ Section "ChiselCode" SecMain
 SectionEnd
 
 Section /o "Ярлык на рабочем столе" SecDesktop
-  CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${EXENAME}" "" "$INSTDIR\${ICONFILE}" 0
+  !insertmacro ChiselCreateLauncherShortcut "$DESKTOP\${APPNAME}.lnk"
   Call RefreshShellIcons
 SectionEnd
 

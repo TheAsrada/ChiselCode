@@ -12,7 +12,7 @@ import {
   ProjectBackgroundConfigSchema,
 } from "./config.js";
 export interface BackgroundSettingsState {
-  workspaceRoot: string;
+  workspaceRoot?: string;
   global: BackgroundConfig;
   project: ProjectBackgroundConfig;
   effective: BackgroundConfig;
@@ -49,16 +49,18 @@ function object(text: string): Record<string, unknown> {
 export class BackgroundSettingsStore implements BackgroundSettingsActions {
   private pending: Promise<unknown> = Promise.resolve();
   constructor(
-    private readonly root: string,
+    private readonly root: string | undefined,
     private readonly configPath: string | undefined,
     private readonly apply: () => Promise<void> = async () => {},
   ) {}
   async load(signal?: AbortSignal): Promise<BackgroundSettingsState> {
     cancelled(signal);
-    const root = await canonicalWorkspaceRoot(this.root);
+    const root = this.root
+      ? await canonicalWorkspaceRoot(this.root)
+      : undefined;
     const [global, text] = await Promise.all([
       loadGlobalConfig(this.configPath),
-      source(root),
+      root ? source(root) : Promise.resolve(""),
     ]);
     cancelled(signal);
     const project = ProjectBackgroundConfigSchema.parse(
@@ -106,6 +108,7 @@ export class BackgroundSettingsStore implements BackgroundSettingsActions {
   ): Promise<BackgroundSettingsState> {
     const config = ProjectBackgroundConfigSchema.parse(value);
     return this.write(async () => {
+      if (!this.root) throw new Error("Для проектных настроек выберите папку.");
       const root = await canonicalWorkspaceRoot(this.root);
       const text = await source(root);
       if (hash(text) !== revision)
