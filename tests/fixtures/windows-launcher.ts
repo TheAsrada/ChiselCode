@@ -80,10 +80,8 @@ try {
   await launched();
   for (const name of ["Start Menu.lnk", "Desktop.lnk"]) {
     const link = join(destination, name);
-    assert.ok(
-      (await readFile(link)).length > 0,
-      `NSIS не записал ярлык: ${link}`,
-    );
+    const linkBytes = await readFile(link);
+    assert.ok(linkBytes.length > 0, `NSIS не записал ярлык: ${link}`);
     // The harness transfers Unicode data as ASCII, independently of a child
     // process environment's encoding. Native COM and ShellExecute still receive
     // the original Cyrillic path and read/execute the real persisted shortcut.
@@ -103,6 +101,9 @@ try {
       { env: linkEnv },
     );
     const details = JSON.parse(inspected.stdout);
+    console.log(
+      `Shortcut evidence: ${JSON.stringify({ ...details, bytes: linkBytes.toString("base64") })}`,
+    );
     assert.equal(details.LinkPath, link);
     assert.equal(details.Exists, true, inspected.stdout);
     if (details.NativeEnvPath !== link || !details.NativeEnvExists)
