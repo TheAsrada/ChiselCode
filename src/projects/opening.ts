@@ -6,6 +6,13 @@ import {
   type WorkspaceRef,
 } from "./admission.js";
 
+export class ProjectOpeningCancelledError extends Error {
+  constructor() {
+    super("Выбор проекта отменён.");
+    this.name = "ProjectOpeningCancelledError";
+  }
+}
+
 /** Opens only admitted roots. Late completions never commit another owner's selection. */
 export class ProjectOpenService<T> {
   private pending?: AbortController;
@@ -28,23 +35,24 @@ export class ProjectOpenService<T> {
     input: string,
     owner: { base: string; signal: AbortSignal; isCurrent(): boolean },
     commit: (workspace: WorkspaceRef, resource: T) => void,
+    beforeAdmission?: () => Promise<void>,
   ): Promise<WorkspaceRef> {
     this.cancel();
     const ticket = this.serial;
     const abort = new AbortController();
     this.pending = abort;
-    const signal = AbortSignal.any([
-      abort.signal,
-      owner.signal,
-      AbortSignal.timeout(this.timeoutMs),
-    ]);
+    const timeout = AbortSignal.timeout(this.timeoutMs);
+    const signal = AbortSignal.any([abort.signal, owner.signal, timeout]);
     const assertOwner = () => {
       cancelled(signal);
       if (ticket !== this.serial || !owner.isCurrent())
-        throw new Error("Выбор проекта отменён.");
+        throw new ProjectOpeningCancelledError();
     };
     let committed: WorkspaceRef | undefined;
     const work = (async () => {
+      assertOwner();
+      if (beforeAdmission) await beforeAdmission();
+      assertOwner();
       const workspace = await admitWorkspace(input, {
         base: owner.base,
         allowFile: true,
@@ -71,6 +79,17 @@ export class ProjectOpenService<T> {
       return await abortable(() => work, signal);
     } catch (cause) {
       if (committed) return committed;
+      if (
+        abort.signal.aborted ||
+        owner.signal.aborted ||
+        ticket !== this.serial ||
+        !owner.isCurrent()
+      )
+        throw new ProjectOpeningCancelledError();
+      if (timeout.aborted)
+        throw new Error(
+          "Истекло время открытия проекта. Проверьте доступность папки и повторите выбор.",
+        );
       throw cause;
     } finally {
       if (this.pending === abort) this.pending = undefined;

@@ -114,6 +114,8 @@ let peeks = 0;
 let feedbacks = 0;
 let emptyWrites = 0;
 let releaseSecond = () => {};
+let releaseFeedback = () => {};
+let feedbackWaiting = false;
 const waits = new Map<
   string,
   { release(): void; signal: AbortSignal; mode: string; sessionId: string }
@@ -320,7 +322,13 @@ const extension: ChiselExtension = {
       name: "feedback",
       description: "Pure UI feedback",
       parse: (args) => args,
-      execute(_context, text) {
+      async execute(_context, text) {
+        if (text === "HOME_BACKGROUND_REFERENCE") {
+          feedbackWaiting = true;
+          await new Promise<void>((resolve) => {
+            releaseFeedback = resolve;
+          });
+        }
         feedbacks++;
         return { output: `Feedback ${text}` };
       },
@@ -706,7 +714,8 @@ try {
   assert.equal(feedbacks, 1);
   assert.equal(modelCalls, 1);
 
-  // A late activation from B must not replace A's welcome projection after /cwd.
+  // Opening the native picker stays responsive while B is activating. Esc
+  // cancels only this selection; late B must not replace the admitted A root.
   await act(async () => {
     setup.mockInput.pressKey("g", { ctrl: true });
   });
@@ -718,24 +727,80 @@ try {
   );
   await send("/cwd");
   await until(
-    () => setup.renderer.currentFocusedEditor?.plainText === "/cwd ",
-    "Project path input waited for the pending workspace activation",
+    () => !!setup.renderer.root.findDescendantById("projects-popup"),
+    "Project picker waited for the pending workspace activation",
+  );
+  await act(async () => setup.mockInput.pressEscape());
+  await until(
+    () =>
+      !setup.renderer.root.findDescendantById("projects-popup") &&
+      !!setup.renderer.currentFocusedEditor,
+    "Picker cancellation did not restore the original editor",
   );
   await act(async () => setup.mockInput.pressKey("u", { ctrl: true }));
+  releaseSecond();
+  await until(
+    () => cleanups === 1,
+    "Cancelled selection retained its unused scope",
+  );
+  assert.equal(peeks, beforeCollision, "Cancelled opening executed a command");
+  assert.ok(setup.captureCharFrame().includes("workspace-a"));
+  assert.equal(
+    setup.renderer.root.findDescendantById("session-tab-3"),
+    undefined,
+  );
+
+  // Reopen B through real admission; the abandoned scope has no conversation
+  // owner. Borrowed activation cancellation is also covered in extensions-lifecycle.
+  await send(`/cwd\t${secondRoot}`);
+  await until(
+    () => activations === 3,
+    "Second project did not reactivate after cancellation",
+  );
+  releaseSecond();
+  await until(
+    () =>
+      setup.captureCharFrame().includes("workspace-b") &&
+      !!setup.renderer.currentFocusedEditor,
+    "Explicit project selection did not restore the editor",
+  );
+  await send("/pause b-cancel");
+  await until(
+    () => waits.has("b-cancel"),
+    "No command owner for the new project",
+  );
+  const beforeCancelParse = parses;
   await send("/peek");
+  await until(
+    () => parses === beforeCancelParse + 1,
+    "Command was not queued before cancellation",
+  );
   await act(async () => {
     setup.mockInput.pressCtrlC();
   });
-  await frame();
+  await until(
+    () => waits.get("b-cancel")?.signal.aborted === true,
+    "New project's command did not cancel",
+  );
+  await idle();
+  assert.equal(
+    peeks,
+    beforeCollision,
+    "Cancelled command queue executed later",
+  );
   await send("/feedback HOME_BACKGROUND_REFERENCE");
+  await until(
+    () => feedbackWaiting,
+    "Feedback did not become active in its owner",
+  );
   await act(async () => {
     setup.mockInput.pressKey("ARROW_LEFT", { meta: true });
   });
   await frame();
-  releaseSecond();
+  releaseFeedback();
   await until(
     () => feedbacks === 2,
-    "A sibling activation waiter was cancelled or lost",
+    "The original conversation lost its late callback",
   );
   await frame();
   assert.equal(
@@ -743,7 +808,11 @@ try {
     beforeCollision,
     "Cancelled activation wait executed a command later",
   );
-  assert.equal(cleanups, 0, "Cancelling a caller disposed a shared activation");
+  assert.equal(
+    cleanups,
+    1,
+    "Cancelling a command disposed a conversation's scope",
+  );
   assert.ok(
     !setup.captureCharFrame().includes("Feedback HOME_BACKGROUND_REFERENCE"),
     "A late home command stole the selected conversation",
@@ -758,11 +827,17 @@ try {
   await send(`/cwd\n${firstRoot}`);
   await until(
     () =>
-      setup.captureCharFrame().includes(firstRoot) &&
+      setup.captureCharFrame().includes("workspace-a") &&
       !!setup.renderer.currentFocusedEditor,
     "Original project did not restore its editor after cwd",
   );
-  await send("/pe"); // First Enter accepts the suggestion only.
+  await act(async () => setup.mockInput.pasteBracketedText("/pe"));
+  await until(
+    () => setup.captureCharFrame().includes("Read workspace-a"),
+    "Original project's command suggestions did not become ready",
+  );
+  await act(async () => setup.mockInput.pressEnter());
+  await frame(); // First Enter accepts the visible suggestion only.
   assert.equal(peeks, beforeCollision);
   await act(async () => {
     setup.mockInput.pressEscape();
@@ -780,7 +855,7 @@ try {
   });
   await send("/exit");
   await application;
-  assert.equal(cleanups, 2);
+  assert.equal(cleanups, 3);
   sessions = await store.list();
   assert.equal(sessions.length, 2);
   process.stdout.write(
@@ -789,6 +864,7 @@ try {
 } finally {
   releaseModel();
   releaseSecond();
+  releaseFeedback();
   for (const wait of waits.values()) wait.release();
   if (application) {
     process.emit("SIGTERM");

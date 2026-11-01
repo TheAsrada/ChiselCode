@@ -70,7 +70,10 @@ import {
 } from "../projects/admission.js";
 import { resolveLaunchWorkspace } from "../projects/launch.js";
 import { directoryPage, navigationDirectory } from "../projects/navigation.js";
-import { ProjectOpenService } from "../projects/opening.js";
+import {
+  ProjectOpeningCancelledError,
+  ProjectOpenService,
+} from "../projects/opening.js";
 import {
   applicationPaths,
   isPrivatePath,
@@ -490,12 +493,6 @@ async function runApplication(
       },
       cancel: () => projectOpener.cancel(),
       open: async (path) => {
-        if (owner === workspace.home)
-          await saveTerminalDraft(
-            { applicationId: workspace.home.draftId },
-            undefined,
-            owner.snapshot.draft,
-          );
         const ref = await projectOpener.open(
           path,
           {
@@ -515,6 +512,14 @@ async function runApplication(
             });
             workspace.select();
           },
+          owner === workspace.home
+            ? () =>
+                saveTerminalDraft(
+                  { applicationId: workspace.home.draftId },
+                  undefined,
+                  owner.snapshot.draft,
+                )
+            : undefined,
         );
         await projectSessionStore(ref.root).catch((cause) => {
           if (workspace.home.snapshot.projectPath === ref.root)
@@ -1356,7 +1361,8 @@ async function runApplication(
         try {
           await getProjectActions().open(parsed.args);
         } catch (error) {
-          controller.append(String(error), "error");
+          if (!(error instanceof ProjectOpeningCancelledError))
+            controller.append(String(error), "error");
         }
         return;
       }

@@ -75,6 +75,8 @@ Linux выбран базовой средой ради скорости и ра
 - Crash-тесты пакетов действительно завершают отдельный процесс. После его выхода давность только его изолированного lock задаётся через `utimes`: две проверки atomic commit boundary больше не ждут по 30 секунд. Само stale recovery не подменяется; production lock не меняется.
 - Проверки Plan/readonly, SSRF/redirects, 429/deadline, cancellation/cleanup, atomic writes/conflicts, CAS/trust, migrations, compaction и истории остаются в исходных test files. Полные файлы и расширенные fixtures доступны отдельно; быстрый профиль не объявляется полным покрытием.
 
+Сценарий `extension-commands-tui.test.ts` проверяет настоящий picker при задержанной активации: отмена не открывает ошибку, не создаёт беседу и освобождает неиспользуемый scope. После повторного выбора проверяются отмена очереди и поздний callback своей вкладки. Совместное ожидание активации и сохранение чужого запроса при отмене отдельно остаются в `extensions-lifecycle.test.ts`; гонка A → B и deadline с cleanup — в `project-admission.test.ts`. Проверки не требуют прежней немедленной смены root до завершения допуска.
+
 ## Выпуск
 
 Перед созданием тега запустите `gh workflow run ci.yml --ref main` и дождитесь четырёх успешных jobs на точном release source. Зелёный Quick CI другого или того же source не заменяет Native validation.

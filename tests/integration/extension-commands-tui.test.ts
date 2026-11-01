@@ -16,7 +16,7 @@ test("linked commands run through the real TUI dispatch and core tools without m
     child.exited,
   ]);
   expect(err).not.toContain("AssertionError");
-  expect(exit).toBe(0);
+  expect(exit, `${out}\n${err}`).toBe(0);
   expect(out).toContain(
     "Command contributions: TUI dispatch, tools, queue, cancellation, checkpoints and artifacts verified",
   );

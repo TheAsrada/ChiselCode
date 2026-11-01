@@ -16,7 +16,10 @@ import {
   revalidateWorkspace,
 } from "../../src/projects/admission.js";
 import { resolveLaunchWorkspace } from "../../src/projects/launch.js";
-import { ProjectOpenService } from "../../src/projects/opening.js";
+import {
+  ProjectOpeningCancelledError,
+  ProjectOpenService,
+} from "../../src/projects/opening.js";
 import {
   type ApplicationPaths,
   applicationPaths,
@@ -166,8 +169,89 @@ test("cancellation rejects before admission and performs no project preparation"
       { base: directory, signal: abort.signal, isCurrent: () => true },
       () => {},
     ),
-  ).rejects.toThrow();
+  ).rejects.toBeInstanceOf(ProjectOpeningCancelledError);
   expect(preparations).toBe(0);
+});
+
+test("opening deadline stays a visible failure; late preparation cannot commit and releases its root", async () => {
+  let release!: (value: string) => void;
+  let cleaned!: () => void;
+  const gate = new Promise<string>((done) => {
+    release = done;
+  });
+  const cleanup = new Promise<void>((done) => {
+    cleaned = done;
+  });
+  const service = new ProjectOpenService(
+    async () => gate,
+    cleaned,
+    undefined,
+    50,
+  );
+  let committed = false;
+  try {
+    await expect(
+      service.open(
+        project,
+        {
+          base: directory,
+          signal: new AbortController().signal,
+          isCurrent: () => true,
+        },
+        () => {
+          committed = true;
+        },
+      ),
+    ).rejects.toThrow("Истекло время открытия проекта");
+  } finally {
+    release("ready");
+    await cleanup;
+  }
+  expect(committed).toBe(false);
+  expect(service.roots).toEqual([]);
+});
+
+test("cancelling while the draft is being saved cannot start a late admission", async () => {
+  let release!: () => void;
+  let entered!: () => void;
+  let cleaned!: () => void;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  const saving = new Promise<void>((done) => {
+    entered = done;
+  });
+  const cleanup = new Promise<void>((done) => {
+    cleaned = done;
+  });
+  let preparations = 0;
+  let committed = false;
+  const service = new ProjectOpenService(async () => {
+    preparations++;
+  }, cleaned);
+  const operation = service.open(
+    project,
+    {
+      base: directory,
+      signal: new AbortController().signal,
+      isCurrent: () => true,
+    },
+    () => {
+      committed = true;
+    },
+    async () => {
+      entered();
+      await gate;
+    },
+  );
+  await saving;
+  service.cancel();
+  await expect(operation).rejects.toBeInstanceOf(ProjectOpeningCancelledError);
+  release();
+  await cleanup;
+  expect(preparations).toBe(0);
+  expect(committed).toBe(false);
+  expect(service.roots).toEqual([]);
 });
 
 test("late opening A cannot replace B; cancellation waits for its own cleanup only", async () => {
