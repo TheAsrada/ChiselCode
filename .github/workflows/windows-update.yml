@@ -1,6 +1,12 @@
 name: Windows update regression
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Точечная проверка ярлыков или весь сценарий updater"
+        type: choice
+        default: all
+        options: [all, launcher]
 permissions:
   contents: read
 jobs:
@@ -26,10 +32,12 @@ jobs:
             Add-Content $env:GITHUB_PATH 'C:\Program Files (x86)\NSIS'
           }
       - run: bun test tests/unit/self-update.test.ts tests/unit/update-controller.test.ts tests/unit/opentui-update.test.tsx
+        if: inputs.scenario != 'launcher'
       - run: bun tests/fixtures/windows-update.ts
+        if: inputs.scenario != 'launcher'
       - run: bun tests/fixtures/windows-launcher.ts
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && inputs.scenario != 'launcher'
         with:
           name: windows-update-evidence
           path: dist/update-captures/**

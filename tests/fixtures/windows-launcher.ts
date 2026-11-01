@@ -80,16 +80,35 @@ try {
   await launched();
   for (const name of ["Start Menu.lnk", "Desktop.lnk"]) {
     const link = join(destination, name);
+    assert.ok(
+      (await readFile(link)).length > 0,
+      `NSIS не записал ярлык: ${link}`,
+    );
+    // The harness transfers Unicode data as ASCII, independently of a child
+    // process environment's encoding. Native COM and ShellExecute still receive
+    // the original Cyrillic path and read/execute the real persisted shortcut.
+    const linkEnv = {
+      CHISEL_LAUNCH_LINK: link,
+      CHISEL_LAUNCH_LINK_UTF8: Buffer.from(link, "utf8").toString("base64"),
+    };
+    const decodeLink =
+      "$linkPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:CHISEL_LAUNCH_LINK_UTF8)); ";
     const inspected = await execa(
       "powershell.exe",
       [
         "-NoProfile",
         "-Command",
-        "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; $shortcutShell = New-Object -ComObject WScript.Shell; $shortcut = $shortcutShell.CreateShortcut($env:CHISEL_LAUNCH_LINK); @{ TargetPath=$shortcut.TargetPath; Arguments=$shortcut.Arguments; WorkingDirectory=$shortcut.WorkingDirectory } | ConvertTo-Json -Compress",
+        `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; ${decodeLink}$shortcutShell = New-Object -ComObject WScript.Shell; $shortcut = $shortcutShell.CreateShortcut($linkPath); @{ LinkPath=$linkPath; Exists=[IO.File]::Exists($linkPath); NativeEnvPath=$env:CHISEL_LAUNCH_LINK; NativeEnvExists=[IO.File]::Exists($env:CHISEL_LAUNCH_LINK); TargetPath=$shortcut.TargetPath; Arguments=$shortcut.Arguments; WorkingDirectory=$shortcut.WorkingDirectory } | ConvertTo-Json -Compress`,
       ],
-      { env: { CHISEL_LAUNCH_LINK: link } },
+      { env: linkEnv },
     );
     const details = JSON.parse(inspected.stdout);
+    assert.equal(details.LinkPath, link);
+    assert.equal(details.Exists, true, inspected.stdout);
+    if (details.NativeEnvPath !== link || !details.NativeEnvExists)
+      console.log(
+        `Unicode environment hand-off differs: ${JSON.stringify(details)}`,
+      );
     assert.equal(
       details.TargetPath.toLowerCase(),
       join(destination, "chisel.exe").toLowerCase(),
@@ -104,9 +123,9 @@ try {
       [
         "-NoProfile",
         "-Command",
-        "Start-Process -FilePath $env:CHISEL_LAUNCH_LINK -WindowStyle Hidden",
+        `${decodeLink}Start-Process -FilePath $linkPath -WindowStyle Hidden`,
       ],
-      { env: { ...env, CHISEL_LAUNCH_LINK: link } },
+      { env: { ...env, ...linkEnv } },
     );
     await launched();
   }
