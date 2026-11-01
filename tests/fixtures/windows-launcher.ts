@@ -86,7 +86,6 @@ try {
     // process environment's encoding. Native COM and ShellExecute still receive
     // the original Cyrillic path and read/execute the real persisted shortcut.
     const linkEnv = {
-      CHISEL_LAUNCH_LINK: link,
       CHISEL_LAUNCH_LINK_UTF8: Buffer.from(link, "utf8").toString("base64"),
     };
     const decodeLink =
@@ -96,20 +95,13 @@ try {
       [
         "-NoProfile",
         "-Command",
-        `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding; ${decodeLink}$shortcutShell = New-Object -ComObject WScript.Shell; $shortcut = $shortcutShell.CreateShortcut($linkPath); @{ LinkPath=$linkPath; Exists=[IO.File]::Exists($linkPath); NativeEnvPath=$env:CHISEL_LAUNCH_LINK; NativeEnvExists=[IO.File]::Exists($env:CHISEL_LAUNCH_LINK); TargetPath=$shortcut.TargetPath; Arguments=$shortcut.Arguments; WorkingDirectory=$shortcut.WorkingDirectory } | ConvertTo-Json -Compress`,
+        await Bun.file("tests/fixtures/windows-shell-link.ps1").text(),
       ],
       { env: linkEnv },
     );
     const details = JSON.parse(inspected.stdout);
-    console.log(
-      `Shortcut evidence: ${JSON.stringify({ ...details, bytes: linkBytes.toString("base64") })}`,
-    );
     assert.equal(details.LinkPath, link);
     assert.equal(details.Exists, true, inspected.stdout);
-    if (details.NativeEnvPath !== link || !details.NativeEnvExists)
-      console.log(
-        `Unicode environment hand-off differs: ${JSON.stringify(details)}`,
-      );
     assert.equal(
       details.TargetPath.toLowerCase(),
       join(destination, "chisel.exe").toLowerCase(),
