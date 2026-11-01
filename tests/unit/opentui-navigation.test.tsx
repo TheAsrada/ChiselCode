@@ -668,6 +668,9 @@ test("home command feedback is dismissible, owns input and never becomes a trans
     expect(workspace.home.snapshot.draft).toBe("");
     expect(
       setup.renderer.root.findDescendantById("compact-terminal"),
+    ).toBeUndefined();
+    expect(
+      setup.renderer.root.findDescendantById("prompt-editor"),
     ).toBeTruthy();
     await act(async () => setup.resize(80, 24));
     await frame(setup);

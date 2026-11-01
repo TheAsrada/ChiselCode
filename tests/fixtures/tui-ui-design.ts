@@ -309,7 +309,15 @@ try {
   }
   await paste("/cwd");
   await key("RETURN");
-  assert.equal(originalEditor?.plainText, "/cwd ");
+  await until(
+    () => !!t.renderer.root.findDescendantById("projects-popup"),
+    "Project picker did not open",
+  );
+  await key("ESCAPE");
+  await until(
+    () => t.renderer.currentFocusedEditor === originalEditor,
+    "Project picker did not restore home",
+  );
   await key("u", true);
   await paste("/worktree");
   await key("RETURN");
