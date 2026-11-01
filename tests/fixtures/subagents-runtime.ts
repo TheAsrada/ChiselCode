@@ -168,7 +168,11 @@ const server = Bun.serve({
       const cwd = /Working directory: ([^\n]+)/.exec(system)?.[1];
       assert.ok(cwd);
       const task = String(
-        body.messages.find((message) => message.role === "user")?.content,
+        body.messages.find(
+          (message) =>
+            message.role === "user" &&
+            !String(message.content).includes("<ui_snapshot>"),
+        )?.content,
       );
       const state = childRoots.get(cwd) ?? { count: 0, task };
       childRoots.set(cwd, state);

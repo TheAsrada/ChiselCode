@@ -690,8 +690,13 @@ test("empty extensions preserve the baseline model request and transcript", asyn
       })
     ).status,
   ).toBe("completed");
-  expect(requests[0]?.messages).toEqual([text("user", "Original request")]);
-  expect(requests[0]?.system).not.toContain("Extension context");
+  expect(requests[0]?.messages).toHaveLength(2);
+  expect(requests[0]?.messages[0]?.content[0]).toMatchObject({
+    type: "text",
+    text: expect.stringContaining('<ui_snapshot>{"available":false,'),
+  });
+  expect(requests[0]?.messages[1]).toEqual(text("user", "Original request"));
+  expect(session.messages[0]).toEqual(text("user", "Original request"));
   expect(fixture.activations()).toBe(0);
 });
 

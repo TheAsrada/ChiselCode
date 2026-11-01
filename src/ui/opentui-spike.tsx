@@ -2388,7 +2388,12 @@ function OpenTuiScreen({
     </UiSurface>
   );
 
-  if ((width < 28 || height < 10) && !approval && !otherOverlay)
+  if (
+    !view.projectPath &&
+    (width < 28 || height < 10) &&
+    !approval &&
+    !otherOverlay
+  )
     return (
       <box
         id="compact-terminal"

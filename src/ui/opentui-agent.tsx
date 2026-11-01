@@ -440,6 +440,14 @@ async function runApplication(
         );
     }
   };
+  const projectOpener = new ProjectOpenService(
+    async (ref) => {
+      await loadProjectConfig(ref.root);
+      return extensionHost.open(ref.root);
+    },
+    releaseUnusedScopes,
+    options.configPath,
+  );
   const detachWorkspace = workspace.subscribe(() => {
     syncScrollback();
     releaseUnusedScopes();
@@ -463,14 +471,6 @@ async function runApplication(
           managedWorkspaceCandidate(appPaths.home, item.canonicalPath),
       )
       .sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt));
-  const projectOpener = new ProjectOpenService(
-    async (ref) => {
-      await loadProjectConfig(ref.root);
-      return extensionHost.open(ref.root);
-    },
-    releaseUnusedScopes,
-    options.configPath,
-  );
   const getProjectActions = (): OpenTuiProjectsActions => {
     const owner = currentController(),
       generation = owner.currentGeneration;
