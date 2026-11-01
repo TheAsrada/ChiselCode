@@ -2,7 +2,7 @@
 
 [Материалы для участников](../README.md) · [Общий план запуска и проектов](project-startup.md) · [Runtime](../../architecture/runtime.md) · [Выбор модели](../../architecture/model-selection.md)
 
-Статус: исходный план от 29 октября 2026 года. Identity запроса, ephemeral UI snapshot и переносы Markdown реализованы в текущих исходниках `Unreleased`; [контракты](../../architecture/project-startup.md#контекст-запроса-и-markdown) и [результаты проверок](../reports/project-startup.md) описаны отдельно. Ниже сохранён план, дополняющий [общий документ запуска](project-startup.md); опубликованный CLI 0.6.43 не изменён.
+Статус: исходный план от 29 октября 2026 года. Identity запроса, ephemeral UI snapshot и переносы Markdown впервые выпущены в CLI 0.6.44; [контракты](../../architecture/project-startup.md#контекст-запроса-и-markdown) и [проверки выпуска](../reports/release-0.6.44.md) описаны отдельно. Ниже сохранён план, дополняющий [общий документ запуска](project-startup.md).
 
 ## 1. Два контракта контекста
 
