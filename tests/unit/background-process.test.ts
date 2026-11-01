@@ -75,13 +75,40 @@ test("the supervisor retains inherited output after its leader exits", async () 
       async close() {},
     },
   });
-  await process.ready;
-  const outcome = await process.done;
-  expect(outcome.cleanup).toBe(true);
-  expect(outcome.exitCode).toBe(0);
-  expect(output).toContain("потомок начал");
-  expect(output).toContain("потомок завершён");
-}, 15000);
+  const watchdog = setTimeout(
+    () =>
+      console.error(
+        JSON.stringify({
+          scenario: "inherited-output",
+          pid: process.pid,
+          phase: process.cleanupPhase,
+          detail: process.cleanupDetail,
+          output,
+        }),
+      ),
+    8000,
+  );
+  try {
+    await process.ready;
+    const outcome = await process.done;
+    const diagnostic = JSON.stringify({
+      outcome,
+      phase: process.cleanupPhase,
+      detail: process.cleanupDetail,
+      output,
+    });
+    expect(outcome.reason, diagnostic).toBeUndefined();
+    expect(outcome.cleanup, diagnostic).toBe(true);
+    expect(outcome.exitCode, diagnostic).toBe(0);
+    expect(output).toContain("потомок начал");
+    expect(output).toContain("потомок завершён");
+  } finally {
+    clearTimeout(watchdog);
+    await process.stop();
+  }
+  // 10 s command deadline + at most 10 s real cleanup; keep the outer bound
+  // beyond both so a failure reports evidence and does not orphan the helper.
+}, 25000);
 test("ownership transfer preserves one instance and removes the old foreground abort signal", async () => {
   const { root, command } = await fixture(
     "console.log('один запуск');setTimeout(()=>console.log('готово'),300);",
