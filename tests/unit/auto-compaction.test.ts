@@ -254,6 +254,34 @@ test("repeat compaction sends the prior handoff and preserves the newest correct
   ).toHaveLength(1);
 });
 
+test("restored checkpoint compacts again when new history exceeds a hard input limit", async () => {
+  const f = fixture();
+  await f.manager.build(f.input);
+  const restored = withSessionCompatibility(
+    SessionV3Schema.parse(
+      JSON.parse(JSON.stringify({ ...f.session, schemaVersion: 3 })),
+    ),
+  );
+  restored.messages.push(
+    text("user", "Inspect the next file"),
+    text("assistant", "Observed details ".repeat(4000)),
+    text("user", "Now continue"),
+  );
+  const frame = await f.manager.build({
+    ...f.input,
+    session: restored,
+    capabilities: { ...capabilities, maxInputTokens: 1000 },
+  });
+  expect(restored.context?.compactions).toHaveLength(2);
+  expect(frame.checkpoint?.throughMessageIndex).toBeGreaterThan(
+    f.session.context?.activeCheckpoint?.throughMessageIndex ?? 0,
+  );
+  expect(frame.estimatedInputTokens).toBeLessThanOrEqual(1000);
+  expect(assembleMessages(restored).at(-1)).toEqual(
+    text("user", "Now continue"),
+  );
+});
+
 test("a new user request replaces the raw pinned request while preserving the previous handoff", async () => {
   const f = fixture();
   await f.manager.build(f.input);

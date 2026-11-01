@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_PROJECT_CONFIG } from "../../src/config/load.js";
+import { assembleMessages } from "../../src/context/assembler.js";
 import { contextBudget } from "../../src/context/budget.js";
 import { ContextManager } from "../../src/context/context-manager.js";
 import { requestTokens } from "../../src/context/tokenizer.js";
@@ -17,6 +18,7 @@ import {
 import { AgentRuntime } from "../../src/runtime/agent-runtime.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
 import { ApprovalGate } from "../../src/security/approval.js";
+import { withSessionCompatibility } from "../../src/sessions/migrate.js";
 import { SessionV3Schema } from "../../src/sessions/schema.js";
 import { createSession } from "../../src/sessions/store.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
@@ -523,6 +525,136 @@ test("old history is compacted for output headroom before output is reduced to a
   expect(frame.checkpoint).toBeDefined();
   expect(frame.budget.maxOutputTokens).toBe(4000);
   expect(frame.estimatedInputTokens).toBeLessThan(2000);
+});
+
+test("restored checkpoint with successive tool results does not compact for an impossible full output reserve", async () => {
+  const session = createSession(
+    "/project",
+    "openai-compatible",
+    "kimi-k3.1-pro",
+  );
+  session.messages = [
+    { role: "user", content: [{ type: "text", text: "Continue the site" }] },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "old",
+          name: "read_file",
+          input: { path: "index.html" },
+        },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          toolUseId: "old",
+          content: "old result ".repeat(6000),
+        },
+      ],
+    },
+    { role: "assistant", content: [{ type: "text", text: "Continue" }] },
+    { role: "user", content: [{ type: "text", text: "продолжай" }] },
+  ];
+  await new ContextManager({ keepRecentTokens: 100 }).build({
+    session,
+    system: "Rules",
+    tools: [],
+    provider: emptyProvider,
+    capabilities: {
+      contextWindow: 8000,
+      maxOutputTokens: 2000,
+      tokenCounting: "local_estimate",
+    },
+  });
+  const restored = withSessionCompatibility(
+    SessionV3Schema.parse(
+      JSON.parse(JSON.stringify({ ...session, schemaVersion: 3 })),
+    ),
+  );
+  const originalCheckpoint = restored.context?.activeCheckpoint?.id;
+  expect(originalCheckpoint).toBeDefined();
+  const manager = new ContextManager();
+  const capabilities = {
+    contextWindow: 1_048_576,
+    maxOutputTokens: 1_048_576,
+    tokenCounting: "local_estimate" as const,
+  };
+  for (let index = 0; index < 3; index++) {
+    const id = `result-${index}`;
+    restored.messages.push(
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id,
+            name: "read_file",
+            input: { path: `${index}.txt` },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: id,
+            content: "result ".repeat(3000),
+          },
+        ],
+      },
+    );
+    const frame = await manager.build({
+      session: restored,
+      system: "Rules",
+      tools: [],
+      provider: emptyProvider,
+      capabilities,
+    });
+    expect(frame.checkpoint?.id).toBe(originalCheckpoint);
+    expect(restored.context?.compactions).toHaveLength(1);
+    expect(frame.budget.maxOutputTokens).toBeLessThan(
+      capabilities.maxOutputTokens,
+    );
+    expect(
+      frame.estimatedInputTokens +
+        frame.budget.reservedOutputTokens +
+        frame.budget.safetyBufferTokens,
+    ).toBeLessThanOrEqual(capabilities.contextWindow);
+    expect(assembleMessages(restored).at(-1)).toEqual(restored.messages.at(-1));
+  }
+});
+
+test("hard input limit fails with a finite diagnostic when protected history cannot be reduced", async () => {
+  const session = createSession("/project", "openai-compatible", "custom");
+  session.messages = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "required input ".repeat(2000) }],
+    },
+  ];
+  const manager = new ContextManager();
+  const build = () =>
+    manager.build({
+      session,
+      system: "Rules",
+      tools: [],
+      provider: emptyProvider,
+      capabilities: {
+        contextWindow: 10_000,
+        maxInputTokens: 100,
+        maxOutputTokens: 2000,
+        tokenCounting: "local_estimate",
+      },
+    });
+  await expect(build()).rejects.toMatchObject({
+    code: "CONTEXT_BUDGET_EXCEEDED",
+  });
+  expect(session.context?.compactions).toBeUndefined();
 });
 
 test("late metadata, context events and request completion cannot overwrite the next connection", () => {

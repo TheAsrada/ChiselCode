@@ -62,22 +62,49 @@ export class ContextManager {
     cancelled(input.signal);
     let messages = effectiveMessages(input);
     let count = await this.count(input, messages);
-    // Try to free old history for the model's full response before shrinking output.
+    // The provider's output ceiling can be larger than the usable window. In that
+    // case no amount of history compaction can reserve the full response.
     const preferredBudget = contextBudget(
       input.capabilities,
       this.options,
       input.requestedOutput,
     );
+    const currentBudget = contextBudget(
+      input.capabilities,
+      this.options,
+      input.requestedOutput,
+      count.tokens,
+    );
+    const lastAutoCompaction = input.session.context?.compactions
+      ?.filter((record) => record.reason === "auto")
+      .at(-1);
+    const preferredInput = preferredBudget.maxInputTokens;
+    const needsActualSpace =
+      currentBudget.maxInputTokens !== undefined &&
+      count.tokens > currentBudget.maxInputTokens;
+    const canRestoreFullOutput =
+      preferredInput !== undefined &&
+      preferredInput > 0 &&
+      !(lastAutoCompaction && lastAutoCompaction.afterTokens > preferredInput);
     if (
-      preferredBudget.maxInputTokens !== undefined &&
-      count.tokens > preferredBudget.maxInputTokens &&
+      (needsActualSpace ||
+        (canRestoreFullOutput &&
+          preferredInput !== undefined &&
+          count.tokens > preferredInput)) &&
       this.options.autoCompact
     ) {
       const compressed = await this.compact(
         input,
         Math.min(
           this.options.keepRecentTokens,
-          Math.max(0, Math.floor(preferredBudget.maxInputTokens / 2)),
+          Math.max(
+            0,
+            Math.floor(
+              (needsActualSpace
+                ? (currentBudget.maxInputTokens ?? 0)
+                : (preferredInput ?? 0)) / 2,
+            ),
+          ),
         ),
         "auto",
         count,
@@ -97,7 +124,7 @@ export class ContextManager {
     )
       throw new RuntimeError(
         "CONTEXT_BUDGET_EXCEEDED",
-        `Request needs approximately ${count.tokens} input tokens; budget is ${budget.maxInputTokens}. Reduce instructions, schemas or current input. User constraints were preserved.`,
+        `Request needs approximately ${count.tokens} input tokens; budget is ${budget.maxInputTokens}. ${this.options.autoCompact ? "Compaction could not free enough space without discarding the current request or protected tool calls. " : ""}Reduce instructions, schemas or current input. User constraints were preserved.`,
         input.requestContext
           ? { contextSources: input.requestContext.sources }
           : undefined,
