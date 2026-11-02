@@ -31,6 +31,7 @@ jobs:
       CHISEL_DESIGN_CAPTURES: ${{ github.workspace }}/dist/ui-design-captures
       CHISEL_EXTERNAL_CAPTURES: ${{ github.workspace }}/dist/external-extension-captures
       CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
+      CHISEL_RESUME_CAPTURES: dist/resume-captures
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -110,6 +111,8 @@ jobs:
           tests/unit/opentui-navigation.test.tsx tests/unit/opentui-file-diff.test.tsx
           tests/unit/project-admission.test.ts tests/unit/terminal-drafts.test.ts
           tests/unit/runtime-environment.test.ts tests/integration/project-startup.test.ts
+          tests/unit/session-history.test.ts tests/unit/opentui-sessions.test.tsx
+          tests/integration/session-resume.test.ts
           tests/unit/opentui-update.test.tsx tests/unit/opentui-sidebar.test.tsx
           tests/unit/opentui-background.test.tsx tests/unit/opentui-subagents.test.tsx
           tests/unit/opentui-side-query.test.tsx tests/unit/opentui-chat-card.test.tsx

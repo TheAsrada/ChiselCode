@@ -267,14 +267,14 @@ test("slash completion accepts a prefix before submitting the command", async ()
   );
   try {
     await setup.renderOnce();
-    await act(async () => setup.mockInput.pasteBracketedText("/ho"));
+    await act(async () => setup.mockInput.pasteBracketedText("/res"));
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("/home");
+    expect(setup.captureCharFrame()).toContain("/resume");
     act(() => setup.mockInput.pressEnter());
-    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/home");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("/resume ");
     expect(submitted).toEqual([]);
     act(() => setup.mockInput.pressEnter());
-    expect(submitted).toEqual(["/home"]);
+    expect(submitted).toEqual(["/resume"]);
   } finally {
     act(() => setup.renderer.destroy());
   }
@@ -294,8 +294,8 @@ test("slash suggestions keep the selected command visible past the first page", 
     });
     await setup.renderOnce();
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("> /sessions");
-    expect(frame).toContain("/resume");
+    expect(frame).toContain("> /resume");
+    expect(frame).toContain("/update");
     if (process.env.CHISEL_COMMAND_PREVIEW === "1")
       process.stdout.write(`${frame}\n`);
   } finally {

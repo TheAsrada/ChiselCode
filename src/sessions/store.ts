@@ -111,7 +111,7 @@ function formatSessionDate(iso: string): string {
   return `${day}.${month} ${hours}:${minutes}`;
 }
 
-/** Человекочитаемый список сессий для `/sessions` (порядок — как в хранилище). */
+/** Человекочитаемый список сессий для текстовых потребителей (порядок — как в хранилище). */
 export function formatSessionList(sessions: Session[]): string {
   if (sessions.length === 0)
     return "Сессий этого проекта пока нет. Новое сообщение начнёт первую.";
@@ -129,7 +129,7 @@ export function formatSessionList(sessions: Session[]): string {
 }
 
 /**
- * Поиск сессии по номеру из `/sessions` (1-based) или префиксу id.
+ * Поиск сессии по номеру из списка (1-based) или префиксу id.
  * Возвращает undefined, если ничего не подошло.
  */
 export function resolveSessionRef(

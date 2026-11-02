@@ -391,7 +391,7 @@ test("approval takes priority over skills, settings and session picker; Escape c
   );
   try {
     await frame(setup);
-    for (const command of ["/skills", "/settings", "/sessions"]) {
+    for (const command of ["/skills", "/settings", "/resume"]) {
       await act(async () => {
         await setup.mockInput.pasteBracketedText(command);
         setup.mockInput.pressEnter();
@@ -479,7 +479,7 @@ for (const [width, height] of [
         "Недавние сессии",
         "Настройки /settings",
         "Тема",
-        "История /sessions",
+        "История /resume",
         "Скиллы /skills",
       ])
         expect(setup.captureCharFrame()).not.toContain(removed);

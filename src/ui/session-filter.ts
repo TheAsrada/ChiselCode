@@ -1,9 +1,8 @@
 import type { SessionSummary } from "../sessions/project-store.js";
 
-export function filterSessions<T extends SessionSummary>(
-  sessions: readonly T[],
-  query: string,
-): T[] {
+export function filterSessions<
+  T extends SessionSummary & { projectName?: string; projectPath?: string },
+>(sessions: readonly T[], query: string): T[] {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return sessions
     .filter((item) => {
@@ -14,6 +13,8 @@ export function filterSessions<T extends SessionSummary>(
         item.model,
         item.providerId,
         item.id,
+        item.projectName,
+        item.projectPath,
       ]
         .join(" ")
         .toLowerCase();

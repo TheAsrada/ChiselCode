@@ -39,7 +39,9 @@ describe("interactive commands", () => {
       name: "/compact",
       args: "",
     });
-    expect(parseSlashCommand("/home")).toEqual({ name: "/home", args: "" });
+    expect(parseSlashCommand("/home")).toBeUndefined();
+    expect(parseSlashCommand("/sessions")).toBeUndefined();
+    expect(parseSlashCommand("/resume")).toEqual({ name: "/resume", args: "" });
     expect(parseSlashCommand("/cwd C:\\projects\\demo")).toEqual({
       name: "/cwd",
       args: "C:\\projects\\demo",
@@ -53,16 +55,14 @@ describe("interactive commands", () => {
     expect(matchingCommands("/s").map((command) => command.name)).toEqual([
       "/settings",
       "/skills",
-      "/sessions",
     ]);
     expect(matchingCommands("/c").map((command) => command.name)).toEqual([
       "/clear",
       "/compact",
       "/cwd",
     ]);
-    expect(matchingCommands("/h").map((command) => command.name)).toEqual([
-      "/home",
-    ]);
+    expect(matchingCommands("/h")).toEqual([]);
+    expect(matchingCommands("/sessions")).toEqual([]);
     expect(matchingCommands("/help")).toEqual([]);
     expect(matchingCommands("/mode").map((command) => command.name)).toEqual([
       "/model",
@@ -74,7 +74,7 @@ describe("interactive commands", () => {
   test("suggests the closest command for typos", () => {
     expect(MAX_VISIBLE_SUGGESTIONS).toBe(6);
     // Транспозиция (2 правки) и пропущенная буква (1 правка).
-    expect(suggestSimilarCommand("/sessons")).toBe("/sessions");
+    expect(suggestSimilarCommand("/resum")).toBe("/resume");
     expect(suggestSimilarCommand("/setings")).toBe("/settings");
     expect(suggestSimilarCommand("/hlep")).toBeUndefined();
     expect(suggestSimilarCommand("/help")).toBeUndefined();

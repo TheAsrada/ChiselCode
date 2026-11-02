@@ -15,7 +15,7 @@ def font(linux_path, windows_name, size, fallback=None):
 
 regular = font("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "consola.ttf", 14)
 bold = font("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", "consolab.ttf", 14, regular)
-# DejaVu Sans Mono has no Braille glyphs; use the same cell width from Sans.
+# Use symbol fallback for arrows, search marks and Braille at the same cell width.
 braille = font("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "seguisym.ttf", 13, regular)
 cjk = font("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "msyh.ttc", 14, regular)
 cell_width, cell_height = 9, 19
@@ -35,7 +35,7 @@ for source in Path(sys.argv[1]).glob("*.json"):
                 if unicodedata.combining(character):
                     continue
                 cells = 2 if unicodedata.east_asian_width(character) in ("W", "F") else 1
-                font = braille if 0x2800 <= ord(character) <= 0x28FF else cjk if cells == 2 else bold if span.get("attributes", 0) & 1 else regular
+                font = braille if 0x2100 <= ord(character) <= 0x2BFF else cjk if cells == 2 else bold if span.get("attributes", 0) & 1 else regular
                 draw.text((column * cell_width, y * cell_height + 1), character, font=font, fill=tuple(span["fg"][:3]))
                 column += cells
             x += width

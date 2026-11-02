@@ -75,10 +75,10 @@ test("session rename and search paste/delete whole emoji and combining graphemes
     expect(renamed).toEqual(["Проект 😀"]);
     await act(async () => setup.mockInput.pasteBracketedText("😀"));
     await frame();
-    expect(setup.captureCharFrame()).toContain("1 сессий");
+    expect(setup.captureCharFrame()).toContain("Сессий: 1");
     await act(async () => setup.mockInput.pressBackspace());
     await frame();
-    expect(setup.captureCharFrame()).toContain("2 сессий");
+    expect(setup.captureCharFrame()).toContain("Сессий: 2");
     expect(setup.captureCharFrame()).not.toMatch(/[\ufffd\p{Cs}]/u);
   } finally {
     act(() => setup.renderer.destroy());
@@ -120,18 +120,18 @@ test("session picker searches, previews and resumes without losing the composer"
   try {
     await setup.renderOnce();
     await act(async () => {
-      await setup.mockInput.typeText("/sessions");
+      await setup.mockInput.typeText("/resume");
       setup.mockInput.pressEnter();
     });
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("История проектов");
+    expect(setup.captureCharFrame()).toContain("Продолжить разговор");
     await act(async () => {
       await setup.mockInput.typeText("Первый");
     });
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("1 сессий");
+    expect(setup.captureCharFrame()).toContain("Сессий: 1");
     await act(async () => {
-      setup.mockInput.pressKey(" ");
+      setup.mockInput.pressKey("F3");
     });
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Секретный запрос");
@@ -139,14 +139,14 @@ test("session picker searches, previews and resumes without losing the composer"
     expect(resumed).toEqual([]);
     await act(async () => setup.mockInput.pressEscape());
     const deadline = Date.now() + 1000;
-    while (!setup.captureCharFrame().includes("История проектов")) {
+    while (!setup.captureCharFrame().includes("Продолжить разговор")) {
       if (Date.now() >= deadline) throw new Error(setup.captureCharFrame());
       await act(async () => {
         await Bun.sleep(5);
         await setup.renderOnce();
       });
     }
-    expect(setup.captureCharFrame()).toContain("История проектов");
+    expect(setup.captureCharFrame()).toContain("Продолжить разговор");
     await act(async () => {
       setup.mockInput.pressEnter();
     });
@@ -227,5 +227,94 @@ test("session picker confirms deletion and refreshes without deleting on Escape"
     act(() => {
       setup.renderer.destroy();
     });
+  }
+});
+
+test("wide history ignores obsolete previews and keeps search spaces as text", async () => {
+  const second = {
+    ...base,
+    id: "00000000-0000-4000-8000-000000000002",
+    title: "Новая навигация",
+    projectName: "Orbit",
+    projectPath: "/projects/Orbit",
+    updatedAt: "2026-09-28T10:00:00.000Z",
+  };
+  const first = {
+    ...base,
+    projectName: "Atlas",
+    projectPath: "/projects/Atlas",
+  };
+  const pending = new Map<
+    string,
+    (session: ReturnType<typeof createSession>) => void
+  >();
+  const actions: OpenTuiSessionsActions = {
+    load: async () => [first, second],
+    preview: (id) => new Promise((resolve) => pending.set(id, resolve)),
+    resume: async () => {},
+    rename: async () => {},
+    delete: async () => {},
+    activeId: () => undefined,
+  };
+  let setup!: Awaited<ReturnType<typeof testRender>>;
+  const wait = async (predicate: () => boolean) => {
+    const deadline = Date.now() + 1500;
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error(setup.captureCharFrame());
+      await act(async () => {
+        await Bun.sleep(5);
+        await setup.renderOnce();
+      });
+    }
+  };
+  await act(async () => {
+    setup = await testRender(
+      <OpenTuiSessions
+        actions={actions}
+        width={120}
+        height={40}
+        onClose={() => {}}
+      />,
+      { width: 120, height: 40 },
+    );
+  });
+  try {
+    await wait(() => pending.has(second.id));
+    await act(async () => {
+      setup.mockInput.pressArrow("down");
+    });
+    await wait(() => pending.has(first.id));
+    const preview = createSession(process.cwd(), "openai", "fixture");
+    preview.messages.push({
+      role: "user",
+      content: [{ type: "text", text: "Текущий предпросмотр Atlas" }],
+    });
+    await act(async () => {
+      pending.get(first.id)?.(preview);
+      await setup.renderOnce();
+    });
+    const old = createSession(process.cwd(), "openai", "fixture");
+    old.messages.push({
+      role: "user",
+      content: [{ type: "text", text: "Устаревший предпросмотр Orbit" }],
+    });
+    await act(async () => {
+      pending.get(second.id)?.(old);
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).toContain("Текущий предпросмотр Atlas");
+    expect(setup.captureCharFrame()).not.toContain(
+      "Устаревший предпросмотр Orbit",
+    );
+    await act(async () => {
+      await setup.mockInput.typeText("Orbit навигация");
+    });
+    await wait(() => setup.captureCharFrame().includes("Сессий: 1"));
+    expect(setup.captureCharFrame()).toContain("Новая навигация");
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
+      "Orbit навигация",
+    );
+  } finally {
+    act(() => setup.renderer.destroy());
   }
 });

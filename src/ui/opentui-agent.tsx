@@ -93,7 +93,10 @@ import {
 import { CredentialStore } from "../security/credentials.js";
 import { SecretRedactor } from "../security/redaction.js";
 import {
-  ProjectSessionStore,
+  type HistoryEntry,
+  SessionHistoryCatalog,
+} from "../sessions/history.js";
+import {
   projectSessionStore,
   SessionProjectRegistry,
 } from "../sessions/project-store.js";
@@ -639,11 +642,24 @@ async function runApplication(
   const cancel = () => {
     if (workspace.activeKey) workspace.execution().cancel();
   };
-  const sessionStore = () => projectSessionStore(requireProject());
-  const historyRefs = new Map<
-    string,
-    { store: ProjectSessionStore; id: string }
-  >();
+  const history = new SessionHistoryCatalog();
+  const isArchive = ({ store }: HistoryEntry) =>
+    isPrivatePath(appPaths, store.project.canonicalPath) &&
+    !managedWorkspaceCandidate(appPaths.home, store.project.canonicalPath);
+  const admitHistory = async (entry: HistoryEntry, signal?: AbortSignal) => {
+    if (isArchive(entry))
+      throw new Error("Служебный архив доступен только для просмотра.");
+    const admitted = await admitWorkspace(entry.store.project.path, {
+      source: "resume",
+      configPath: options.configPath,
+      signal,
+    });
+    if (admitted.root !== pathIdentity(entry.store.project.canonicalPath))
+      throw new WorkspaceAdmissionError(
+        "WORKSPACE_CHANGED",
+        "Исходная папка истории изменилась.",
+      );
+  };
   const resume = async (ref: string): Promise<void> => {
     const owner = currentController(),
       generation = owner.currentGeneration;
@@ -659,27 +675,22 @@ async function runApplication(
     const assertOwner = () => {
       if (!isCurrent()) throw new Error("Открытие истории отменено.");
     };
-    const selected = historyRefs.get(ref);
-    const store = selected?.store ?? (await sessionStore());
-    const candidate = await store.load(
-      selected?.id ?? (await store.resolve(ref)).id,
-    );
+    const selected = await history.resolve(ref);
+    const store = selected.store;
+    const candidate = await store.load(selected.summary.sessionId);
     assertOwner();
-    const candidateWorkspace = await abortable(
-      () =>
-        admitWorkspace(candidate.projectPath, {
-          source: "resume",
-          configPath: options.configPath,
-          signal,
-        }),
-      signal,
-    );
-    if (candidateWorkspace.root !== pathIdentity(store.project.canonicalPath))
-      throw new WorkspaceAdmissionError(
-        "WORKSPACE_CHANGED",
-        "Исходная папка истории изменилась.",
-      );
+    await abortable(() => admitHistory(selected, signal), signal);
     assertOwner();
+    const existing = workspace.tabs.find(
+      ({ controller }) =>
+        controller.snapshot.sessionId === candidate.id &&
+        pathIdentity(controller.snapshot.projectPath) ===
+          pathIdentity(candidate.projectPath),
+    );
+    if (existing) {
+      workspace.select(existing.key);
+      return;
+    }
     const session = await store.interruptSideQueries(candidate.id);
     assertOwner();
     const project = await abortable(
@@ -836,65 +847,49 @@ async function runApplication(
   };
   const sessionPicker: OpenTuiSessionsActions = {
     load: async () => {
-      historyRefs.clear();
-      if (currentController().snapshot.projectPath)
-        return (await (await sessionStore()).list()).filter(
-          (item) => !item.subagentOwnerId && !item.backgroundOwnerId,
-        );
-      const entries: import("./opentui-sessions.js").HistorySummary[] = [];
-      for (const project of await new SessionProjectRegistry().list()) {
-        const store = new ProjectSessionStore(project);
-        for (const summary of await store.listReadonly()) {
-          if (summary.subagentOwnerId || summary.backgroundOwnerId) continue;
-          const id = `${project.id}:${summary.id}`;
-          historyRefs.set(id, { store, id: summary.id });
-          entries.push({
-            ...summary,
-            id,
-            projectName: project.name,
-            projectPath: project.path,
-            archive:
-              isPrivatePath(appPaths, project.canonicalPath) &&
-              !managedWorkspaceCandidate(appPaths.home, project.canonicalPath),
-          });
-        }
-      }
-      return entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      return (await history.list()).map((entry) => ({
+        ...entry.summary,
+        archive: isArchive(entry),
+      }));
     },
     preview: async (id) => {
-      const selected = historyRefs.get(id);
-      return selected
-        ? selected.store.load(selected.id)
-        : (await sessionStore()).load(id);
+      const entry = await history.resolve(id);
+      return entry.store.load(entry.summary.sessionId);
     },
     resume,
     rename: async (id, title) => {
-      if (historyRefs.has(id))
-        throw new Error(
-          "Архив открыт только для просмотра. Для изменения истории откройте исходный проект.",
-        );
-      const store = await sessionStore();
-      await store.rename(id, title);
-      const session = await store.load(id);
+      const entry = await history.resolve(id);
+      await admitHistory(entry);
+      const store = entry.store;
+      await store.rename(entry.summary.sessionId, title);
+      const session = await store.load(entry.summary.sessionId);
       for (const tab of workspace.tabs) {
-        if (tab.controller.snapshot.sessionId === session.id)
+        if (
+          tab.controller.snapshot.sessionId === session.id &&
+          pathIdentity(tab.controller.snapshot.projectPath) ===
+            pathIdentity(session.projectPath)
+        )
           tab.controller.setSessionUsage(session);
       }
     },
     delete: async (id) => {
-      if (historyRefs.has(id))
-        throw new Error(
-          "Архив открыт только для просмотра. Для удаления истории откройте исходный проект.",
-        );
-      const projectPath = currentController().snapshot.projectPath;
+      const entry = await history.resolve(id);
+      await admitHistory(entry);
+      const projectPath = pathIdentity(entry.store.project.path);
       const tabs = workspace.tabs.filter(
         ({ controller }) =>
-          controller.snapshot.sessionId === id &&
-          controller.snapshot.projectPath === projectPath,
+          controller.snapshot.sessionId === entry.summary.sessionId &&
+          pathIdentity(controller.snapshot.projectPath) === projectPath,
       );
-      if (tabs.some(({ controller }) => controller.snapshot.busy))
-        throw new Error("Дождитесь завершения запроса перед удалением сессии.");
-      await (await sessionStore()).delete(id);
+      if (
+        tabs.some(
+          ({ controller }) =>
+            controller.snapshot.busy ||
+            workspace.execution(controller).closeBlocked,
+        )
+      )
+        throw new Error("Сначала остановите активные задачи разговора.");
+      await entry.store.delete(entry.summary.sessionId);
       for (const tab of tabs) workspace.close(tab.key);
     },
     activeId: () => currentController().snapshot.sessionId,
@@ -1333,22 +1328,11 @@ async function runApplication(
         controller.append("Дождитесь перезапуска ChiselCode.", "warn");
         return;
       }
-      if (input === "/home") return workspace.select();
       if (input === "/clear") {
         workspace.newDraft(controller.snapshot.projectPath);
         return;
       }
       if (input === "/update") return updater.check();
-      if (input === "/sessions") {
-        const sessions = await sessionPicker.load();
-        controller.append(
-          sessions
-            .map((s) => `${s.id} | ${s.title ?? "без названия"}`)
-            .join("\n") || "Сессий нет",
-          "info",
-        );
-        return;
-      }
       if (parsed?.name === "/resume" && parsed.args) {
         try {
           await resume(parsed.args);

@@ -320,6 +320,7 @@ function OpenTuiScreen({
   const [overlayDismissed, setOverlayDismissed] = useState(false);
   const [approval, setApproval] = useState<ApprovalRequest>();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerOrigin = useRef<TuiController | undefined>(undefined);
   const [projects, setProjects] = useState<OpenTuiProjectsActions>();
   const [settingsOpen, setSettingsOpen] = useState(initialSettingsOpen);
   const [theme, setTheme] = useState<ThemeName>(initialTheme);
@@ -1670,7 +1671,7 @@ function OpenTuiScreen({
     if (
       !view.projectPath &&
       getProjectActions &&
-      !/^\/(settings|model|skills|update|sessions|resume|home|clear|cwd|permissions|plan|build|mcp|compact)(\s|$)/.test(
+      !/^\/(settings|model|skills|update|resume|clear|cwd|permissions|plan|build|mcp|compact)(\s|$)/.test(
         value,
       )
     ) {
@@ -1735,7 +1736,8 @@ function OpenTuiScreen({
       clearInput();
       return;
     }
-    if (sessionPicker && (value === "/sessions" || value === "/resume")) {
+    if (sessionPicker && value === "/resume") {
+      pickerOrigin.current = controller;
       setPickerOpen(true);
       controller?.setOverlay("sessions");
       controller?.setFocus("modal");
@@ -1978,20 +1980,6 @@ function OpenTuiScreen({
   const statuses = (view.uiContributions ?? []).filter(
     (item) => item.descriptor.slot === "status",
   );
-  if (pickerOpen && sessionPicker && !approval)
-    return (
-      <OpenTuiSessions
-        actions={sessionPicker}
-        width={width}
-        height={height}
-        palette={palette}
-        onClose={() => {
-          setPickerOpen(false);
-          controller?.setOverlay();
-          controller?.setFocus(focus === "editor" ? "composer" : focus);
-        }}
-      />
-    );
   if (setupPending && settingsOpen)
     return (
       <box width={width} height={height} backgroundColor={palette.bg}>
@@ -2066,9 +2054,9 @@ function OpenTuiScreen({
             id: "sessions",
             label: "История бесед",
             detail: "Открыть сохранённую сессию",
-            shortcut: "/sessions",
+            shortcut: "/resume",
             group: "БЕСЕДА",
-            run: () => submit("/sessions"),
+            run: () => submit("/resume"),
           },
         ]
       : []),
@@ -2233,6 +2221,7 @@ function OpenTuiScreen({
           width={composerWidth}
           focused={
             !commandFeedbackActive &&
+            !pickerOpen &&
             focus === "editor" &&
             !skillsOpen &&
             !mcpActions &&
@@ -2279,6 +2268,7 @@ function OpenTuiScreen({
             height={editorHeight}
             focused={
               !commandFeedbackActive &&
+              !pickerOpen &&
               focus === "editor" &&
               !skillsOpen &&
               !mcpActions &&
@@ -2450,7 +2440,7 @@ function OpenTuiScreen({
                       onSettings={() => openSettings("connection")}
                       onModels={getModelsActions ? openModels : undefined}
                       onSessions={
-                        sessionPicker ? () => submit("/sessions") : undefined
+                        sessionPicker ? () => submit("/resume") : undefined
                       }
                       onProjects={getProjectActions ? openProjects : undefined}
                     >
@@ -2805,6 +2795,22 @@ function OpenTuiScreen({
           </UiSurface>
         </UiSurface>
         <UiCompositionNotices />
+        {pickerOpen && sessionPicker && !approval && (
+          <OpenTuiSessions
+            actions={sessionPicker}
+            width={width}
+            height={height}
+            palette={palette}
+            onClose={() => {
+              setPickerOpen(false);
+              pickerOrigin.current?.setOverlay();
+              pickerOrigin.current?.setFocus("composer");
+              pickerOrigin.current = undefined;
+              controller?.setOverlay();
+              controller?.setFocus(focus === "editor" ? "composer" : focus);
+            }}
+          />
+        )}
         {projects && !approval && (
           <OpenTuiProjects
             actions={projects}

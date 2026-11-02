@@ -23,6 +23,8 @@ chisel --cwd ./my-project "Объясни структуру проекта"
 chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 ```
 
+Флаг `--resume` ищет ID в текущем проекте или `--cwd`. Для выбора между проектами откройте `/resume` в интерактивном режиме: [поиск и восстановление сессий](sessions.md).
+
 ## Флаги запроса
 
 Для локальных пакетов расширений: `chisel extensions inspect/install/update/enable/disable/versions/rollback/remove/status/recover`. Эти команды не запускают внешний JS или модель. Установка по умолчанию выключена без доверия; [точные flags, ZIP и restart](extensions.md) описаны отдельно. Tarball приложения/SDK не является ZIP пакетом расширения.

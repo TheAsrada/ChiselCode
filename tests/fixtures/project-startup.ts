@@ -256,7 +256,7 @@ try {
           !!ui.renderer.currentFocusedEditor,
         "return from global settings",
       );
-      await type("/sessions");
+      await type("/resume");
       await enter();
       await wait(() => ui.captureCharFrame().includes("Архив"), "archive list");
       await enter();
@@ -269,12 +269,12 @@ try {
       assert.equal(await readFile(archivePath, "utf8"), archiveBytes);
       await act(async () => ui.mockInput.pressKey("c", { ctrl: true }));
       await wait(
-        () => ui.captureCharFrame().includes("История проектов"),
+        () => ui.captureCharFrame().includes("Продолжить разговор"),
         "return to history",
       );
       await act(async () => ui.mockInput.pressEscape());
       await wait(
-        () => !!ui.renderer.currentFocusedEditor,
+        () => ui.renderer.currentFocusedEditor?.id === "prompt-editor",
         "return from history",
       );
     }
