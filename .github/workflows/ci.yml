@@ -32,6 +32,7 @@ jobs:
       CHISEL_EXTERNAL_CAPTURES: ${{ github.workspace }}/dist/external-extension-captures
       CHISEL_EXTENSION_SETTINGS_CAPTURES: dist/extension-settings-captures
       CHISEL_RESUME_CAPTURES: dist/resume-captures
+      CHISEL_TEST_LSP_CAPTURES: dist/lsp-menu-captures
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -70,6 +71,55 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  lsp:
+    if: inputs.platform != 'ubuntu-latest'
+    name: LSP lifecycle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.platform == 'all' && '["macos-latest","windows-latest"]' || format('["{0}"]', inputs.platform)) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: bun scripts/prepare-lsp-tests.ts
+      - name: LSP configuration, cancellation, processes, tools and native menu
+        shell: bash
+        env:
+          CHISEL_TEST_LSP_CAPTURES: dist/lsp-menu-captures
+        run: |
+          bun test tests/unit/lsp-config.test.ts tests/unit/lsp-service.test.ts tests/unit/lsp-transport.test.ts tests/integration/lsp-runtime.test.ts tests/integration/lsp-multilingual.test.ts tests/integration/lsp-tui.test.ts tests/unit/opentui-lsp-settings.test.tsx tests/integration/ui-tools-runtime.test.ts --reporter=junit --reporter-outfile=lsp-results.xml 2>&1 | tee lsp-results.log
+      - name: Installed and compiled LSP menu smoke
+        shell: bash
+        run: |
+          bun run build
+          tarball=$(npm pack --silent --pack-destination dist)
+          npm install --prefix ./dist/lsp-install-smoke --no-audit --no-fund "./dist/$tarball"
+          bun build tests/fixtures/tui-lsp-settings.ts --outdir=./dist/lsp-install-smoke/node_modules/chiselcode/dist/lsp-menu-smoke --target=bun --external '@opentui/core-*'
+          CHISEL_LSP_MENU_SMOKE=1 bun ./dist/lsp-install-smoke/node_modules/chiselcode/dist/lsp-menu-smoke/tui-lsp-settings.js
+          binary=dist/chisel-lsp-menu
+          if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
+          bun build tests/fixtures/tui-lsp-settings.ts --compile --outfile="$binary"
+          CHISEL_LSP_MENU_SMOKE=1 "$binary"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lsp-${{ matrix.os }}
+          path: |
+            lsp-results.xml
+            lsp-results.log
+            dist/lsp-menu-captures/**
+          if-no-files-found: warn
+          retention-days: 7
+
   native:
     name: Native smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -88,9 +138,6 @@ jobs:
           node-version: "24.19.0"
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Prepare pinned LSP dependencies for platform tests
-        if: runner.os != 'Linux'
-        run: bun scripts/prepare-lsp-tests.ts
       - name: Platform paths, atomic storage, shell and process ownership
         if: runner.os != 'Linux'
         run: >-
@@ -102,11 +149,10 @@ jobs:
           tests/unit/subagent-lifecycle.test.ts tests/unit/subagent-budget.test.ts
           tests/integration/subagents-runtime.test.ts
           tests/integration/conversation-diagnostics.test.ts
-          tests/unit/lsp-transport.test.ts
           tests/unit/extension-authoring.test.ts tests/unit/ui-extension-runtime.test.ts
           tests/unit/opentui-extension-interaction.test.tsx
           tests/integration/ui-extension-tools.test.ts
-          tests/unit/provider-config.test.ts tests/unit/lsp-config.test.ts
+          tests/unit/provider-config.test.ts
           tests/unit/opentui-terminal-compatibility.test.tsx tests/unit/opentui-settings.test.tsx
           tests/unit/opentui-navigation.test.tsx tests/unit/opentui-file-diff.test.tsx
           tests/unit/project-admission.test.ts tests/unit/terminal-drafts.test.ts
@@ -165,6 +211,10 @@ jobs:
           bun tests/fixtures/web-download-cli.ts bun "$entry"
           bun tests/fixtures/skill-install-cli.ts bun "$entry"
           bun tests/fixtures/external-extensions-cli.ts bun "$entry"
+          if [ "$RUNNER_OS" = Linux ]; then
+            bun build tests/fixtures/tui-lsp-settings.ts --outdir=./dist/install-smoke/node_modules/chiselcode/dist/lsp-menu-smoke --target=bun --external '@opentui/core-*'
+            CHISEL_LSP_MENU_SMOKE=1 bun ./dist/install-smoke/node_modules/chiselcode/dist/lsp-menu-smoke/tui-lsp-settings.js
+          fi
       - name: Compiled CLI, real LSP, helpers, worktrees and background processes
         shell: bash
         run: |
@@ -203,6 +253,10 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
           bun build tests/fixtures/tui-settings-tools.ts --compile --outfile="$binary"
           CHISEL_SETTINGS_TOOLS_SMOKE=1 "$binary"
+          if [ "$RUNNER_OS" = Linux ]; then
+            bun build tests/fixtures/tui-lsp-settings.ts --compile --outfile=dist/chisel-lsp-menu
+            CHISEL_LSP_MENU_SMOKE=1 dist/chisel-lsp-menu
+          fi
           binary=dist/chisel-project-startup
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
           bun build tests/fixtures/project-startup.ts --compile --outfile="$binary"

@@ -1,0 +1,8 @@
+  TypeScript            
+  ib\tsserver.js        
+   Готово · Esc         
+                        
+                        
+                        
+                        
+  F2 сохр | Esc н...    

@@ -29,7 +29,11 @@ import { WorkspacePolicy } from "../../src/security/workspace-policy.js";
 import { attachSessionRecorder } from "../../src/sessions/checkpoints.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
-import { installedLsp } from "../fixtures/lsp-runtime.js";
+import {
+  installedLsp,
+  lspProcessTree,
+  waitForLspProcessExit,
+} from "../fixtures/lsp-runtime.js";
 
 test("manual generic LSP uses the same service for a new language, exact trust, observations and revocation", async () => {
   const directory = await realpath(
@@ -119,6 +123,10 @@ test("real Auto Python and Lua share a workspace through core tools; revisions, 
     join(root, "main.lua"),
     "local function greet(name)\n return name\nend\ngreet('hi')\n",
   );
+  await writeFile(
+    join(root, "main.ts"),
+    "export function typescriptAlive() { return 1; }\n",
+  );
   const host = new ExtensionHost(defaultExtensions([], { configPath }));
   let tools: Awaited<ReturnType<typeof createSessionToolRuntime>> | undefined;
   try {
@@ -126,7 +134,15 @@ test("real Auto Python and Lua share a workspace through core tools; revisions, 
     const service = scope.services.get(lspServiceToken);
     const settings = new LspSettingsStore(root, configPath, {
       status: () => service.status(),
-      apply: () => service.refreshConfiguration(),
+      apply: async () => {
+        await Promise.all(
+          host
+            .readyScopes()
+            .map((entry) =>
+              entry.services.lookup(lspServiceToken)?.refreshConfiguration(),
+            ),
+        );
+      },
       restart: async () => {
         throw new Error("Use executor");
       },
@@ -159,6 +175,8 @@ test("real Auto Python and Lua share a workspace through core tools; revisions, 
     )[0];
     expect(first?.isError).not.toBe(true);
     expect(first?.output).toContain("reportAssignmentType");
+    const pythonProcesses = await lspProcessTree();
+    expect(pythonProcesses.length).toBeGreaterThan(0);
     const pythonGeneration = (await service.status()).generation;
     const definition = (
       await call("ext:builtin.lsp:definition", {
@@ -181,6 +199,29 @@ test("real Auto Python and Lua share a workspace through core tools; revisions, 
     )[0];
     expect(lua?.output).toContain("greet");
     expect((await service.status()).servers).toHaveLength(2);
+    expect(
+      (await call("ext:builtin.lsp:symbols", { path: "main.ts" }))[0]?.output,
+    ).toContain("typescriptAlive");
+    expect((await service.status()).servers).toHaveLength(3);
+    await mkdir(join(root, "nested"));
+    await writeFile(join(root, "nested/pyrightconfig.json"), "{}");
+    await writeFile(
+      join(root, "nested/other.py"),
+      "def nested_python():\n    return 1\n",
+    );
+    const beforeNested = await lspProcessTree();
+    expect(
+      (await call("ext:builtin.lsp:symbols", { path: "nested/other.py" }))[0]
+        ?.output,
+    ).toContain("nested_python");
+    pythonProcesses.push(
+      ...(await lspProcessTree()).filter((pid) => !beforeNested.includes(pid)),
+    );
+    expect(
+      (await service.status()).servers?.filter(
+        (entry) => entry.serverId === "auto-python",
+      ),
+    ).toHaveLength(2);
     const edit = (
       await call("edit_file", {
         path: "main.py",
@@ -195,6 +236,54 @@ test("real Auto Python and Lua share a workspace through core tools; revisions, 
     expect(fixed?.output).not.toContain("reportAssignmentType");
     expect((await service.status()).generation).toBe(pythonGeneration);
     expect(await service.collectContext()).not.toContain("not assignable");
+    let state = await settings.setServerEnabled(
+      "global",
+      "auto-python",
+      false,
+      await settings.load(),
+    );
+    await waitForLspProcessExit(pythonProcesses);
+    expect((await service.status("auto-python")).state).toBe("disabled");
+    expect(
+      (await service.status()).servers
+        ?.filter((entry) => entry.serverId === "auto-python")
+        .every((entry) => entry.state === "disabled"),
+    ).toBe(true);
+    expect(
+      (await call("ext:builtin.lsp:symbols", { path: "main.ts" }))[0]?.output,
+    ).toContain("typescriptAlive");
+    expect((await service.status("auto-lua")).state).toBe("ready");
+    expect(
+      (await call("ext:builtin.lsp:diagnostics", { path: "main.py" }))[0]
+        ?.errorCode,
+    ).toBe("LSP_UNAVAILABLE");
+    const remaining = await lspProcessTree();
+    state = await settings.setServerEnabled(
+      "project",
+      "auto-python",
+      true,
+      state,
+    );
+    expect((await service.status("auto-python")).state).toBe("stopped");
+    expect((await lspProcessTree()).sort()).toEqual(remaining.sort());
+    expect(
+      (await call("ext:builtin.lsp:diagnostics", { path: "main.py" }))[0]
+        ?.isError,
+    ).not.toBe(true);
+    expect((await service.status("auto-python")).generation).toBe(
+      pythonGeneration + 1,
+    );
+    state = await settings.setServerEnabled(
+      "project",
+      "auto-python",
+      undefined,
+      state,
+    );
+    expect((await service.status("auto-python")).state).toBe("disabled");
+    expect(state.project.serverOverrides).toBeUndefined();
+    expect(
+      (await call("ext:builtin.lsp:symbols", { path: "main.ts" }))[0]?.output,
+    ).toContain("typescriptAlive");
     const saved = await store.load(session.id);
     expect(saved?.messages).toEqual([]);
     expect(
@@ -204,8 +293,17 @@ test("real Auto Python and Lua share a workspace through core tools; revisions, 
           record.toolSource.extensionId === "builtin.lsp",
       ),
     ).toBe(true);
-    await settings.saveGlobal({ mode: "off", servers: {} });
+    const otherRoot = join(directory, "other-workspace");
+    await mkdir(otherRoot);
+    const otherScope = await host.open(otherRoot);
+    const otherService = otherScope.services.get(lspServiceToken);
+    await otherService.ensureStarted();
+    expect((await otherService.status()).state).toBe("ready");
+    const allProcesses = await lspProcessTree();
+    await settings.saveGlobal({ mode: "auto", enabled: false, servers: {} });
     expect((await service.status()).state).toBe("disabled");
+    expect((await otherService.status()).state).toBe("disabled");
+    await waitForLspProcessExit(allProcesses);
     const denied = (
       await call("ext:builtin.lsp:diagnostics", { path: "main.py" })
     )[0];

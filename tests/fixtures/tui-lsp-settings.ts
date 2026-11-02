@@ -16,7 +16,9 @@ import {
 
 export const LSP_TUI_MARKER =
   "LSP Settings: Auto, custom setup, explicit trust, approval, real analysis, edit, restart, revocation and cleanup passed";
-export async function runLspTuiScenario(captures?: string): Promise<void> {
+export async function runLspTuiScenario(
+  captures = process.env.CHISEL_TEST_LSP_CAPTURES,
+): Promise<void> {
   const storage = await mkdtemp(join(tmpdir(), "chisel-lsp-tui-"));
   const root = join(storage, "workspace");
   await mkdir(root);
@@ -65,7 +67,6 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     join(root, "main.ts"),
     'export const value: number = "wrong";\n',
   );
-  const paths = await installedLsp();
   const fixture: ChiselExtension = {
     id: "fixture.lsp-ui",
     activate(ctx) {
@@ -77,6 +78,13 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
           context.tools.execute("ext:builtin.lsp:diagnostics", {
             path: "main.ts",
           }),
+      });
+      ctx.commands.register({
+        name: "inspect-status",
+        description: "Fixture status through real tool",
+        parse: () => ({}),
+        execute: (context) =>
+          context.tools.execute("ext:builtin.lsp:status", {}),
       });
       ctx.commands.register({
         name: "fix-type",
@@ -106,7 +114,16 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
   };
   const key = async (name: string, ctrl = false) => {
     await act(async () => {
-      setup.mockInput.pressKey(name === "ENTER" ? "RETURN" : name, { ctrl });
+      setup.mockInput.pressKey(
+        name === "ENTER"
+          ? "RETURN"
+          : name === "DOWN"
+            ? "ARROW_DOWN"
+            : name === "UP"
+              ? "ARROW_UP"
+              : name,
+        { ctrl },
+      );
     });
     if (name === "ESCAPE")
       await act(async () => {
@@ -132,13 +149,17 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     await frames();
   };
   const wait = async (
-    predicate: () => boolean,
+    predicate: () => boolean | Promise<boolean>,
     message: string,
     milliseconds = 12_000,
   ) => {
     const end = Date.now() + milliseconds;
-    while (!predicate() && Date.now() < end) await frames();
-    assert.ok(predicate(), `${message}\n${setup.captureCharFrame()}`);
+    let matched = await predicate();
+    while (!matched && Date.now() < end) {
+      await frames();
+      matched = await predicate();
+    }
+    assert.ok(matched, `${message}\n${setup.captureCharFrame()}`);
   };
   const capture = async (name: string) => {
     if (!captures) return;
@@ -167,8 +188,26 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     await paste(value);
     await key("ENTER");
   };
+  const choose = async (id: string) => {
+    const visible = () => {
+      const node = setup.renderer.root.findDescendantById(id);
+      return !!node?.visible && node.height > 0;
+    };
+    if (!visible() && id.startsWith("lsp-row-")) {
+      await key("HOME");
+      const deadline = Date.now() + 5000;
+      for (
+        let index = 0;
+        !visible() && index < 90 && Date.now() < deadline;
+        index++
+      )
+        await key("DOWN");
+    }
+    await wait(visible, `Missing ${id}`, 1000);
+    await click(id);
+  };
   const field = async (id: string, value: string) => {
-    await click(`lsp-row-${id}`);
+    await choose(`lsp-row-${id}`);
     await key("a", true);
     await key("k", true);
     await paste(value);
@@ -193,318 +232,292 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       "Application input did not become ready",
     );
     await click("prompt-editor");
-    await command("/settings");
+    await paste("Неотправленный черновик");
+    // All three entrances share the actual Settings panel and its captured actions.
+    await key("F9");
     await wait(
-      () => !!setup.renderer.root.findDescendantById("settings-global-search"),
-      "Settings did not open",
+      () =>
+        !!setup.renderer.root.findDescendantById(
+          "ui-overflow-builtin.lsp/status",
+        ),
+      "LSP status did not appear",
     );
-    await capture("wide-120x40");
-    if (captures) {
-      for (const [width, height] of [
-        [100, 30],
-        [80, 24],
-        [60, 20],
-        [40, 12],
-        [24, 8],
-      ] as const) {
-        await act(async () => setup.resize(width, height));
-        await frames();
-        await capture(`navigation-${width}x${height}`);
-      }
-      await act(async () => setup.resize(120, 40));
-      await frames();
-    }
-    await key("f", true);
-    await paste("анализ кода");
-    assert.ok(setup.captureCharFrame().includes("Анализ кода"));
-    await capture("search-120x40");
-    await key("ENTER");
+    await click("ui-overflow-builtin.lsp/status");
     await wait(
-      () => !!setup.renderer.root.findDescendantById("lsp-row-mode-auto"),
-      "Default Auto mode missing",
+      () => !!setup.renderer.root.findDescendantById("lsp-row-enabled"),
+      "Unified menu did not open",
     );
-    assert.ok(setup.captureCharFrame().includes("[x] Auto"));
+    assert.ok(setup.captureCharFrame().includes("Этот проект"));
     assert.equal(
       (await lspProcessTree()).length,
       0,
-      "Settings/listing must not start Auto",
+      "Passive menu started a server",
     );
-    await capture("lsp-auto-idle-120x40");
-    if (captures) {
-      for (const [width, height] of [
-        [100, 30],
-        [80, 24],
-        [60, 20],
-        [40, 12],
-        [24, 8],
-      ] as const) {
-        await act(async () => setup.resize(width, height));
-        await frames();
-        await capture(`lsp-auto-idle-${width}x${height}`);
-      }
-      await act(async () => setup.resize(120, 40));
-      await frames();
-    }
-    await click("lsp-project");
-    assert.ok(
-      !setup.renderer.root.findDescendantById("lsp-row-trust")?.visible,
-      "Standard backend must not require per-project trust",
-    );
-    await capture("lsp-auto-project-120x40");
-    await key("ESCAPE");
-    await key("ESCAPE");
-    for (let attempt = 0; attempt < 4; attempt++) {
-      await command("/inspect-types");
-      await wait(
-        () =>
-          setup.captureCharFrame().includes("Завершено") ||
-          setup.captureCharFrame().includes("2322"),
-        "Analysis did not finish",
-      );
-      if (setup.captureCharFrame().includes("2322")) break;
-    }
-    await wait(
-      () => setup.captureCharFrame().includes("2322"),
-      "Default Auto must lazily analyse without paths/trust",
-    );
-    const autoProcesses = await lspProcessTree();
-    assert.ok(
-      autoProcesses.length >= 2,
-      "Real Auto server/tsserver not observed",
-    );
-    await command("/settings");
-    await wait(
-      () => !!setup.renderer.root.findDescendantById("settings-global-search"),
-      "Settings did not reopen for Auto",
-    );
-    await key("f", true);
-    await paste("анализ кода");
-    await key("ENTER");
-    await wait(
-      () => setup.captureCharFrame().includes("[ok] Готов"),
-      "Auto should show actual readiness",
-    );
-    await capture("lsp-auto-ready-120x40");
-    if (captures) {
-      await click("settings-route-appearance");
-      await click("settings-theme-paper");
-      await key("s", true);
-      await frames();
-      await click("settings-route-tools.lsp");
-      await capture("lsp-auto-ready-paper-120x40");
-      await click("settings-route-appearance");
-      await click("settings-theme-graphite");
-      await key("s", true);
-      await click("settings-route-tools.lsp");
-    }
-    await click("lsp-row-mode-off");
-    await capture("lsp-auto-off-draft-120x40");
-    await click("lsp-save");
-    await wait(
-      () => setup.captureCharFrame().includes("активные серверы закрыты"),
-      "Off save failed",
-    );
-    await waitForLspProcessExit(autoProcesses);
-    assert.equal(
-      JSON.parse(await readFile(configPath, "utf8")).lsp.mode,
-      "off",
-    );
-    await click("lsp-row-mode-custom");
-    await capture("lsp-empty-120x40");
-    await click("lsp-row-add");
-    await field("node", paths.command);
-    await field("server", paths.args[0] ?? "");
-    await click("lsp-row-typescript");
-    await key("a", true);
-    await paste(paths.typescriptPath);
-    const editor = setup.renderer.currentFocusedEditor;
-    assert.ok(editor);
-    const cursor = editor.cursorOffset;
+    await capture("overview-120x40");
     for (const [width, height] of [
-      [100, 30],
       [80, 24],
-      [60, 20],
       [40, 12],
       [24, 8],
     ] as const) {
       await act(async () => setup.resize(width, height));
       await frames();
+      await capture(`overview-${width}x${height}`);
       assert.ok(
-        setup.renderer.currentFocusedEditor === editor,
-        "Resize lost native path focus",
+        setup.captureCharFrame().includes("LSP"),
+        "Tiny menu lost its identity",
+      );
+    }
+    await act(async () => setup.resize(120, 40));
+    await frames();
+    await key("ESCAPE");
+    await wait(
+      () => !setup.renderer.root.findDescendantById("settings-popup"),
+      "Menu did not close",
+    );
+    assert.equal(
+      setup.renderer.currentFocusedEditor?.plainText,
+      "Неотправленный черновик",
+    );
+    await key("b", true);
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("sidebar-tab-menu"),
+      "Sidebar unavailable",
+    );
+    await click("sidebar-tab-menu");
+    await wait(
+      () =>
+        !!setup.renderer.root.findDescendantById(
+          "sidebar-menu-builtin.lsp/menu_entry",
+        ),
+      "Sidebar LSP entry unavailable",
+    );
+    await click("sidebar-menu-builtin.lsp/menu_entry");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("lsp-row-enabled"),
+      "Sidebar did not open unified menu",
+    );
+    await key("ESCAPE");
+    await click("prompt-editor");
+    assert.equal(
+      setup.renderer.currentFocusedEditor?.plainText,
+      "Неотправленный черновик",
+    );
+    await key("a", true);
+    await key("k", true);
+    await command("/settings");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("settings-global-search"),
+      "Settings unavailable",
+    );
+    await key("f", true);
+    await paste("анализ кода");
+    await key("ENTER");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("lsp-row-enabled"),
+      "Settings did not reuse LSP menu",
+    );
+    await choose("lsp-row-catalog");
+    await choose("lsp-row-server-auto");
+    await capture("card-idle-120x40");
+    await choose("lsp-row-start");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("approval-popup"),
+      "UI invocation bypassed approval on home",
+    );
+    await key("y");
+    await wait(
+      () =>
+        setup.captureCharFrame().includes("Сервер работает после initialize"),
+      "Real Auto initialize failed",
+    );
+    const autoProcesses = await lspProcessTree();
+    assert.ok(autoProcesses.length >= 2, "Real Auto process tree missing");
+    await capture("card-running-120x40");
+    await choose("lsp-row-start");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("approval-popup"),
+      "Second UI restart bypassed approval",
+    );
+    await key("y");
+    await wait(
+      () =>
+        setup.captureCharFrame().includes("Сервер работает после initialize") &&
+        !setup.renderer.root.findDescendantById("approval-popup"),
+      "Second home restart failed",
+    );
+    // Home UI operations retain checkpoints without allocating visible tabs or making model messages.
+    const homeStore = await projectSessionStore(root);
+    let advanced = false;
+    const checkpointDeadline = Date.now() + 3000;
+    while (!advanced && Date.now() < checkpointDeadline) {
+      for (const summary of await homeStore.list()) {
+        const saved = await homeStore.load(summary.id);
+        advanced ||= Object.values(saved.runtime?.invocations ?? {}).some(
+          (record) =>
+            record.name === "ext:builtin.lsp:restart" &&
+            record.result?.output.includes('"generation": 2'),
+        );
+        assert.equal(saved.messages.length, 0);
+      }
+      if (!advanced) await frames(1);
+    }
+    assert.ok(advanced, "UI restart checkpoint/generation missing");
+    await key("ESCAPE"); // card -> overview
+    await click("lsp-global");
+    await choose("lsp-row-enabled");
+    await wait(
+      () => setup.captureCharFrame().includes("Анализ кода: Выключен"),
+      "Global Off did not apply",
+    );
+    const stopped = await lspProcessTree();
+    assert.equal(stopped.length, 0, "Off did not close all server descendants");
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.enabled,
+      false,
+    );
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.mode,
+      undefined,
+    );
+    await capture("off-120x40");
+    await click("lsp-project");
+    await choose("lsp-row-enabled");
+    await wait(
+      () =>
+        setup.captureCharFrame().includes("Анализ выключен для всех проектов"),
+      "Project switch did not explain global ceiling",
+    );
+    await choose("lsp-row-enabled");
+    await wait(
+      () => setup.captureCharFrame().includes("Анализ кода: Включён"),
+      "Global On failed",
+    );
+    assert.equal((await lspProcessTree()).length, 0, "On must remain lazy");
+    if (process.env.CHISEL_LSP_MENU_SMOKE === "1") {
+      assert.equal(modelRequests, 0);
+      await key("ESCAPE");
+      await wait(
+        () => !setup.renderer.root.findDescendantById("settings-popup"),
+        "Smoke menu did not close",
+      );
+      await command("/exit");
+      await application;
+      process.stdout.write(
+        "LSP menu smoke: три входа, ui_tool/approval, checkpoints, lazy toggle и cleanup проверены\n",
+      );
+      return;
+    }
+    const paths = await installedLsp();
+    await choose("lsp-row-add");
+    await field("node", paths.command);
+    await field("server", paths.args[0] ?? "");
+    await choose("lsp-row-typescript");
+    await key("a", true);
+    await key("k", true);
+    await paste(paths.typescriptPath);
+    const editor = setup.renderer.currentFocusedEditor;
+    assert.ok(editor);
+    const cursor = editor.cursorOffset;
+    for (const [width, height] of [
+      [120, 40],
+      [80, 24],
+      [40, 12],
+      [24, 8],
+    ] as const) {
+      await act(async () => setup.resize(width, height));
+      await frames();
+      assert.equal(
+        setup.renderer.currentFocusedEditor,
+        editor,
+        "Resize replaced native input",
       );
       assert.equal(editor.cursorOffset, cursor);
-      await capture(`path-${width}x${height}`);
+      await capture(`form-input-${width}x${height}`);
     }
     await act(async () => setup.resize(120, 40));
     await frames();
     await key("ENTER");
-    await capture("lsp-form-dirty-120x40");
+    await capture("form-draft-120x40");
     await key("f", true);
-    await key("a", true);
-    await paste("auto");
+    await paste("python");
     await key("ENTER");
-    assert.ok(
-      setup.captureCharFrame().includes("черновик своего сервера"),
-      "Mode deep link must not discard a dirty server form",
-    );
-    assert.ok(
-      setup.renderer.root.findDescendantById("lsp-row-node")?.visible,
-      "Unsaved custom paths disappeared",
-    );
-    await click("lsp-row-check");
-    await wait(
-      () => setup.captureCharFrame().includes("Пути доступны"),
-      "Read-only path check failed",
-    );
-    assert.deepEqual(
-      JSON.parse(await readFile(configPath, "utf8")).lsp,
-      { mode: "off", servers: {} },
-      "Check must not save or start",
-    );
-    await click("lsp-save");
+    await choose("lsp-row-server-auto-python");
+    await choose("lsp-row-server-enabled");
     await wait(
       () => setup.captureCharFrame().includes("Сохранено"),
-      "LSP config save failed",
-    );
-    const saved = JSON.parse(await readFile(configPath, "utf8"));
-    assert.equal(saved.lsp.servers.typescript.command, paths.command);
-    assert.deepEqual(saved.lsp.servers.typescript.trustedWorkspaces, []);
-    // Saving one scope must leave the other scope's draft intact.
-    await click("lsp-row-enabled");
-    await click("lsp-project");
-    await click("lsp-row-mode"); // inherit → auto
-    await click("lsp-row-mode"); // auto → custom
-    await click("lsp-row-mode"); // custom → off
-    await click("lsp-global");
-    await click("lsp-save");
-    await wait(
-      () => setup.captureCharFrame().includes("Сохранено"),
-      "Global draft save failed",
+      "Individual quick patch failed",
     );
     assert.equal(
-      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
-        .enabled,
+      JSON.parse(await readFile(configPath, "utf8")).lsp.serverOverrides[
+        "auto-python"
+      ].enabled,
       false,
     );
-    assert.equal(
-      await readFile(join(root, ".chiselrc"), "utf8").catch(() => ""),
-      "",
-      "Global save must not save the hidden project draft",
+    assert.deepEqual(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.servers ?? {},
+      {},
+      "Quick patch silently saved custom draft",
     );
-    assert.ok(
-      setup.captureCharFrame().includes("draft *"),
-      "Hidden project draft must remain dirty",
-    );
-    await click("lsp-project");
-    assert.ok(
-      setup.captureCharFrame().includes("Выключен"),
-      "Global save discarded the project draft",
-    );
-    await click("lsp-save");
+    await key("ESCAPE");
+    await choose("lsp-row-draft");
+    assert.ok(setup.captureCharFrame().includes("draft *"));
+    await choose("lsp-row-check");
     await wait(
-      () =>
-        setup.captureCharFrame().includes("Настройки этого проекта сохранены"),
-      "Project draft save failed",
+      () => setup.captureCharFrame().includes("Пути доступны"),
+      "Real path validation failed",
     );
-    assert.equal(
-      JSON.parse(await readFile(join(root, ".chiselrc"), "utf8")).lsp.mode,
-      "off",
-    );
-    await click("lsp-row-mode"); // off → inherit
-    await click("lsp-save");
-    await wait(
-      () =>
-        setup.captureCharFrame().includes("Настройки этого проекта сохранены"),
-      "Project inherit save failed",
-    );
-    await click("lsp-global");
-    await click("lsp-row-enabled");
     await click("lsp-save");
     await wait(
       () => setup.captureCharFrame().includes("Сохранено"),
-      "Server re-enable save failed",
+      "Manual save failed",
     );
-    await click("lsp-row-trust");
+    let savedConfig = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(savedConfig.lsp.servers.typescript.command, paths.command);
+    assert.deepEqual(savedConfig.lsp.servers.typescript.trustedWorkspaces, []);
+    assert.equal(savedConfig.lsp.serverOverrides["auto-python"].enabled, false);
+    await key("ESCAPE");
+    await choose("lsp-row-clear-search");
+    await choose("lsp-row-strategy");
+    await choose("lsp-row-mode-custom");
+    await wait(
+      () => setup.captureCharFrame().includes("Сохранено"),
+      "Custom strategy failed",
+    );
+    await key("ESCAPE");
+    await choose("lsp-row-server-typescript");
+    await choose("lsp-row-settings");
+    await choose("lsp-row-trust");
     await wait(
       () => setup.captureCharFrame().includes("Разрешён только"),
       "Explicit trust failed",
     );
-    await click("lsp-row-start");
+    await choose("lsp-row-start");
     await wait(
       () => !!setup.renderer.root.findDescendantById("approval-popup"),
-      "Restart bypassed normal approval",
-    );
-    await key("y");
-    await wait(
-      () => setup.captureCharFrame().includes("[ok] Готов"),
-      "Real LSP initialize did not return ready",
-    );
-    assert.ok(
-      setup.renderer.root.findDescendantById("lsp-row-node"),
-      "Home→conversation discarded the Settings form",
-    );
-    await capture("lsp-ready-120x40");
-    await click("lsp-row-start");
-    await wait(
-      () => !!setup.renderer.root.findDescendantById("approval-popup"),
-      "Second restart did not use the existing approval path",
+      "Custom restart bypassed permissions",
     );
     await key("y");
     await wait(
       () =>
-        setup.captureCharFrame().includes("[ok] Готов") &&
-        !setup.renderer.root.findDescendantById("approval-popup"),
-      "Second restart did not complete",
+        setup.captureCharFrame().includes("Сервер работает после initialize"),
+      "Custom initialize failed",
     );
-    const restartedStore = await projectSessionStore(root);
-    const restartedSessions = await restartedStore.list();
-    assert.equal(
-      restartedSessions.length,
-      1,
-      "Settings must reuse the conversation allocated on home",
-    );
-    let restarted = false;
-    for (let attempt = 0; attempt < 100 && !restarted; ++attempt) {
-      await frames();
-      const session = await restartedStore.load(restartedSessions[0]?.id ?? "");
-      restarted = Object.values(session.runtime?.invocations ?? {}).some(
-        (record) =>
-          record.name === "ext:builtin.lsp:restart" &&
-          record.result?.output.includes('"generation": 2'),
-      );
-    }
-    assert.ok(restarted, "Second restart must advance the shared generation");
-    if (captures) {
-      await click("settings-route-appearance");
-      await click("settings-theme-paper");
-      await click("settings-route-tools.lsp");
-      await capture("lsp-ready-paper-120x40");
-      await click("settings-route-appearance");
-      await click("settings-theme-graphite");
-      await click("settings-apply-theme");
-      await key("g", true);
-      await click("settings-route-tools.lsp");
-      await capture("lsp-ready-unicode-120x40");
-      await click("settings-route-appearance");
-      await click("settings-theme-paper");
-      await click("settings-route-tools.lsp");
-      await capture("lsp-ready-paper-unicode-120x40");
-      await click("settings-route-appearance");
-      await click("settings-theme-graphite");
-      await click("settings-apply-theme");
-      await key("g", true);
-      await click("settings-route-tools.lsp");
-    }
+    await capture("custom-running-120x40");
     await key("ESCAPE");
     await key("ESCAPE");
-    for (let attempt = 0; attempt < 4; ++attempt) {
+    await key("ESCAPE");
+    await wait(
+      () => !setup.renderer.root.findDescendantById("settings-popup"),
+      "Settings did not close",
+    );
+    await click("prompt-editor");
+    for (let attempt = 0; attempt < 4; attempt++) {
       await command("/inspect-types");
       await wait(
         () =>
           setup.captureCharFrame().includes("2322") ||
           setup.captureCharFrame().includes("Завершено"),
-        "Custom analysis did not finish",
+        "Real diagnostics unfinished",
       );
       if (setup.captureCharFrame().includes("2322")) break;
     }
@@ -512,8 +525,6 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
       () => setup.captureCharFrame().includes("2322"),
       "Real diagnostics missing",
     );
-    const descendants = await lspProcessTree();
-    assert.ok(descendants.length >= 2, "Real TLS/tsserver processes missing");
     await command("/fix-type");
     await wait(
       () => !!setup.renderer.root.findDescendantById("approval-popup"),
@@ -522,112 +533,155 @@ export async function runLspTuiScenario(captures?: string): Promise<void> {
     await key("y");
     await wait(
       () => !setup.renderer.root.findDescendantById("approval-popup"),
-      "Editing approval did not close",
+      "Editing unfinished",
     );
     await wait(
-      () =>
-        setup.captureCharFrame().includes("изменён") ||
-        setup.captureCharFrame().includes("Updated") ||
-        setup.captureCharFrame().includes("Заменено"),
-      "Edit did not complete",
-      1000,
-    ).catch(() => {});
-    assert.ok(
-      (await readFile(join(root, "main.ts"), "utf8")).includes("value: string"),
+      async () =>
+        (await readFile(join(root, "main.ts"), "utf8")).includes(
+          "value: string",
+        ),
+      "Real edit did not persist",
     );
-    await command("/lsp-status");
+    await command("/inspect-status");
     await wait(
       () => setup.captureCharFrame().includes('"state": "ready"'),
-      "LSP status command failed",
+      "Status tool failed",
     );
-    await command("/settings");
+    await key("F9");
+    await click("ui-overflow-builtin.lsp/status");
     await wait(
-      () => !!setup.renderer.root.findDescendantById("settings-global-search"),
-      "Settings did not reopen",
+      () => !!setup.renderer.root.findDescendantById("lsp-row-enabled"),
+      "Menu did not reopen",
     );
-    await key("f", true);
-    await paste("lsp");
-    await key("ENTER");
-    await click("lsp-row-typescript"); // The saved server row, not the form's TypeScript field.
-    await click("lsp-row-trusted-root-0");
+    await choose("lsp-row-server-typescript");
+    await capture("diagnostics-120x40");
+    await choose("lsp-row-settings");
+    const descendants = await lspProcessTree();
+    await choose("lsp-row-trusted-root-0");
     assert.equal(
       JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
         .trustedWorkspaces.length,
       1,
-      "Removing a root from the draft must not revoke permission before save",
+      "Unsaved trust changed permissions",
     );
-    await click("lsp-save");
-    await wait(
-      () => setup.captureCharFrame().includes("Нет разрешения для проекта"),
-      "Trust revocation did not complete",
-    );
-    assert.deepEqual(
-      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
-        .trustedWorkspaces,
-      [],
-    );
-    await waitForLspProcessExit(descendants);
-    await capture("lsp-untrusted-120x40");
-    const store = await projectSessionStore(root);
-    const sessions = await store.list();
-    assert.ok(sessions.length);
-    const session = await store.load(sessions[0]?.id ?? "");
-    assert.ok(
-      Object.values(session.runtime?.invocations ?? {}).some(
-        (record) =>
-          record.toolSource?.type === "extension" &&
-          record.toolSource.extensionId === "builtin.lsp",
-      ),
-    );
-    assert.equal(
-      session.messages.length,
-      0,
-      "Command tools must not create orphan model messages",
-    );
-    assert.equal(
-      modelRequests,
-      0,
-      "Local LSP setup/commands must not request model chat",
-    );
-    // Any compatible LSP can be configured through real native fields. No
-    // production fixture command or model credential is involved.
-    await key("ESCAPE"); // Leave the saved TypeScript form.
-    await click("lsp-row-add-generic");
-    await field("id", "notes");
-    await field("node", paths.command);
-    await field("languages", "notes");
-    await field("extensions", ".notes");
-    if (captures) await capture("lsp-generic-draft-120x40");
     await click("lsp-save");
     await wait(
       () => setup.captureCharFrame().includes("Сохранено"),
-      "Generic form save failed",
+      "Trust revocation save failed",
     );
-    const genericConfig = JSON.parse(await readFile(configPath, "utf8"));
-    assert.equal(genericConfig.lsp.servers.notes.backend, "generic");
-    assert.deepEqual(genericConfig.lsp.servers.notes.languageIds, ["notes"]);
-    assert.deepEqual(genericConfig.lsp.servers.notes.extensions, [".notes"]);
-    assert.deepEqual(genericConfig.lsp.servers.notes.trustedWorkspaces, []);
+    await waitForLspProcessExit(descendants);
     await key("ESCAPE");
-    await click("lsp-row-typescript");
+    await capture("untrusted-120x40");
+    await key("ESCAPE");
+    await click("lsp-global");
+    await choose("lsp-row-add-generic");
+    await field("id", "broken");
+    await field("node", paths.command);
+    await field("languages", "notes");
+    await field("extensions", ".notes");
+    await choose("lsp-row-args");
+    await paste("-e\nprocess.exit(3)");
+    await click("lsp-field-done");
+    await click("lsp-save");
+    await wait(
+      () => setup.captureCharFrame().includes("Сохранено"),
+      "Generic save failed",
+    );
+    await choose("lsp-row-trust");
+    await wait(
+      () => setup.captureCharFrame().includes("Разрешён только"),
+      "Generic trust failed",
+    );
+    await choose("lsp-row-start");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("approval-popup"),
+      "Generic process approval missing",
+    );
+    await key("y");
+    await wait(
+      () =>
+        !setup.renderer.root.findDescendantById("approval-popup") &&
+        !setup.renderer.root.findDescendantById("lsp-applying"),
+      "Expected server failure did not settle",
+    );
+    await key("ESCAPE");
+    await choose("lsp-row-server-broken");
+    await wait(
+      () => setup.captureCharFrame().includes("Ошибка"),
+      "Real failed backend did not show error",
+    );
+    await capture("server-error-120x40");
     if (captures) {
-      await field("typescript", join(storage, "missing-tsserver.js"));
-      await click("lsp-row-check");
-      await wait(
-        () => setup.captureCharFrame().includes("Проверьте пути"),
-        "Missing path did not produce safe error",
-      );
-      await capture("lsp-path-error-120x40");
+      await click("settings-route-appearance");
+      await click("settings-theme-paper");
+      await key("s", true);
+      await frames();
+      await click("settings-route-tools.lsp");
+      await capture("server-error-paper-120x40");
       await key("ESCAPE");
-      await capture("lsp-dirty-confirm-120x40");
-      await click("settings-discard");
-      await command("/exit");
-      await application;
-      process.stdout.write(`${LSP_TUI_MARKER}\n`);
-      return;
+      for (const [width, height] of [
+        [120, 40],
+        [80, 24],
+        [40, 12],
+        [24, 8],
+      ] as const) {
+        await act(async () => setup.resize(width, height));
+        await frames();
+        await capture(`overview-paper-${width}x${height}`);
+      }
+      await act(async () => setup.resize(120, 40));
+      await frames();
+    } else await key("ESCAPE");
+    // Conflict keeps the real native form and unrelated external settings.
+    await choose("lsp-row-server-broken");
+    await choose("lsp-row-settings");
+    await field("node", join(storage, "missing-node"));
+    savedConfig = JSON.parse(await readFile(configPath, "utf8"));
+    savedConfig.lsp.serverOverrides["auto-lua"] = { enabled: false };
+    await writeFile(configPath, JSON.stringify(savedConfig));
+    await click("lsp-save");
+    await wait(
+      () => setup.captureCharFrame().includes("изменились"),
+      "Concurrent config edit was overwritten",
+    );
+    await capture("form-conflict-120x40");
+    await key("ESCAPE");
+    await key("ESCAPE");
+    await key("ESCAPE");
+    await wait(
+      () => !!setup.renderer.root.findDescendantById("settings-discard"),
+      "Dirty form close did not offer preservation",
+    );
+    await click("settings-discard");
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.broken.command,
+      paths.command,
+    );
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.serverOverrides[
+        "auto-lua"
+      ].enabled,
+      false,
+    );
+    assert.equal(modelRequests, 0, "LSP menu requested model chat");
+    const store = await projectSessionStore(root);
+    let invocationFound = false;
+    for (const summary of await store.list()) {
+      const session = await store.load(summary.id);
+      assert.equal(
+        session.messages.length,
+        0,
+        "Local tool invocation created model history",
+      );
+      invocationFound ||= Object.values(
+        session.runtime?.invocations ?? {},
+      ).some(
+        (record) =>
+          record.toolSource?.type === "extension" &&
+          record.toolSource.extensionId === "builtin.lsp",
+      );
     }
-    await key("ESCAPE");
-    await key("ESCAPE");
+    assert.ok(invocationFound, "LSP checkpoint persistence missing");
     await command("/exit");
     await application;
     process.stdout.write(`${LSP_TUI_MARKER}\n`);

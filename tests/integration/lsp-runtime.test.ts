@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runExtensionCommand } from "../../src/app/run-command.js";
 import { createSessionToolRuntime } from "../../src/app/tool-runtime.js";
+import { prepareUiToolInvocation } from "../../src/app/ui-tool.js";
 import {
   loadGlobalConfig,
   loadProjectConfig,
@@ -22,6 +23,7 @@ import {
   canonicalWorkspaceRoot,
   ExtensionHost,
 } from "../../src/extensions/host.js";
+import { coreUiTarget } from "../../src/extensions/ui-core.js";
 import { lspServiceToken } from "../../src/lsp/service.js";
 import { LspSettingsStore } from "../../src/lsp/settings.js";
 import {
@@ -97,6 +99,8 @@ async function fixture(mode: "auto" | "custom" = "custom") {
   const service = scope.services.get(lspServiceToken);
   const settings = new LspSettingsStore(root, configPath, {
     status: () => service.status(),
+    entries: () => service.managementEntries(),
+    subscribe: (changed) => service.subscribeUi(changed),
     apply: () => service.refreshConfiguration(),
     restart: async () => {
       throw new Error("Use the core command runtime in acceptance.");
@@ -201,9 +205,32 @@ test("registered passive LSP views read a cached real analysis and mark workspac
     },
     () => {},
   );
+  const readUi = async () => {
+    ui.refresh("builtin.lsp/status", true);
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const snapshot = ui.items.find(
+        (item) => item.key === "builtin.lsp/status",
+      )?.snapshot;
+      if (snapshot?.revision === f.service.uiStatus().revision) return snapshot;
+      await Bun.sleep(10);
+    }
+    throw new Error("Passive UI snapshot did not settle.");
+  };
   try {
-    const initial = await ui.page("builtin.lsp/analysis");
-    expect(initial.summary).toBe("Файлы ещё не проверены");
+    const initial = await readUi();
+    expect(initial.detail).toBe("Файлы ещё не проверены");
+    expect(f.scope.ui.view("builtin.lsp/analysis")).toBeUndefined();
+    const descriptor = f.scope.ui
+      .descriptors()
+      .find(
+        (item) =>
+          item.extensionId === "builtin.lsp" && item.descriptor.id === "status",
+      );
+    const action = descriptor?.actions?.[0];
+    expect(action?.type).toBe("core");
+    if (action?.type === "core")
+      expect(coreUiTarget(action.target)).toBe("lsp");
     expect(f.service.uiStatus().generation).toBe(0);
     expect(f.service.uiStatus().trackedDocuments).toBe(0);
     const r = await runtime(f);
@@ -212,23 +239,23 @@ test("registered passive LSP views read a cached real analysis and mark workspac
     );
     expect(f.service.uiStatus().checkedDocuments).toBe(1);
     expect(f.service.uiStatus().diagnosticCount).toBeGreaterThan(0);
-    const cached = f.service.uiStatus();
-    const page = await ui.page("builtin.lsp/analysis");
+    const page = await readUi();
     expect(page.rows?.[0]?.label).toMatch(/^main\.ts:[1-9]\d*:[1-9]\d*$/);
-    expect(f.service.uiStatus()).toBe(cached);
+    const managed = (await f.settings.load()).management?.project.servers.find(
+      (server) => server.id === "typescript",
+    );
+    expect(managed?.instances[0]?.documents[0]?.freshness).toBe("observed");
     expect(changes).toBeGreaterThan(0);
     workspaceCoordinator.changed([join(f.root, "main.ts")]);
     await Promise.resolve();
     expect(f.service.uiStatus().staleDocuments).toBe(1);
-    expect((await ui.page("builtin.lsp/analysis")).state).toBe("stale");
+    expect((await readUi()).state).toBe("stale");
     expect(f.service.uiStatus().diagnostics).toHaveLength(0);
-    // A real configuration read failure is distinct from never-checked files.
     await writeFile(f.configPath, "{");
     await f.service.refreshConfiguration();
-    const unavailable = await ui.page("builtin.lsp/analysis");
+    const unavailable = await readUi();
     expect(unavailable.state).toBe("unavailable");
-    expect(unavailable.summary).toContain("Анализ недоступен");
-    expect(unavailable.actions).toHaveLength(0);
+    expect(unavailable.detail).toContain("Анализ недоступен");
   } finally {
     ui.dispose();
     listener.dispose();
@@ -242,7 +269,7 @@ for (const scenario of [
   "untrusted",
   "unconfigured",
 ] as const)
-  test(`/lsp-status returns JSON-safe details without starting a server: ${scenario}`, async () => {
+  test(`status UI invocation returns JSON-safe details without starting a server: ${scenario}`, async () => {
     const f = await fixture("auto");
     if (scenario !== "auto")
       await f.settings.saveGlobal({
@@ -262,9 +289,15 @@ for (const scenario of [
               }
             : {},
       });
-    const command = f.scope.commands.get("lsp-status");
+    const prepared = await prepareUiToolInvocation(
+      f.scope,
+      "builtin.lsp",
+      "status",
+      {},
+      () => f.scope.assertUsable(),
+    );
     const outcome = await runExtensionCommand(
-      { command, input: command.parse("") },
+      prepared,
       f.scope,
       {
         cwd: f.root,
@@ -308,9 +341,9 @@ for (const backend of ["auto", "custom"] as const)
   test(`${backend}: real TypeScript tools initialise lazily, navigate, observe actual bytes, edit, clear errors and persist source`, async () => {
     const f = await fixture(backend);
     const r = await runtime(f);
-    expect(f.scope.commands.descriptors().map((item) => item.name)).toContain(
-      "lsp-status",
-    );
+    const names = f.scope.commands.descriptors().map((item) => item.name);
+    expect(names).not.toContain("lsp-status");
+    expect(names).not.toContain("lsp-restart");
     expect((await f.service.status()).state).toBe("stopped");
     expect((await f.service.status()).generation).toBe(0);
     const diagnostic = await waitDiagnostics(r, (items) =>
@@ -430,9 +463,77 @@ test("Plan reads analyse with trust; restart Plan/user deny/Dont Ask preserve th
     "PERMISSION_DENIED",
   );
   expect((await f.service.status()).generation).toBe(generation);
-  const command = f.scope.commands.get("lsp-restart");
+  for (const scenario of [
+    {
+      mode: "plan" as const,
+      approvalMode: "default" as const,
+      decision: "approved" as const,
+      code: "MODE_RESTRICTION",
+    },
+    {
+      mode: "build" as const,
+      approvalMode: "default" as const,
+      decision: "denied" as const,
+      code: "PERMISSION_DENIED",
+    },
+    {
+      mode: "build" as const,
+      approvalMode: "dontAsk" as const,
+      decision: "approved" as const,
+      code: "PERMISSION_DENIED",
+    },
+  ]) {
+    const invocation = await prepareUiToolInvocation(
+      f.scope,
+      "builtin.lsp",
+      "restart",
+      {},
+      () => f.scope.assertUsable(),
+    );
+    const blocked = await runExtensionCommand(
+      invocation,
+      f.scope,
+      {
+        cwd: f.root,
+        configPath: f.configPath,
+        mode: scenario.mode,
+        approvalMode: scenario.approvalMode,
+        interactive: true,
+      },
+      { requestApproval: async () => scenario.decision },
+    );
+    expect(blocked.result.errorCode).toBe(scenario.code);
+    expect(blocked.session.messages).toHaveLength(0);
+  }
+  let currentOwner = true;
+  const stale = await prepareUiToolInvocation(
+    f.scope,
+    "builtin.lsp",
+    "restart",
+    {},
+    () => {
+      if (!currentOwner) throw new Error("Владелец заменён");
+    },
+  );
+  currentOwner = false;
+  await expect(
+    runExtensionCommand(
+      stale,
+      f.scope,
+      { cwd: f.root, configPath: f.configPath, mode: "build" },
+      { requestApproval: async () => "approved" },
+    ),
+  ).rejects.toThrow("Владелец заменён");
+  expect((await f.service.status()).generation).toBe(generation);
+  const prepared = await prepareUiToolInvocation(
+    f.scope,
+    "builtin.lsp",
+    "restart",
+    { serverId: "typescript" },
+    () => f.scope.assertUsable(),
+  );
   const outcome = await runExtensionCommand(
-    { command, input: command.parse("typescript") },
+    prepared,
     f.scope,
     { cwd: f.root, configPath: f.configPath, mode: "build", interactive: true },
     {
@@ -559,11 +660,39 @@ test("Auto detects nested TS/JS projects; unsupported files do not start it; glo
   }
   const pids = await lspProcessTree();
   expect(pids.length).toBeGreaterThanOrEqual(2);
+  let management = await f.settings.load();
+  management = await f.settings.setServerEnabled(
+    "project",
+    "auto",
+    false,
+    management,
+  );
+  await waitForLspProcessExit(pids);
+  const roots =
+    (await f.service.status("auto")).servers?.filter(
+      (entry) => entry.serverId === "auto",
+    ) ?? [];
+  // TS keeps one workspace entry; its own tsserver manages nested tsconfig/jsconfig.
+  expect(roots.length).toBe(1);
+  expect(roots.every((entry) => entry.state === "disabled")).toBe(true);
+  management = await f.settings.setServerEnabled(
+    "project",
+    "auto",
+    true,
+    management,
+  );
+  expect((await f.service.status("auto")).state).toBe("stopped");
+  expect((await lspProcessTree()).length).toBe(0);
+  expect(
+    (await r.call("ext:builtin.lsp:symbols", { path: "nested/view.tsx" }))
+      .isError,
+  ).not.toBe(true);
+  const resumed = await lspProcessTree();
   await f.settings.saveGlobal({
     mode: "custom",
     servers: { typescript: await installedLsp() },
   });
-  await waitForLspProcessExit(pids);
+  await waitForLspProcessExit(resumed);
   expect((await f.service.status()).state).toBe("untrusted");
   expect(
     (await r.call("ext:builtin.lsp:diagnostics", { path: "main.ts" }))

@@ -65,6 +65,13 @@ test("release cannot use an older green run while the newest source run is pendi
 });
 
 test("quick CI without native checks, skipped checks, duplicate jobs and mismatched job source block release", () => {
+  expect(() =>
+    assertVerifiedSourceCI(
+      source,
+      run,
+      jobs().filter((job) => !job.name.startsWith("LSP lifecycle")),
+    ),
+  ).toThrow("LSP lifecycle");
   const oldMatrix = jobs().filter(
     (job) => !job.name.startsWith("Native smoke"),
   );

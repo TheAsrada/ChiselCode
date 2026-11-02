@@ -894,14 +894,79 @@ async function runApplication(
     },
     activeId: () => currentController().snapshot.sessionId,
   };
+  const submitUiTool: import("./extension-ui.js").UiToolSubmit = async (
+    controller,
+    scope,
+    extensionId,
+    tool,
+    args,
+    toolScope,
+  ) => {
+    const generation = controller.currentGeneration;
+    const originRoot = requireProject(controller);
+    const assertOwner = () => {
+      if (
+        controller.ownerSignal.aborted ||
+        !controller.isCurrent(generation) ||
+        controller.snapshot.projectPath !== originRoot
+      )
+        throw new Error("Разговор заменён.");
+    };
+    const prepared = await prepareUiToolInvocation(
+      scope,
+      extensionId,
+      tool,
+      args,
+      assertOwner,
+      toolScope,
+    );
+    assertOwner();
+    const projectOperation =
+      controller === workspace.home
+        ? workspace.projectOperation(controller)
+        : undefined;
+    const operationController = projectOperation?.controller ?? controller;
+    try {
+      return await new Promise((resolve) => {
+        const item: QueuedTabOperation = {
+          kind: "ui_tool",
+          input: `Действие: ${tool}`,
+          prepared,
+          scope,
+          root: originRoot,
+          generation: operationController.currentGeneration,
+          mode: controller.snapshot.agentMode,
+          approvalMode: controller.snapshot.approvalMode,
+          modelOptions: modelOptions(controller),
+          onResult: resolve,
+        };
+        const execution = workspace.execution(operationController);
+        if (execution.activeRun) {
+          execution.pendingOperations.push(item);
+          operationController.setBusy(true);
+        } else void executeOperation(operationController, item);
+      });
+    } finally {
+      projectOperation?.release();
+    }
+  };
   const getSettingsActions = (): OpenTuiSettingsActions => {
     const owner = currentController();
     const generation = owner.currentGeneration;
     const root = owner.snapshot.projectPath;
-    // A Settings dialog opened on home keeps the conversation allocated by its first operation.
-    let operationOwner = owner;
-    let operationGeneration = generation;
     const lsp = new LspSettingsStore(root, options.configPath, {
+      launchRestriction: () =>
+        owner.snapshot.agentMode === "plan"
+          ? "Режим Plan: явный запуск доступен в Build. Анализ чтения запускается при запросе к файлу."
+          : undefined,
+      assertOwner: () => {
+        if (
+          !owner.isCurrent(generation) ||
+          owner.snapshot.projectPath !== root ||
+          owner.ownerSignal.aborted
+        )
+          throw new Error("Проект изменён; откройте меню анализа заново.");
+      },
       status: async () => {
         try {
           const scope = extensionHost
@@ -931,48 +996,54 @@ async function runApplication(
             ),
         );
       },
-      restart: (id) =>
-        new Promise<ToolExecutionResult>((resolveResult) => {
+      entries: () =>
+        extensionHost
+          .readyScopes()
+          .find((scope) => scope.workspaceRoot === root)
+          ?.services.lookup(lspServiceToken)
+          ?.managementEntries() ?? [],
+      subscribe: (changed) =>
+        extensionHost
+          .readyScopes()
+          .find((scope) => scope.workspaceRoot === root)
+          ?.services.lookup(lspServiceToken)
+          ?.subscribeUi(changed) ?? { dispose() {} },
+      restart: async (id) => {
+        if (
+          !owner.isCurrent(generation) ||
+          owner.snapshot.projectPath !== root ||
+          owner.ownerSignal.aborted
+        )
+          return {
+            output: "Проект изменён; откройте меню анализа заново.",
+            isError: true,
+            errorCode: "CANCELLED",
+          };
+        try {
+          const scope = await extensionHost.open(requireProject(owner));
           if (
             !owner.isCurrent(generation) ||
-            owner.snapshot.projectPath !== root ||
-            !operationOwner.isCurrent(operationGeneration) ||
-            operationOwner.snapshot.projectPath !== root ||
-            (operationOwner !== workspace.home &&
-              !workspace.tabs.some((tab) => tab.controller === operationOwner))
-          ) {
-            resolveResult({
-              output: "Settings workspace changed; reopen Settings.",
-              isError: true,
-              errorCode: "CANCELLED",
-            });
-            return;
-          }
-          void submit(
-            `/lsp-restart${id ? ` ${id}` : ""}`,
-            operationOwner,
-            operationOwner.snapshot.agentMode,
-            operationOwner.snapshot.approvalMode,
-            { ...modelOptions(operationOwner) },
-            (result) => {
-              if (
-                operationOwner === workspace.home &&
-                homeOperationTarget?.generation === generation &&
-                homeOperationTarget.root === root
-              ) {
-                operationOwner = homeOperationTarget.controller;
-                operationGeneration = operationOwner.currentGeneration;
-              }
-              resolveResult(result);
-            },
-          ).catch(() =>
-            resolveResult({
-              output: "LSP restart could not be queued.",
-              isError: true,
-              errorCode: "TOOL_EXECUTION_FAILURE",
-            }),
+            owner.snapshot.projectPath !== root
+          )
+            throw new Error("Владелец действия изменён.");
+          return await submitUiTool(
+            owner,
+            scope,
+            "builtin.lsp",
+            "restart",
+            id ? { serverId: id } : {},
           );
-        }),
+        } catch (error) {
+          return {
+            output:
+              error instanceof Error
+                ? error.message
+                : "Не удалось выполнить перезапуск LSP.",
+            isError: true,
+            errorCode: "TOOL_EXECUTION_FAILURE",
+          };
+        }
+      },
     });
     return {
       extensions: extensionManagement,
@@ -2551,63 +2622,7 @@ async function runApplication(
         onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
         uiRedactor,
-        onUiTool: async (
-          controller,
-          scope,
-          extensionId,
-          tool,
-          args,
-          toolScope,
-        ) => {
-          const generation = controller.currentGeneration;
-          const originRoot = requireProject(controller);
-          const assertOwner = () => {
-            if (
-              controller.ownerSignal.aborted ||
-              !controller.isCurrent(generation) ||
-              controller.snapshot.projectPath !== originRoot
-            )
-              throw new Error("Разговор заменён.");
-          };
-          const prepared = await prepareUiToolInvocation(
-            scope,
-            extensionId,
-            tool,
-            args,
-            assertOwner,
-            toolScope,
-          );
-          assertOwner();
-          const projectOperation =
-            controller === workspace.home
-              ? workspace.projectOperation(controller)
-              : undefined;
-          const operationController =
-            projectOperation?.controller ?? controller;
-          try {
-            return await new Promise((resolve) => {
-              const item: QueuedTabOperation = {
-                kind: "ui_tool",
-                input: `Действие: ${tool}`,
-                prepared,
-                scope,
-                root: originRoot,
-                generation: operationController.currentGeneration,
-                mode: controller.snapshot.agentMode,
-                approvalMode: controller.snapshot.approvalMode,
-                modelOptions: modelOptions(controller),
-                onResult: resolve,
-              };
-              const execution = workspace.execution(operationController);
-              if (execution.activeRun) {
-                execution.pendingOperations.push(item);
-                operationController.setBusy(true);
-              } else void executeOperation(operationController, item);
-            });
-          } finally {
-            projectOperation?.release();
-          }
-        },
+        onUiTool: submitUiTool,
         initialTheme: currentTheme,
         motion: config.ui?.motion,
         onMotionChange: (motion) => {

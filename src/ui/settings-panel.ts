@@ -5,6 +5,7 @@ export interface SettingsPanelControl {
   save(): void;
   back(): boolean;
   discard(): void;
+  search?(): void;
 }
 
 export interface EmbeddedSettingsPanel {

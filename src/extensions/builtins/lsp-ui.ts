@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import type { LspService, LspUiStatus } from "../../lsp/service.js";
 import type { ExtensionContext } from "../contracts.js";
+import { lspUiTarget } from "../ui-core.js";
 import type { UiRow, UiSnapshot } from "../ui-types.js";
 
 function state(value: LspUiStatus): UiSnapshot["state"] {
+  if (value.state === "disabled") return "empty";
+  if (value.state === "starting" || value.state === "restarting")
+    return "loading";
   return value.state === "unavailable" || value.state === "disposed"
     ? "unavailable"
     : value.state === "error"
@@ -21,7 +25,11 @@ function label(value: LspUiStatus): string {
     off: "Off",
     unknown: "неизвестно",
   }[value.mode];
-  return `LSP ${mode} · ${value.state === "unavailable" ? "недоступен" : value.state === "disposed" ? "закрыт" : value.state === "untrusted" ? "нужно доверие" : value.state === "error" ? "ошибка" : value.staleDocuments ? "устарел" : !value.checkedDocuments ? "нет проверок" : value.diagnosticCount ? `${value.diagnosticCount} замечаний` : value.observedDocuments ? "наблюдается" : "проверено"}`;
+  if (value.state === "starting") return `LSP ${mode} · запускается`;
+  if (value.state === "restarting") return `LSP ${mode} · перезапускается`;
+  if (value.state === "stopped" && !value.checkedDocuments)
+    return `LSP ${mode} · ждёт запроса`;
+  return `LSP ${mode} · ${value.state === "disabled" ? "выключен" : value.state === "unavailable" ? "недоступен" : value.state === "disposed" ? "закрыт" : value.state === "untrusted" ? "нужно доверие" : value.state === "error" ? "ошибка" : value.staleDocuments ? "устарел" : !value.checkedDocuments ? "нет проверок" : value.diagnosticCount ? `${value.diagnosticCount} замечаний` : value.observedDocuments ? "наблюдается" : "проверено"}`;
 }
 function diagnostics(value: LspUiStatus): UiRow[] {
   const duplicates = new Map<string, number>();
@@ -61,9 +69,9 @@ export function registerLspUi(
   const actions = [
     {
       id: "open",
-      label: "Открыть подробности",
-      type: "view" as const,
-      viewId: "analysis",
+      label: "Анализ кода · LSP",
+      type: "core" as const,
+      target: lspUiTarget,
     },
   ];
   const source = {
@@ -80,21 +88,25 @@ export function registerLspUi(
             ? "warning"
             : "muted",
         detail:
-          state(value) === "unavailable"
-            ? "Анализ недоступен; откройте сведения и проверьте настройку"
-            : state(value) === "error"
-              ? "Ошибка анализа; откройте сведения для явного восстановления"
-              : value.state === "untrusted"
-                ? "Нужно доверие к настройке анализа кода"
-                : value.requiresRestart
-                  ? "Нужен явный перезапуск"
-                  : value.staleDocuments
-                    ? "Данные устарели; дождитесь штатной проверки"
-                    : !value.checkedDocuments
-                      ? "Файлы ещё не проверены"
-                      : value.observedDocuments
-                        ? "Наблюдаемые диагностики не доказывают актуальное отсутствие ошибок"
-                        : `Проверено файлов: ${value.checkedDocuments}`,
+          value.state === "disabled"
+            ? "Анализ кода выключен в настройках"
+            : value.state === "starting" || value.state === "restarting"
+              ? "Сервер запускается; дождитесь завершения initialize"
+              : state(value) === "unavailable"
+                ? "Анализ недоступен; откройте сведения и проверьте настройку"
+                : state(value) === "error"
+                  ? "Ошибка анализа; откройте сведения для явного восстановления"
+                  : value.state === "untrusted"
+                    ? "Нужно доверие к настройке анализа кода"
+                    : value.requiresRestart
+                      ? "Нужен явный перезапуск"
+                      : value.staleDocuments
+                        ? "Данные устарели; дождитесь штатной проверки"
+                        : !value.checkedDocuments
+                          ? "Файлы ещё не проверены"
+                          : value.observedDocuments
+                            ? "Наблюдаемые диагностики не доказывают актуальное отсутствие ошибок"
+                            : `Проверено файлов: ${value.checkedDocuments}`,
         rows: diagnostics(value).slice(0, 8),
         action: { id: "open" },
       };
@@ -108,85 +120,12 @@ export function registerLspUi(
       id: slot,
       slot,
       scope: "workspace",
-      title: "Анализ кода",
+      title: "Анализ кода · LSP",
       group: "project",
       order: 20,
       actions,
       source,
     });
-  ctx.ui.registerView({
-    id: "analysis",
-    scope: "workspace",
-    title: "Анализ кода",
-    actions: [
-      {
-        id: "restart",
-        label: "Перезапустить LSP",
-        type: "tool",
-        tool: "restart",
-      },
-    ],
-    page(_binding, request) {
-      const value = service.uiStatus();
-      const all = diagnostics(value).filter(
-        (row) =>
-          !request.search ||
-          `${row.label} ${row.value}`
-            .toLocaleLowerCase()
-            .includes(request.search.toLocaleLowerCase()),
-      );
-      const cursor = Math.max(
-        0,
-        Math.min(all.length, Number(request.cursor) || 0),
-      );
-      return {
-        revision: value.revision,
-        state: state(value),
-        summary: source.snapshot().detail,
-        fields: [
-          { id: "mode", label: "Режим", value: label(value) },
-          {
-            id: "backend",
-            label: "Backend",
-            value: {
-              unknown: "Неизвестно",
-              disabled: "Выключен",
-              untrusted: "Нужно доверие к настройке",
-              unavailable: "Недоступен",
-              stopped: "Не запущен",
-              starting: "Запускается",
-              ready: "Работает",
-              restarting: "Перезапускается",
-              error: "Ошибка",
-              disposed: "Закрыт",
-            }[value.state],
-          },
-          { id: "root", label: "Проект", value: value.workspaceRoot },
-          {
-            id: "documents",
-            label: "Файлы",
-            value: `${value.trackedDocuments} отслеживается · ${value.checkedDocuments} проверено · ${value.staleDocuments} устарело`,
-          },
-          {
-            id: "generation",
-            label: "Поколение",
-            value: `${value.generation}`,
-          },
-        ],
-        rows: all.slice(cursor, cursor + 64),
-        ...(cursor + 64 < all.length
-          ? { nextCursor: String(cursor + 64) }
-          : {}),
-        actions:
-          value.mode === "off" ||
-          value.state === "unavailable" ||
-          value.state === "disposed"
-            ? []
-            : [{ id: "restart", args: {} }],
-      };
-    },
-    subscribe: source.subscribe,
-  });
   // Configuration cache warm-up is activation work; it never prepares an analysis backend.
   void service.refreshConfiguration().catch(() => {});
 }

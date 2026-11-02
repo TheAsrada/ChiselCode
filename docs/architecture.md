@@ -30,7 +30,7 @@ flowchart LR
 | Настройки MCP и навыков | [Встраивание в Settings](architecture/settings-tools.md) |
 | Установка внешних навыков | [Источники, snapshot и публикация](architecture/skill-installation.md) |
 | Web | [Поисковые сервисы](architecture/web-search.md) · [Сетевые границы runtime](architecture/runtime.md#native-web) |
-| Анализ кода | [LSP](architecture/lsp.md) |
+| Анализ кода | [LSP](architecture/lsp.md) · [Меню и наследование](architecture/lsp-menu.md) |
 | Рабочие копии | [Менеджер](architecture/worktree-manager.md) |
 | Помощники и процессы | [Помощники](architecture/subagents.md) · [Фоновые задачи](architecture/background-tasks.md) |
 | Обновление CLI | [Завершение, замена и перезапуск](architecture/self-update.md) |

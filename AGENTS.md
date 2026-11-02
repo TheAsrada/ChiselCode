@@ -10,9 +10,9 @@
 
 ## UI/UX и OpenTUI
 
-- Для любых задач UI/UX терминального клиента всегда используйте скилл `opentui` из [msmps/opentui-skill](https://github.com/msmps/opentui-skill): проектирование экранов, компонентов, ввода, фокуса, клавиатурной навигации, оформления, анимаций и UI-проверок. Прочитайте его `SKILL.md` до начала работы и затем профильные references.
-- Если скилл отсутствует в доступных локальных каталогах навыков, установите его командой `npx skills add https://github.com/msmps/opentui-skill --skill opentui`, затем прочитайте установленный `SKILL.md`.
-- Сверяйте примеры скилла с закреплёнными версиями OpenTUI в `package.json`, установленными типами и текущей архитектурой проекта. Новая версия API в справке скилла сама по себе не требует смены зависимостей или фреймворка.
+- Для любых задач UI/UX терминального клиента используйте три навыка с разделёнными ролями: `opentui` с [opentui.com](https://opentui.com) — API и компоненты; `opentui-design` из [akiojin/skills](https://github.com/akiojin/skills) — навигация, фокус, ввод и состояние; `tui-visual-design` из [josiahsiegel/claude-plugin-marketplace](https://github.com/josiahsiegel/claude-plugin-marketplace) — компоновка, визуальная иерархия, цвета и читаемость. Перед работой прочитайте их `SKILL.md`, затем профильные references.
+- Отсутствующие навыки установите: `npx skills add https://opentui.com --skill opentui`, `npx skillfish add akiojin/skills opentui-design`, `npx skills add josiahsiegel/claude-plugin-marketplace --skill tui-visual-design`.
+- Сохраняйте React и закреплённые зависимости проекта; примеры SolidJS адаптируйте к текущей архитектуре. Сверяйте руководства с версиями в `package.json` и установленными типами OpenTUI. При расхождениях действуют правила проекта и доступные API; новые примеры сами по себе не требуют смены зависимостей или фреймворка.
 
 ## Проверки: скорость и эффективность
 

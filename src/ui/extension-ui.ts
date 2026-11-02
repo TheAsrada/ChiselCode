@@ -239,6 +239,7 @@ export class ExtensionUiBinding {
         const target = coreUiTarget(action.target);
         if (this.controller.snapshot.extensionView) this.close();
         const adapters = {
+          lsp: () => this.controller.showLspMenu(),
           background: () => this.controller.showBackground(),
           agents: () => {
             this.controller.setAgentSidebar("agents", true);

@@ -219,32 +219,6 @@ export function createLspExtension(
           },
         ),
       );
-      ctx.commands.register({
-        name: "lsp-status",
-        description: "Состояние анализа кода без запуска сервера",
-        parse(args) {
-          if (args.trim()) throw new Error("Usage: /lsp-status");
-          return {};
-        },
-        execute(context) {
-          return context.tools.execute("ext:builtin.lsp:status", {});
-        },
-      });
-      ctx.commands.register({
-        name: "lsp-restart",
-        description:
-          "Запустить/перезапустить анализ кода для всех вкладок проекта",
-        usage: "[serverId]",
-        parse(args) {
-          const items = args.trim() ? args.trim().split(/\s+/u) : [];
-          if (items.length > 1)
-            throw new Error("Usage: /lsp-restart [serverId]");
-          return restartInput.parse(items[0] ? { serverId: items[0] } : {});
-        },
-        execute(context, input) {
-          return context.tools.execute("ext:builtin.lsp:restart", input);
-        },
-      });
       ctx.contextProviders.register({
         id: "diagnostics",
         async collect(snapshot) {

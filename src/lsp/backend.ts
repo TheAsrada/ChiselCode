@@ -11,6 +11,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { abortable } from "../extensions/lifecycle.js";
 import { chiselHomeDir } from "../paths/home.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import backendAsset from "./backend/typescript.json.gz" with { type: "file" };
@@ -20,7 +21,10 @@ import type { LspLaunch } from "./config.js";
 export const AUTO_SERVER_ID = "auto";
 const hash = (bytes: Uint8Array | string) =>
   createHash("sha256").update(bytes).digest("hex");
-const pending = new Map<string, Promise<void>>();
+const pending = new Map<
+  string,
+  { work: Promise<void>; controller: AbortController; users: number }
+>();
 const outside = (root: string, path: string) => {
   const rel = relative(root, path);
   return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
@@ -97,16 +101,47 @@ export async function prepareAutoBackend(
   const cache = dirname(dirname(launch.typescriptPath));
   const destination = dirname(cache);
   let work = pending.get(destination);
+  if (work?.controller.signal.aborted) {
+    const draining = work;
+    await abortable(() => draining.work.catch(() => {}), signal);
+    cancelled(signal);
+    work = pending.get(destination);
+  }
   if (!work) {
-    work = materialize(root, destination).finally(() => {
-      pending.delete(destination);
-    });
+    const controller = new AbortController();
+    work = {
+      controller,
+      users: 0,
+      work: materialize(root, destination, controller.signal).finally(() => {
+        pending.delete(destination);
+      }),
+    };
     pending.set(destination, work);
   }
+  ++work.users;
+  let failure: unknown;
   try {
-    await work;
+    await abortable(() => work.work, signal);
   } catch (error) {
-    if (error instanceof RuntimeError) throw error;
+    failure = error;
+  } finally {
+    if (--work.users === 0) {
+      work.controller.abort();
+      if (signal?.aborted) {
+        try {
+          await work.work;
+        } catch (error) {
+          if (!(error instanceof RuntimeError && error.code === "CANCELLED"))
+            failure = new RuntimeError(
+              "LSP_UNAVAILABLE",
+              "Не удалось завершить подготовку встроенного LSP и очистить временные файлы.",
+            );
+        }
+      }
+    }
+  }
+  if (failure) {
+    if (failure instanceof RuntimeError) throw failure;
     throw new RuntimeError(
       "LSP_UNAVAILABLE",
       "Не удалось подготовить стандартный backend. Проверьте установку ChiselCode и доступ к каталогу данных.",
@@ -115,11 +150,17 @@ export async function prepareAutoBackend(
   cancelled(signal);
   return launch;
 }
-async function materialize(root: string, destination: string): Promise<void> {
+async function materialize(
+  root: string,
+  destination: string,
+  signal: AbortSignal,
+): Promise<void> {
+  cancelled(signal);
   const assetPath = isAbsolute(backendAsset)
     ? backendAsset
     : fileURLToPath(new URL(backendAsset, import.meta.url));
   const bytes = new Uint8Array(await Bun.file(assetPath).arrayBuffer());
+  cancelled(signal);
   if (hash(bytes) !== AUTO_BACKEND.sha256)
     throw new RuntimeError(
       "LSP_UNAVAILABLE",
@@ -144,6 +185,7 @@ async function materialize(root: string, destination: string): Promise<void> {
       const canonical = await realpath(destination);
       if (canonical !== destination || !outside(root, canonical)) return false;
       for (const [name, text] of entries) {
+        cancelled(signal);
         const path = join(destination, name);
         const info = await lstat(path);
         if (!info.isFile() || info.size !== Buffer.byteLength(text))
@@ -158,10 +200,12 @@ async function materialize(root: string, destination: string): Promise<void> {
       }
       return true;
     } catch {
+      cancelled(signal);
       return false;
     }
   };
   if (await intact()) return;
+  cancelled(signal);
   const parent = dirname(destination);
   await mkdir(parent, { recursive: true, mode: 0o700 });
   if (
@@ -174,12 +218,14 @@ async function materialize(root: string, destination: string): Promise<void> {
   await mkdir(temporary, { mode: 0o700 });
   try {
     for (const [name, text] of entries) {
+      cancelled(signal);
       const path = join(temporary, name);
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
       await writeFile(path, text, { mode: 0o600, flag: "wx" });
     }
     // Another process may have prepared the same immutable version in the meantime.
     if (await intact()) return;
+    cancelled(signal);
     try {
       await rename(destination, previous);
     } catch (error) {

@@ -20,6 +20,7 @@ type CIJob = {
 
 export const requiredCIJobs = [
   "Full source (ubuntu-latest)",
+  ...["macos-latest", "windows-latest"].map((os) => `LSP lifecycle (${os})`),
   ...["ubuntu-latest", "macos-latest", "windows-latest"].map(
     (os) => `Native smoke (${os})`,
   ),

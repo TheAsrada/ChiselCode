@@ -391,7 +391,10 @@ export class LspTransport {
     }
   }
   dispose(): Promise<void> {
-    this.cleanup ??= this.stop();
+    this.cleanup ??= this.stop().catch((error) => {
+      this.cleanup = undefined;
+      throw error;
+    });
     return this.cleanup;
   }
   private async stop(): Promise<void> {

@@ -46,11 +46,15 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
             (message) =>
               message.role === "user" && typeof message.content === "string",
           )?.content ?? "";
-      const toolName = body.tools?.find(
-        (item) => item.function.name === "write_file",
+      const status = user.includes("LSP_STATUS");
+      const toolName = body.tools?.find((item) =>
+        status
+          ? item.function.name.startsWith("ext_ext_builtin_lsp_status_")
+          : item.function.name === "write_file",
       )?.function.name;
       const edit =
-        user.includes("WRITE") && body.messages.at(-1)?.role !== "tool";
+        (status || user.includes("WRITE")) &&
+        body.messages.at(-1)?.role !== "tool";
       const filename = user.includes("DENY")
         ? "denied.txt"
         : user.includes("CANCEL")
@@ -65,10 +69,14 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
                 type: "function",
                 function: {
                   name: toolName,
-                  arguments: JSON.stringify({
-                    path: filename,
-                    content: "ChiselCode Desktop ✓\n",
-                  }),
+                  arguments: JSON.stringify(
+                    status
+                      ? {}
+                      : {
+                          path: filename,
+                          content: "ChiselCode Desktop ✓\n",
+                        },
+                  ),
                 },
               },
             ],
@@ -216,20 +224,26 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
       )
     )
       throw new Error("Durable text history missing.");
-    const command = await start("/lsp-status");
+    const commands = await first.client.request("commands/list", {
+      path: root,
+    });
+    if (
+      commands.some((item) => ["lsp-status", "lsp-restart"].includes(item.name))
+    )
+      throw new Error("Removed LSP commands are still advertised.");
+    const command = await start("LSP_STATUS");
     await first.wait("turn.completed", command.id);
     const commandHistory = await first.client.request("sessions/read", {
       path: root,
       sessionId: command.id,
     });
-    if (
-      !commandHistory.messages.some(
-        (message) =>
-          message.role === "command" && message.text.includes("/lsp-status"),
-      )
-    )
+    const statusMessage = commandHistory.messages.find(
+      (message) =>
+        message.role === "tool" && message.text.includes('"generation": 0'),
+    );
+    if (!statusMessage?.text.includes('"mode": "auto"'))
       throw new Error(
-        "Foreground command output disappeared after completion.",
+        `LSP status tool output disappeared from durable history: ${JSON.stringify(commandHistory.messages.map((message) => ({ role: message.role, tool: message.tool, text: message.text.slice(0, 800) })))}`,
       );
     const edit = await start("WRITE");
     const approval = await first.wait("approval.requested", edit.id);

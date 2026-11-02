@@ -134,6 +134,7 @@ export function OpenTuiSettings({
   onChooseSkill,
   onCreateSkill,
   onEditSkill,
+  onChooseProject,
 }: {
   actions?: OpenTuiSettingsActions;
   width: number;
@@ -155,6 +156,7 @@ export function OpenTuiSettings({
   onChooseSkill?: (skill: Skill) => void;
   onCreateSkill?: () => void;
   onEditSkill?: (skill: Skill) => void;
+  onChooseProject?(): void;
 }) {
   const motion = useMotion();
   const changeMotion = () => {
@@ -891,7 +893,9 @@ export function OpenTuiSettings({
     if (key.ctrl && name === "c") return;
     if (key.ctrl && name === "f") {
       key.preventDefault();
-      setShellFocus("search");
+      if (page === "tools.lsp" && shellFocus === "content" && !confirmClose)
+        lspControls.current?.search?.();
+      else setShellFocus("search");
       return;
     }
     if (confirmClose) {
@@ -1936,6 +1940,9 @@ export function OpenTuiSettings({
                 onFieldTargetHandled={() => setFieldTarget(undefined)}
                 controls={lspControls}
                 onDirty={recordLspDirty}
+                onChooseProject={
+                  onChooseProject ? () => close(onChooseProject) : undefined
+                }
               />
             </box>
           )}

@@ -81,6 +81,7 @@ export interface TranscriptEntry {
 }
 
 export interface TuiViewState {
+  lspMenuRequest?: number;
   uiContributions?: readonly import("../extensions/ui-types.js").OwnedUiContribution[];
   extensionView?: import("./extension-ui.js").ExtensionDetailsState;
   backgroundTasks?: readonly BackgroundTask[];
@@ -579,6 +580,9 @@ export class TuiPresentationController implements TuiTranscript {
   }
   setOverlay(overlay?: string): void {
     this.update({ overlay });
+  }
+  showLspMenu(): void {
+    this.update({ lspMenuRequest: (this.state.lspMenuRequest ?? 0) + 1 });
   }
   setBusy(busy: boolean): void {
     this.update({ busy });

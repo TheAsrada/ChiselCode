@@ -24,6 +24,13 @@ import {
 import { catalogLspLaunch } from "./provision.js";
 
 export const LspServerIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
+const serverOverrides = z
+  .record(LspServerIdSchema, z.strictObject({ enabled: z.boolean() }))
+  .refine(
+    (value) => Object.keys(value).length <= 128,
+    "Слишком много индивидуальных настроек LSP (не более 128).",
+  )
+  .optional();
 const absolutePath = z
   .string()
   .min(1)
@@ -103,13 +110,15 @@ export function configuredLanguage(
       configuration.global.servers[selected] &&
       customLanguage(configuration.global.servers[selected], path)
     );
-  return Object.values(configuration.global.servers)
-    .filter((server) => server.enabled)
-    .map((server) => customLanguage(server, path))
+  return Object.entries(configuration.global.servers)
+    .filter(([id]) => lspServerEnabled(configuration, id).enabled)
+    .map(([, server]) => customLanguage(server, path))
     .find(Boolean);
 }
 export const LspConfigSchema = z.strictObject({
   mode: z.enum(["auto", "custom", "off"]).optional(),
+  enabled: z.boolean().optional(),
+  serverOverrides,
   servers: z
     .record(LspServerIdSchema, LspServerSchema)
     .refine(
@@ -126,6 +135,7 @@ export const ProjectLspConfigSchema = z.strictObject({
   mode: z.enum(["auto", "custom", "off"]).optional(),
   enabled: z.boolean().optional(),
   serverId: LspServerIdSchema.optional(),
+  serverOverrides,
 });
 export type LspConfig = z.infer<typeof LspConfigSchema>;
 export type LspServerConfig = z.infer<typeof LspServerSchema>;
@@ -138,12 +148,31 @@ export function globalLspMode(config: LspConfig): LspMode {
 }
 export function effectiveLspMode(configuration: LspConfiguration): LspMode {
   const global = globalLspMode(configuration.global);
-  if (global === "off" || configuration.project?.enabled === false)
+  if (
+    globalLspDisabled(configuration.global) ||
+    configuration.project?.enabled === false
+  )
     return "off";
   return (
     configuration.project?.mode ??
     (configuration.project?.serverId ? "custom" : global)
   );
+}
+export function globalLspDisabled(config: LspConfig): boolean {
+  return config.enabled === false || globalLspMode(config) === "off";
+}
+/** Individual permission is distinct from strategy, trust and the overall Off ceiling. */
+export function lspServerEnabled(configuration: LspConfiguration, id: string) {
+  const project = configuration.project?.serverOverrides?.[id];
+  const global = configuration.global.serverOverrides?.[id];
+  return project
+    ? { enabled: project.enabled, source: "project" as const }
+    : global
+      ? { enabled: global.enabled, source: "global" as const }
+      : {
+          enabled: configuration.global.servers[id]?.enabled ?? true,
+          source: "default" as const,
+        };
 }
 export interface LspConfiguration {
   global: LspConfig;
@@ -187,10 +216,9 @@ export async function selectLspServer(
   if (mode === "off")
     return {
       state: "disabled",
-      reason:
-        globalLspMode(configuration.global) === "off"
-          ? "Анализ кода выключен для всех проектов в Settings."
-          : "Анализ кода выключен для этого проекта.",
+      reason: globalLspDisabled(configuration.global)
+        ? "Анализ кода выключен для всех проектов в Settings."
+        : "Анализ кода выключен для этого проекта.",
     };
   if (mode === "auto") {
     const descriptor = requestedId
@@ -206,7 +234,15 @@ export async function selectLspServer(
             ? "Для этого языка нет Auto backend. Подключите совместимый stdio LSP в своей настройке."
             : "Этот Auto backend неизвестен. Для пользовательского сервера выберите «Своя настройка».",
         }
-      : { state: "stopped", id: descriptor.id, kind: "auto", descriptor };
+      : !lspServerEnabled(configuration, descriptor.id).enabled
+        ? {
+            state: "disabled",
+            id: descriptor.id,
+            kind: "auto",
+            descriptor,
+            reason: "Сервер выключен в настройках анализа кода.",
+          }
+        : { state: "stopped", id: descriptor.id, kind: "auto", descriptor };
   }
   if (requestedId === AUTO_SERVER_ID || requestedId?.startsWith("auto-"))
     return {
@@ -224,7 +260,7 @@ export async function selectLspServer(
         id,
         reason: "Выбранный сервер не настроен.",
       };
-    if (!config.enabled)
+    if (!lspServerEnabled(configuration, id).enabled)
       return { state: "disabled", id, config, reason: "Сервер выключен." };
     if (path && !customLanguage(config, path))
       return {
@@ -244,8 +280,9 @@ export async function selectLspServer(
   }
   const enabled = Object.entries(servers)
     .filter(
-      ([, server]) =>
-        server.enabled && (!path || !!customLanguage(server, path)),
+      ([id, server]) =>
+        lspServerEnabled(configuration, id).enabled &&
+        (!path || !!customLanguage(server, path)),
     )
     .sort(([a], [b]) => a.localeCompare(b));
   const allowed: typeof enabled = [];

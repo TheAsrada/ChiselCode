@@ -367,7 +367,7 @@ function OpenTuiScreen({
   }, [getMcpActions, capturedSettingsActions]);
   const [settingsSelection, setSettingsSelection] = useState(0);
   const [settingsPage, setSettingsPage] = useState<
-    "connection" | "appearance" | "permissions" | "web"
+    "connection" | "appearance" | "permissions" | "web" | "tools.lsp"
   >("connection");
   useEffect(() => {
     approvalResolver?.bind(setApproval);
@@ -1072,7 +1072,7 @@ function OpenTuiScreen({
   }, [focus, showSidebar, controller]);
 
   const openSettings = (
-    page: "connection" | "appearance" | "permissions" | "web",
+    page: "connection" | "appearance" | "permissions" | "web" | "tools.lsp",
     selection = 0,
   ) => {
     editor.current?.blur();
@@ -1089,6 +1089,14 @@ function OpenTuiScreen({
     controller?.setOverlay("settings");
     controller?.setFocus("modal");
   };
+  const handledLspMenu = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A core request captures Settings actions exactly once.
+  useEffect(() => {
+    if (!view.lspMenuRequest || view.lspMenuRequest === handledLspMenu.current)
+      return;
+    handledLspMenu.current = view.lspMenuRequest;
+    if (!settingsOpen) openSettings("tools.lsp");
+  }, [view.lspMenuRequest]);
   const closePermissions = () => {
     setPermissionsOpen(false);
     controller?.setOverlay();
@@ -1841,6 +1849,9 @@ function OpenTuiScreen({
       palette={palette}
       initialSelection={settingsSelection}
       initialPage={settingsPage}
+      onChooseProject={
+        getProjectActions ? () => controller?.requestProjectPicker() : undefined
+      }
       theme={initialTheme}
       themeCatalog={themeCatalog}
       setup={setupPending}
@@ -2040,6 +2051,18 @@ function OpenTuiScreen({
       }));
   };
   const menuActions: SidebarMenuAction[] = [
+    ...(!view.projectPath && (getSettingsActions || settingsActions?.lsp)
+      ? [
+          {
+            id: "lsp",
+            label: "Анализ кода · LSP",
+            detail: "Общие настройки и выбор проекта",
+            shortcut: "",
+            group: "ПРОЕКТ",
+            run: () => openSettings("tools.lsp"),
+          },
+        ]
+      : []),
     {
       id: "services",
       label: "Состояние сервисов",

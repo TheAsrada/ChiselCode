@@ -132,8 +132,8 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
   {
     id: "tools.lsp",
     group: "Инструменты",
-    title: "Анализ кода (LSP)",
-    description: "Ошибки, определения и ссылки · Auto для многих языков",
+    title: "Анализ кода · LSP",
+    description: "Включение, серверы и диагностика проекта",
     keywords: [
       "lsp",
       "анализ кода",
@@ -159,8 +159,18 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     ],
     fields: [
       {
+        id: "enabled",
+        title: "Включение анализа кода",
+        keywords: ["выключить", "включить", "enabled", "off"],
+      },
+      {
+        id: "servers",
+        title: "Все поддерживаемые серверы",
+        keywords: ["каталог", "серверы", "переключатели"],
+      },
+      {
         id: "mode",
-        title: "Auto / Своя настройка / Выключено",
+        title: "Стратегия Auto / Своя настройка",
         keywords: ["auto", "авто", "режим", "выключить", "стандартный"],
       },
       {
