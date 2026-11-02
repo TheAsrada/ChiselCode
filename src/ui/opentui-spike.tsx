@@ -21,7 +21,6 @@ import {
 } from "../commands/slash.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
 import {
-  AGENT_MODES,
   type AgentMode,
   DEFAULT_AGENT_MODE,
   nextAgentMode,
@@ -1671,7 +1670,7 @@ function OpenTuiScreen({
     if (
       !view.projectPath &&
       getProjectActions &&
-      !/^\/(settings|model|skills|update|sessions|resume|home|clear|cwd|permissions|auto|ask|plan|build|mode|mcp|compact)(\s|$)/.test(
+      !/^\/(settings|model|skills|update|sessions|resume|home|clear|cwd|permissions|plan|build|mcp|compact)(\s|$)/.test(
         value,
       )
     ) {
@@ -1698,16 +1697,11 @@ function OpenTuiScreen({
       )?.source.type === "builtin"
         ? resolved
         : undefined;
-    if (parsed && ["/permissions", "/auto", "/ask"].includes(parsed.name)) {
-      const requested =
-        parsed.name === "/permissions" ? parsed.args : parsed.name.slice(1);
+    if (parsed?.name === "/permissions") {
+      const requested = parsed.args;
       clearInput();
-      if (!requested && parsed.name === "/permissions")
-        return openPermissions();
-      if (
-        APPROVAL_MODE_INPUTS.includes(requested as ApprovalModeInput) &&
-        (parsed.name === "/permissions" || !parsed.args)
-      ) {
+      if (!requested) return openPermissions();
+      if (APPROVAL_MODE_INPUTS.includes(requested as ApprovalModeInput)) {
         try {
           changeApprovalMode(
             resolveApprovalMode({
@@ -1729,19 +1723,15 @@ function OpenTuiScreen({
       }
       return;
     }
-    if (parsed && ["/plan", "/build", "/mode"].includes(parsed.name)) {
-      const requested =
-        parsed.name === "/mode" ? parsed.args : parsed.name.slice(1);
-      if (
-        AGENT_MODES.includes(requested as AgentMode) &&
-        (parsed.name === "/mode" || !parsed.args)
-      )
-        changeAgentMode(requested as AgentMode);
-      else
+    if (parsed && ["/plan", "/build"].includes(parsed.name)) {
+      if (!parsed.args) {
+        changeAgentMode(parsed.name.slice(1) as AgentMode);
+      } else {
         controller?.append(
-          "Режим: /plan, /build или /mode plan|build. Shift+Tab переключает режим следующего запроса.",
+          "Режим: /plan или /build. Shift+Tab переключает режим следующего запроса.",
           "warn",
         );
+      }
       clearInput();
       return;
     }

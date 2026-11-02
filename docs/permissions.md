@@ -49,7 +49,7 @@ User `denyDomains`, project `web.denyDomains`, запрет операции и 
 
 ## Команды, CLI и совместимость
 
-`/permissions` открывает меню локально, без обращения к модели или создания сессии. `/permissions <ID>` выбирает режим. `manual` и старый `ask` — алиасы `default`; `/ask` выбирает Manual. Старый `auto`, `/auto`, `--yes` и `.chiselrc.autoApprove: true` теперь означают **Accept edits**: они не открывают Bypass и не разрешают любые команды.
+`/permissions` открывает меню локально, без обращения к модели или создания сессии. `/permissions <ID>` выбирает режим. `manual` и старый `ask` — алиасы `default`. Старый `auto`, `--yes` и `.chiselrc.autoApprove: true` теперь означают **Accept edits**: они не открывают Bypass и не разрешают любые команды.
 
 ```bash
 chisel --approval default

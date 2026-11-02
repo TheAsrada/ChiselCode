@@ -32,6 +32,9 @@ describe("interactive commands", () => {
     expect(parseSlashCommand("/unknown")).toBeUndefined();
     expect(parseSlashCommand("/new")).toBeUndefined();
     expect(parseSlashCommand("/sidebar")).toBeUndefined();
+    expect(parseSlashCommand("/mode plan")).toBeUndefined();
+    expect(parseSlashCommand("/ask")).toBeUndefined();
+    expect(parseSlashCommand("/auto")).toBeUndefined();
     expect(parseSlashCommand("/compact")).toEqual({
       name: "/compact",
       args: "",
@@ -61,6 +64,11 @@ describe("interactive commands", () => {
       "/home",
     ]);
     expect(matchingCommands("/help")).toEqual([]);
+    expect(matchingCommands("/mode").map((command) => command.name)).toEqual([
+      "/model",
+    ]);
+    expect(matchingCommands("/ask")).toEqual([]);
+    expect(matchingCommands("/auto")).toEqual([]);
   });
 
   test("suggests the closest command for typos", () => {

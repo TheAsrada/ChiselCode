@@ -131,7 +131,7 @@ test("mode commands stay local; modes belong to tabs, resume restores them and a
     for (const [command, expected] of [
       ["/plan", "plan"],
       ["/build", "build"],
-      ["/mode plan", "plan"],
+      ["/plan", "plan"],
     ]) {
       await act(async () => {
         await setup.mockInput.pasteBracketedText(command ?? "");
@@ -144,8 +144,8 @@ test("mode commands stay local; modes belong to tabs, resume restores them and a
     expect(submitted).toEqual([]);
     expect(workspace.tabs).toHaveLength(0);
     for (const [command, expected] of [
-      ["/auto", "acceptEdits"],
-      ["/ask", "default"],
+      ["/permissions acceptEdits", "acceptEdits"],
+      ["/permissions default", "default"],
       ["/permissions auto", "acceptEdits"],
     ]) {
       await act(async () => {

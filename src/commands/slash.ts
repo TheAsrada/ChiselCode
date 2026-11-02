@@ -24,15 +24,9 @@ export const SLASH_COMMANDS = [
   { name: "/exit", description: "закрыть ChiselCode" },
   { name: "/plan", description: "Plan: изучить проект и составить план" },
   { name: "/build", description: "Build: выполнить изменения" },
-  { name: "/mode", description: "сменить режим: plan|build" },
   {
     name: "/permissions",
     description: "выбрать Manual, Accept edits, Dont ask или Bypass",
-  },
-  { name: "/ask", description: "Manual: подтверждать изменения и команды" },
-  {
-    name: "/auto",
-    description: "Accept edits: разрешать правки файлов проекта",
   },
   { name: "/mcp", description: "Подключения MCP, инструменты и разрешения" },
 ] as const;
