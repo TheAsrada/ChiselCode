@@ -1334,7 +1334,7 @@ async function runApplication(
         return;
       }
       if (input === "/home") return workspace.select();
-      if (input === "/clear" || input === "/new") {
+      if (input === "/clear") {
         workspace.newDraft(controller.snapshot.projectPath);
         return;
       }

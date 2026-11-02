@@ -112,7 +112,6 @@ import {
   useUiKeyboard,
 } from "./overlay-input.js";
 import {
-  parseSidebarMode,
   type SidebarMode,
   sidebarLayout,
   toggleSidebarMode,
@@ -1672,7 +1671,7 @@ function OpenTuiScreen({
     if (
       !view.projectPath &&
       getProjectActions &&
-      !/^\/(settings|model|skills|update|sessions|resume|home|clear|new|cwd|permissions|auto|ask|plan|build|mode|sidebar|mcp|compact)(\s|$)/.test(
+      !/^\/(settings|model|skills|update|sessions|resume|home|clear|cwd|permissions|auto|ask|plan|build|mode|mcp|compact)(\s|$)/.test(
         value,
       )
     ) {
@@ -1743,15 +1742,6 @@ function OpenTuiScreen({
           "Режим: /plan, /build или /mode plan|build. Shift+Tab переключает режим следующего запроса.",
           "warn",
         );
-      clearInput();
-      return;
-    }
-    if (parsed?.name === "/sidebar") {
-      const arg = parsed.args;
-      const next = arg
-        ? parseSidebarMode(arg)
-        : toggleSidebarMode(mode, width, showSidebar);
-      if (next) changeMode(next);
       clearInput();
       return;
     }

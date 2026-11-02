@@ -293,7 +293,11 @@ test("slash suggestions keep the selected command visible past the first page", 
         setup.mockInput.pressArrow("down");
     });
     await setup.renderOnce();
-    expect(setup.captureCharFrame()).toContain("> /resume");
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("> /sessions");
+    expect(frame).toContain("/resume");
+    if (process.env.CHISEL_COMMAND_PREVIEW === "1")
+      process.stdout.write(`${frame}\n`);
   } finally {
     act(() => setup.renderer.destroy());
   }

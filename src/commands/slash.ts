@@ -21,7 +21,6 @@ export const SLASH_COMMANDS = [
   { name: "/resume", description: "открыть выбор сеанса" },
   { name: "/update", description: "проверить и установить обновление" },
   { name: "/home", description: "перейти на главную" },
-  { name: "/new", description: "создать вкладку сессии" },
   { name: "/exit", description: "закрыть ChiselCode" },
   { name: "/plan", description: "Plan: изучить проект и составить план" },
   { name: "/build", description: "Build: выполнить изменения" },
@@ -36,10 +35,6 @@ export const SLASH_COMMANDS = [
     description: "Accept edits: разрешать правки файлов проекта",
   },
   { name: "/mcp", description: "Подключения MCP, инструменты и разрешения" },
-  {
-    name: "/sidebar",
-    description: "показать или скрыть контекст: auto|show|hide",
-  },
 ] as const;
 
 export const BUILTIN_COMMAND_NAMES: ReadonlySet<string> = new Set(

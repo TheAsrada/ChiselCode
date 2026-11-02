@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadGlobalConfig, saveGlobalConfig } from "../../src/config/load.js";
 import {
-  parseSidebarMode,
   sidebarLayout,
   toggleSidebarMode,
 } from "../../src/ui/sidebar-layout.js";
@@ -42,10 +41,8 @@ test("obsolete persistent sidebar choice is retired without dropping appearance"
   }
 });
 
-test("Ctrl+B and /sidebar use the same mode choices", () => {
+test("Ctrl+B toggles the panel for the current screen", () => {
   expect(toggleSidebarMode("auto", 80)).toBe("show");
   expect(toggleSidebarMode("auto", 120)).toBe("hide");
   expect(toggleSidebarMode("show", 80)).toBe("hide");
-  expect(parseSidebarMode(" AUTO ")).toBe("auto");
-  expect(parseSidebarMode("invalid")).toBeUndefined();
 });

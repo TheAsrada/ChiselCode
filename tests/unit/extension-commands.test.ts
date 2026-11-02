@@ -96,7 +96,7 @@ test("one projection resolves, completes and suggests commands with source attri
   ).toEqual(["/inspect"]);
   expect(suggestSimilarCommand("/inspec arg", projection)).toBe("/inspect");
   expect(MAX_VISIBLE_SUGGESTIONS).toBe(6);
-  expect(resolveSlashCommand(projection, "/sidebar")?.source.type).toBe(
+  expect(resolveSlashCommand(projection, "/clear")?.source.type).toBe(
     "builtin",
   );
 });

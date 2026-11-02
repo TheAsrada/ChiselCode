@@ -30,18 +30,11 @@ export function sidebarLayout(
   };
 }
 
-/** Ctrl+B and bare /sidebar share this state transition. */
+/** Ctrl+B toggles the current screen's sidebar without persisting the choice. */
 export function toggleSidebarMode(
   mode: SidebarMode,
   width: number,
   visible = sidebarLayout(width, mode).placement !== "hidden",
 ): SidebarMode {
   return visible ? "hide" : "show";
-}
-
-export function parseSidebarMode(argument: string): SidebarMode | undefined {
-  const value = argument.trim().toLowerCase();
-  return value === "auto" || value === "show" || value === "hide"
-    ? value
-    : undefined;
 }

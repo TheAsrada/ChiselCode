@@ -30,7 +30,8 @@ describe("interactive commands", () => {
     expect(matchingCommands("/status")).toEqual([]);
     expect(matchingCommands("/doctor")).toEqual([]);
     expect(parseSlashCommand("/unknown")).toBeUndefined();
-    expect(parseSlashCommand("/new")).toEqual({ name: "/new", args: "" });
+    expect(parseSlashCommand("/new")).toBeUndefined();
+    expect(parseSlashCommand("/sidebar")).toBeUndefined();
     expect(parseSlashCommand("/compact")).toEqual({
       name: "/compact",
       args: "",
@@ -50,7 +51,6 @@ describe("interactive commands", () => {
       "/settings",
       "/skills",
       "/sessions",
-      "/sidebar",
     ]);
     expect(matchingCommands("/c").map((command) => command.name)).toEqual([
       "/clear",

@@ -135,7 +135,7 @@ try {
   await command("queued task");
   await settled(() => setup.captureCharFrame().includes("В очереди: 1"));
   expect(requests).toHaveLength(1);
-  await command("/new");
+  await command("/clear");
   await command("other tab task");
   await settled(() => requests.length === 2);
   expect(requests[1]?.approvalMode).toBe("bypassPermissions");
