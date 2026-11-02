@@ -27,7 +27,15 @@ export interface QueuedTabCommand extends Omit<QueuedTabPrompt, "kind"> {
   /** Optional Settings waiter; the operation still belongs to this conversation. */
   onResult?(result: ToolExecutionResult): void;
 }
-export type QueuedTabOperation = QueuedTabPrompt | QueuedTabCommand;
+export interface QueuedTabCompact extends Omit<QueuedTabPrompt, "kind"> {
+  kind: "compact";
+  onResult?(result: ToolExecutionResult): void;
+  quiet?: false;
+}
+export type QueuedTabOperation =
+  | QueuedTabPrompt
+  | QueuedTabCompact
+  | QueuedTabCommand;
 
 /** Execution belongs to the conversation, even while its screen is unmounted. */
 export class TuiTabExecution {

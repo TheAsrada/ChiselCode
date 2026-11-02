@@ -53,6 +53,7 @@ import {
   resolveApprovalMode,
 } from "../security/approval-mode.js";
 import { CredentialStore } from "../security/credentials.js";
+import { attachSessionRecorder } from "../sessions/checkpoints.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession, sessionTitleForPrompt } from "../sessions/store.js";
 import type {
@@ -103,6 +104,8 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
+  /** Internal foreground action; does not submit a user message or request an answer. */
+  compactOnly?: boolean;
   uiSnapshot?: import("../runtime/environment.js").UiSnapshotPort;
   /** Recovery bootstrap: disables all external imports while retaining builtins. */
   externalExtensions?: boolean;
@@ -475,6 +478,11 @@ async function runPromptInWorkspace(
   const previous = options.resume
     ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)
     : undefined;
+  if (options.compactOnly && !previous)
+    throw new RuntimeError(
+      "CONTEXT_COMPACTION_UNAVAILABLE",
+      "Сначала отправьте сообщение в разговор, затем используйте /compact.",
+    );
   if (previous?.subagent || previous?.backgroundExecution)
     throw new RuntimeError(
       "SUBAGENT_RECOVERY_REQUIRED",
@@ -667,47 +675,81 @@ async function runPromptInWorkspace(
     );
     // Resolve known credentials before the first transcript checkpoint or model request.
     await tools.refresh();
-    const runtime = new AgentRuntime(
-      provider,
-      new ContextManager(
-        config.context,
-        eventBus,
-        JSON.stringify([
-          selected.profile.providerId,
-          selected.profileId,
-          resolveEndpoint(
-            definition,
-            options.baseUrl ?? selected.profile.baseUrl,
-          ),
-        ]),
-        modelSummarizer,
-      ),
-      {
-        getApprovalMode: tools.getApprovalMode,
-        instructionsForTurn: (selected) =>
-          tools.catalog.instructionsForTurn(selected),
-        selectForTurn: async (input) => {
-          await tools.refresh();
-          return tools.catalog.selectForTurn(input);
-        },
-        execute: (calls, signal) =>
-          tools.scheduler.execute(sanitize(calls), signal),
-      },
-      sanitize(system),
+    const contextManager = new ContextManager(
+      config.context,
       eventBus,
+      JSON.stringify([
+        selected.profile.providerId,
+        selected.profileId,
+        resolveEndpoint(
+          definition,
+          options.baseUrl ?? selected.profile.baseUrl,
+        ),
+      ]),
+      modelSummarizer,
     );
+    if (options.compactOnly) {
+      const detachRecorder = attachSessionRecorder(session, eventBus);
+      try {
+        const capabilities = (await provider.getCapabilities?.(
+          session.model,
+        )) ?? {
+          tokenCounting: "local_estimate" as const,
+          ...catalogModelLimits(session.providerId, session.model),
+        };
+        const record = await contextManager.manualCompact({
+          session,
+          system: sanitize(system),
+          tools: tools.catalog.selectForTurn(),
+          provider,
+          capabilities,
+          signal,
+        });
+        result = {
+          status: "completed",
+          text: record
+            ? "Контекст текущего разговора сжат."
+            : "Пока нет старой истории, которую можно сжать.",
+          session,
+        };
+      } finally {
+        try {
+          await saveCheckpoint();
+        } finally {
+          detachRecorder();
+        }
+      }
+    } else {
+      const runtime = new AgentRuntime(
+        provider,
+        contextManager,
+        {
+          getApprovalMode: tools.getApprovalMode,
+          instructionsForTurn: (selected) =>
+            tools.catalog.instructionsForTurn(selected),
+          selectForTurn: async (input) => {
+            await tools.refresh();
+            return tools.catalog.selectForTurn(input);
+          },
+          execute: (calls, signal) =>
+            tools.scheduler.execute(sanitize(calls), signal),
+        },
+        sanitize(system),
+        eventBus,
+      );
 
-    result = await runtime.run(session, sanitize(prompt), {
-      workspaceRoot: projectRoot,
-      client: options.interactive ? "opentui" : "cli",
-      uiSnapshot: options.uiSnapshot,
-      mode,
-      approvalMode,
-      signal,
-      onCheckpoint: saveCheckpoint,
-      contextProviders: contextCollection(extensionScope, sanitize),
-      agentEvents: extensionScope.events,
-    });
+      result = await runtime.run(session, sanitize(prompt), {
+        workspaceRoot: projectRoot,
+        client: options.interactive ? "opentui" : "cli",
+        uiSnapshot: options.uiSnapshot,
+        mode,
+        approvalMode,
+        signal,
+        onCheckpoint: saveCheckpoint,
+        contextProviders: contextCollection(extensionScope, sanitize),
+        agentEvents: extensionScope.events,
+      });
+    }
   } catch (error) {
     runtimeFailed = true;
     runtimeFailure = error;

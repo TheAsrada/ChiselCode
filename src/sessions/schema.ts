@@ -171,7 +171,7 @@ export const SessionContextSchema = z.object({
         afterTokens: z.number().nonnegative(),
         estimated: z.boolean(),
         durationMs: z.number().nonnegative(),
-        reason: z.enum(["auto", "overflow"]),
+        reason: z.enum(["auto", "overflow", "manual"]),
         source: z.enum(["model", "evidence"]),
         createdAt: z.string(),
       }),

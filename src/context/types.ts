@@ -34,7 +34,7 @@ export interface ContextCompactionRecord {
   afterTokens: number;
   estimated: boolean;
   durationMs: number;
-  reason: "auto" | "overflow";
+  reason: "auto" | "overflow" | "manual";
   source: "model" | "evidence";
   createdAt: string;
 }

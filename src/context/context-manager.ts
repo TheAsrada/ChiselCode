@@ -200,6 +200,21 @@ export class ContextManager {
       ),
     );
   }
+  /** Explicit user request: compact complete old turns even below the automatic threshold. */
+  async manualCompact(
+    input: ContextBuildRequest,
+  ): Promise<ContextCompactionRecord | undefined> {
+    cancelled(input.signal);
+    if (!planCompaction(input.session, 0)) return;
+    const before = await this.count(input, effectiveMessages(input));
+    const after = await this.compact(input, 0, "manual", before);
+    if (!after)
+      throw new RuntimeError(
+        "CONTEXT_COMPACTION_NO_REDUCTION",
+        "Сжатие не уменьшило контекст; сохранённая история не изменена.",
+      );
+    return input.session.context?.compactions?.at(-1);
+  }
   private async compact(
     input: ContextBuildRequest,
     retain: number,

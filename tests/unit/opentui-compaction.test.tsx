@@ -108,3 +108,29 @@ test("native scrollback commits a completed card once and never commits a pendin
     controller.dispose();
   }
 });
+
+test("manual compaction card renders in the real OpenTUI transcript", async () => {
+  const controller = new TuiController(process.cwd());
+  const manual = { ...record, id: "manual-one", reason: "manual" as const };
+  controller.beginCompaction(manual.id);
+  controller.finishCompaction(manual);
+  const setup = await testRender(
+    <OpenTuiTranscript
+      entries={controller.snapshot.transcript}
+      contentWidth={80}
+      palette={THEMES.obsidian}
+    />,
+    { width: 80, height: 10 },
+  );
+  try {
+    await setup.renderOnce();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Контекст сжат по команде");
+    expect(frame).toContain("освобождено");
+    if (process.env.CHISEL_COMPACT_PREVIEW === "1")
+      process.stdout.write(`${frame}\n`);
+  } finally {
+    act(() => setup.renderer.destroy());
+    controller.dispose();
+  }
+});

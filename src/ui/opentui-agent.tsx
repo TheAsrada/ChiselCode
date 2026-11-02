@@ -1374,6 +1374,38 @@ async function runApplication(
         controller.requestProjectPicker("Выберите папку для этой задачи");
         return;
       }
+      if (parsed?.name === "/compact") {
+        if (parsed.args) {
+          controller.append("Использование: /compact без аргументов.", "warn");
+          return;
+        }
+        const execution = workspace.execution(controller);
+        if (!controller.snapshot.sessionId && !execution.activeRun) {
+          controller.append(
+            "Сначала отправьте сообщение в разговор, затем используйте /compact.",
+            "info",
+          );
+          return;
+        }
+        const item: QueuedTabOperation = {
+          kind: "compact",
+          input,
+          root: originRoot,
+          mode: turnMode,
+          approvalMode: turnApprovalMode,
+          modelOptions: turnModelOptions,
+          generation: originGeneration,
+        };
+        if (execution.activeRun) {
+          execution.pendingOperations.push(item);
+          controller.setBusy(true);
+          controller.append(
+            `В очереди: ${execution.pendingOperations.length} | /compact`,
+            "info",
+          );
+        } else await executeOperation(controller, item);
+        return;
+      }
       let snapshot:
         | import("./workspace-commands.js").WorkspaceCommandSnapshot
         | undefined;
@@ -1782,6 +1814,72 @@ async function runApplication(
           controller.setSessionId(
             await abortable(() => pendingSession, signal),
           );
+        if (item.kind === "compact") {
+          if (!controller.snapshot.sessionId) {
+            controller.append(
+              "В этом разговоре пока нет сохранённой истории.",
+              "info",
+            );
+            status = "completed";
+            return;
+          }
+          let compressed = false;
+          const { result } = await runPrompt(
+            "",
+            {
+              ...options,
+              ...turnModelOptions,
+              cwd: item.root,
+              resume: controller.snapshot.sessionId,
+              mode: turnMode,
+              approvalMode: turnApprovalMode,
+              interactive: true,
+              compactOnly: true,
+              mcpManager: getMcpController(item.root).manager,
+            },
+            execution.approvalResolver,
+            {
+              onText: () => {},
+              onEvent: (event) => {
+                if (!controller.isCurrent(requestGeneration) || signal.aborted)
+                  return;
+                if (
+                  event.type === "context_compaction_started" &&
+                  event.compactionId
+                )
+                  controller.beginCompaction(event.compactionId);
+                if (
+                  event.type === "context_compaction_completed" &&
+                  event.compaction
+                ) {
+                  compressed = true;
+                  controller.finishCompaction(event.compaction);
+                }
+                if (
+                  event.type === "context_compaction_failed" &&
+                  event.compactionId
+                )
+                  controller.abortCompaction(event.compactionId);
+                if (event.type === "context_updated" && event.contextSnapshot) {
+                  const selection = controller.snapshot.modelSelection;
+                  if (selection)
+                    controller.setContextSnapshot(
+                      selection,
+                      event.contextSnapshot,
+                    );
+                }
+              },
+            },
+            signal,
+            { host: extensionHost },
+          );
+          status = result.status;
+          if (controller.isCurrent(requestGeneration) && !signal.aborted) {
+            controller.setSessionUsage(result.session);
+            if (!compressed) controller.append(result.text, "info");
+          }
+          return;
+        }
         if (item.kind !== "prompt") {
           const snapshot = await commandActions.load(item.root, signal);
           const descriptor =

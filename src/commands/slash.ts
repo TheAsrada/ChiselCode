@@ -9,6 +9,7 @@ export const SLASH_COMMANDS = [
     name: "/clear",
     description: "начать новую вкладку, сохранив текущий разговор",
   },
+  { name: "/compact", description: "сжать историю текущего разговора" },
   { name: "/cwd", description: "сменить папку проекта: <путь>" },
   {
     name: "/settings",

@@ -1672,7 +1672,7 @@ function OpenTuiScreen({
     if (
       !view.projectPath &&
       getProjectActions &&
-      !/^\/(settings|model|skills|update|sessions|resume|home|clear|new|cwd|permissions|auto|ask|plan|build|mode|sidebar|mcp)(\s|$)/.test(
+      !/^\/(settings|model|skills|update|sessions|resume|home|clear|new|cwd|permissions|auto|ask|plan|build|mode|sidebar|mcp|compact)(\s|$)/.test(
         value,
       )
     ) {

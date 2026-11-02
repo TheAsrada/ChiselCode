@@ -13,5 +13,5 @@ export function compactionNotice(record: ContextCompactionRecord): string {
           Math.round((1 - record.afterTokens / record.beforeTokens) * 100),
         )
       : 0;
-  return `Контекст сжат автоматически\n${tokens(record.beforeTokens)} -> ${tokens(record.afterTokens)} токенов · освобождено ${freed}% · ${elapsedSeconds(record.durationMs, true)}`;
+  return `Контекст сжат ${record.reason === "manual" ? "по команде" : "автоматически"}\n${tokens(record.beforeTokens)} -> ${tokens(record.afterTokens)} токенов · освобождено ${freed}% · ${elapsedSeconds(record.durationMs, true)}`;
 }

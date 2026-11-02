@@ -170,6 +170,28 @@ test("model compaction preserves the current request, real tool boundaries and t
   );
 });
 
+test("manual compaction uses the model handoff, persists one card and leaves the transcript untouched", async () => {
+  const f = fixture();
+  const original = JSON.stringify(f.session.messages);
+  const record = await f.manager.manualCompact(f.input);
+  if (!record) throw new Error("Missing manual compaction record");
+  expect(record).toMatchObject({ reason: "manual", source: "model" });
+  expect(f.requests).toHaveLength(1);
+  expect(f.requests[0]?.tools).toEqual([]);
+  expect(f.session.context?.compactions).toHaveLength(1);
+  expect(JSON.stringify(f.session.messages)).toBe(original);
+  expect(assembleMessages(f.session).at(-1)).toEqual(f.session.messages.at(-1));
+  expect(await f.manager.manualCompact(f.input)).toBeUndefined();
+  expect(f.session.context?.compactions).toHaveLength(1);
+  const restored = withSessionCompatibility(
+    SessionV3Schema.parse(
+      JSON.parse(JSON.stringify({ ...f.session, schemaVersion: 3 })),
+    ),
+  );
+  expect(restored.context).toEqual(f.session.context);
+  expect(compactionNotice(record)).toContain("Контекст сжат по команде");
+});
+
 test("the runtime continues the original task after a summary and counts auxiliary usage once", async () => {
   const requests: ProviderRequest[] = [];
   const adapter: ProviderAdapter = {
