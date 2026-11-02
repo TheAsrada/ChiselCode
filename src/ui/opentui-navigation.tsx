@@ -300,7 +300,7 @@ export function OpenTuiHome({
             {onSessions && (
               <DialogAction
                 id="home-sessions"
-                label="История /sessions"
+                label="История /resume"
                 palette={{ ...palette, surface: palette.bg }}
                 onSelect={onSessions}
               />

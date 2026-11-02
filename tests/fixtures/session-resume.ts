@@ -213,6 +213,11 @@ try {
       async () => ui.renderer,
     );
   });
+  await wait(
+    () => ui.captureCharFrame().includes("История /resume"),
+    "home resume shortcut",
+  );
+  assert.ok(!ui.captureCharFrame().includes("/sessions"));
   await send("/resume");
   await wait(
     () => ui.captureCharFrame().includes("Сессий: 5"),
