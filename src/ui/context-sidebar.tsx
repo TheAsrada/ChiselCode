@@ -166,6 +166,11 @@ export function ContextSidebar({
             inner,
           )}
         />
+        {!window && (
+          <text height={1} fg={palette.muted}>
+            .chiselrc: context.contextWindow
+          </text>
+        )}
         {snapshot?.status === "estimated" && (
           <text height={1} fg={palette.muted}>
             ~ приблизительная оценка

@@ -143,6 +143,35 @@ test("API deployment limits take priority over catalog; compatible metadata name
   ).toBeUndefined();
 });
 
+test("current exact gateway model IDs have catalog limits without guessing deployment aliases", () => {
+  for (const [id, contextWindow] of [
+    ["deepseek-v4.1-flash", 1_000_000],
+    ["deepseek-v4.1-flash-1017", 1_000_000],
+    ["deepseek-v4p1-flash-1017", 1_000_000],
+    ["gemini-3.8-flash", 1_048_576],
+    ["google/gemini-3.1-pro-preview", 1_048_576],
+    ["grok-4.7", 500_000],
+    ["glm-5.3-flash", 1_000_000],
+  ] as const) {
+    expect(modelInfo({ id }, "openai-compatible")).toMatchObject({
+      contextWindow,
+      limitsSource: "catalog",
+    });
+  }
+  expect(
+    modelInfo(
+      { id: "deepseek-v4.1-flash-1017", context_length: 32_000 },
+      "openai-compatible",
+    ),
+  ).toMatchObject({ contextWindow: 32_000, limitsSource: "provider" });
+  for (const id of [
+    "gemini-3.8-flash-high",
+    "deepseek-v4.1-flash-free",
+    "deepseek-v4.1-flash-9999",
+  ])
+    expect(catalogModelLimits("openai-compatible", id)).toEqual({});
+});
+
 test("full model output replaces 4096 and window/4 ceilings, and shrinks with available space", () => {
   expect(
     contextBudget(metadata, DEFAULT_CONTEXT_OPTIONS, undefined, 50_000)

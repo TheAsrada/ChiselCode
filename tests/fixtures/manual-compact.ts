@@ -27,6 +27,9 @@ for (const key of [
 process.env.OPENAI_API_KEY = "fixture-key";
 let generations = 0;
 let summaryRequests = 0;
+let ordinaryRequests = 0;
+let followupHistory = "";
+const model = "deepseek-v4.1-flash-1017";
 const handoff = {
   ...emptySummary(),
   goal: "Finish the site",
@@ -39,25 +42,29 @@ const server = Bun.serve({
   async fetch(request) {
     if (request.url.endsWith("/models"))
       return Response.json({
-        data: [
-          {
-            id: "fixture-model",
-            context_window: 8000,
-            max_output_tokens: 2000,
-          },
-        ],
+        // The gateway in the report lists this exact ID without token limits.
+        data: [{ id: model }],
       });
     generations++;
     const body = (await request.json()) as {
       messages?: { content?: string }[];
+      tools?: unknown[];
     };
-    if (JSON.stringify(body).includes("compact, factual handoff"))
+    const summary = JSON.stringify(body).includes("compact, factual handoff");
+    if (summary) {
+      assert.equal(body.tools, undefined);
       summaryRequests++;
-    const text = JSON.stringify(handoff);
+    } else {
+      ordinaryRequests++;
+      followupHistory = JSON.stringify(body.messages);
+    }
+    const text = summary
+      ? JSON.stringify(handoff)
+      : `Обычный ответ ${ordinaryRequests}`;
     return new Response(
       `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n` +
         `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n` +
-        `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 200, completion_tokens: 80 } })}\n\n` +
+        `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: summary ? 200 : 30_000, completion_tokens: 80 } })}\n\n` +
         "data: [DONE]\n\n",
       { headers: { "content-type": "text/event-stream" } },
     );
@@ -74,8 +81,8 @@ try {
       defaultProfileId: "fixture",
       profiles: {
         fixture: {
-          providerId: "openai",
-          defaultModel: "fixture-model",
+          providerId: "openai-compatible",
+          defaultModel: model,
           baseUrl: `http://127.0.0.1:${server.port}/v1`,
         },
       },
@@ -84,7 +91,7 @@ try {
     }),
   );
   const store = await projectSessionStore(root);
-  const session = createSession(root, "openai", "fixture-model");
+  const session = createSession(root, "openai-compatible", model);
   session.profileId = "fixture";
   session.messages = [
     { role: "user", content: [{ type: "text", text: "Finish the site" }] },
@@ -137,6 +144,8 @@ try {
     },
   );
   assert.equal(first.result.status, "completed");
+  assert.equal(first.result.session.contextSnapshot?.contextWindow, 1_000_000);
+  assert.equal(first.result.session.contextSnapshot?.windowSource, "catalog");
   const saved = await store.load(session.id);
   assert.equal(saved.context?.compactions?.at(-1)?.reason, "manual");
   assert.equal(JSON.stringify(saved.messages), originalMessages);
@@ -165,7 +174,7 @@ try {
     },
   );
   await store.save(more);
-  ui = await createTestRenderer({ width: 100, height: 28, exitOnCtrlC: false });
+  ui = await createTestRenderer({ width: 128, height: 38, exitOnCtrlC: false });
   const testUi = ui;
   await act(async () => {
     application = runOpenTuiAgent(
@@ -177,35 +186,90 @@ try {
       async () => testUi.renderer,
     );
   });
-  const deadline = Date.now() + 10_000;
-  while (!ui.renderer.currentFocusedEditor) {
-    if (Date.now() > deadline) throw new Error(ui.captureCharFrame());
+  const wait = async (ready: () => boolean | Promise<boolean>) => {
+    const deadline = Date.now() + 10_000;
+    while (!(await ready())) {
+      if (Date.now() > deadline) throw new Error(testUi.captureCharFrame());
+      await act(async () => {
+        await Bun.sleep(10);
+        await testUi.renderOnce();
+      });
+    }
+  };
+  const send = async (text: string) => {
+    await wait(() => Boolean(testUi.renderer.currentFocusedEditor));
     await act(async () => {
-      await Bun.sleep(10);
-      await testUi.renderOnce();
+      await testUi.mockInput.typeText(text);
+      testUi.mockInput.pressEnter();
     });
-  }
-  await act(async () => {
-    await testUi.mockInput.typeText("/compact");
-    testUi.mockInput.pressEnter();
-  });
-  while (!ui.captureCharFrame().includes("Контекст сжат по команде")) {
-    if (Date.now() > deadline) throw new Error(ui.captureCharFrame());
+  };
+  await wait(() => Boolean(testUi.renderer.currentFocusedEditor));
+  if (!testUi.renderer.root.findDescendantById("context-sidebar"))
     await act(async () => {
-      await Bun.sleep(10);
-      await testUi.renderOnce();
+      testUi.mockInput.pressKey("b", { ctrl: true });
     });
-  }
-  assert.equal(generations, 2);
+  await wait(() =>
+    testUi
+      .captureCharFrame()
+      .replaceAll("\u00a0", " ")
+      .includes("Окно: 1 000 000"),
+  );
+  assert.ok(testUi.captureCharFrame().includes("каталог"));
+  // A normal foreground turn binds the conversation owner before /compact.
+  await send("Продолжи исследование");
+  await wait(() => testUi.captureCharFrame().includes("Обычный ответ 1"));
+  await wait(async () => (await store.load(session.id)).messages.length === 9);
+  const beforeCompact = JSON.stringify((await store.load(session.id)).messages);
+  await send("/compact");
+  await wait(() =>
+    testUi.captureCharFrame().includes("Контекст сжат по команде"),
+  );
+  assert.equal(generations, 3);
   assert.equal(summaryRequests, 2);
-  while ((await store.load(session.id)).context?.compactions?.length !== 2) {
-    if (Date.now() > deadline)
-      throw new Error("Manual checkpoint was not saved");
+  await wait(
+    async () =>
+      (await store.load(session.id)).context?.compactions?.length === 2,
+  );
+  assert.equal(
+    JSON.stringify((await store.load(session.id)).messages),
+    beforeCompact,
+  );
+  await wait(() => testUi.captureCharFrame().includes("Enter отправить"));
+  if (process.env.CHISEL_COMPACT_CAPTURES) {
+    const output = process.env.CHISEL_COMPACT_CAPTURES;
+    await mkdir(output, { recursive: true });
     await act(async () => {
-      await Bun.sleep(10);
       await testUi.renderOnce();
     });
+    const spans = testUi.captureSpans();
+    await writeFile(
+      join(output, "manual-compact.json"),
+      JSON.stringify({
+        ...spans,
+        lines: spans.lines.map((line) => ({
+          spans: line.spans.map((span) => ({
+            ...span,
+            fg: span.fg.toInts(),
+            bg: span.bg.toInts(),
+          })),
+        })),
+      }),
+    );
+    await writeFile(
+      join(output, "manual-compact.txt"),
+      testUi.captureCharFrame(),
+    );
   }
+  await send("/compact");
+  await wait(() => testUi.captureCharFrame().includes("нет старой истории"));
+  assert.equal(generations, 3);
+  await send("Продолжи после сжатия");
+  await wait(() => testUi.captureCharFrame().includes("Обычный ответ 2"));
+  assert.equal(generations, 4);
+  assert.ok(followupHistory.includes("Продолжи после сжатия"));
+  assert.ok(followupHistory.includes(handoff.goal));
+  assert.ok(!followupHistory.includes("New observations"));
+  assert.ok(!testUi.captureCharFrame().includes("старый порт"));
   if (process.env.CHISEL_COMPACT_CAPTURE)
     await writeFile(process.env.CHISEL_COMPACT_CAPTURE, ui.captureCharFrame());
   process.stdout.write(

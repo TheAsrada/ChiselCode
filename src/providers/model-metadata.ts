@@ -22,7 +22,14 @@ export function catalogModelLimits(providerId: string, model: string): Limits {
   const providers = catalog.providers as Record<string, Record<string, Limits>>;
   const direct = providers[providerId]?.[model];
   if (direct) return { ...direct, limitsSource: "catalog" };
-  for (const provider of ["openai", "anthropic", "deepseek"]) {
+  for (const provider of [
+    "openai",
+    "anthropic",
+    "deepseek",
+    "google",
+    "xai",
+    "zai",
+  ]) {
     const limits =
       providers[provider]?.[model] ??
       providers[provider]?.[

@@ -1835,11 +1835,47 @@ async function runApplication(
               approvalMode: turnApprovalMode,
               interactive: true,
               compactOnly: true,
+              subagentOwner: {
+                conversationId: controller.conversationId,
+                modelOptions: () => modelOptions(controller),
+                generation: requestGeneration,
+                signal: controller.ownerSignal,
+                assertAvailable: () => {
+                  if (!controller.isCurrent(requestGeneration))
+                    throw new Error("Разговор заменён.");
+                },
+              },
+              isBypassAllowed: () => bypassAvailable,
+              getWebConfig: () => webConfigLive,
               mcpManager: getMcpController(item.root).manager,
             },
             execution.approvalResolver,
             {
               onText: () => {},
+              onConversation: (source) => {
+                if (controller.isCurrent(requestGeneration))
+                  controller.conversation.bind(source);
+              },
+              onBackground: (event) => {
+                if (controller.isCurrent(requestGeneration))
+                  controller.acceptBackground(event);
+              },
+              onBackgroundControls: (controls) => {
+                if (controller.isCurrent(requestGeneration)) {
+                  execution.backgroundControls = controls;
+                  controller.setBackgroundControls(controls);
+                }
+              },
+              onSubagent: (event) => {
+                if (controller.isCurrent(requestGeneration))
+                  controller.acceptSubagent(event);
+              },
+              onSubagentControls: (controls) => {
+                if (controller.isCurrent(requestGeneration)) {
+                  execution.subagentControls = controls;
+                  controller.setSubagentControls(controls);
+                }
+              },
               onEvent: (event) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
@@ -1864,7 +1900,14 @@ async function runApplication(
                   const selection = controller.snapshot.modelSelection;
                   if (selection)
                     controller.setContextSnapshot(
-                      selection,
+                      {
+                        provider:
+                          turnModelOptions.provider ?? selection.provider,
+                        profileId: turnModelOptions.profile,
+                        model:
+                          turnModelOptions.model ?? event.contextSnapshot.model,
+                        baseUrl: turnModelOptions.baseUrl,
+                      },
                       event.contextSnapshot,
                     );
                 }
@@ -1875,7 +1918,12 @@ async function runApplication(
           );
           status = result.status;
           if (controller.isCurrent(requestGeneration) && !signal.aborted) {
-            controller.setSessionUsage(result.session);
+            controller.setSessionUsage(result.session, {
+              provider: result.session.providerId,
+              profileId: result.session.profileId,
+              model: result.session.model,
+              baseUrl: turnModelOptions.baseUrl,
+            });
             if (!compressed) controller.append(result.text, "info");
           }
           return;

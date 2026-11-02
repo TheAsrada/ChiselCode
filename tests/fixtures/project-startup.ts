@@ -145,6 +145,55 @@ const pathInput = async (text: string) => {
     await ui.mockInput.pasteBracketedText(text);
   });
 };
+const checkHomeLayout = () => {
+  const logo = ui.renderer.root.findDescendantById("welcome-logo");
+  const prompt = ui.renderer.root.findDescendantById("prompt");
+  const footer = ui.renderer.root.findDescendantById("home-project-status");
+  const action = ui.renderer.root.findDescendantById("home-open-project");
+  assert.ok(logo && prompt && footer && action);
+  assert.equal(prompt.y, logo.y + logo.height + (height >= 12 ? 1 : 0));
+  assert.equal(action.y, footer.y);
+  assert.equal(action.width, 6);
+  assert.equal(action.height, 1);
+  assert.ok(action.x >= 0 && action.x + action.width <= width);
+  assert.ok(action.y >= prompt.y + prompt.height && action.y < height);
+  assert.ok(!ui.captureCharFrame().includes("Открыть папку /cwd"));
+  assert.ok(!ui.captureCharFrame().includes("Сменить папку /cwd"));
+};
+const openFromFooter = async () => {
+  await act(async () => {
+    await ui.renderOnce();
+  });
+  const action = ui.renderer.root.findDescendantById("home-open-project");
+  assert.ok(action);
+  await act(async () => {
+    await ui.mockMouse.click(action.x + 1, action.y);
+  });
+  await wait(
+    () => !!ui.renderer.root.findDescendantById("project-path"),
+    "footer opens project picker",
+  );
+  if (process.env.CHISEL_STARTUP_RECENT === "1")
+    await wait(
+      () =>
+        !!(
+          ui.renderer.root.findDescendantById(
+            `project-row-recent-${project}`,
+          ) ??
+          ui.renderer.root.findDescendantById(
+            `project-row-recent-${pathIdentity(project)}`,
+          )
+        ),
+      "recent project remains available in picker",
+    );
+  await act(async () => ui.mockInput.pressEscape());
+  await wait(
+    () =>
+      !ui.renderer.root.findDescendantById("projects-popup") &&
+      !!ui.renderer.currentFocusedEditor,
+    "footer picker cancellation restores composer",
+  );
+};
 try {
   await act(async () => {
     application = runOpenTuiAgent(
@@ -185,6 +234,12 @@ try {
   if (height < 10) {
     console.log("Project startup compact renderer verified");
   } else {
+    checkHomeLayout();
+    if (width >= 24)
+      assert.equal(
+        ui.captureCharFrame().split("Проект не выбран").length - 1,
+        1,
+      );
     if (!packaged) {
       await type("/settings");
       await enter();
@@ -225,6 +280,10 @@ try {
     }
     const draft = "Какая версия, модель и интерфейс используются?";
     await type(draft);
+    await openFromFooter();
+    assert.equal(ui.renderer.currentFocusedEditor?.plainText, draft);
+    assert.equal(calls.length, 0);
+    assert.equal(activations, 0);
     await enter();
     await wait(
       () => !!ui.renderer.root.findDescendantById("project-path"),
@@ -272,7 +331,14 @@ try {
     );
     assert.equal(activations, 1);
     assert.equal(ui.renderer.currentFocusedEditor?.plainText, draft);
+    checkHomeLayout();
     await capture("project-ready");
+    if (!packaged) {
+      await openFromFooter();
+      assert.equal(ui.renderer.currentFocusedEditor?.plainText, draft);
+      assert.equal(activations, 1);
+      assert.equal(calls.length, 0);
+    }
     await enter();
     await wait(
       () => ui.captureCharFrame().includes("Проверенный ответ"),

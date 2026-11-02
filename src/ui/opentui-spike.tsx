@@ -2453,9 +2453,6 @@ function OpenTuiScreen({
                         sessionPicker ? () => submit("/sessions") : undefined
                       }
                       onProjects={getProjectActions ? openProjects : undefined}
-                      projectActions={
-                        getProjectActions ? getProjectActions() : undefined
-                      }
                     >
                       {composer}
                     </OpenTuiHome>

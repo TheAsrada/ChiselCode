@@ -119,6 +119,7 @@ for (const theme of ["obsidian", "paper"] as const)
         expect(frame).not.toContain("#");
         if (scenario === "unknown") {
           expect(frame).toContain("Размер окна неизвестен");
+          expect(frame).toContain(".chiselrc: context.contextWindow");
           expect(frame).not.toContain("%");
         } else {
           expect(frame).toContain("Окно: 1 000 000");

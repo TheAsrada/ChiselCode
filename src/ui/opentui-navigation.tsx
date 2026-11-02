@@ -1,14 +1,11 @@
 /** @jsxImportSource @opentui/react */
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import type { ProjectMetadata } from "../sessions/project-store.js";
 import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
 import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import { UiSurface } from "./opentui-composition.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { ActivityIndicator } from "./opentui-motion.js";
-import type { OpenTuiProjectsActions } from "./opentui-projects.js";
 
 import { terminalLine } from "./terminal-text.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
@@ -212,7 +209,6 @@ export function OpenTuiHome({
   onModels,
   onSessions,
   onProjects,
-  projectActions,
 }: {
   projectPath?: string;
   width: number;
@@ -225,29 +221,17 @@ export function OpenTuiHome({
   onModels?: () => void;
   onSessions?: () => void;
   onProjects?: () => void;
-  projectActions?: OpenTuiProjectsActions;
 }) {
-  const [recent, setRecent] = useState<ProjectMetadata[]>([]);
-  useEffect(() => {
-    if (projectPath) {
-      setRecent([]);
-      return;
-    }
-    let live = true;
-    void projectActions
-      ?.recent()
-      .then((items) => {
-        if (live) setRecent(items.slice(0, 3));
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [projectPath, projectActions?.recent]);
   const logoWidth = LOGO_WIDTH;
   const logoRows = renderLogoRows();
   const fullLogo = width >= logoWidth + 4 && height >= 18;
   const contentWidth = Math.max(1, Math.min(86, width - (width >= 40 ? 4 : 0)));
+  const version = `ChiselCode ${VERSION}`;
+  const showVersion = width >= 50;
+  const projectWidth = Math.max(
+    1,
+    width - 2 - (showVersion ? version.length + 2 : 0),
+  );
   return (
     <box
       id="welcome"
@@ -294,36 +278,6 @@ export function OpenTuiHome({
           )}
         </UiSurface>
         <box height={height >= 12 ? 1 : 0} flexShrink={0} />
-        {onProjects && (
-          <box
-            width="100%"
-            flexShrink={0}
-            flexDirection="column"
-            marginBottom={height >= 18 ? 1 : 0}
-          >
-            <DialogAction
-              id="home-open-project"
-              label={projectPath ? "Сменить папку /cwd" : "Открыть папку /cwd"}
-              palette={palette}
-              onSelect={onProjects}
-            />
-            {!projectPath &&
-              height >= 24 &&
-              recent.map((item) => (
-                // biome-ignore lint/a11y/noStaticElementInteractions: /cwd opens the same project picker from the keyboard.
-                <box key={item.id} height={1} onMouseUp={onProjects}>
-                  <text fg={palette.muted}>
-                    {terminalLine(`${item.name} · ${item.path}`, contentWidth)}
-                  </text>
-                </box>
-              ))}
-            {!projectPath && (
-              <text fg={palette.muted} height={1}>
-                Проект не выбран
-              </text>
-            )}
-          </box>
-        )}
         {children}
         {width >= 64 && height >= 28 && (
           <box
@@ -405,21 +359,46 @@ export function OpenTuiHome({
             </text>
           )}
           <box
+            id="home-project-status"
             height={1}
             width="100%"
             flexShrink={0}
             flexDirection="row"
             justifyContent="space-between"
+            gap={2}
           >
-            <text fg={palette.muted} height={1}>
-              {terminalLine(
-                projectPath ?? "Проект не выбран",
-                Math.max(1, width - 22),
+            <box
+              width={projectWidth}
+              height={1}
+              flexShrink={0}
+              flexDirection="row"
+              gap={1}
+            >
+              <text
+                fg={palette.muted}
+                height={1}
+                maxWidth={Math.max(1, projectWidth - (onProjects ? 7 : 0))}
+              >
+                {terminalLine(
+                  projectPath ?? "Проект не выбран",
+                  Math.max(1, projectWidth - (onProjects ? 7 : 0)),
+                )}
+              </text>
+              {onProjects && (
+                <DialogAction
+                  id="home-open-project"
+                  label="/cwd"
+                  tone="muted"
+                  palette={{ ...palette, surface: palette.bg }}
+                  onSelect={onProjects}
+                />
               )}
-            </text>
-            <text fg={palette.muted} height={1}>
-              ChiselCode {VERSION}
-            </text>
+            </box>
+            {showVersion && (
+              <text fg={palette.muted} height={1}>
+                {version}
+              </text>
+            )}
           </box>
         </UiSurface>
       )}
