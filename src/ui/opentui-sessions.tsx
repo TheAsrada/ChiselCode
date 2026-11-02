@@ -116,7 +116,7 @@ export function OpenTuiSessions({
   );
   const index = Math.max(0, Math.min(selection, filtered.length - 1));
   const selected = filtered[index];
-  const headerRows = layout.roomy ? 3 : 1;
+  const headerRows = layout.roomy ? 2 : 1;
   const searchRows = layout.roomy ? 3 : 1;
   const footerRows = layout.roomy ? 3 : 1;
   const statusRows = error || mode !== "search" ? 2 : 0;
@@ -385,26 +385,12 @@ export function OpenTuiSessions({
       ) : (
         <>
           <box height={headerRows} flexShrink={0} flexDirection="row" gap={2}>
-            {layout.roomy && (
-              <box
-                width={5}
-                height={3}
-                alignItems="center"
-                justifyContent="center"
-                backgroundColor={palette.raised}
-                border
-                borderColor={palette.accent}
-                borderStyle="rounded"
-              >
-                <text fg={palette.accent}>↶</text>
-              </box>
-            )}
             <box flexGrow={1} flexDirection="column">
               <text height={1} fg={palette.text}>
                 <strong>
                   {line(
                     "Продолжить разговор",
-                    layout.innerWidth - (layout.roomy ? 18 : 0),
+                    layout.innerWidth - (layout.innerWidth >= 48 ? 10 : 0),
                   )}
                 </strong>
               </text>
