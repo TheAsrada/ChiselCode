@@ -103,6 +103,16 @@ const tools = await createSessionToolRuntime({
 const command = (file: string) =>
   `${quoteShellArg(process.execPath)} ${quoteShellArg(join(root, file))}`;
 try {
+  await tools.refresh();
+  assert.ok(
+    !tools.catalog.selectForTurn().some((tool) => tool.name === "git_status"),
+  );
+  const unavailableGit = await tools.executor.execute({
+    id: "unadvertised-git",
+    name: "git_status",
+    input: {},
+  });
+  assert.equal(unavailableGit.errorCode, "GIT_NOT_REPOSITORY");
   const batchRelease = join(root, "batch-release.txt");
   await writeFile(batchRelease, "");
   await writeFile(
@@ -430,6 +440,10 @@ try {
   );
   await git("add", "result.txt", "isolated.cjs");
   await git("commit", "-m", "fixture base");
+  await tools.refresh();
+  assert.ok(
+    tools.catalog.selectForTurn().some((tool) => tool.name === "git_status"),
+  );
   const initialHead = await git("rev-parse", "HEAD");
   const initialIndex = await git("ls-files", "--stage");
   const branches = await git(

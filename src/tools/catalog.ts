@@ -32,6 +32,9 @@ export class ToolCatalog {
   constructor(
     private readonly getMode: () => AgentMode = () => DEFAULT_AGENT_MODE,
     private readonly permitted: (handler: ToolHandler) => boolean = () => true,
+    private readonly unavailable?: (
+      handler: ToolHandler,
+    ) => RuntimeError | undefined,
   ) {}
   private handlers = new Map<string, ToolHandler>();
   private providers = new Map<string, Set<string>>();
@@ -110,6 +113,10 @@ export class ToolCatalog {
       );
     return handler;
   }
+  assertAvailable(handler: ToolHandler): void {
+    const reason = this.unavailable?.(handler);
+    if (reason) throw reason;
+  }
   instructionsForTurn(tools: readonly ToolDefinition[]): string {
     const guidance = tools.flatMap(({ name }) => {
       const spec = this.handlers.get(name)?.spec;
@@ -133,6 +140,7 @@ export class ToolCatalog {
     const permitted = [...this.handlers.values()].filter(
       (handler) =>
         this.permitted(handler) &&
+        !this.unavailable?.(handler) &&
         allowsToolInMode(this.getMode(), handler.spec.effect),
     );
     const local = permitted.filter(({ spec }) => spec.source?.type !== "mcp");

@@ -18,6 +18,7 @@ import { createLocalToolRuntime } from "../tools/local-runtime.js";
 import type { GlobalConfig, ProjectConfig, Session } from "../types/domain.js";
 import { createWebToolProvider } from "../web/provider.js";
 import { resolveWebConfig } from "../web/schema.js";
+import { GitCapability } from "./git-capability.js";
 import type { RunOptions } from "./run-prompt.js";
 
 /** Shared composition for model turns and deterministic commands; no model adapter. */
@@ -199,6 +200,7 @@ export async function createSessionToolRuntime(input: {
         backgrounds.controls(session.id, backgroundBinding.generation),
       );
     const skills = loadSkills(root);
+    const git = new GitCapability(root, signal);
     const tools = createLocalToolRuntime(
       root,
       config.ignorePatterns,
@@ -225,6 +227,7 @@ export async function createSessionToolRuntime(input: {
         subagentTools: input.subagentTools,
         background,
         worktrees: scope.services.lookup(worktreeServiceToken),
+        unavailable: (handler) => git.reason(handler),
       },
     );
     await tools.catalog.addProvider(web);
@@ -239,7 +242,13 @@ export async function createSessionToolRuntime(input: {
       sanitize,
       saveCheckpoint,
       dispose,
-      refresh: () => mcpBinding?.refresh(signal) ?? Promise.resolve(),
+      instructionsForTurn: (
+        selected: readonly import("../types/domain.js").ToolDefinition[],
+      ) => tools.catalog.instructionsForTurn(selected) + git.instructions(),
+      refresh: async () => {
+        await git.refresh();
+        await mcpBinding?.refresh(signal);
+      },
     };
   } catch (error) {
     try {

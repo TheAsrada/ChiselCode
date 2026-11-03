@@ -186,6 +186,7 @@ export class ToolExecutor {
         );
       const handler = this.catalog.get(call.name);
       record.toolSource = handler.spec.source;
+      this.catalog.assertAvailable(handler);
       if (intercepted) {
         const result = await normalizeResult(
           context.sanitizeResult?.(

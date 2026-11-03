@@ -73,6 +73,8 @@ Linux выбран базовой средой ради скорости и ра
 
 ## Цикл инструментов
 
+`bun test tests/unit/git-capability.test.ts tests/integration/extension-tools-cli.test.ts` проверяет скрытие Git/worktree-схем в настоящем non-Git CLI и доступность при marker в родительской папке. Unit-файл входит в fast без запуска Git. `tests/fixtures/background-runtime.ts` дополнительно проверяет отказ прямого скрытого вызова и обновление того же каталога после настоящего `git init`; `manifest-cli` сохраняет проверку non-Git schemas в source/installed/compiled smoke.
+
 `bun test tests/unit/tool-input.test.ts tests/unit/provider-tool-recovery.test.ts tests/unit/runtime-v2.test.ts tests/unit/agent-mode.test.ts tests/unit/shell-runtime.test.ts tests/integration/worktrees-runtime.test.ts tests/integration/background-runtime.test.ts` проверяет приведение аргументов, ограничение повторных отказов, продолжение после исправленного вызова, пустой итог после инструмента, реальные shell/Git, approvals и cleanup. `tool-input` входит в fast без процессов; остальные файлы сохраняют реальные сценарии отдельно. `provider-tool-recovery` и `tool-input` добавлены к platform subset Windows/macOS; полный Linux source-набор уже включает их. [Воспроизведение и результаты](reports/tool-cycle-reliability.md).
 
 ## LSP и расширенные проверки поставки

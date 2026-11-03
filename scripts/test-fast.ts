@@ -18,6 +18,7 @@ const names = [
   "extensions-context",
   "extensions-lifecycle",
   "file-diff",
+  "git-capability",
   "fs-scan",
   "interactive-ui",
   "lsp-catalog",

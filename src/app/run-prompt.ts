@@ -726,7 +726,7 @@ async function runPromptInWorkspace(
         {
           getApprovalMode: tools.getApprovalMode,
           instructionsForTurn: (selected) =>
-            tools.catalog.instructionsForTurn(selected),
+            tools.instructionsForTurn(selected),
           selectForTurn: async (input) => {
             await tools.refresh();
             return tools.catalog.selectForTurn(input);

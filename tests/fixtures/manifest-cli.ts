@@ -47,6 +47,15 @@ export async function smokeManifestCli(
         const tool = body.tools?.find((tool) =>
           tool.function.name.startsWith("ext_ext_builtin_project_manifest_"),
         );
+        assert.ok(
+          !body.tools?.some(
+            (tool) =>
+              /^git_(?:status|diff|commit)$/.test(tool.function.name) ||
+              /^ext_ext_builtin_worktrees_/.test(tool.function.name) ||
+              tool.function.name === "ext_ext_builtin_subagents_submit_coding",
+          ),
+          "A non-Git project must not advertise local Git/worktree tools to the model",
+        );
         if (!tool)
           throw new Error(
             "Default manifest contribution is absent from model schemas.",

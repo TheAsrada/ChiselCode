@@ -48,6 +48,9 @@ export function createLocalToolRuntime(
     skillsCatalog?: () => readonly Skill[];
     remoteSkills?: RemoteSkills;
     worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
+    unavailable?: (
+      handler: import("./types.js").ToolHandler,
+    ) => import("../runtime/errors.js").RuntimeError | undefined;
   } = {},
 ) {
   initializeSessionState(session);
@@ -59,6 +62,7 @@ export function createLocalToolRuntime(
       session.mode ??
       DEFAULT_AGENT_MODE,
     (handler) => options.executionConstraint?.allows(handler) ?? true,
+    options.unavailable,
   );
   for (const handler of [
     ...new LocalToolProvider().handlers,
