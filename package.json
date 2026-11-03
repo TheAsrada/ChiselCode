@@ -45,7 +45,7 @@
     "test:fast": "bun scripts/test-fast.ts",
     "test:full": "bun test",
     "docs:check": "bun --no-install scripts/check-docs.ts",
-    "lint": "biome check src tests evals scripts/check-docs.ts",
+    "lint": "biome check src tests evals scripts/check-docs.ts scripts/verify-release-ci.ts scripts/verify-full-tests.ts",
     "format": "biome format --write src tests",
     "eval": "bun evals/runner.ts"
   },

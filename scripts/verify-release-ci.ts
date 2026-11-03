@@ -16,6 +16,7 @@ type CIJob = {
   status: string;
   conclusion: string | null;
   head_sha?: string;
+  steps?: { name: string; status: string; conclusion: string | null }[];
 };
 
 export const requiredCIJobs = [
@@ -26,15 +27,57 @@ export const requiredCIJobs = [
   ),
 ];
 
+export function requiredCISteps(job: string): readonly string[] {
+  if (job.startsWith("Full source"))
+    return [
+      "Check documentation",
+      "Run bun run typecheck",
+      "All source tests once",
+      "Verify complete source test report",
+      "Run bun run lint",
+      "Run bun run eval --category all",
+      "Extension Settings and external SDK source UI",
+    ];
+  if (job.startsWith("LSP lifecycle"))
+    return [
+      "LSP configuration, cancellation, processes, tools and native menu",
+      "Installed and compiled LSP menu smoke",
+    ];
+  if (job.startsWith("Native smoke"))
+    return [
+      "Build CLI and public SDK",
+      "Installed package starts, executes tools, downloads and loads the SDK",
+      "Compiled CLI, real LSP, helpers, worktrees and background processes",
+      "Native OpenTUI library loads and renders",
+      "Compiled live UI extension authoring and protected actions",
+      "Compiled application startup and Settings",
+      "Compiled extension controls and media",
+      "Compiled worktree manager with real Git, approvals and isolated edits",
+      "Compiled design, motion preferences, stable editor and menu search",
+      ...(job.includes("ubuntu-latest")
+        ? []
+        : ["Platform paths, atomic storage, shell and process ownership"]),
+      ...(job.includes("windows-latest")
+        ? [
+            "Windows updater, actual executable replacement and console restart",
+            "Windows shortcuts and finish-page launcher",
+          ]
+        : []),
+    ];
+  return [];
+}
+
 /** The newest run for this source must pass; never fall back to an older green run. */
 export function selectSourceCI(runs: CIRun[], source: string): CIRun {
-  const run = runs.find(
-    (candidate) =>
-      candidate.head_sha === source &&
-      candidate.head_branch === "main" &&
-      candidate.event === "workflow_dispatch" &&
-      candidate.path === ".github/workflows/ci.yml",
-  );
+  const run = runs
+    .filter(
+      (candidate) =>
+        candidate.head_sha === source &&
+        candidate.head_branch === "main" &&
+        ["workflow_dispatch", "push"].includes(candidate.event) &&
+        candidate.path === ".github/workflows/ci.yml",
+    )
+    .sort((a, b) => b.id - a.id)[0];
   if (!run)
     throw new Error(`Нет CI из main на точном release source ${source}.`);
   return run;
@@ -63,6 +106,18 @@ export function assertVerifiedSourceCI(
       throw new Error(
         `CI ${run.id}: нет однозначной успешной проверки ${name} на ${source}.`,
       );
+    for (const step of requiredCISteps(name)) {
+      const matchingSteps =
+        job.steps?.filter((item) => item.name === step) ?? [];
+      if (
+        matchingSteps.length !== 1 ||
+        matchingSteps[0]?.status !== "completed" ||
+        matchingSteps[0]?.conclusion !== "success"
+      )
+        throw new Error(
+          `CI ${run.id}: обязательный step ${name} / ${step} не завершился успешно.`,
+        );
+    }
   }
   if (
     jobs.some(

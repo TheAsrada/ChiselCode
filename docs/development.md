@@ -37,13 +37,13 @@ bun run build
 | `bun run typecheck` | Типы TypeScript без генерации файлов |
 | `bun run test` / `bun run test:fast` | Быстрый профиль логики без серверов и GUI |
 | `bun test` / `bun run test:full` | Все unit- и integration-тесты; предварительно `bun scripts/prepare-lsp-tests.ts` |
-| `bun run lint` | Biome для `src`, `tests`, `evals` и проверяющего документацию скрипта |
+| `bun run lint` | Biome для `src`, `tests`, `evals` и скриптов проверки документации и release CI |
 | `bun run eval --category all` | Все deterministic offline runtime evals |
 | `bun run build` | JS-сборку в `dist/` для Bun |
 | `bun run compile` | Исполняемый файл `dist/chisel` для текущей платформы |
 | `bun run format` | Переформатирует `src` и `tests`; изменяет файлы |
 
-[Quick CI](../.github/workflows/quick.yml) выполняет быстрый профиль, typecheck, lint и JS/SDK build при изменении кода в main/PR; правки только Markdown его не запускают. [Native validation](../.github/workflows/ci.yml) запускается вручную перед релизом или при изменении платформенного поведения: полный source-набор один раз на Linux и короткие native smoke на Windows/macOS/Linux. Полный [каталог LSP](../.github/workflows/lsp-catalog.yml) проверяется отдельно при изменении backends/provisioning. Локально начинайте с затронутых тестов; успешный неизменный сценарий не повторяйте без новой причины. Подробности и карта покрытия — [порядок проверок](contributors/testing.md). Документацию проверяет отдельный [Docs CI](../.github/workflows/docs.yml); локальная команда — `bun run docs:check`. Biome проверяет исходники, а содержание примеров нужно сверять с реальным поведением.
+[Quick CI](../.github/workflows/quick.yml) выполняет быстрый профиль, typecheck, lint и JS/SDK build при изменении кода в main/PR. Каждый push кода в main также автоматически запускает [Native validation](../.github/workflows/ci.yml): весь source-набор один раз на Linux, native smoke на Windows/macOS/Linux и дополнительные платформенные проверки. JUnit сверяется со списком всех unit/integration test files: частичный отчёт не подтверждает полный прогон. Правки только Markdown и docs/assets не запускают эти workflows. Для диагностики одной ОС сохранён ручной запуск. Полный [каталог LSP](../.github/workflows/lsp-catalog.yml) проверяется отдельно при изменении backends/provisioning. Локально начинайте с затронутых тестов; успешный неизменный сценарий не повторяйте без новой причины. Подробности и карта покрытия — [порядок проверок](contributors/testing.md). Документацию проверяет отдельный [Docs CI](../.github/workflows/docs.yml); локальная команда — `bun run docs:check`. Biome проверяет исходники, а содержание примеров нужно сверять с реальным поведением.
 
 ## Сборка самостоятельного исполняемого файла
 
@@ -81,15 +81,15 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 ## Релизы
 
-Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Запустите Native validation вручную и дождитесь шести успешных jobs на этом точном коммите: Full source, трёх Native smoke и двух LSP lifecycle, по [порядку проверок](contributors/testing.md). Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
+Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Дождитесь шести успешных jobs автоматического Native validation на этом точном коммите: Full source, трёх Native smoke и двух LSP lifecycle, по [порядку проверок](contributors/testing.md). Для source только с документацией нужен ручной run с `platform=all`. Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
 
 [Release workflow](../.github/workflows/release.yml) запускается по push тега `v*` или вручную из `main` с параметром `tag`:
 
-1. Сверяет тег с версией `package.json` и требует успешную native CI-матрицу на точном SHA checkout тега через GitHub API. Повторный полный source-набор не запускается.
-2. В сборочных jobs устанавливает зависимости через `npm ci`; проверяет запуск и версию собранных бинарников на ОС runner и наличие SDK declarations.
+1. Сверяет тег с версией `package.json` и требует успешную native CI-матрицу со всеми обязательными steps на точном SHA checkout тега через GitHub API. Повторный полный source-набор не запускается.
+2. Закрепляет все сборочные jobs на проверенном SHA, устанавливает зависимости через `npm ci`; проверяет запуск и версию собранных бинарников на ОС runner и наличие SDK declarations.
 3. Отдельными заданиями собирает EXE, два PKG, DEB и npm-пакет CLI с SDK расширений.
 4. Создаёт черновик GitHub Release и загружает четыре установщика и `chiselcode-<версия>.tgz`. Заметки берёт из секции версии в `CHANGELOG.md`, а при её отсутствии генерирует автоматически.
-5. Проверяет наличие всех пяти файлов и публикует готовый релиз. Отдельные engine binaries и служебные архивы концепта Desktop не собираются и не загружаются этим workflow.
+5. Проверяет наличие всех пяти файлов, неизменность source тега и повторно успешность обязательных CI-проверок перед публикацией. Отдельные engine binaries и служебные архивы концепта Desktop не собираются и не загружаются этим workflow.
 
 Изменение только документации не требует нового тега или публикации новой версии приложения.
 

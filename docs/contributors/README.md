@@ -81,6 +81,7 @@
 - [Сохранённые разговоры и снятие квот помощников](reports/conversation-diagnostics.md).
 - [Отказы и результаты Web Fetch](reports/web-fetch-diagnostics.md).
 - [CI и измерение времени](reports/ci-efficiency.md).
+- [Полнота CI и обязательные проверки перед публикацией](reports/release-ci-completeness.md).
 - [История перехода на профили провайдеров](reports/provider-migration.md).
 
 ## Планы

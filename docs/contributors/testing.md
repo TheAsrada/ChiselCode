@@ -19,6 +19,8 @@ bun run build
 
 [Quick CI](../../.github/workflows/quick.yml) выполняет этот профиль, typecheck, lint, JS/SDK build и проверку запуска CLI на Linux при изменении кода в main/PR. Изменения только Markdown и docs/assets его не запускают; проверяйте текст, ссылки и примеры отдельно. Новый push отменяет устаревший run. Даже при миллисекундных тестах подготовка runner, зависимости, lint и build занимают дополнительное время.
 
+Каждый push кода в main дополнительно автоматически запускает полный Native validation. Quick CI даёт ранний результат; завершение работы с кодом и допуск к релизу требуют успешной полной матрицы на том же source. PR сохраняет быстрый профиль, а Markdown/docs assets проверяет Docs CI.
+
 При изменении поведения дополнительно выполните подходящий узкий тест. Например, `bun test tests/unit/background-process.test.ts` проверяет настоящий process ownership, а `bun test tests/integration/subagents-runtime.test.ts` — дочерний runtime. Не подменяйте их успешным быстрым профилем и не повторяйте весь набор после каждой небольшой правки.
 
 Для меню LSP сначала выполните `bun scripts/prepare-lsp-tests.ts`, затем `bun test tests/unit/lsp-config.test.ts tests/unit/lsp-service.test.ts tests/unit/lsp-transport.test.ts tests/integration/lsp-runtime.test.ts tests/integration/lsp-multilingual.test.ts tests/integration/lsp-tui.test.ts tests/integration/ui-tools-runtime.test.ts`. Это настоящие серверы и renderer, поэтому файлы не добавляются в fast. `CHISEL_TEST_LSP_CAPTURES=<каталог>` сохраняет текст и native spans для `python scripts/render-terminal-captures.py <каталог>`. Подробные assertions и границы — в [проверках возможностей](feature-checks.md#проверки-lsp-и-settings). Изменения только меню не требуют полного внешнего каталога; изменения подготовки backend проверяются отдельно через `LSP catalog`.
@@ -42,18 +44,20 @@ bun scripts/prepare-lsp-tests.ts
 bun run test:full
 ```
 
-`bun test` без фильтров также запускает весь набор. [Native validation](../../.github/workflows/ci.yml) запускается вручную перед выпуском или при изменении native runtime. Обязательны шесть jobs:
+`bun test` без фильтров также запускает весь набор. [Native validation](../../.github/workflows/ci.yml) запускается автоматически после каждого push кода в main; доступен и ручной запуск. Обязательны шесть jobs:
 
 | Job | Покрытие |
 | --- | --- |
-| `Full source (ubuntu-latest)` | Все unit/integration tests один раз, typecheck/lint, deterministic evals, отдельные source UI-fixtures настроек расширений и external SDK; настоящие OpenTUI captures и JUnit в artifacts. |
+| `Full source (ubuntu-latest)` | Все unit/integration tests один раз, проверка полноты JUnit, документация, typecheck/lint, deterministic evals, отдельные source UI-fixtures настроек расширений и external SDK; настоящие OpenTUI captures и JUnit в artifacts. |
 | `Native smoke (<os>)` на Linux/macOS/Windows | Installed CLI: запуск, manifest tool, download и external SDK. Compiled CLI: download, TS/Python LSP, subagents, worktree, background tasks, external loader и package management. Native OpenTUI загрузка и рендеринг. |
 | `LSP lifecycle (<os>)` на macOS/Windows | Полные затронутые LSP-файлы: config, service, transport, runtime, TS/Python/Lua, production-меню и UI tool permissions. Эти tests уже входят в Linux full run. Короткие installed/compiled smoke меню проверяют упаковку отдельно от полного сценария. |
-| Дополнительно внутри macOS/Windows smoke | Реальные paths, atomic storage, locks, shell, background ownership, child storage/policy; эти source tests уже входят в Linux full run. |
+| Дополнительно внутри macOS/Windows smoke | Реальные paths, atomic storage, locks, shell, background ownership, child storage/policy и native clipboard; эти source tests уже входят в Linux full run. |
+
+Source job вызывает `bun test` напрямую, без изменяемого alias быстрого профиля. [Проверка отчёта](../../scripts/verify-full-tests.ts) сверяет JUnit с текущими test/spec files в `tests/unit` и `tests/integration`: отсутствие файла, ошибки, пустой/обрезанный отчёт или целиком пропущенный файл блокируют job. Единственное исключение для целиком пропущенного файла — native clipboard на headless Linux; настоящий `host-clipboard.test.tsx` выполняется на Windows/macOS. Условные cases внутри других файлов сохраняют свои платформенные skips. Этот контроль подтверждает состав прогона, а качество assertions требует ревью самих тестов.
 
 Все jobs независимы. LSP config/transport перенесены из платформенного subset в отдельные `LSP lifecycle`: их assertions сохранены в тех же файлах и дополнены отменой подготовки, initialize/request, наследованием и общим меню. Installed/compiled LSP smoke проходит только три входа, `ui_tool`/approval/checkpoints и ленивое выключение/включение; ручные формы и весь source-сценарий в поставках не повторяются. Полный source-набор больше не повторяется на каждой ОС. Сложные business cases и OpenTUI просмотр помощников/worktrees остаются в полном source-наборе; поставки проверяют запуск и интеграцию без копирования всего сценария для каждого формата.
 
-Для диагностики одной ОС `gh workflow run ci.yml --ref main -f platform=windows-latest` выполняет её полный native job без повторения Linux source и других ОС. Доступны также `ubuntu-latest` и `macos-latest`. Перед релизом используйте значение по умолчанию `all`: точечный run с пропущенным source не удовлетворяет проверке обязательных jobs.
+Для диагностики одной ОС `gh workflow run ci.yml --ref main -f platform=windows-latest` выполняет её полный native job без повторения Linux source и других ОС. Доступны также `ubuntu-latest` и `macos-latest`. Если требуется ручной полный run, используйте значение по умолчанию `all`: точечный run с пропущенным source не удовлетворяет проверке обязательных jobs.
 
 ### Выбор основной ОС и границы покрытия
 
@@ -100,11 +104,11 @@ Linux выбран базовой средой ради скорости и ра
 
 ## Выпуск
 
-Перед созданием тега запустите `gh workflow run ci.yml --ref main` и дождитесь шести успешных jobs на точном release source. Зелёный Quick CI другого или того же source не заменяет Native validation.
+Перед созданием тега дождитесь шести успешных jobs автоматического Native validation на точном release source. Если выбран коммит только с документацией или требуется повторная полная диагностика, запустите `gh workflow run ci.yml --ref main` с `platform=all`. Зелёный Quick CI другого или того же source не заменяет Native validation.
 
-В [Release workflow](../../.github/workflows/release.yml) `scripts/verify-release-ci.ts` получает SHA checkout тега и проверяет GitHub Actions API с правом `actions: read`. Принимается последний ручной run `ci.yml` из main на этом SHA. Отсутствие run, другой source/branch/workflow, pending/failure/skipped, неоднозначные jobs или ошибка API блокируют выпуск. Частичный rerun допускает сохранённые успешные jobs того же source через `filter=latest`.
+В [Release workflow](../../.github/workflows/release.yml) `scripts/verify-release-ci.ts` получает SHA checkout тега и проверяет GitHub Actions API с правом `actions: read`. Принимается последний автоматический `push` или ручной run `ci.yml` из main на этом SHA. Проверяются все шесть jobs и обязательные steps внутри них, включая подтверждение полного JUnit. Отсутствие run/steps, другой source/branch/workflow, pending/failure/skipped, неоднозначные jobs/steps или ошибка API блокируют выпуск. Новый pending/failed run не позволяет использовать старый зелёный. Частичный rerun допускает сохранённые успешные jobs того же source через `filter=latest`.
 
-Release сверяет версию с тегом, собирает четыре установщика и CLI/SDK archive, проверяет запуск/версию новых native binaries, наличие SDK declarations и точный набор пяти assets. Полный source-набор повторно не выполняется. macOS x64 на arm64 runner проверяется сборкой, запуск на Intel этим не подтверждён. Публикация дополнительно проверяется по metadata, размерам, SHA-256 и подходящему smoke опубликованного payload.
+Release закрепляет checkout всех сборок и публикации на проверенном SHA, собирает четыре установщика и CLI/SDK archive, проверяет запуск/версию новых native binaries, наличие SDK declarations и точный набор пяти assets. Непосредственно перед публикацией он снова сверяет source тега и CI: новый неуспешный run или изменение тега оставляют выпуск неопубликованным. Полный source-набор повторно не выполняется. macOS x64 на arm64 runner проверяется сборкой, запуск на Intel этим не подтверждён. Публикация дополнительно проверяется по metadata, размерам, SHA-256 и подходящему smoke опубликованного payload. [Разбор полноты CI и проверки допуска](reports/release-ci-completeness.md).
 
 ## Ошибки и измерение
 

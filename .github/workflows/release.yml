@@ -26,6 +26,8 @@ jobs:
   verify:
     name: Verify release source
     runs-on: ubuntu-latest
+    outputs:
+      source: ${{ steps.source.outputs.sha }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -40,10 +42,15 @@ jobs:
       - name: Verify tag version
         shell: bash
         run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
           test "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG"
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             test "$GITHUB_REF" = refs/heads/main
           fi
+      - name: Capture immutable release source
+        id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Require successful native CI on exact release source
         run: bun scripts/verify-release-ci.ts
 
@@ -57,7 +64,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.verify.outputs.source }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -107,7 +114,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.verify.outputs.source }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -160,7 +167,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.verify.outputs.source }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -205,7 +212,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.verify.outputs.source }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
@@ -232,11 +239,15 @@ jobs:
     needs: [verify, installer-windows, installer-macos, installer-linux, package-sdk]
     env:
       GH_TOKEN: ${{ github.token }}
+      VERIFIED_SOURCE: ${{ needs.verify.outputs.source }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.verify.outputs.source }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
       - name: Download verified installers
         uses: actions/download-artifact@v4
         with:
@@ -285,4 +296,6 @@ jobs:
           done
           count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
           test "$count" -eq 5
+          test "$(gh api "repos/${{ github.repository }}/commits/$RELEASE_TAG" --jq .sha)" = "$VERIFIED_SOURCE"
+          bun scripts/verify-release-ci.ts
           gh release edit "$RELEASE_TAG" --draft=false
