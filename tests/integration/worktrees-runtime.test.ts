@@ -890,6 +890,28 @@ test("origin classification never grants a global readonly policy and nil target
   expect(shell.errorCode).toBe("INVALID_TOOL_INPUT");
 });
 
+test("worktree optional null ref is omitted before core validation while invented IDs never authorize actions", async () => {
+  const f = await fixture();
+  const created = await f.call("create", { label: "nullable-ref", ref: null });
+  expect(created.isError, created.output).not.toBe(true);
+  expect(created.details?.inputCorrections).toEqual(["ref"]);
+  const worktree = created.details?.worktree as { id: string; path: string };
+  expect(await readFile(join(worktree.path, "a.txt"), "utf8")).toBe(
+    "base a\r\n",
+  );
+  expect((await f.call("status", { id: null })).errorCode).toBe(
+    "INVALID_TOOL_INPUT",
+  );
+  const unknown = await f.call("remove", {
+    id: "11111111-1111-4111-8111-111111111111",
+  });
+  expect(unknown.isError).toBe(true);
+  expect(await readFile(join(worktree.path, "a.txt"), "utf8")).toBe(
+    "base a\r\n",
+  );
+  expect(await readFile(join(f.root, "a.txt"), "utf8")).toBe("base a\r\n");
+});
+
 test("origin admission from a managed copy returns its verified source without treating the origin as owned", async () => {
   const f = await fixture();
   const tree = await f.create("origin navigation");

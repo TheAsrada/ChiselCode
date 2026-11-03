@@ -111,6 +111,8 @@ export class AgentRuntime {
     let responseRecoveries = 0;
     let responseRecoveryInstructions = "";
     let requestAttempt = 0;
+    let blockedToolRounds = 0;
+    let failedToolRounds = 0;
     const checkpoint = async () => {
       await options.onCheckpoint?.(session);
       await this.events.emit({ type: "checkpoint_saved" });
@@ -168,6 +170,30 @@ export class AgentRuntime {
       if (completed.length)
         session.messages.push({ role: "user", content: completed });
       await checkpoint();
+      blockedToolRounds =
+        outcomes.length === calls.length &&
+        outcomes.length > 0 &&
+        outcomes.every(
+          (result) => result.errorCode === "REPEATED_CALL_DETECTED",
+        )
+          ? blockedToolRounds + 1
+          : 0;
+      if (blockedToolRounds >= 2)
+        throw new RuntimeError(
+          "REPEATED_CALL_DETECTED",
+          "Агент повторно запросил уже заблокированные одинаковые инструменты. Цикл остановлен; результаты и выполненные изменения сохранены. Исправьте причину ошибки перед продолжением.",
+        );
+      failedToolRounds =
+        outcomes.length === calls.length &&
+        outcomes.length > 0 &&
+        outcomes.every((result) => result.isError)
+          ? failedToolRounds + 1
+          : 0;
+      if (failedToolRounds >= 8)
+        throw new RuntimeError(
+          "TOOL_FAILURE_LIMIT",
+          "Восемь последовательных шагов инструментов завершились только ошибками. Цикл остановлен; изучите первый отказ в действиях агента. История и выполненные изменения сохранены.",
+        );
     };
     try {
       if (
@@ -278,16 +304,12 @@ export class AgentRuntime {
             },
             frame.estimatedInputTokens,
           );
-          if (
-            options.agentEvents?.has("model.response") ||
-            options.agentEvents?.has("model.request")
-          )
-            finalText =
-              textBeforeRequest +
-              response.message.content
-                .filter((c) => c.type === "text")
-                .map((c) => c.text)
-                .join("\n");
+          finalText =
+            textBeforeRequest +
+            response.message.content
+              .filter((c) => c.type === "text")
+              .map((c) => c.text)
+              .join("\n");
         } catch (error) {
           if (
             error instanceof ProviderError &&
@@ -357,13 +379,11 @@ export class AgentRuntime {
           if (pending) return pending;
           continue;
         }
-        const text =
-          finalText ||
-          response.message.content
-            .filter((content) => content.type === "text")
-            .map((content) => content.text)
-            .join("\n");
-        if (!text.trim() && !emptyRetried) {
+        const responseText = response.message.content
+          .filter((content) => content.type === "text")
+          .map((content) => content.text)
+          .join("\n");
+        if (!responseText.trim() && !emptyRetried) {
           emptyRetried = true;
           session.messages.push({
             role: "user",
@@ -376,14 +396,18 @@ export class AgentRuntime {
           });
           continue;
         }
-        if (!text.trim())
+        if (!responseText.trim())
           throw new ProviderError(
             "unknown",
             "Provider returned an empty response twice.",
           );
         await state("completed");
         await checkpoint();
-        return { status: "completed", text, session };
+        return {
+          status: "completed",
+          text: finalText || responseText,
+          session,
+        };
       }
       throw new RuntimeError(
         options.recovery === "new_child"

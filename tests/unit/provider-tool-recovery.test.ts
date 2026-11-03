@@ -4,8 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_PROJECT_CONFIG } from "../../src/config/load.js";
 import { ContextManager } from "../../src/context/context-manager.js";
+import { partitionTranscript } from "../../src/context/partition.js";
 import { OpenAIProtocolAdapter } from "../../src/providers/drivers/openai-chat.js";
-import { AgentRuntime } from "../../src/runtime/agent-runtime.js";
+import {
+  AgentRuntime,
+  type RuntimeOptions,
+} from "../../src/runtime/agent-runtime.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { createSession } from "../../src/sessions/store.js";
@@ -15,6 +19,7 @@ import type {
   ProviderRequest,
   StreamEvent,
 } from "../../src/types/domain.js";
+import { quoteShellArg } from "../helpers/shell.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -47,7 +52,11 @@ async function fixture() {
     session,
     events,
     tools,
-    run(provider: ProviderAdapter, signal?: AbortSignal) {
+    run(
+      provider: ProviderAdapter,
+      signal?: AbortSignal,
+      options: RuntimeOptions = {},
+    ) {
       return new AgentRuntime(
         provider,
         new ContextManager({ maxOutputTokens: 4096 }, events),
@@ -57,7 +66,7 @@ async function fixture() {
         },
         "system",
         events,
-      ).run(session, "Create a landing page", { signal });
+      ).run(session, "Create a landing page", { ...options, signal });
     },
   };
 }
@@ -301,4 +310,252 @@ test("real OpenAI SDK resumes after opaque HTTP 400 without replaying a complete
   });
   expect(calls).toBe(3);
   expect(writes).toBe(1);
+});
+
+test("SDK tool calls tolerate optional nulls and scalar strings without changing the command or replaying it", async () => {
+  const setup = await fixture();
+  const command = `${quoteShellArg(process.execPath)} -e ${quoteShellArg("console.log('Проверка инструмента')")}`;
+  const input = {
+    command,
+    cwd: null,
+    timeout: "10000",
+    background: "false",
+    taskKind: null,
+    label: null,
+    deadlineMs: null,
+    outputBytes: null,
+    readySignal: null,
+    targetWorktreeId: null,
+    retryOf: null,
+  };
+  let attempts = 0;
+  let starts = 0;
+  setup.events.subscribe((event) => {
+    if (event.type === "tool_started") starts++;
+  });
+  const provider = new OpenAIProtocolAdapter({
+    apiKey: "fixture",
+    maxRetries: 0,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      const first = attempts++ === 0;
+      if (!first) {
+        const result = body.messages.find(
+          (message: { role: string }) => message.role === "tool",
+        );
+        expect(result.content).toContain("Проверка инструмента");
+        expect(result.content).not.toContain("INVALID_TOOL_INPUT");
+      }
+      return new Response(
+        `data: ${JSON.stringify({ choices: [{ delta: first ? { tool_calls: [{ index: 0, id: "shell", type: "function", function: { name: "run_shell", arguments: JSON.stringify(input) } }] } : { content: "Готово" }, finish_reason: first ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  expect(await setup.run(provider)).toMatchObject({
+    status: "completed",
+    text: "Готово",
+  });
+  const record = setup.session.runtime?.invocations.shell;
+  expect(record?.state).toBe("succeeded");
+  expect(record?.input).toEqual(input);
+  expect(record?.result?.details?.inputCorrections).toContain("timeout");
+  const replay = await setup.tools.executor.execute({
+    id: "shell",
+    name: "run_shell",
+    input,
+  });
+  expect(record?.result).toEqual(replay);
+  expect(starts).toBe(1);
+  expect(attempts).toBe(2);
+}, 15000);
+
+test("the model can correct a blocked call and continue with durable changes", async () => {
+  const setup = await fixture();
+  let attempts = 0;
+  const provider: ProviderAdapter = {
+    providerId: "fixture",
+    async *streamChat() {
+      attempts++;
+      if (attempts === 6) {
+        yield completed();
+        return;
+      }
+      yield {
+        type: "turn_complete",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: `repair-${attempts}`,
+              name: attempts === 5 ? "write_file" : "run_shell",
+              input:
+                attempts === 5 ? { path: "recovered.txt", content: "ok" } : {},
+            },
+          ],
+        },
+        stopReason: "tool_use",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+  expect((await setup.run(provider)).status).toBe("completed");
+  expect(attempts).toBe(6);
+  expect(await readFile(join(setup.root, "recovered.txt"), "utf8")).toBe("ok");
+});
+
+for (const call of [
+  { name: "run_shell", input: {} },
+  { name: "search_files", input: { pattern: "TODO" } },
+  {
+    name: "run_shell",
+    input: {
+      command: "echo check",
+      targetWorktreeId: "00000000-0000-0000-0000-000000000000",
+    },
+  },
+])
+  test(`runtime bounds repeated invalid ${call.name} calls and settles their protocol`, async () => {
+    const setup = await fixture();
+    let attempts = 0;
+    const provider: ProviderAdapter = {
+      providerId: "fixture",
+      async *streamChat() {
+        attempts++;
+        yield {
+          type: "turn_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: `bad-${attempts}`, ...call }],
+          },
+          stopReason: "tool_use",
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      },
+    };
+    expect(await setup.run(provider)).toMatchObject({
+      status: "failed",
+      errorCode: "REPEATED_CALL_DETECTED",
+    });
+    expect(attempts).toBe(5);
+    expect(
+      partitionTranscript(setup.session.messages).every(
+        (unit) => !unit.pending,
+      ),
+    ).toBe(true);
+    expect(await readdir(setup.root)).toEqual([]);
+  });
+
+test("an empty final response after tool commentary is retried rather than reported as completed", async () => {
+  const setup = await fixture();
+  let attempts = 0;
+  const provider: ProviderAdapter = {
+    providerId: "fixture",
+    async *streamChat() {
+      attempts++;
+      if (attempts === 1) {
+        yield { type: "text_delta", text: "Сейчас создам файл" };
+        yield {
+          type: "turn_complete",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Сейчас создам файл" },
+              {
+                type: "tool_use",
+                id: "write-once",
+                name: "write_file",
+                input: { path: "ok.txt", content: "сохранено" },
+              },
+            ],
+          },
+          stopReason: "tool_use",
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      } else yield completed(attempts === 2 ? "" : "Файл сохранён и проверен");
+    },
+  };
+  const result = await setup.run(provider);
+  expect(result.status).toBe("completed");
+  expect(attempts).toBe(3);
+  expect(result.text).toContain("Файл сохранён и проверен");
+  expect(await readFile(join(setup.root, "ok.txt"), "utf8")).toBe("сохранено");
+});
+
+for (const recovery of [undefined, "new_child"] as const)
+  test(`different tool failures are bounded without losing completed effects (${recovery ?? "foreground"})`, async () => {
+    const setup = await fixture();
+    let attempts = 0;
+    const provider: ProviderAdapter = {
+      providerId: "fixture",
+      async *streamChat() {
+        attempts++;
+        const call =
+          attempts === 1
+            ? {
+                name: "write_file",
+                input: { path: "saved.txt", content: "saved" },
+              }
+            : attempts % 2
+              ? { name: `github_missing_${attempts}`, input: {} }
+              : { name: "run_shell", input: { cwd: `invalid-${attempts}` } };
+        yield {
+          type: "turn_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: `varied-${attempts}`, ...call }],
+          },
+          stopReason: "tool_use",
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      },
+    };
+    const result = await setup.run(provider, undefined, { recovery });
+    expect(result.status).toBe("failed");
+    expect(result.errorCode).toBe("TOOL_FAILURE_LIMIT");
+    expect(attempts).toBe(9);
+    expect(await readFile(join(setup.root, "saved.txt"), "utf8")).toBe("saved");
+    expect(setup.session.runtime?.invocations["varied-1"]?.state).toBe(
+      "succeeded",
+    );
+    expect(
+      partitionTranscript(setup.session.messages).every(
+        (unit) => !unit.pending,
+      ),
+    ).toBe(true);
+  });
+
+test("a successful tool resets the failure streak so corrected work can finish", async () => {
+  const setup = await fixture();
+  await Bun.write(join(setup.root, "evidence.txt"), "verified");
+  let attempts = 0;
+  const provider: ProviderAdapter = {
+    providerId: "fixture",
+    async *streamChat() {
+      attempts++;
+      if (attempts === 16) {
+        yield completed();
+        return;
+      }
+      yield {
+        type: "turn_complete",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: `progress-${attempts}`,
+              name: attempts === 8 ? "read_file" : `unknown_${attempts}`,
+              input: { path: "evidence.txt" },
+            },
+          ],
+        },
+        stopReason: "tool_use",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+  expect((await setup.run(provider)).status).toBe("completed");
+  expect(attempts).toBe(16);
 });

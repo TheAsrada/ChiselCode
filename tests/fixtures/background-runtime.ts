@@ -114,12 +114,21 @@ try {
     name: "run_shell",
     input: {
       command: command("batch.cjs"),
-      background: true,
+      background: "true",
+      cwd: null,
+      targetWorktreeId: null,
+      retryOf: null,
       label: "Проверка",
     },
   };
   const accepted = await tools.executor.execute(call);
   assert.equal(accepted.isError, undefined, accepted.output);
+  assert.deepEqual(accepted.details?.inputCorrections, [
+    "background",
+    "cwd",
+    "targetWorktreeId",
+    "retryOf",
+  ]);
   const id = (accepted.details!.backgroundTask as { id: string }).id;
   assert.match(id, /^[a-f0-9-]{36}$/);
   const busy = await tools.executor.execute({

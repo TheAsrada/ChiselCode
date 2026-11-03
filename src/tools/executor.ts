@@ -3,7 +3,7 @@ import {
   authorizeShellLease,
   isNativeShell,
 } from "../background/capability.js";
-import { ShellInputSchema } from "../background/input.js";
+import type { ShellInput } from "../background/input.js";
 import type { ToolGuardPoint, ToolGuardPort } from "../extensions/contracts.js";
 import { allowsToolInMode, DEFAULT_AGENT_MODE } from "../runtime/agent-mode.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
@@ -21,6 +21,7 @@ import {
 import { executionAccess, preparationAccess } from "./access.js";
 import type { ToolCatalog } from "./catalog.js";
 import { changesWorkspace } from "./effects.js";
+import { parseToolInput } from "./input.js";
 import { canonicalInput, type ToolInvocationRecord } from "./invocation.js";
 import { failure, normalizeResult } from "./result.js";
 import type { ToolContext, ToolPlan, ToolSource } from "./types.js";
@@ -124,6 +125,15 @@ export class ToolExecutor {
     const started = performance.now();
     let outputLimit = this.maxInlineTokens;
     let preparedPlan: ToolPlan | undefined;
+    let inputCorrections: string[] = [];
+    const corrected = (result: ToolExecutionResult): ToolExecutionResult =>
+      inputCorrections.length
+        ? {
+            ...result,
+            output: `Параметры приведены к схеме: ${inputCorrections.join(", ")}.\n${result.output}`,
+            details: { ...result.details, inputCorrections },
+          }
+        : result;
     try {
       cancelled(context.signal);
       let intercepted: ToolExecutionResult | undefined;
@@ -159,6 +169,21 @@ export class ToolExecutor {
           record.input = structuredClone(call.input);
         }
       }
+      this.workspaceScope ??= workspaceCoordinator.scope(
+        context.workspace.root,
+      );
+      const scope = await this.workspaceScope;
+      this.observeWorkspace(scope);
+      const failed = runtime.failedCalls[fingerprint];
+      if (
+        failed &&
+        failed.count >= 3 &&
+        failed.workspaceVersion === (runtime.workspaceVersion ?? 0)
+      )
+        throw new RuntimeError(
+          "REPEATED_CALL_DETECTED",
+          "Три одинаковых вызова завершились ошибкой без изменения проекта. Исправьте аргументы или выберите другой способ; прежний вызов не выполнен.",
+        );
       const handler = this.catalog.get(call.name);
       record.toolSource = handler.spec.source;
       if (intercepted) {
@@ -184,17 +209,29 @@ export class ToolExecutor {
         });
         return result;
       }
+      const mode =
+        context.mode ??
+        runtime.turnMode ??
+        context.session.mode ??
+        DEFAULT_AGENT_MODE;
+      if (!allowsToolInMode(mode, handler.spec.effect))
+        throw new RuntimeError(
+          "MODE_RESTRICTION",
+          "Plan mode permits only read-only tools. Switch to Build using Shift+Tab or /build before requesting changes or shell execution.",
+        );
+      const parsed = parseToolInput(handler, call.input);
+      const input = parsed.input;
+      inputCorrections = parsed.corrections;
       if (
         isNativeShell(handler) &&
         context.background &&
         !context.backgroundExecution &&
-        call.input.background === true
+        (input as ShellInput).background === true
       ) {
-        const input = ShellInputSchema.parse(call.input);
         await context.executionConstraint?.beforePrepare(handler);
         const accepted = await context.background.submit(
           call,
-          input,
+          input as ShellInput,
           context,
           async (ticket, captured, data, taskSignal) => {
             const execution = createSession(
@@ -239,7 +276,7 @@ export class ToolExecutor {
           },
         );
         const result = await normalizeResult(
-          context.sanitizeResult?.(accepted) ?? accepted,
+          context.sanitizeResult?.(corrected(accepted)) ?? corrected(accepted),
           context.artifacts,
           this.maxInlineTokens,
         );
@@ -273,29 +310,8 @@ export class ToolExecutor {
       const writesWorkspace =
         changesWorkspace(handler.spec.effect) ||
         handler.spec.workspaceAccess === "write";
-      const mode =
-        context.mode ??
-        context.session.runtime?.turnMode ??
-        context.session.mode ??
-        DEFAULT_AGENT_MODE;
-      if (!allowsToolInMode(mode, handler.spec.effect))
-        throw new RuntimeError(
-          "MODE_RESTRICTION",
-          "Plan mode permits only read-only tools. Switch to Build using Shift+Tab or /build before requesting changes or shell execution.",
-        );
       outputLimit =
         handler.spec.outputPolicy?.maxInlineTokens ?? this.maxInlineTokens;
-      let input: unknown;
-      try {
-        input = handler.parse(call.input);
-      } catch (error) {
-        if (error instanceof RuntimeError) throw error;
-        throw new RuntimeError("INVALID_TOOL_INPUT", String(error));
-      }
-      this.workspaceScope ??= workspaceCoordinator.scope(
-        context.workspace.root,
-      );
-      const scope = await this.workspaceScope;
       const preparation = await preparationAccess(
         handler,
         context,
@@ -731,6 +747,7 @@ export class ToolExecutor {
           });
         }
       }
+      result = corrected(result);
       result = await normalizeResult(
         context.sanitizeResult?.(attributed(result, record.toolSource)) ??
           attributed(result, record.toolSource),
@@ -775,7 +792,7 @@ export class ToolExecutor {
           /* Unknown tools have no owner. */
         }
       }
-      let result = failure(error);
+      let result = corrected(failure(error));
       if (result.errorCode === "BACKGROUND_RESOURCE_BUSY") {
         try {
           const presentation = context.background?.resourceBusy(
