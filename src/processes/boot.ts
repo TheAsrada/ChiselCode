@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
+import { join } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 
@@ -41,7 +42,13 @@ async function bootIdentity(): Promise<BootStamp> {
       stamp.bootId = boot.stdout.trim();
     } else if (process.platform === "win32") {
       const machine = await execa(
-        "powershell.exe",
+        join(
+          process.env.SystemRoot ?? "C:\\Windows",
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe",
+        ),
         [
           "-NoLogo",
           "-NoProfile",
