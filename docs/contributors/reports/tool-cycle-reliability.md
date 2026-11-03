@@ -89,3 +89,20 @@ Windows/macOS и live API пользовательского провайдер�
 После отдельного уточнения владельца добавлена фильтрация Git-возможностей, а не только диагностика вызова. Unit-проверки охватывают non-Git/родительский marker/worktree file и динамический init/remove, не отключая внешнее расширение GitHub. Настоящий `background-runtime` подтверждает блокировку скрытого вызова, сохранение shell и возвращение Git после `git init` в том же runtime. Точечные capability/recovery/extensions/CLI: 42 pass, 0 fail; быстрый профиль — 497 pass, 0 fail в 52 файлах. Source, installed npm и compiled `manifest-cli` подтвердили отсутствие Git-схем в non-Git запросе и полный model → tool → model цикл.
 
 Дополнительный локальный запуск app/LSP/subagents сначала дал 14 pass / 5 fail из-за неподготовленных внешних LSP-зависимостей. После `bun scripts/prepare-lsp-tests.ts` весь затронутый `lsp-runtime.test.ts` прошёл: 13 pass, 0 fail; проверки не пропускались. На source `2bbfa62` [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/41621398986) завершился с успешными full source и native smoke всех трёх ОС, но один Windows LSP status-fixture истёк по своему default deadline 5 с. Этот run не объявляется полностью зелёным; production deadlines и assertions не менялись.
+
+## Итоговая проверка
+
+Проверенный code source — `8e460a4dcc921f4f135230aaf5861222a72639d0`. [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/41623834408), [Docs](https://github.com/TheAsrada/ChiselCode/actions/runs/41623834338) и все шесть jobs [Native validation](https://github.com/TheAsrada/ChiselCode/actions/runs/41623834711) завершились успешно. Последующее изменение этого отчёта содержит только фактические результаты, без изменения кода.
+
+| Проверка финального source | Результат |
+| --- | --- |
+| Быстрый профиль | 497 pass, 0 fail, 52 файла |
+| Полный Linux source | 1509 pass, 3 платформенных skip, 0 fail; 191 файл, 331,74 с |
+| Windows platform subset | 468 pass, 1 платформенный skip, 0 fail; 58 файлов, 335,88 с |
+| macOS platform subset | 466 pass, 3 платформенных skip, 0 fail; 58 файлов, 172,06 с |
+| Installed/compiled native smoke | Linux, Windows и macOS — успешны, включая реальное исполнение инструментов, пакеты и UI |
+| LSP lifecycle и installed/compiled меню | Windows и macOS — успешны |
+| Typecheck, CLI/SDK build, lint | Успешны; lint — 416 warnings / 58 infos, проверки не отключались |
+| Offline runtime eval и дополнительные source UI-fixtures | Успешны в полном source job |
+
+Числа пересекающихся наборов не суммируются. Длительность source/platform subset — время тестов из логов, а не общее ожидание workflow и не runner minutes. Предыдущие отказы выше сохранены; таймауты и assertions ради финального результата не менялись. Проверки отражают CI runners, не все возможные пользовательские ОС и конфигурации. Релиз и новая версия в рамках задания не публиковались.
