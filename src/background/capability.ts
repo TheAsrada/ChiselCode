@@ -1,3 +1,7 @@
+import type {
+  ProcessExecutionIdentity,
+  ProcessProofGrant,
+} from "../processes/cleanup-proof.js";
 import { RuntimeError } from "../runtime/errors.js";
 import type { ToolContext, ToolHandler, ToolPlan } from "../tools/types.js";
 import type {
@@ -74,6 +78,27 @@ export async function transferShellLease(
     );
   grants.delete(token!);
   return grant.lease.transfer(owner);
+}
+
+export async function registerShellProcess(
+  context: ToolContext,
+  plan: ToolPlan,
+  identity: ProcessExecutionIdentity,
+): Promise<ProcessProofGrant> {
+  const token = context.shellLeaseAuthorization;
+  const grant = token ? grants.get(token) : undefined;
+  if (
+    !grant ||
+    grant.plan !== plan ||
+    grant.sessionId !== context.session.id ||
+    grant.invocationId !== context.invocationId ||
+    !grant.lease.registerProcess
+  )
+    throw new RuntimeError(
+      "PERMISSION_DENIED",
+      "Запуск требует разрешённого core execution path.",
+    );
+  return grant.lease.registerProcess(identity);
 }
 
 const controls = new WeakSet<object>();

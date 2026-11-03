@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -15,6 +16,7 @@ import { BackgroundTaskStore } from "../../src/background/storage.js";
 import { loadGlobalConfig, loadProjectConfig } from "../../src/config/load.js";
 import { defaultExtensions } from "../../src/extensions/composition.js";
 import { ExtensionHost } from "../../src/extensions/host.js";
+import { readCleanupProof } from "../../src/processes/cleanup-proof.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
@@ -94,6 +96,7 @@ if (process.argv[2] === "--child") {
   const session = createSession(scope.workspaceRoot, "openai", "fixture");
   await store.save(session);
   let ready!: () => void;
+  let readyTaskId: string | undefined;
   const barrier = new Promise<void>((resolve) => {
     ready = resolve;
   });
@@ -115,20 +118,32 @@ if (process.argv[2] === "--child") {
       },
     },
     onBackground(event) {
-      if (event.task.readiness === "signal_seen") ready();
+      if (event.task.readiness === "signal_seen") {
+        readyTaskId = event.task.id;
+        ready();
+      }
     },
   });
-  const result = await tools.executor.execute({
+  const execution = tools.executor.execute({
     id: "crash-once",
     name: "run_shell",
     input: {
       command: `${quoteShellArg(process.execPath)} ${quoteShellArg(join(root, "server.cjs"))}`,
-      background: true,
+      background: process.env.CHISEL_CRASH_FOREGROUND !== "1",
       taskKind: "service",
       readySignal: "CRASH READY",
       label: "До сбоя",
     },
   });
+  if (process.env.CHISEL_CRASH_FOREGROUND === "1") {
+    void execution.catch(() => {});
+    await barrier;
+    console.log(
+      JSON.stringify({ sessionId: session.id, task: { id: readyTaskId } }),
+    );
+    await new Promise<void>(() => {});
+  }
+  const result = await execution;
   assert.ok(!result.isError, result.output);
   await barrier;
   console.log(
@@ -151,7 +166,7 @@ if (process.argv[2] === "--child") {
     process.env[key] = directory;
   await writeFile(
     join(root, "server.cjs"),
-    "const fs=require('node:fs');fs.appendFileSync('launches.txt','one\\n');console.log('CRASH READY');setInterval(()=>{},1000);",
+    "const fs=require('node:fs');fs.appendFileSync('launches.txt','one\\n');process.on('SIGTERM',()=>{});console.log('CRASH READY');setInterval(()=>{},1000);",
   );
   const child = Bun.spawn(
     [process.execPath, import.meta.path, "--child", root],
@@ -196,6 +211,41 @@ if (process.argv[2] === "--child") {
     await child.exited;
     await reader;
     assert.equal(await stderr, "");
+    const storage = new BackgroundTaskStore();
+    if (process.env.CHISEL_CRASH_FOREGROUND === "1") {
+      const crashedSession = await (await projectSessionStore(root)).load(
+        first.sessionId,
+      );
+      assert.equal(crashedSession.backgroundTasks?.[first.task.id], undefined);
+    }
+    const saved = [
+      ...(await storage.list(first.sessionId)),
+      ...(await storage.listForeground(first.sessionId)),
+    ].find((record) => record.id === first.task.id)!;
+    assert.ok(saved.process);
+    const proofPath = join(
+      await storage.directory(),
+      "cleanup",
+      `${saved.id}.${saved.process.instance}.json`,
+    );
+    const proofDeadline = Date.now() + 15000;
+    let proof: Awaited<ReturnType<typeof readCleanupProof>>;
+    while (Date.now() < proofDeadline) {
+      proof = await readCleanupProof(proofPath, {
+        taskId: saved.id,
+        ownerId: saved.rootOwnerId,
+        instance: saved.process.instance,
+        token: saved.process.token,
+      });
+      if (proof) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(
+      proof,
+      "Supervisor did not durably confirm cleanup after application crash",
+    );
+    // A missing proof must retain the fence even after actual cleanup.
+    await rename(proofPath, `${proofPath}.withheld`);
     const restored = await execa(
       process.execPath,
       [
@@ -234,7 +284,7 @@ if (process.argv[2] === "--child") {
         !!error &&
         typeof error === "object" &&
         "code" in error &&
-        error.code === "BACKGROUND_RESOURCE_BUSY",
+        error.code === "BACKGROUND_RECOVERY_REQUIRED",
     );
     const output = await execa(
       process.execPath,
@@ -269,8 +319,34 @@ if (process.argv[2] === "--child") {
       /Нет подтверждения от исходного process backend/,
     );
     assert.equal(await readFile(join(root, "launches.txt"), "utf8"), "one\n");
+    await rename(`${proofPath}.withheld`, proofPath);
+    const recovered = await execa(
+      process.execPath,
+      [
+        "src/cli.ts",
+        "--cwd",
+        root,
+        "--resume",
+        first.sessionId,
+        "--json",
+        `/tasks status ${first.task.id}`,
+      ],
+      { reject: false, timeout: 45000 },
+    );
+    const recoveredTask = JSON.parse(
+      JSON.parse(recovered.stdout.trim().split("\n").at(-1)!).output,
+    );
+    assert.equal(recoveredTask.cleanup.confirmed, true);
+    assert.equal(recoveredTask.cleanup.recoveryRequired, undefined);
+    const lease = await storage.acquireExecution(
+      crypto.randomUUID(),
+      saved.resources,
+      AbortSignal.timeout(5000),
+    );
+    await lease.release();
+    assert.equal(await readFile(join(root, "launches.txt"), "utf8"), "one\n");
     console.log(
-      "Background Tasks crash: killed application, retained output, no replay/PID kill, durable recovery fence",
+      "Background Tasks crash: killed application, retained output, missing proof fence, durable cleanup recovery without replay/PID kill",
     );
   } finally {
     clearTimeout(watchdog);

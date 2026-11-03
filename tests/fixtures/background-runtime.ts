@@ -730,14 +730,15 @@ try {
   try {
     await writeFile(join(root, "recovery-release"), "готово");
     const [unknown] = await controls.port.wait([recoveryId], 10000);
-    assert.equal(unknown!.state, "cleanup_unknown");
+    assert.equal(unknown!.state, "failed");
     assert.equal(unknown!.exitCode, 0);
+    assert.equal(unknown!.cleanup.confirmed, true);
     const held = await tools.executor.execute({
       id: "fault-holds-resources",
       name: "read_file",
       input: { path: "unrelated.txt" },
     });
-    assert.equal(held.errorCode, "BACKGROUND_RESOURCE_BUSY");
+    assert.ok(!held.isError, held.output);
     const [recovered, duplicateRecovery] = await Promise.all([
       controls.port.recover(recoveryId),
       controls.port.recover(recoveryId),

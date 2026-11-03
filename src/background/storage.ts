@@ -7,24 +7,19 @@ import {
   realpath,
   rm,
 } from "node:fs/promises";
-import { hostname } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { chiselHomeDir } from "../paths/home.js";
-import { cancelled, RuntimeError } from "../runtime/errors.js";
+import { RuntimeError } from "../runtime/errors.js";
 import { withLock } from "../sessions/lock.js";
-import { processIdentity, processLive } from "../subagents/storage.js";
-import type {
-  BackgroundResourceOwner,
-  WorkspaceAccess,
-} from "../tools/workspace-coordinator.js";
-import { accessPlansConflict } from "../tools/workspace-coordinator.js";
+import type { WorkspaceAccess } from "../tools/workspace-coordinator.js";
 import { atomicWorktreeJson } from "../worktrees/registry.js";
 import { BACKGROUND_LIMITS } from "./config.js";
 import {
   type BackgroundTaskRecord,
   BackgroundTaskSchema,
 } from "./contracts.js";
+import { BackgroundExecutionStore } from "./execution.js";
 
 const OwnerSchema = z
   .object({
@@ -65,37 +60,41 @@ const ReservationSchema = z
     ),
   })
   .strict();
-const ExecutionSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    executions: z.record(
-      z.uuid(),
-      z
-        .object({
-          ownerId: z.uuid(),
-          pid: z.number().int().positive(),
-          host: z.string(),
-          start: z.string().optional(),
-          token: z.uuid(),
-          heartbeat: z.string(),
-          process: z.boolean(),
-          accesses: z.array(
-            z.object({ resource: z.string(), mode: z.enum(["read", "write"]) }),
-          ),
-          background: z
-            .object({
-              taskId: z.uuid(),
-              ownerId: z.uuid(),
-              label: z.string(),
-              state: z.string(),
-            })
-            .optional(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
 export class BackgroundTaskStore {
+  private execution = new BackgroundExecutionStore(
+    () => this.directory(),
+    () => this.allRecords(),
+  );
+  private async allRecords(): Promise<BackgroundTaskRecord[]> {
+    const directory = await this.directory();
+    const records = new Map<string, BackgroundTaskRecord>();
+    for (const name of await readdir(directory)) {
+      let found: BackgroundTaskRecord[] = [];
+      if (
+        !/^(?:[a-f0-9]{64}\.json|[a-f0-9-]{36}\.foreground\.json)$/.test(name)
+      )
+        continue;
+      const value = await this.json(join(directory, name));
+      if (value === undefined) continue;
+      if (/^[a-f0-9]{64}\.json$/.test(name))
+        found = OwnerSchema.parse(value).records;
+      else if (/^[a-f0-9-]{36}\.foreground\.json$/.test(name))
+        found = [BackgroundTaskSchema.parse(value)];
+      for (const record of found)
+        if ((records.get(record.id)?.revision ?? -1) < record.revision)
+          records.set(record.id, record);
+    }
+    return [...records.values()];
+  }
+  assertAccess(accesses: readonly WorkspaceAccess[], ownTaskId?: string) {
+    return this.execution.assertAccess(accesses, ownTaskId);
+  }
+  recovery(record: BackgroundTaskRecord) {
+    return this.execution.recovery(record);
+  }
+  acknowledge(record: BackgroundTaskRecord) {
+    return this.execution.acknowledge(record);
+  }
   async consumeCompletions(
     ownerId: string,
     records: readonly BackgroundTaskRecord[],
@@ -122,139 +121,16 @@ export class BackgroundTaskStore {
     });
   }
   /** Presence is a recovery fence; absence alone never proves process cleanup. */
-  async fencedTaskIds(ownerId: string): Promise<ReadonlySet<string>> {
-    const directory = await this.directory();
-    return withLock(join(directory, "resources"), async () => {
-      const executions = ExecutionSchema.parse(
-        (await this.json(join(directory, "executions.json"))) ?? {
-          schemaVersion: 1,
-          executions: {},
-        },
-      );
-      const reservations = await this.reservations();
-      return new Set([
-        ...Object.entries(reservations)
-          .filter(
-            ([, entry]) =>
-              entry.ownerId === ownerId && entry.resources.length > 0,
-          )
-          .map(([id]) => id),
-        ...Object.values(executions.executions).flatMap((entry) =>
-          entry.ownerId === ownerId && entry.background
-            ? [entry.background.taskId]
-            : [],
-        ),
-      ]);
-    });
+  fencedTaskIds(ownerId: string): Promise<ReadonlySet<string>> {
+    return this.execution.fencedTaskIds(ownerId);
   }
-  /** The registry lock covers check + grant + adoption, never command lifetime. */
-  async acquireExecution(
+  acquireExecution(
     ownerId: string,
     accesses: readonly WorkspaceAccess[],
     signal?: AbortSignal,
     process = false,
   ) {
-    const directory = await this.directory();
-    const path = join(directory, "executions.json");
-    const lockPath = join(directory, "resources");
-    const id = randomUUID();
-    const token = randomUUID();
-    const identity = {
-      ownerId,
-      pid: globalThis.process.pid,
-      host: hostname(),
-      start: await processIdentity(),
-      token,
-      heartbeat: new Date().toISOString(),
-      process,
-      accesses: [...accesses],
-    };
-    while (true) {
-      cancelled(signal);
-      const granted = await withLock(lockPath, async (assertOwned) => {
-        const value = ExecutionSchema.parse(
-          (await this.json(path)) ?? { schemaVersion: 1, executions: {} },
-        );
-        const reservations = await this.reservations();
-        for (const [taskId, other] of Object.entries(reservations)) {
-          if (
-            !other.foreground &&
-            accessPlansConflict(accesses, other.resources)
-          )
-            throw new RuntimeError(
-              "BACKGROUND_RESOURCE_BUSY",
-              `Ресурс занят фоновой задачей «${other.label}».`,
-              {
-                taskId,
-                ownerId: other.ownerId,
-                label: other.label,
-                state: other.recovery ? "cleanup_unknown" : "running",
-              },
-            );
-        }
-        let blocked = false;
-        for (const [key, other] of Object.entries(value.executions)) {
-          if (!accessPlansConflict(accesses, other.accesses)) continue;
-          if (other.background)
-            throw new RuntimeError(
-              "BACKGROUND_RESOURCE_BUSY",
-              `Ресурс занят фоновой задачей «${other.background.label}».`,
-              other.background,
-            );
-          const live = await processLive(other);
-          // Ordinary file operations have no owned descendants. Shell leases survive a crash as recovery fences.
-          if (!live && !other.process && other.host === hostname()) {
-            delete value.executions[key];
-            continue;
-          }
-          if (!live && other.process)
-            throw new RuntimeError(
-              "BACKGROUND_RECOVERY_REQUIRED",
-              "Ресурс использовала команда прерванного приложения. Завершение процессов требует проверки.",
-              { ownerId: other.ownerId, resource: accesses[0]?.resource },
-            );
-          blocked = true;
-        }
-        if (blocked) return false;
-        value.executions[id] = identity;
-        await atomicWorktreeJson(path, value, assertOwned);
-        return true;
-      });
-      if (granted) break;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(done, 100);
-        function done() {
-          clearTimeout(timer);
-          signal?.removeEventListener("abort", done);
-          resolve();
-        }
-        signal?.addEventListener("abort", done, { once: true });
-      });
-    }
-    let released = false;
-    const edit = async (background?: BackgroundResourceOwner, remove = false) =>
-      withLock(lockPath, async (assertOwned) => {
-        const value = ExecutionSchema.parse(
-          (await this.json(path)) ?? { schemaVersion: 1, executions: {} },
-        );
-        const entry = value.executions[id];
-        if (!entry || entry.token !== token)
-          throw new RuntimeError(
-            "BACKGROUND_RECOVERY_REQUIRED",
-            "Владение ресурсом изменилось; доступ не освобождён.",
-          );
-        if (remove) delete value.executions[id];
-        else entry.background = background;
-        await atomicWorktreeJson(path, value, assertOwned);
-      });
-    return {
-      adopt: (background: BackgroundResourceOwner) => edit(background),
-      release: async () => {
-        if (released) return;
-        await edit(undefined, true);
-        released = true;
-      },
-    };
+    return this.execution.acquire(ownerId, accesses, signal, process);
   }
   async directory(): Promise<string> {
     await mkdir(chiselHomeDir(), { recursive: true, mode: 0o700 });
@@ -428,6 +304,7 @@ export class BackgroundTaskStore {
     });
   }
   async lease(record: BackgroundTaskRecord, retained = false): Promise<void> {
+    await this.execution.fencedTaskIds(record.rootOwnerId);
     const path = join(await this.directory(), "reservations.json");
     await withLock(path, async (assertOwned) => {
       const value = ReservationSchema.parse(
@@ -439,24 +316,7 @@ export class BackgroundTaskStore {
           "BACKGROUND_STORAGE_FAILURE",
           "Резервирование вывода потеряно; процесс не запускается.",
         );
-      if (!retained)
-        for (const [id, other] of Object.entries(value.reservations)) {
-          if (
-            id !== record.id &&
-            accessPlansConflict(record.resources, other.resources)
-          )
-            throw new RuntimeError(
-              "BACKGROUND_RESOURCE_BUSY",
-              `Ресурс занят фоновой задачей «${other.label}».`,
-              {
-                taskId: id,
-                ownerId: other.ownerId,
-                label: other.label,
-                state: other.recovery ? "cleanup_unknown" : "running",
-              },
-            );
-        }
-      reservation.resources = retained ? [] : record.resources;
+      reservation.resources = [];
       reservation.recovery = !record.cleanup.confirmed;
       reservation.foreground = record.foreground;
       if (retained) reservation.bytes = record.outputBytes;
@@ -486,6 +346,7 @@ export class BackgroundTaskStore {
       delete value.reservations[record.id];
       await atomicWorktreeJson(path, value, assertOwned);
     });
+    await this.execution.acknowledge(record);
   }
   newToken(): string {
     return randomUUID();

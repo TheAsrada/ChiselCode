@@ -32,6 +32,16 @@ import {
   rejectExternalFilters,
 } from "../git/driver.js";
 import { chiselHomeDir } from "../paths/home.js";
+import {
+  BootStampSchema,
+  bootChanged,
+  readBootStamp,
+} from "../processes/boot.js";
+import {
+  CleanupProofSchema,
+  type ProcessProofGrant,
+  readCleanupProof,
+} from "../processes/cleanup-proof.js";
 import { managedWorkspaceCandidate } from "../projects/paths.js";
 import { recordVerifiedManagedRoot } from "../projects/verified-roots.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
@@ -1945,6 +1955,8 @@ export class WorktreeService {
         start?: string;
         token: string;
         role?: string;
+        boot?: unknown;
+        proof?: unknown;
       };
       try {
         const info = await lstat(join(repo.users, name));
@@ -1956,6 +1968,37 @@ export class WorktreeService {
         continue;
       }
       if (user.id !== id) continue;
+      if (user.role === "background_write" && user.host === hostname()) {
+        const boot = await readBootStamp();
+        const before = BootStampSchema.safeParse(user.boot);
+        const proof = CleanupProofSchema.pick({
+          taskId: true,
+          ownerId: true,
+          instance: true,
+          token: true,
+        }).safeParse(user.proof);
+        const directory = join(this.home, "background-tasks", "cleanup");
+        if (
+          (proof.success &&
+            samePath(await realpath(directory).catch(() => ""), directory) &&
+            !(await lstat(directory)).isSymbolicLink() &&
+            (await readCleanupProof(
+              join(
+                directory,
+                `${proof.data.taskId}.${proof.data.instance}.json`,
+              ),
+              proof.data,
+            ))) ||
+          (before.success && bootChanged(before.data, boot))
+        ) {
+          await rm(join(repo.users, name), { force: true });
+          continue;
+        }
+        if (!user.boot) {
+          user.boot = boot;
+          await atomicWorktreeJson(join(repo.users, name), user);
+        }
+      }
       if (
         !Number.isInteger(user.pid) ||
         user.pid <= 0 ||
@@ -2015,9 +2058,26 @@ export class WorktreeService {
   }
   /** Cross-process admission and remove share the registry lock. A scope holds
    * this through LSP/process shutdown; inactive tabs remain users. */
+  async collectBackgroundUses(root: string): Promise<void> {
+    const home = await realpath(this.home).catch(() => resolve(this.home));
+    const actual = await realpath(root).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!actual || !within(join(home, "worktrees"), actual)) return;
+    const repo = await this.repository(root);
+    await withLock(repo.registry, async () => {
+      const registry = await readWorktreeRegistry(repo.registry);
+      const record = Object.values(registry.records).find((item) =>
+        samePath(item.path, repo.identity.root),
+      );
+      if (record) await this.users(repo, record.id);
+    });
+  }
   async acquireUse(
     root: string,
     role: "workspace" | "subagent_write" | "background_write" = "workspace",
+    proof?: ProcessProofGrant,
   ): Promise<Disposable> {
     const home = await realpath(this.home).catch(() => resolve(this.home));
     if (!within(join(home, "worktrees"), await realpath(root)))
@@ -2058,6 +2118,21 @@ export class WorktreeService {
         host: hostname(),
         start: await processStart(process.pid),
         updatedAt: Date.now(),
+        ...(role === "background_write"
+          ? {
+              boot: await readBootStamp(),
+              ...(proof
+                ? {
+                    proof: {
+                      taskId: proof.taskId,
+                      ownerId: proof.ownerId,
+                      instance: proof.instance,
+                      token: proof.token,
+                    },
+                  }
+                : {}),
+            }
+          : {}),
       };
       await atomicWorktreeJson(file, owner);
     });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import { execa } from "execa";
 import { RuntimeError } from "../runtime/errors.js";
+import type { ProcessProofGrant } from "./cleanup-proof.js";
 import { waitForOwnedGroupExit } from "./group-cleanup.js";
 import { hostShell } from "./shell.js";
 import { processSupervisor } from "./supervisor.js";
@@ -23,7 +24,7 @@ export interface ProcessCapture {
 /** A live private instance, never reconstructed from a DTO/PID or exported to extensions. */
 export class ManagedProcess {
   readonly shell = hostShell();
-  readonly instance = randomUUID();
+  readonly instance: string;
   readonly acceptedAt = Date.now();
   readonly deadline: number;
   readonly done: Promise<ManagedOutcome>;
@@ -36,10 +37,8 @@ export class ManagedProcess {
   private reason?: ManagedOutcome["reason"];
   private closed = false;
   private escaped = false;
-  private leaderExited = false;
   private leaderCode: number | null = null;
   private leaderSignal: string | null = null;
-  private windowsTreeStopped = false;
   private groupKilled = false;
   private cleanupDeadline?: number;
   private stopPromise?: Promise<ManagedOutcome>;
@@ -55,7 +54,9 @@ export class ManagedProcess {
     deadline: number;
     signal?: AbortSignal;
     capture: ProcessCapture;
+    proof?: ProcessProofGrant;
   }) {
+    this.instance = input.proof?.instance ?? randomUUID();
     this.deadline = input.deadline;
     this.ready = new Promise((resolve, reject) => {
       this.readyResolve = resolve;
@@ -92,7 +93,7 @@ export class ManagedProcess {
       Math.max(1, input.deadline - Date.now()),
     );
     this.child.stdin!.write(
-      `${JSON.stringify({ type: "start", command: input.command, cwd: input.cwd, ownerPid: process.pid })}\n`,
+      `${JSON.stringify({ type: "start", command: input.command, cwd: input.cwd, ownerPid: process.pid, proof: input.proof })}\n`,
     );
     const capture = async (stream: ProcessStream, readable: Readable) => {
       try {
@@ -118,7 +119,6 @@ export class ManagedProcess {
             this.pid = message.pid;
             this.readyResolve();
           } else if (message.type === "exit") {
-            this.leaderExited = true;
             this.leaderCode = message.exitCode ?? null;
             this.leaderSignal = message.signal ?? null;
           } else if (message.type === "cleanup_phase") {
@@ -163,12 +163,11 @@ export class ManagedProcess {
       }
       let cleanup = this.outcome?.cleanup ?? false;
       if (!cleanup && this.reason && !this.escaped && !this.outcome?.escaped) {
-        if (process.platform === "win32") cleanup = this.windowsTreeStopped;
-        else if (this.groupKilled)
+        if (process.platform !== "win32" && this.groupKilled)
           try {
             this.cleanupPhase = "tree";
             cleanup = await waitForOwnedGroupExit(
-              child.pid!,
+              this.pid ?? child.pid!,
               this.cleanupDeadline ?? Date.now() + 2000,
             );
           } catch {
@@ -222,16 +221,14 @@ export class ManagedProcess {
       )
         return;
       if (process.platform === "win32") {
-        const leaderAlive = !this.leaderExited;
-        const result = await execa(
-          "taskkill",
-          ["/pid", String(this.child.pid), "/T", "/F"],
-          { reject: false, timeout: 2000, windowsHide: true },
-        ).catch(() => undefined);
-        this.windowsTreeStopped = leaderAlive && result?.exitCode === 0;
+        await execa("taskkill", ["/pid", String(this.child.pid), "/T", "/F"], {
+          reject: false,
+          timeout: 2000,
+          windowsHide: true,
+        }).catch(() => undefined);
       } else
         try {
-          process.kill(-this.child.pid, "SIGKILL");
+          process.kill(-(this.pid ?? this.child.pid), "SIGKILL");
           this.groupKilled = true;
         } catch {
           /* Already gone. */

@@ -13,6 +13,11 @@ import {
   gitIdentity,
   localGitResource,
 } from "../git/driver.js";
+import type { ProcessProofGrant } from "../processes/cleanup-proof.js";
+import {
+  currentProcessIdentity,
+  identityState,
+} from "../processes/identity.js";
 import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
 import { shellFailureHint } from "../processes/shell.js";
 import { cancelled, RuntimeError, runtimeError } from "../runtime/errors.js";
@@ -22,7 +27,6 @@ import { SENSITIVE_KEY, SecretRedactor } from "../security/redaction.js";
 import { WorkspacePolicy } from "../security/workspace-policy.js";
 import type { ProjectSessionStore } from "../sessions/project-store.js";
 import { projectSessionStore } from "../sessions/project-store.js";
-import { processIdentity, processLive } from "../subagents/storage.js";
 import type { ToolContext, ToolPlan } from "../tools/types.js";
 import {
   accessPlansConflict,
@@ -43,7 +47,11 @@ import type {
   BackgroundRunner,
   BackgroundToolBinding,
 } from "./binding.js";
-import { ownShellAccess, transferShellLease } from "./capability.js";
+import {
+  ownShellAccess,
+  registerShellProcess,
+  transferShellLease,
+} from "./capability.js";
 import {
   BACKGROUND_LIMITS,
   type BackgroundConfig,
@@ -59,6 +67,7 @@ import {
   BackgroundTaskSchema,
   backgroundActive,
 } from "./contracts.js";
+import type { ExecutionResolution } from "./execution.js";
 import { type ShellData, type ShellInput, ShellInputSchema } from "./input.js";
 import { ProcessLog } from "./log.js";
 import { BackgroundTaskStore } from "./storage.js";
@@ -103,6 +112,7 @@ interface Active {
   context: ToolContext;
   ticket: object;
   process?: ManagedProcess;
+  proof?: ProcessProofGrant;
   log?: ProcessLog;
   use?: Disposable;
   lease?: { release(): void | Promise<void> };
@@ -240,24 +250,28 @@ export class BackgroundTaskService {
       owner.detach = () => binding.signal.removeEventListener("abort", close);
       try {
         const fenced = await this.storage.fencedTaskIds(ownerId);
-        for (const record of owner.records.values())
+        for (const record of owner.records.values()) {
+          const resolution = await this.storage.recovery(record);
+          if (resolution) {
+            await this.restoreCompletion(owner, record, resolution);
+            continue;
+          }
           if (backgroundActive(record.state)) {
             const live = record.process
-              ? await processLive({
+              ? await identityState({
                   pid: record.process.applicationPid,
                   host: record.process.host,
                   start: record.process.start,
-                  token: record.process.token,
-                  heartbeat: record.updatedAt,
                 })
-              : false;
+              : "unknown";
             const neverStarted =
               ["queued", "waiting_resources", "awaiting_approval"].includes(
                 record.state,
               ) &&
               !record.process?.pid &&
               !fenced.has(record.id);
-            record.state = live && !neverStarted ? "lost" : "interrupted";
+            record.state =
+              live === "live" && !neverStarted ? "lost" : "interrupted";
             record.cleanup = neverStarted
               ? { confirmed: true }
               : { confirmed: false, recoveryRequired: true };
@@ -275,6 +289,7 @@ export class BackgroundTaskService {
               "Предыдущее освобождение ресурсов не подтверждено. Сохранённый код выхода не снимает блокировку.";
             await this.persist(owner, record, "terminal");
           }
+        }
         this.assert(ownerId, binding.generation);
       } catch (error) {
         owner.detach();
@@ -360,6 +375,7 @@ export class BackgroundTaskService {
           let transferred = false;
           return {
             accesses: local.accesses,
+            registerProcess: (identity) => durable.registerProcess(identity),
             finish: async () => {
               if (!transferred) {
                 await durable.release();
@@ -665,7 +681,7 @@ export class BackgroundTaskService {
         instance: randomUUID(),
         applicationPid: process.pid,
         host: hostname(),
-        start: await processIdentity(),
+        start: (await currentProcessIdentity()).start,
         token: this.storage.newToken(),
       },
     };
@@ -729,6 +745,7 @@ export class BackgroundTaskService {
         Date.now() - Date.parse(record.finishedAt!) < days * 86400000
       )
         continue;
+      await this.worktrees.collectBackgroundUses(record.workspace);
       await this.storage.removeOutput(record);
       record.outputExpired = true;
       record.tail = [];
@@ -910,26 +927,7 @@ export class BackgroundTaskService {
     ticket?: object,
   ): Promise<void> {
     const own = ticket ? this.tickets.get(ticket) : undefined;
-    for (const [id, reservation] of Object.entries(
-      await this.storage.reservations(),
-    )) {
-      if (
-        id === own?.record.id ||
-        (reservation.foreground && this.active.has(id))
-      )
-        continue;
-      if (accessPlansConflict(accesses, reservation.resources))
-        throw new RuntimeError(
-          "BACKGROUND_RESOURCE_BUSY",
-          `Ресурс занят фоновой задачей «${reservation.label}».`,
-          {
-            taskId: id,
-            ownerId: reservation.ownerId,
-            label: reservation.label,
-            state: reservation.recovery ? "cleanup_unknown" : "running",
-          },
-        );
-    }
+    await this.storage.assertAccess(accesses, own?.record.id);
   }
   private async pump(): Promise<void> {
     if (this.pumping || this.closed) return;
@@ -1075,6 +1073,7 @@ export class BackgroundTaskService {
     cancelled(item.abort.signal);
     item.record.cleanup = { confirmed: false };
     await this.storage.lease(item.record);
+    await this.registerProcess(item, context, plan);
     item.lease = await transferShellLease(context, plan, {
       taskId: item.record.id,
       ownerId: item.record.rootOwnerId,
@@ -1094,6 +1093,57 @@ export class BackgroundTaskService {
     item.settleStart();
     return this.acceptance(item.record);
   }
+  private async registerProcess(
+    item: Active,
+    context: ToolContext,
+    plan: ToolPlan<ShellData>,
+  ): Promise<void> {
+    const process = item.record.process!;
+    item.proof = await registerShellProcess(context, plan, {
+      taskId: item.record.id,
+      ownerId: item.record.rootOwnerId,
+      label: item.record.label,
+      foreground: item.record.foreground,
+      instance: process.instance,
+      token: process.token,
+    });
+  }
+  private async restoreCompletion(
+    owner: Owner,
+    record: BackgroundTaskRecord,
+    resolution: ExecutionResolution,
+  ): Promise<BackgroundTask> {
+    if (record.cleanup.confirmed && !backgroundActive(record.state)) {
+      // A process receipt cannot erase a durable output-limit/capture failure.
+      await this.worktrees.collectBackgroundUses(record.workspace);
+      if (!record.outputExpired) await this.storage.lease(record, true);
+      await this.storage.acknowledge(record);
+      return this.descriptor(record);
+    }
+    record.truncated ||=
+      backgroundActive(record.state) || !record.cleanup.confirmed;
+    record.cleanup = { confirmed: true };
+    record.exitCode = resolution.exitCode;
+    record.signal = resolution.signal;
+    record.finishedAt = resolution.finishedAt;
+    record.readiness = "exited";
+    record.state =
+      resolution.ownerGone || resolution.kind === "reboot"
+        ? "interrupted"
+        : resolution.exitCode === 0
+          ? "completed"
+          : "failed";
+    record.error =
+      record.state === "interrupted"
+        ? "Команда прервана закрытием приложения."
+        : undefined;
+    record.truncated ||= resolution.ownerGone;
+    await this.persist(owner, record, "terminal");
+    await this.worktrees.collectBackgroundUses(record.workspace);
+    if (!record.outputExpired) await this.storage.lease(record, true);
+    await this.storage.acknowledge(record);
+    return this.descriptor(record);
+  }
   private async startProcess(
     item: Active,
     signal?: AbortSignal,
@@ -1101,6 +1151,7 @@ export class BackgroundTaskService {
     item.use = await this.worktrees.acquireUse(
       item.data.actualRoot,
       "background_write",
+      item.proof,
     );
     cancelled(item.abort.signal);
     for (const [key, value] of Object.entries(process.env))
@@ -1130,6 +1181,7 @@ export class BackgroundTaskService {
       deadline: Date.parse(item.record.deadline),
       signal,
       capture: item.log,
+      proof: item.proof,
     });
     item.process = handle;
     item.record.process!.instance = handle.instance;
@@ -1328,9 +1380,20 @@ export class BackgroundTaskService {
           state: item.record.state,
           error: item.record.error,
         });
-      item.record.state = "cleanup_unknown";
-      item.record.cleanup = { confirmed: false, recoveryRequired: true };
-      item.record.error = `Сохранение или завершение процессов не подтверждено: ${terminalSafeText(item.binding.redactor.text(String(error)), 2000)}`;
+      item.record.state = outcome.cleanup ? "failed" : "cleanup_unknown";
+      item.record.cleanup = outcome.cleanup
+        ? { confirmed: true }
+        : { confirmed: false, recoveryRequired: true };
+      if (outcome.cleanup) {
+        await Promise.resolve()
+          .then(() => item.use?.dispose())
+          .catch(() => {});
+        await this.storage.lease(item.record, true).catch(() => {});
+        await Promise.resolve()
+          .then(() => item.lease?.release())
+          .catch(() => {});
+      }
+      item.record.error = `Не удалось сохранить результат команды: ${terminalSafeText(item.binding.redactor.text(String(error)), 2000)}`;
       await this.persist(item.owner, item.record, "terminal").catch(() => {
         // A second persistence failure must still be visible to the live owner.
         try {
@@ -1432,6 +1495,7 @@ export class BackgroundTaskService {
     };
     try {
       await this.storage.lease(record);
+      await this.registerProcess(item, context, plan);
       item.launching = this.startProcess(item, context.signal);
       await item.launching;
       await this.transition(item, "running");
@@ -1749,8 +1813,13 @@ export class BackgroundTaskService {
             "BACKGROUND_RECOVERY_REQUIRED",
             "Дождитесь завершения текущей остановки.",
           );
-        if (record.cleanup.confirmed) return this.descriptor(record);
         const proof = this.recoveries.get(id);
+        if (!proof) {
+          const resolution = await this.storage.recovery(record);
+          if (resolution)
+            return this.restoreCompletion(owner, record, resolution);
+          if (record.cleanup.confirmed) return this.descriptor(record);
+        }
         if (
           !proof ||
           proof.item.record.rootOwnerId !== record.rootOwnerId ||
@@ -1770,6 +1839,7 @@ export class BackgroundTaskService {
             await proof.item.use?.dispose();
             await this.storage.lease(record, true);
             await proof.item.lease?.release();
+            await this.storage.acknowledge(record);
             workspaceCoordinator.changed(
               record.resources
                 .filter((access) => access.mode === "write")
@@ -1778,8 +1848,8 @@ export class BackgroundTaskService {
             this.recoveries.delete(id);
             return this.descriptor(record);
           } catch (error) {
-            record.state = "cleanup_unknown";
-            record.cleanup = { confirmed: false, recoveryRequired: true };
+            record.state = "failed";
+            record.cleanup = { confirmed: true };
             record.error = terminalSafeText(
               owner.binding.redactor.text(String(error)),
               4096,
@@ -1799,6 +1869,7 @@ export class BackgroundTaskService {
             "BACKGROUND_RECOVERY_REQUIRED",
             "Историю активной задачи или неподтверждённого завершения процессов удалять нельзя.",
           );
+        await this.worktrees.collectBackgroundUses(record.workspace);
         await this.storage.removeOutput(record);
         record.outputExpired = true;
         record.tail = [];

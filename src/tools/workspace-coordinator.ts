@@ -1,6 +1,10 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { gitIdentity } from "../git/driver.js";
+import type {
+  ProcessExecutionIdentity,
+  ProcessProofGrant,
+} from "../processes/cleanup-proof.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 
 export type AccessMode = "read" | "write";
@@ -24,6 +28,9 @@ export interface BackgroundResourceOwner {
 }
 export interface WorkspaceLease {
   readonly accesses: readonly WorkspaceAccess[];
+  registerProcess?(
+    identity: ProcessExecutionIdentity,
+  ): Promise<ProcessProofGrant>;
   finish(): void | Promise<void>;
   transfer(
     owner: BackgroundResourceOwner,

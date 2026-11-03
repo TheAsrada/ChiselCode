@@ -1,3 +1,4 @@
+import type { ProcessProofGrant } from "./cleanup-proof.js";
 import type { ShellRuntime } from "./shell.js";
 
 /** Self-contained helper, serialized into the ordinary Bun/compiled runtime.
@@ -8,6 +9,11 @@ export async function processSupervisor(
 ): Promise<void> {
   const { spawn, execFile } = await import("node:child_process");
   const { createWriteStream } = await import("node:fs");
+  const { lstat, realpath, open, rename, rm } = await import(
+    "node:fs/promises"
+  );
+  const { dirname, isAbsolute } = await import("node:path");
+  const { randomUUID } = await import("node:crypto");
   const { createInterface } = await import("node:readline");
   // Linux adopts orphaned descendants, including a fast double fork. Census
   // can then detect a changed process group and keep a recovery fence.
@@ -34,7 +40,12 @@ export async function processSupervisor(
     }
   }
   const control = createWriteStream("", { fd: 3, autoClose: false });
-  const send = (value: unknown) => control.write(`${JSON.stringify(value)}\n`);
+  let ownerGone = false;
+  let proof: ProcessProofGrant | undefined;
+  const send = (value: unknown) => {
+    if (!ownerGone && !control.destroyed)
+      control.write(`${JSON.stringify(value)}\n`);
+  };
   const input = createInterface({ input: process.stdin });
   let shell: ReturnType<typeof spawn> | undefined;
   let exited = false;
@@ -43,6 +54,8 @@ export async function processSupervisor(
   let code: number | null = null;
   let signal: string | null = null;
   let stopping = false;
+  let stoppedAt = 0;
+  let killedGroup = false;
   let sampling = false;
   let finished = false;
   let escaped = !orphanTracking;
@@ -53,6 +66,60 @@ export async function processSupervisor(
   let transportError = Buffer.alloc(0);
   const descendants = new Map<number, string>();
   const startedAt = Date.now();
+  const saveProof = async (cleanup: boolean) => {
+    if (!proof) return;
+    const directory = dirname(proof.path);
+    if (
+      !isAbsolute(proof.path) ||
+      (await lstat(directory)).isSymbolicLink() ||
+      (await realpath(directory)) !== directory
+    )
+      throw new Error("Некорректный каталог завершения команды.");
+    const temporary = `${proof.path}.${randomUUID()}.tmp`;
+    const handle = await open(temporary, "wx", 0o600);
+    try {
+      await handle.writeFile(
+        JSON.stringify({
+          schemaVersion: 1,
+          taskId: proof.taskId,
+          ownerId: proof.ownerId,
+          instance: proof.instance,
+          token: proof.token,
+          exitCode: code,
+          signal,
+          cleanup,
+          escaped,
+          ownerGone,
+          finishedAt: new Date().toISOString(),
+        }),
+      );
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    try {
+      // Retry only replacement contention, never a failed cleanup assertion.
+      const deadline = Date.now() + 2000;
+      for (;;) {
+        try {
+          await rename(temporary, proof.path);
+          break;
+        } catch (error) {
+          if (
+            process.platform !== "win32" ||
+            !["EPERM", "EACCES", "EBUSY"].includes(
+              String((error as NodeJS.ErrnoException).code),
+            ) ||
+            Date.now() >= deadline
+          )
+            throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  };
   type Row = {
     pid: number;
     parent: number;
@@ -151,6 +218,12 @@ export async function processSupervisor(
     send({ type: "cleanup_phase", phase: "flush" });
     clearInterval(clock);
     input.close();
+    // The cleanup proof must survive loss of the application/control channel.
+    try {
+      await saveProof(cleanup);
+    } catch {
+      /* Missing proof retains a recovery fence after crash. */
+    }
     send({
       type: "done",
       exitCode: code,
@@ -165,7 +238,8 @@ export async function processSupervisor(
           new Promise<void>((resolve) => stream.write("", () => resolve())),
       ),
     );
-    control.end(() => process.exit(0));
+    if (ownerGone || control.destroyed) process.exit(0);
+    else control.end(() => process.exit(0));
   };
   const finishWindowsTransport = () => {
     // After command exit + EOF + an empty owned-tree census, the fixed
@@ -190,7 +264,7 @@ export async function processSupervisor(
         leader &&
         !descendants.has(leader.pid) &&
         (leader.parent === process.pid ||
-          (process.platform !== "win32" && leader.group === process.pid))
+          (process.platform !== "win32" && leader.group === shell?.pid))
       )
         descendants.set(leader.pid, leader.start);
       for (const [pid, start] of descendants)
@@ -203,7 +277,7 @@ export async function processSupervisor(
             (descendants.has(row.parent) ||
               row.parent === commandPid ||
               row.parent === process.pid ||
-              (process.platform !== "win32" && row.group === process.pid)) &&
+              (process.platform !== "win32" && row.group === shell?.pid)) &&
             !descendants.has(row.pid)
           ) {
             if (descendants.size >= 4096 || !row.start) {
@@ -225,7 +299,7 @@ export async function processSupervisor(
               commandEof &&
               row.pid === shell?.pid
             )) ||
-          (process.platform !== "win32" && row.group === process.pid),
+          (process.platform !== "win32" && row.group === shell?.pid),
       );
       if (exited)
         send({
@@ -238,7 +312,7 @@ export async function processSupervisor(
         });
       if (
         process.platform !== "win32" &&
-        live.some((row) => row.group !== process.pid) &&
+        live.some((row) => row.group !== shell?.pid) &&
         !escaped
       ) {
         escaped = true;
@@ -265,10 +339,22 @@ export async function processSupervisor(
         stdoutDone &&
         stderrDone &&
         escaped &&
-        live.every((row) => row.group !== process.pid)
+        live.every((row) => row.group !== shell?.pid)
       )
         finish(false);
-      else if (stopping && process.platform === "win32") {
+      else if (
+        stopping &&
+        process.platform !== "win32" &&
+        !killedGroup &&
+        Date.now() - stoppedAt >= 2000
+      ) {
+        killedGroup = true;
+        try {
+          process.kill(-shell.pid!, "SIGKILL");
+        } catch {
+          /* A later census proves exit. */
+        }
+      } else if (stopping && process.platform === "win32") {
         // The helper remains the tracked tree root even after the shell leader exits.
         // Never accept a caller-provided PID or a restored record here.
         for (const row of live)
@@ -303,9 +389,10 @@ export async function processSupervisor(
   const stop = () => {
     if (stopping || finished) return;
     stopping = true;
-    if (process.platform !== "win32") {
+    stoppedAt = Date.now();
+    if (process.platform !== "win32" && shell?.pid) {
       try {
-        process.kill(-process.pid, "SIGTERM");
+        process.kill(-shell.pid, "SIGTERM");
       } catch {
         /* Parent checks cleanup. */
       }
@@ -314,8 +401,7 @@ export async function processSupervisor(
   };
   // Keep the supervisor available while ordinary descendants receive TERM.
   process.on("SIGTERM", () => {
-    stopping = true;
-    void sample();
+    stop();
   });
   input.on("line", (line) => {
     try {
@@ -334,6 +420,16 @@ export async function processSupervisor(
       )
         return;
       const env = { ...process.env };
+      if (
+        message.proof &&
+        typeof message.proof.path === "string" &&
+        ["taskId", "ownerId", "instance", "token"].every(
+          (key) =>
+            typeof message.proof[key] === "string" &&
+            /^[a-f0-9-]{36}$/.test(message.proof[key]),
+        )
+      )
+        proof = message.proof;
       delete env.BUN_BE_BUN;
       const windows = runtime.kind === "cmd";
       if (windows) {
@@ -360,6 +456,7 @@ export async function processSupervisor(
         {
           cwd: message.cwd,
           shell: false,
+          detached: !windows,
           windowsVerbatimArguments: false,
           windowsHide: true,
           env,
@@ -389,6 +486,7 @@ export async function processSupervisor(
                   supervisorPid: process.pid,
                 });
               } else if (frame.type === "output") {
+                if (ownerGone) continue;
                 const target =
                   frame.stream === "stderr" ? process.stderr : process.stdout;
                 await new Promise<void>((resolve, reject) =>
@@ -407,7 +505,7 @@ export async function processSupervisor(
               } else if (frame.type === "owner_gone") {
                 // A native owner handle observes crash even if an inherited
                 // Windows pipe remains open. Stop only this live owned tree.
-                input.close();
+                parentGone();
               } else if (frame.type === "error") {
                 escaped = true;
                 send({ type: "error", message: frame.message });
@@ -422,6 +520,10 @@ export async function processSupervisor(
           if (transportEnding) finishWindowsTransport();
           else void sample();
         })().catch((error) => {
+          if (ownerGone) {
+            stop();
+            return;
+          }
           escaped = true;
           send({ type: "error", message: String(error) });
           send({ type: "ownership_unknown" });
@@ -493,25 +595,33 @@ export async function processSupervisor(
   });
   input.on("close", () => {
     if (!finished) {
+      if (!ownerGone) parentGone();
       stop();
-      setTimeout(
-        () => {
-          if (finished) return;
-          if (process.platform !== "win32") {
-            try {
-              process.kill(-process.pid, "SIGKILL");
-            } catch {
-              process.exit(1);
-            }
-          } else process.exit(1);
-        },
-        process.platform === "win32" ? 10000 : 2000,
-      );
+      setTimeout(() => {
+        if (finished) return;
+        if (process.platform !== "win32" && shell?.pid) {
+          try {
+            process.kill(-shell.pid, "SIGKILL");
+          } catch {
+            /* Unknown tree remains fenced. */
+          }
+        }
+        process.exit(1);
+      }, 10000);
     }
   });
   // A crashed application can close output/control before stdin. Keep the
   // supervisor alive to stop its group rather than dying on an unhandled EPIPE.
-  const parentGone = () => input.close();
+  const parentGone = () => {
+    ownerGone = true;
+    if (runtime.kind !== "cmd") {
+      shell?.stdout?.unpipe(process.stdout);
+      shell?.stderr?.unpipe(process.stderr);
+      shell?.stdout?.resume();
+      shell?.stderr?.resume();
+    }
+    input.close();
+  };
   control.on("error", parentGone);
   process.stdout.on("error", parentGone);
   process.stderr.on("error", parentGone);

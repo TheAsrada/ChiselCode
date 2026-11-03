@@ -42,6 +42,24 @@ test("ordinary executor and default contributions own real background commands a
   expect(output).toContain("Background Tasks runtime:");
 }, 90000);
 
+test("a foreground command recovers after a real application crash without a background receipt in the conversation", async () => {
+  const child = Bun.spawn(
+    [process.execPath, "tests/fixtures/background-crash.ts"],
+    {
+      env: { ...process.env, CHISEL_CRASH_FOREGROUND: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  const [output, error, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(code, error).toBe(0);
+  expect(output).toContain("Background Tasks crash:");
+}, 90000);
+
 test("ordinary OpenTUI opens Background Tasks while main is busy and owns log input", async () => {
   const child = Bun.spawn(
     [process.execPath, "tests/fixtures/tui-background.ts"],
