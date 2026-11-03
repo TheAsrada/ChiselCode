@@ -156,7 +156,24 @@ test("menu search owns digits and Enter opens only the selected screen without s
     expect(setup.captureCharFrame()).toContain("123");
     expect(setup.captureCharFrame()).toContain("Ничего не найдено");
     await key("ESCAPE");
-    await key("/");
+    expect(workspace.controller.snapshot.focus).toBe("composer");
+    await act(async () => {
+      await setup.mockMouse.click(menu.x + 1, menu.y);
+    });
+    await frame();
+    const search = setup.renderer.root.findDescendantById(
+      "sidebar-menu-search",
+    );
+    if (!search) throw Error("Missing menu search");
+    await act(async () => {
+      await setup.mockMouse.click(search.x + 1, search.y);
+    });
+    await frame();
+    expect(setup.renderer.currentFocusedRenderable?.id).toBe(
+      "sidebar-menu-search",
+    );
+    await key("a", true);
+    await key("k", true);
     await act(async () => {
       await setup.mockInput.pasteBracketedText("Внешний вид");
     });

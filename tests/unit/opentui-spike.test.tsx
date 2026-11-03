@@ -366,6 +366,9 @@ test("Tab reaches the inline sidebar and Esc restores composer focus", async () 
     act(() => setup.mockInput.pressTab());
     await setup.renderOnce();
     expect(controller.snapshot.focus).toBe("sidebar");
+    expect(setup.captureCharFrame()).toContain("ОКНО КОНТЕКСТА");
+    act(() => setup.mockInput.pressTab());
+    await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("> Контекст");
     await act(async () => {
       setup.mockInput.pressEscape();

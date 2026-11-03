@@ -16,6 +16,7 @@ import { act } from "react";
 import { PackageManagementService } from "../../src/extensions/packages/service.js";
 import { THEMES } from "../../src/ui/appearance.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { focusMenuAction, menuAction } from "./menu-navigation.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const storage = await mkdtemp(join(tmpdir(), "chisel-theme-tui-"));
@@ -226,7 +227,9 @@ try {
     ]) {
       await act(async () => ui.renderer.resize(width!, height!));
       await frame();
+      await focusMenuAction(ui, "settings-actions", "settings-apply-theme");
       assert.ok(ui.renderer.root.findDescendantById("settings-apply-theme"));
+      await focusMenuAction(ui, "settings-actions", "settings-cancel-theme");
       assert.ok(ui.renderer.root.findDescendantById("settings-cancel-theme"));
       assert.ok(
         ui.captureCharFrame().includes(`> ${name}`),
@@ -236,7 +239,7 @@ try {
     }
     await act(async () => ui.renderer.resize(160, 50));
     await frame();
-    await click("settings-apply-theme");
+    await menuAction(ui, "settings-actions", "settings-apply-theme");
     await until(
       () => ui.captureCharFrame().includes("Тема сохранена"),
       "Выбор не сохранён",
@@ -261,7 +264,7 @@ try {
     assert.match(ui.captureCharFrame(), new RegExp(name));
   }
   await click("settings-theme-extension:fixture.themes:north");
-  await click("settings-cancel-theme");
+  await menuAction(ui, "settings-actions", "settings-cancel-theme");
   assert.equal(
     JSON.parse(await readFile(configPath, "utf8")).ui.theme,
     "extension:fixture.themes:linen",
@@ -280,7 +283,7 @@ try {
     ),
     ui.captureCharFrame(),
   );
-  await click("settings-cancel-theme");
+  await menuAction(ui, "settings-actions", "settings-cancel-theme");
   await key("ESCAPE");
   assert.equal(
     fetches,
