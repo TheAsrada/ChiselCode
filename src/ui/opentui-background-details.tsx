@@ -111,6 +111,7 @@ export function OpenTuiBackgroundDetails({
     {
       id: "background-follow",
       label: "В конец / Следить",
+      shortLabel: "В конец",
       run: () => {
         controller.setBackgroundView({ follow: true });
         void controller.loadBackground(viewer.id, true);
@@ -133,6 +134,7 @@ export function OpenTuiBackgroundDetails({
     {
       id: "background-recover",
       label: "Восстановить очистку",
+      shortLabel: "Очистка",
       disabled: active || !task?.cleanup.recoveryRequired,
       run: () => {
         void controller.recoverBackground(viewer.id);
@@ -156,6 +158,7 @@ export function OpenTuiBackgroundDetails({
     {
       id: "background-history-delete",
       label: "Удалить историю…",
+      shortLabel: "Удалить логи",
       disabled: active || !task?.cleanup.confirmed,
       run: () => setDeleteId(viewer.id),
     },

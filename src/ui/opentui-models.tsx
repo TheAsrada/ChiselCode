@@ -260,6 +260,7 @@ export function OpenTuiModels({
     {
       id: "models-refresh",
       label: "Обновить каталог",
+      shortLabel: "Обновить",
       disabled: saving || !profile,
       run: () => {
         if (profile) fetchModels(profile, current, true);

@@ -958,6 +958,7 @@ export function OpenTuiSettings({
                       {
                         id: "settings-check",
                         label: "Проверить подключение",
+                        shortLabel: "Проверить",
                         disabled: !!busy,
                         run: check,
                       },

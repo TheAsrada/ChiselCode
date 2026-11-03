@@ -116,6 +116,7 @@ export function BackgroundTaskList({
     {
       id: "background-stop-all",
       label: "Остановить все…",
+      shortLabel: "Все: стоп…",
       disabled: !active,
       run: () =>
         setStopSet(
