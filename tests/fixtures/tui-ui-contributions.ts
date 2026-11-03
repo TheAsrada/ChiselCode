@@ -154,7 +154,9 @@ try {
   await click("sidebar-tab-context");
   await capture("production-context-160x50");
   assert.ok(ui.captureCharFrame().includes("Анализ кода"));
-  assert.ok(ui.captureCharFrame().includes("Файлы ещё не проверены"));
+  assert.ok(
+    ui.captureCharFrame().includes("Анализ кода выключен в настройках"),
+  );
   await click("sidebar-tab-menu");
   await key("END");
   await capture("production-menu-160x50");

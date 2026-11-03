@@ -1210,6 +1210,7 @@ export function OpenTuiSettings({
               textColor={palette.text}
               focusedTextColor={palette.text}
               placeholderColor={palette.muted}
+              onMouseDown={() => setShellFocus("search")}
               onInput={(value) => {
                 if (value === settingsQuery) return;
                 setSettingsQuery(cleanSettingsInput(value));

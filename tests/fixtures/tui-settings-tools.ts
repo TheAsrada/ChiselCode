@@ -118,9 +118,9 @@ async function until(
   }
   await frame();
 }
-async function key(name: string, ctrl = false) {
+async function key(name: string, ctrl = false, shift = false) {
   await act(async () => {
-    ui.mockInput.pressKey(name, { ctrl });
+    ui.mockInput.pressKey(name, { ctrl, shift });
     if (name === "ESCAPE") await Bun.sleep(120);
   });
   await frame();
@@ -148,7 +148,10 @@ async function click(id: string) {
   await frame();
 }
 async function navigate(query: string) {
+  // Из содержимого LSP Ctrl+F ищет серверы; общий поиск принадлежит оболочке.
+  await key("TAB", false, true);
   await key("f", true);
+  assert.equal(ui.renderer.currentFocusedEditor?.id, "settings-global-search");
   await key("a", true);
   await paste(query);
   await key("RETURN");
@@ -244,6 +247,18 @@ try {
         ui.renderer.root.findDescendantById("skills-popup"),
         undefined,
       );
+      if (route === "анализ кода") {
+        await key("f", true);
+        await until(
+          () => ui.renderer.currentFocusedEditor?.id === "lsp-search",
+          "Ctrl+F не передал ввод локальному поиску серверов",
+        );
+        await click("settings-global-search");
+        assert.equal(
+          ui.renderer.currentFocusedEditor?.id,
+          "settings-global-search",
+        );
+      }
     }
     await navigate("mcp");
     await until(
