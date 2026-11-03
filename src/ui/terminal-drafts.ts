@@ -20,6 +20,8 @@ const DraftSchema = z.strictObject({
 });
 export type TerminalDraftIdentity = string | { applicationId: string };
 const revisions = new Map<string, number>();
+const restoredText = (text: string | undefined) =>
+  text?.trim() === "/cwd" ? "" : text;
 const identity = (root: TerminalDraftIdentity, sessionId?: string) =>
   createHash("sha256")
     .update(
@@ -41,7 +43,7 @@ export async function loadTerminalDraft(
     try {
       const data = DraftSchema.parse(await boundedJson(path, 1024));
       revisions.set(key, data.revision);
-      return await new CredentialStore().get(data.reference);
+      return restoredText(await new CredentialStore().get(data.reference));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         revisions.set(key, 0);
@@ -138,5 +140,7 @@ export async function loadApplicationDraft(): Promise<string | undefined> {
   const latest = candidates.sort(
     (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0),
   )[0];
-  return latest ? new CredentialStore().get(latest.reference) : undefined;
+  return latest
+    ? restoredText(await new CredentialStore().get(latest.reference))
+    : undefined;
 }

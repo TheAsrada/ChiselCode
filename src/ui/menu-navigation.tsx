@@ -11,6 +11,7 @@ export interface MenuAction {
   shortLabel?: string;
   run(): void;
   disabled?: boolean;
+  primary?: boolean;
 }
 
 /** Local focus only: operations and input ownership remain with the caller. */
@@ -120,6 +121,7 @@ export function MenuActions({
             navigation.area === "actions" && navigation.action?.id === item.id
           }
           disabled={item.disabled}
+          primary={item.primary}
           palette={palette}
           onSelect={item.run}
         />

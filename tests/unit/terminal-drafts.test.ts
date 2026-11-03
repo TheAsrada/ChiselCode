@@ -49,6 +49,18 @@ test("application drafts have separate protected identities; a live instance is 
   expect(await loadTerminalDraft(b)).toBe("draft B");
 });
 
+test("a legacy consumed /cwd command is not restored as a task, while real drafts remain intact", async () => {
+  const id = { applicationId: randomUUID() };
+  await saveTerminalDraft(id, undefined, " /cwd\n", { closed: true });
+  expect(await loadApplicationDraft()).toBe("");
+  expect(await loadTerminalDraft(id)).toBe("");
+  await saveTerminalDraft(root, undefined, "/cwd");
+  expect(await loadTerminalDraft(root)).toBe("");
+  const text = "Объясни команду /cwd\nи сохрани этот черновик";
+  await saveTerminalDraft(root, undefined, text);
+  expect(await loadTerminalDraft(root)).toBe(text);
+});
+
 test("failed metadata publication cannot overwrite the previously published protected payload", async () => {
   const id = { applicationId: randomUUID() };
   await saveTerminalDraft(id, undefined, "previous");

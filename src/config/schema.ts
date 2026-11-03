@@ -31,6 +31,23 @@ export const GlobalConfigV2Schema = z.looseObject({
     .optional(),
   ui: z
     .looseObject({
+      lastModelSelection: z
+        .object({
+          provider: z.string().min(1),
+          profileId: ProfileIdSchema,
+          model: z
+            .string()
+            .min(1)
+            .max(1000)
+            .refine((value) =>
+              [...value].every(
+                (character) =>
+                  character.charCodeAt(0) >= 32 &&
+                  character.charCodeAt(0) !== 127,
+              ),
+            ),
+        })
+        .optional(),
       motion: z.enum(["full", "reduced"]).optional(),
       theme: z
         .union([

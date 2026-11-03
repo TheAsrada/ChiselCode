@@ -164,6 +164,7 @@ jobs:
           tests/unit/opentui-terminal-compatibility.test.tsx tests/unit/opentui-settings.test.tsx
           tests/unit/opentui-navigation.test.tsx tests/unit/opentui-file-diff.test.tsx
           tests/unit/project-admission.test.ts tests/unit/terminal-drafts.test.ts
+          tests/unit/project-navigation.test.ts tests/unit/opentui-projects.test.tsx tests/unit/model-preference.test.ts
           tests/unit/runtime-environment.test.ts tests/integration/project-startup.test.ts
           tests/unit/session-history.test.ts tests/unit/opentui-sessions.test.tsx
           tests/integration/session-resume.test.ts

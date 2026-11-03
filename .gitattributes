@@ -29,3 +29,4 @@ docs/assets/worktree-manager-0.6.40/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/ui-design/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/home-commands/*.txt whitespace=-blank-at-eol,-blank-at-eof
 docs/assets/request-activity/*.txt whitespace=-blank-at-eol,-blank-at-eof
+docs/assets/folder-picker/*.txt whitespace=-blank-at-eol,-blank-at-eof

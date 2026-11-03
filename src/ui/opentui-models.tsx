@@ -368,7 +368,7 @@ export function OpenTuiModels({
       </box>
       {layout.roomy && (
         <text fg={palette.muted} height={1}>
-          Для следующего сообщения в этой сессии
+          Для следующего сообщения; выбор сохраняется
         </text>
       )}
       <box

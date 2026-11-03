@@ -58,6 +58,7 @@ mock.module("@opentui/core", () => ({
   createCliRenderer: async () => setup.renderer,
 }));
 let globalSaves = 0;
+const rememberedModels: string[] = [];
 mock.module("../../src/config/load.js", () => ({
   ...config,
   loadGlobalConfig: async () => ({
@@ -76,8 +77,16 @@ mock.module("../../src/config/load.js", () => ({
     },
     providers: {},
   }),
-  saveGlobalConfig: async () => {
+  saveGlobalConfig: async (
+    saved: import("../../src/types/domain.js").GlobalConfig,
+  ) => {
     globalSaves++;
+    expect(saved.defaultProfileId).toBe("anthropic-default");
+    expect(saved.profiles["anthropic-default"]?.defaultModel).toBe(
+      "test-model",
+    );
+    expect(saved.profiles.personal?.defaultModel).toBe("other-model");
+    rememberedModels.push(saved.ui?.lastModelSelection?.model ?? "");
   },
 }));
 const storedModes: AgentMode[] = [];
@@ -406,7 +415,12 @@ try {
   expect(storedApprovals).toContain("dontAsk");
   expect(storedModes).toContain("plan");
   expect(storedApprovals).toContain("acceptEdits");
-  expect(globalSaves).toBe(0);
+  expect(globalSaves).toBe(3);
+  expect(rememberedModels).toEqual([
+    "queued-model",
+    "later-model",
+    "idle-model",
+  ]);
   expect(catalogProfiles).toEqual(["anthropic-default", "personal"]);
   process.stdout.write(
     "Parallel tabs, sequential follow-ups and independent cancellation verified\n",

@@ -1663,8 +1663,14 @@ function OpenTuiScreen({
     history.current = addEditorHistory(history.current, value);
     if (controller) controller.presentation.history = history.current;
     if (value === "/cwd") {
-      if (getProjectActions) openProjects();
-      else {
+      if (getProjectActions) {
+        if (!command) {
+          controller?.setDraft("");
+          editor.current?.setText("");
+          setDraft("");
+        }
+        openProjects();
+      } else {
         editor.current?.setText("/cwd ");
         if (editor.current) editor.current.cursorOffset = 5;
         setDraft("/cwd ");

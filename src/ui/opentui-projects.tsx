@@ -1,18 +1,14 @@
 /** @jsxImportSource @opentui/react */
 import { basename } from "node:path";
-import type { ScrollBoxRenderable } from "@opentui/core";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { WorkspaceAdmissionError } from "../projects/admission.js";
 import type { DirectoryPage } from "../projects/navigation.js";
-import type { ProjectMetadata } from "../sessions/project-store.js";
 import type { Palette } from "./appearance.js";
+import {
+  type MenuAction,
+  MenuActions,
+  useMenuNavigation,
+} from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { terminalLine } from "./terminal-text.js";
@@ -20,7 +16,7 @@ import { terminalLine } from "./terminal-text.js";
 export interface OpenTuiProjectsActions {
   base: string;
   draftPath?: string;
-  recent(): Promise<ProjectMetadata[]>;
+  cached?(path: string): DirectoryPage | undefined;
   browse(
     path: string,
     signal: AbortSignal,
@@ -46,130 +42,205 @@ export function OpenTuiProjects({
   message?: string;
 }) {
   const [path, setPath] = useState(actions.draftPath ?? actions.base);
+  const pathRef = useRef(path);
   const [page, setPage] = useState<DirectoryPage>();
-  const [recent, setRecent] = useState<ProjectMetadata[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [focus, setFocus] = useState(0);
   const [selected, setSelected] = useState<string>();
   const mounted = useRef(true);
   const ticket = useRef(0);
-  const editRevision = useRef(0);
+  const opening = useRef(false);
+  const readyPath = useRef<string | undefined>(undefined);
   const browsing = useRef<AbortController | undefined>(undefined);
-  const list = useRef<ScrollBoxRenderable>(null);
-  const close = () => {
-    actions.cancel();
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const stopBrowsing = useCallback(() => {
+    clearTimeout(timer.current);
     browsing.current?.abort();
+    ++ticket.current;
+  }, []);
+  const close = () => {
+    mounted.current = false;
+    stopBrowsing();
+    actions.cancel();
     onClose();
   };
-  const browse = useCallback(
-    (value: string, offset = 0) => {
-      browsing.current?.abort();
-      const abort = new AbortController();
-      browsing.current = abort;
-      const id = ++ticket.current;
-      const revision = ++editRevision.current;
-      setPath(value);
-      setError("");
-      void actions
-        .browse(value, abort.signal, offset)
-        .then((next) => {
-          if (!mounted.current || id !== ticket.current || abort.signal.aborted)
-            return;
-          setPage(next);
-          if (revision === editRevision.current) setPath(next.path);
-          setSelected(undefined);
-        })
-        .catch((cause) => {
-          if (mounted.current && id === ticket.current && !abort.signal.aborted)
-            setError(String(cause));
-        });
-    },
-    [actions],
+  const { innerWidth, popupHeight, tiny } = dialogLayout(width, height, 24, 88);
+  const roomy = popupHeight >= 18;
+  const fixedHeight =
+    (roomy ? 2 : 1) +
+    (height >= 14 ? 1 : 0) +
+    1 +
+    (height >= 16 ? (roomy ? 2 : 1) : 0) +
+    (error && height >= 16 ? 2 : 1) +
+    (height >= 16 ? 2 : 1) +
+    (height >= 14 ? 1 : 0) +
+    (message && height >= 16 ? 1 : 0);
+  const listHeight = Math.max(
+    1,
+    popupHeight - (tiny ? 0 : 2) - (roomy ? 2 : 0) - fixedHeight,
   );
-  useEffect(() => {
-    mounted.current = true;
-    browse(actions.draftPath ?? actions.base);
-    void actions
-      .recent()
-      .then((items) => {
-        if (mounted.current) setRecent(items);
-      })
-      .catch((cause) => {
-        if (mounted.current) setError(String(cause));
-      });
-    return () => {
-      mounted.current = false;
-      ++ticket.current;
-      browsing.current?.abort();
-      actions.cancel();
-    };
-  }, [actions, browse]);
-  const open = (value = path) => {
-    const id = ++ticket.current;
-    setBusy(true);
-    setError("");
-    void actions
-      .open(value)
-      .then(() => {
-        if (mounted.current && id === ticket.current) onClose();
-      })
-      .catch((cause) => {
-        if (mounted.current && id === ticket.current)
-          setError(
-            cause instanceof WorkspaceAdmissionError
-              ? cause.message.replace(
-                  " Выберите рабочую папку или укажите --cwd <путь>.",
-                  "",
-                )
-              : cause instanceof Error
-                ? cause.message
-                : String(cause),
-          );
-      })
-      .finally(() => {
-        if (mounted.current && id === ticket.current) setBusy(false);
-      });
-  };
-  const rows = useMemo(
-    () => [
-      ...recent.map((item) => ({
-        path: item.path,
-        label: `${item.name} · ${item.lastOpenedAt.slice(0, 10)}`,
-        recent: true,
-      })),
-      ...(page
-        ? [
-            {
-              path: page.parent,
-              label: ".. Родительская папка",
-              recent: false,
-            },
-            ...page.directories.map((dir) => ({
-              path: dir,
-              label: basename(dir),
-              recent: false,
-            })),
-          ]
-        : []),
-    ],
-    [recent, page],
-  );
+  const rows = page
+    ? [
+        ...(page.path !== page.parent && !page.filter
+          ? [{ path: page.parent, label: ".. На уровень выше" }]
+          : []),
+        ...page.directories.map((dir) => ({
+          path: dir,
+          label: `${basename(dir)}/`,
+        })),
+      ]
+    : [];
   const index = Math.max(
     0,
     rows.findIndex((row) => row.path === selected),
   );
-  const { innerWidth } = dialogLayout(width, height);
-  const wide = width >= 110 && height >= 30;
-  const listWidth = wide ? Math.floor(innerWidth * 0.55) : innerWidth;
-  const rowHeight = width >= 80 && height >= 24 ? 2 : 1;
-  const visible = Math.max(1, Math.floor((height - 12) / rowHeight));
-  const rowId = rows[index]
-    ? `project-row-${rows[index].recent ? "recent" : "directory"}-${rows[index].path}`
-    : undefined;
-  useLayoutEffect(() => {
-    if (rowId) list.current?.scrollChildIntoView(rowId);
-  }, [rowId]);
+  const first = Math.max(
+    0,
+    Math.min(index - Math.floor(listHeight / 2), rows.length - listHeight),
+  );
+  const browse = useCallback(
+    (value: string, offset = 0) => {
+      stopBrowsing();
+      readyPath.current = undefined;
+      const abort = new AbortController();
+      browsing.current = abort;
+      const id = ticket.current;
+      const cached = offset === 0 ? actions.cached?.(value) : undefined;
+      setLoading(true);
+      setError("");
+      setPage(cached);
+      setSelected(undefined);
+      void (async () => {
+        let next = await actions.browse(value, abort.signal, offset);
+        let directories = next.directories;
+        // Sparse matches can lie beyond the first I/O batch. Yield between batches;
+        // keep memory bounded and never report an empty first batch as no matches.
+        while (next.more && directories.length < 100) {
+          if (!mounted.current || id !== ticket.current || abort.signal.aborted)
+            return;
+          next = await actions.browse(value, abort.signal, next.offset);
+          directories = [...directories, ...next.directories];
+        }
+        if (!mounted.current || id !== ticket.current || abort.signal.aborted)
+          return;
+        readyPath.current = value;
+        setPage({
+          ...next,
+          directories: directories.sort((a, b) =>
+            basename(a).localeCompare(basename(b), "ru", { numeric: true }),
+          ),
+        });
+        setLoading(false);
+      })().catch((cause) => {
+        if (!mounted.current || id !== ticket.current || abort.signal.aborted)
+          return;
+        setLoading(false);
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    },
+    [actions, stopBrowsing],
+  );
+  useEffect(() => {
+    mounted.current = true;
+    browse(pathRef.current);
+    return () => {
+      mounted.current = false;
+      stopBrowsing();
+      actions.cancel();
+    };
+  }, [actions, browse, stopBrowsing]);
+  const edit = (value: string) => {
+    if (value === pathRef.current || opening.current) return;
+    pathRef.current = value;
+    readyPath.current = undefined;
+    actions.draftPath = value;
+    setPath(value);
+    stopBrowsing();
+    setError("");
+    setSelected(undefined);
+    const cached = actions.cached?.(value);
+    setPage(cached);
+    setLoading(true);
+    timer.current = setTimeout(() => browse(value), 120);
+  };
+  const navigate = (value: string) => {
+    if (opening.current) return;
+    pathRef.current = value;
+    actions.draftPath = value;
+    setPath(value);
+    browse(value);
+  };
+  const open = () => {
+    if (
+      opening.current ||
+      loading ||
+      !page ||
+      page.filter ||
+      readyPath.current !== path ||
+      pathRef.current !== path
+    )
+      return;
+    opening.current = true;
+    stopBrowsing();
+    setBusy(true);
+    setError("");
+    void actions
+      .open(page.path)
+      .then(() => {
+        if (mounted.current) onClose();
+      })
+      .catch((cause) => {
+        if (!mounted.current) return;
+        setError(
+          cause instanceof WorkspaceAdmissionError
+            ? cause.message.replace(
+                " Выберите рабочую папку или укажите --cwd <путь>.",
+                "",
+              )
+            : cause instanceof Error
+              ? cause.message
+              : String(cause),
+        );
+      })
+      .finally(() => {
+        opening.current = false;
+        if (mounted.current) setBusy(false);
+      });
+  };
+  const menu: MenuAction[] = [
+    {
+      id: "project-open",
+      label: "Открыть папку",
+      shortLabel: "Открыть",
+      primary: true,
+      run: open,
+      disabled: busy || loading || !page || !!page.filter,
+    },
+    ...(page?.more
+      ? [
+          {
+            id: "project-more",
+            label: "Ещё папки",
+            run: () => browse(pathRef.current, page.offset),
+            disabled: busy || loading,
+          },
+        ]
+      : []),
+    { id: "project-cancel", label: "Отмена", run: close },
+  ];
+  const navigation = useMenuNavigation(
+    ["path", "list", "actions"],
+    menu,
+    "path",
+  );
+  const move = (delta: number) => {
+    if (busy || loading) return;
+    navigation.setArea("list");
+    setSelected(
+      rows[Math.max(0, Math.min(rows.length - 1, index + delta))]?.path,
+    );
+  };
   useUiKeyboard((key) => {
     const name = key.name.toLowerCase();
     if (name === "escape" || (key.ctrl && name === "c")) {
@@ -178,164 +249,167 @@ export function OpenTuiProjects({
       close();
       return;
     }
-    if (name === "tab") {
+    if (navigation.handle(key)) return;
+    if (busy) return;
+    if (
+      navigation.area === "list" &&
+      ["up", "down", "pageup", "pagedown", "home", "end"].includes(name)
+    ) {
       key.preventDefault();
       key.stopPropagation();
-      const count = page?.more ? 5 : 4;
-      setFocus((current) => (current + (key.shift ? count - 1 : 1)) % count);
-      return;
-    }
-    if (focus === 1 && ["up", "down", "pageup", "pagedown"].includes(name)) {
-      key.preventDefault();
-      key.stopPropagation();
-      const delta =
-        name === "up"
-          ? -1
-          : name === "down"
-            ? 1
-            : name === "pageup"
-              ? -visible
-              : visible;
-      setSelected(
-        rows[Math.max(0, Math.min(rows.length - 1, index + delta))]?.path,
+      move(
+        name === "home"
+          ? -rows.length
+          : name === "end"
+            ? rows.length
+            : name === "up"
+              ? -1
+              : name === "down"
+                ? 1
+                : name === "pageup"
+                  ? -listHeight
+                  : listHeight,
       );
-      return;
-    }
-    if (name === "return" || name === "enter") {
+    } else if (name === "return" || name === "enter") {
       key.preventDefault();
       key.stopPropagation();
-      const row = rows[index];
-      if (focus === 1 && row) {
-        if (row.recent) open(row.path);
-        else browse(row.path);
-      } else if (focus === 3) browse(path);
-      else if (focus === 4 && page?.more) browse(page.path, page.offset);
-      else if (!busy) open();
+      if (key.repeated) return;
+      if (navigation.area === "list" && !loading && rows[index])
+        navigate(rows[index].path);
+      else if (navigation.area === "path") {
+        if (!page || loading) browse(pathRef.current);
+        navigation.setArea("list");
+      }
     }
   });
+  const status =
+    error ||
+    (busy
+      ? "Открытие… Esc — отмена"
+      : loading
+        ? "Чтение папок…"
+        : page?.filter
+          ? `Совпадения: ${page.directories.length}${page.more ? "+" : ""}`
+          : page?.directories.length === 0
+            ? "В этой папке нет подпапок"
+            : "");
   return (
     <OpenTuiDialog
       id="projects"
       width={width}
       height={height}
+      maxWidth={88}
+      maxHeight={24}
       palette={palette}
       onClose={close}
     >
-      <text fg={palette.text} height={1} flexShrink={0}>
-        <strong>Открыть папку</strong>
-      </text>
-      {height >= 16 && (
-        <text fg={palette.muted} height={1} flexShrink={0}>
-          {message ?? "Выберите рабочую папку для следующей задачи"}
+      <box height={roomy ? 2 : 1} flexShrink={0}>
+        <text fg={palette.text}>
+          <strong>Открыть папку</strong>
+        </text>
+      </box>
+      {message && height >= 16 && (
+        <text fg={palette.muted} height={1}>
+          {terminalLine(message, innerWidth)}
+        </text>
+      )}
+      {height >= 14 && (
+        <text
+          fg={navigation.area === "path" ? palette.accent : palette.muted}
+          height={1}
+          flexShrink={0}
+        >
+          {navigation.area === "path" ? "> Путь" : "Путь"}
         </text>
       )}
       <input
         id="project-path"
         value={path}
-        onInput={(value) => {
-          editRevision.current++;
-          actions.draftPath = value;
-          setPath(value);
-        }}
-        focused={focus === 0 && !busy}
+        onInput={edit}
+        focused={navigation.area === "path" && !busy}
         width="100%"
         flexShrink={0}
         backgroundColor={palette.raised}
+        focusedBackgroundColor={palette.raised}
         textColor={palette.text}
+        cursorColor={palette.accent}
       />
-      <text fg={palette.muted} height={1} flexShrink={0}>
-        {terminalLine(`Навигация: ${page?.path ?? actions.base}`, innerWidth)}
-      </text>
-      <box flexDirection="row" flexGrow={1} minHeight={1} width="100%">
-        <scrollbox
-          ref={list}
-          width={listWidth}
-          flexGrow={1}
-          flexShrink={1}
-          minHeight={1}
-          focused={focus === 1}
-        >
-          {rows.map((row) => (
-            // biome-ignore lint/a11y/noStaticElementInteractions: Tab/arrows select the same native list rows.
-            <box
-              key={`${row.recent}:${row.path}`}
-              id={`project-row-${row.recent ? "recent" : "directory"}-${row.path}`}
-              flexDirection="column"
-              height={rowHeight}
-              flexShrink={0}
-              onMouseUp={() => {
-                setSelected(row.path);
-                setPath(row.path);
-                setFocus(1);
-              }}
-            >
-              <text fg={selected === row.path ? palette.accent : palette.text}>
-                {terminalLine(
-                  `${selected === row.path ? "> " : "  "}${row.recent ? "Недавний: " : ""}${row.label}`,
-                  listWidth,
-                )}
-              </text>
-              {width >= 80 && height >= 24 && (
-                <text fg={palette.muted}>
-                  {terminalLine(row.path, listWidth)}
-                </text>
+      {height >= 16 && (
+        <text fg={palette.muted} height={roomy ? 2 : 1} flexShrink={0}>
+          {terminalLine(
+            page?.filter ? `Папки в ${page.path}` : "Папки",
+            innerWidth,
+          )}
+        </text>
+      )}
+      <box
+        id="project-directories"
+        flexGrow={1}
+        minHeight={1}
+        flexDirection="column"
+        onMouseScroll={(event) => {
+          move(event.scroll?.direction === "up" ? -1 : 1);
+          event.stopPropagation();
+        }}
+      >
+        {rows.slice(first, first + listHeight).map((row, position) => {
+          const active =
+            navigation.area === "list" && first + position === index;
+          return (
+            <DialogAction
+              key={row.path}
+              id={`project-row-directory-${row.path}`}
+              active={active}
+              label={terminalLine(
+                `${active ? "> " : "  "}${row.label}`,
+                innerWidth - 2,
               )}
-            </box>
-          ))}
-        </scrollbox>
-        {wide && (
-          <scrollbox
-            width={innerWidth - listWidth - 1}
-            paddingLeft={1}
-            minHeight={1}
-          >
-            <text fg={palette.accent} height={1}>
-              Полный путь
-            </text>
-            <text fg={palette.text} width="100%" flexShrink={0} selectable>
-              {focus === 1 ? (rows[index]?.path ?? path) : path}
-            </text>
-            <text fg={palette.muted} width="100%" flexShrink={0}>
-              Папка навигации станет проектом после явного открытия. Файлы и
-              инструкции при просмотре каталогов не загружаются.
-            </text>
-          </scrollbox>
+              palette={palette}
+              disabled={busy || loading}
+              onSelect={() => {
+                navigation.setArea("list");
+                setSelected(row.path);
+                navigate(row.path);
+              }}
+            />
+          );
+        })}
+        {!loading && !error && page?.filter && !page.directories.length && (
+          <text fg={palette.muted}>Папки не найдены</text>
         )}
       </box>
-      {page?.more && (
-        <DialogAction
-          label="Следующие папки"
-          palette={palette}
-          onSelect={() => browse(page.path, page.offset)}
-          active={focus === 4}
-        />
-      )}
       <text
         id="project-open-status"
         fg={error ? palette.red : palette.muted}
-        height={error ? (height >= 16 ? 3 : 2) : 1}
+        height={error && height >= 16 ? 2 : 1}
         flexShrink={0}
       >
-        {error ||
-          (busy
-            ? "Проверка и открытие… Esc — отмена"
-            : "Enter — открыть · Tab — фокус · Esc — отмена")}
+        {terminalLine(status, innerWidth * (error && height >= 16 ? 2 : 1))}
       </text>
-      <box flexDirection="row" height={1} gap={2}>
-        <DialogAction
-          id="project-open"
-          label={width < 60 ? "Открыть" : "Открыть эту папку"}
+      <box
+        border={height >= 16 ? ["top"] : []}
+        borderColor={palette.border}
+        height={height >= 16 ? 2 : 1}
+        flexShrink={0}
+      >
+        <MenuActions
+          id="project-actions"
+          actions={menu}
+          navigation={navigation}
+          width={innerWidth}
           palette={palette}
-          onSelect={() => open()}
-          active={focus === 2}
-        />
-        <DialogAction
-          label={width < 60 ? "Папки" : "Просмотр папок"}
-          palette={palette}
-          onSelect={() => browse(path)}
-          active={focus === 3}
         />
       </box>
+      {height >= 14 && (
+        <text fg={palette.muted} height={1} flexShrink={0}>
+          {terminalLine(
+            navigation.area === "actions"
+              ? "←/→ действие · Enter выбрать · Esc отмена"
+              : "Tab фокус · Enter перейти · Esc отмена",
+            innerWidth,
+          )}
+        </text>
+      )}
     </OpenTuiDialog>
   );
 }

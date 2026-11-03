@@ -144,6 +144,10 @@ export async function saveProviderSettings(
       ...latest,
       defaultProfileId: id,
       profiles: { ...latest.profiles, [id]: profile },
+      ui: {
+        ...latest.ui,
+        lastModelSelection: { provider: values.provider, profileId: id, model },
+      },
     };
   });
   return (await settingsKeyReady(registry, profile, credentials))

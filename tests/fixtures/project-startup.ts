@@ -57,7 +57,10 @@ const server = Bun.serve({
   async fetch(request) {
     if (request.url.endsWith("/models"))
       return Response.json({
-        data: [{ id: "fixture-model", context_window: 65536 }],
+        data: [
+          { id: "fixture-model", context_window: 65536 },
+          { id: "remembered-model", context_window: 65536 },
+        ],
       });
     calls.push((await request.json()) as Record<string, unknown>);
     return new Response(
@@ -87,7 +90,7 @@ await writeFile(
 const width = Number(process.env.CHISEL_STARTUP_WIDTH ?? 80),
   height = Number(process.env.CHISEL_STARTUP_HEIGHT ?? 24);
 const packaged = process.env.CHISEL_STARTUP_PACKAGED === "1";
-const ui = await createTestRenderer({ width, height, exitOnCtrlC: false });
+let ui = await createTestRenderer({ width, height, exitOnCtrlC: false });
 let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 let activations = 0;
 const wait = async (ready: () => boolean, label: string) => {
@@ -144,6 +147,21 @@ const pathInput = async (text: string) => {
     ui.mockInput.pressKey("k", { ctrl: true });
     await ui.mockInput.pasteBracketedText(text);
   });
+  await act(async () => {
+    await ui.renderOnce();
+  });
+};
+const openPath = async (text: string) => {
+  await pathInput(text);
+  await wait(
+    () => !ui.captureCharFrame().includes("Чтение папок…"),
+    "folder listing ready",
+  );
+  const button = ui.renderer.root.findDescendantById("project-open");
+  assert.ok(button);
+  await act(async () => {
+    await ui.mockMouse.click(button.x + 1, button.y);
+  });
 };
 const checkHomeLayout = () => {
   const logo = ui.renderer.root.findDescendantById("welcome-logo");
@@ -173,19 +191,11 @@ const openFromFooter = async () => {
     () => !!ui.renderer.root.findDescendantById("project-path"),
     "footer opens project picker",
   );
-  if (process.env.CHISEL_STARTUP_RECENT === "1")
-    await wait(
-      () =>
-        !!(
-          ui.renderer.root.findDescendantById(
-            `project-row-recent-${project}`,
-          ) ??
-          ui.renderer.root.findDescendantById(
-            `project-row-recent-${pathIdentity(project)}`,
-          )
-        ),
-      "recent project remains available in picker",
-    );
+  await wait(
+    () => !ui.captureCharFrame().includes("Чтение папок…"),
+    "folder listing ready",
+  );
+  assert.ok(!ui.captureCharFrame().includes("Недавний:"));
   await act(async () => ui.mockInput.pressEscape());
   await wait(
     () =>
@@ -194,10 +204,15 @@ const openFromFooter = async () => {
     "footer picker cancellation restores composer",
   );
 };
-try {
+const start = async (model?: string) => {
   await act(async () => {
     application = runOpenTuiAgent(
-      { launcher: true, configPath, externalExtensions: false },
+      {
+        launcher: true,
+        configPath,
+        externalExtensions: false,
+        ...(model ? { model } : {}),
+      },
       undefined,
       false,
       false,
@@ -224,6 +239,9 @@ try {
   );
   if (height >= 10)
     await wait(() => !!ui.renderer.currentFocusedEditor, "composer ready");
+};
+try {
+  await start();
   assert.equal(activations, 0);
   assert.equal(calls.length, 0);
   assert.equal(
@@ -278,6 +296,69 @@ try {
         "return from history",
       );
     }
+    if (!packaged) {
+      process.env.OPENAI_API_KEY = "fixture-key";
+      await type("/model");
+      await enter();
+      await wait(
+        () => !!ui.renderer.root.findDescendantById("models-search"),
+        "model picker",
+      );
+      await type("remembered-model");
+      await wait(
+        () =>
+          !!ui.renderer.root.findDescendantById("models-row-0") &&
+          ui.captureCharFrame().includes("remembered-model"),
+        "remembered model available",
+      );
+      await enter();
+      await wait(
+        () => !ui.renderer.root.findDescendantById("models-popup"),
+        "model chosen before a conversation exists",
+      );
+      const saved = JSON.parse(await readFile(configPath, "utf8"));
+      assert.equal(saved.ui.lastModelSelection.model, "remembered-model");
+      assert.equal(saved.profiles.fixture.defaultModel, "fixture-model");
+      await type("/cwd");
+      await enter();
+      await wait(
+        () => !!ui.renderer.root.findDescendantById("projects-popup"),
+        "slash folder picker",
+      );
+      await act(async () => ui.mockInput.pressEscape());
+      await wait(
+        () =>
+          !ui.renderer.root.findDescendantById("projects-popup") &&
+          !!ui.renderer.currentFocusedEditor,
+        "slash command consumed",
+      );
+      assert.equal(ui.renderer.currentFocusedEditor?.plainText, "");
+      await act(async () => {
+        process.emit("SIGTERM");
+        await application;
+      });
+      ui = await createTestRenderer({ width, height, exitOnCtrlC: false });
+      await start("fixture-model");
+      await wait(
+        () => ui.captureCharFrame().includes("fixture-model"),
+        "explicit CLI model wins",
+      );
+      await act(async () => {
+        process.emit("SIGTERM");
+        await application;
+      });
+      ui = await createTestRenderer({ width, height, exitOnCtrlC: false });
+      await start();
+      await wait(
+        () => ui.captureCharFrame().includes("remembered-model"),
+        "last explicit UI model survives restart",
+      );
+      assert.equal(
+        ui.renderer.currentFocusedEditor?.plainText,
+        "",
+        "consumed /cwd cannot return after restart",
+      );
+    }
     const draft = "Какая версия, модель и интерфейс используются?";
     await type(draft);
     await openFromFooter();
@@ -291,10 +372,6 @@ try {
     );
     if (!packaged) {
       await pathInput(directory);
-      await act(async () => {
-        for (let i = 0; i < 3; i++) ui.mockInput.pressTab();
-      });
-      await enter();
       await wait(
         () =>
           !!ui.renderer.root.findDescendantById(
@@ -302,11 +379,7 @@ try {
           ),
         "bounded directory navigation",
       );
-      await act(async () => {
-        for (let i = 0; i < 3; i++) ui.mockInput.pressTab({ shift: true });
-      });
-      await pathInput(chiselHomeDir());
-      await enter();
+      await openPath(chiselHomeDir());
       await wait(
         () => ui.captureCharFrame().includes("служебная"),
         "private path refusal",
@@ -316,8 +389,7 @@ try {
       await capture("private-refusal");
     }
     process.env.OPENAI_API_KEY = "fixture-key";
-    await pathInput(project);
-    await enter();
+    await openPath(project);
     await wait(
       () =>
         !ui.renderer.root.findDescendantById("projects-popup") &&
@@ -347,7 +419,9 @@ try {
     assert.equal(calls.length, 1);
     const payload = JSON.stringify(calls[0]);
     assert.ok(payload.includes(VERSION));
-    assert.ok(payload.includes("fixture-model"));
+    assert.ok(
+      payload.includes(packaged ? "fixture-model" : "remembered-model"),
+    );
     assert.ok(payload.includes("runtime_identity"));
     assert.ok(payload.includes("ui_snapshot"));
     assert.ok(payload.includes("opentui"));

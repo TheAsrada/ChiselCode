@@ -69,7 +69,10 @@ import {
   WorkspaceAdmissionError,
 } from "../projects/admission.js";
 import { resolveLaunchWorkspace } from "../projects/launch.js";
-import { directoryPage, navigationDirectory } from "../projects/navigation.js";
+import {
+  DirectoryBrowser,
+  navigationDirectory,
+} from "../projects/navigation.js";
 import {
   ProjectOpeningCancelledError,
   ProjectOpenService,
@@ -96,10 +99,7 @@ import {
   type HistoryEntry,
   SessionHistoryCatalog,
 } from "../sessions/history.js";
-import {
-  projectSessionStore,
-  SessionProjectRegistry,
-} from "../sessions/project-store.js";
+import { projectSessionStore } from "../sessions/project-store.js";
 import { createSession } from "../sessions/store.js";
 import {
   buildActiveSkillsPrompt,
@@ -123,6 +123,10 @@ import {
 } from "./chat-presentation.js";
 import { suggestSimilarCommand } from "./commands.js";
 import type { InteractiveExitReason } from "./interactive-exit.js";
+import {
+  rememberedModelOptions,
+  rememberModelSelection,
+} from "./model-preference.js";
 import type { OpenTuiModelsActions } from "./opentui-models.js";
 import type { OpenTuiProjectsActions } from "./opentui-projects.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
@@ -298,7 +302,8 @@ async function runApplication(
   }
   const modelService = new ModelRequestService();
   let sideOperations = 0;
-  const homeModel = settingsDraft(config, catalog.registry, activeOptions);
+  const startupSelection = rememberedModelOptions(config, activeOptions);
+  const homeModel = settingsDraft(config, catalog.registry, startupSelection);
   workspace.home.setActiveModel(
     homeModel.provider,
     homeModel.model,
@@ -326,7 +331,7 @@ async function runApplication(
               ? initialSession.model
               : undefined),
         }
-      : activeOptions,
+      : startupSelection,
   );
   workspace.controller.setActiveModel(
     initialModel.provider,
@@ -469,32 +474,26 @@ async function runApplication(
   if (initialRoot) void commandActions.load(initialRoot);
   const navigationBase = await navigationDirectory();
   const appPaths = await applicationPaths(options.configPath);
-  const recentProjects = async () =>
-    (await new SessionProjectRegistry().list())
-      .filter(
-        (item) =>
-          !isPrivatePath(appPaths, item.canonicalPath) ||
-          managedWorkspaceCandidate(appPaths.home, item.canonicalPath),
-      )
-      .sort((a, b) => b.lastOpenedAt.localeCompare(a.lastOpenedAt));
   const getProjectActions = (): OpenTuiProjectsActions => {
     const owner = currentController(),
       generation = owner.currentGeneration;
+    const base = owner.snapshot.projectPath ?? navigationBase;
+    const browser = new DirectoryBrowser(base);
     return {
-      base: owner.snapshot.projectPath ?? navigationBase,
-      recent: recentProjects,
+      base,
+      cached: (path) => browser.cached(path),
       browse: (path, signal, offset) => {
         const bounded = AbortSignal.any([
           signal,
           abort.signal,
           AbortSignal.timeout(10_000),
         ]);
-        return abortable(
-          () => directoryPage(path, navigationBase, bounded, offset),
-          bounded,
-        );
+        return abortable(() => browser.browse(path, bounded, offset), bounded);
       },
-      cancel: () => projectOpener.cancel(),
+      cancel: () => {
+        browser.dispose();
+        projectOpener.cancel();
+      },
       open: async (path) => {
         const ref = await projectOpener.open(
           path,
@@ -1273,6 +1272,14 @@ async function runApplication(
           pendingSave = saved.catch(() => {});
           await saved;
         }
+        await rememberModelSelection(
+          { ...selection, profileId },
+          options.configPath,
+          () => {
+            if (abort.signal.aborted || !controller.isCurrent(generation))
+              throw new Error("Эта сессия уже закрыта.");
+          },
+        );
         if (abort.signal.aborted || !controller.isCurrent(generation)) return;
         controller.setActiveModel(
           selection.provider,
@@ -1280,6 +1287,7 @@ async function runApplication(
           profileId,
           selection.baseUrl,
         );
+        defaultModel = selection.model;
         warmModelCapabilities(controller);
       },
     };

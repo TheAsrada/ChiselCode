@@ -26,6 +26,7 @@ const names = [
   "mcp-sdk-client",
   "mcp-security",
   "model-summary-protocol",
+  "model-preference",
   "motion",
   "network-environment",
   "network-retry",
