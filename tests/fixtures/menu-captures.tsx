@@ -115,7 +115,7 @@ for (const [width, height] of [
             }),
             load: async () => ({ values: current, hasKey: true }),
             hasKey: async () => true,
-            save: async () => "Сохранено",
+            save: async () => "saved",
             check: async () => "Подключение работает",
             models: async () => ({ ok: true, models: [{ id: "gpt-5" }] }),
           }}
