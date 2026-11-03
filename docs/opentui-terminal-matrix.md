@@ -29,3 +29,5 @@ Run the matching compiled artifact in macOS Terminal, iTerm2, a Linux terminal a
 | SSH terminal | pending | pending | pending | pending | pending |
 
 Record terminal version, OS, artifact SHA, size, outcome and any corrupted frame or leftover terminal mode in the relevant issue or change description. Record defects for the single OpenTUI renderer and fix blocking physical-terminal issues before release.
+
+Для навигации меню дополнительно пройдите модели, навыки, Settings, историю, рабочие копии и фон через Tab, стрелки, Enter/Space и Esc на 120×40, 80×24, 60×15 и 32×10. Проверьте возврат черновика, русские буквы, цифры/скобки, вставку, disabled-действия и resize с фокусом на кнопке. Native renderer tests не подтверждают работу конкретного физического терминала. [Результаты и кадры](contributors/reports/menu-keybindings.md).

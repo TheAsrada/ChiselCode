@@ -18,6 +18,7 @@ import * as projects from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
 import { stripActiveSkillsBlock } from "../../src/skills/skills.js";
 import type { Session } from "../../src/types/domain.js";
+import { menuAction, modelProfiles, uiKey } from "./menu-navigation.js";
 
 // This fixture runs in a child process so module mocks cannot affect other tests.
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -197,7 +198,7 @@ async function chooseModel(id: string, profileId?: string) {
     () => !!setup.renderer.root.findDescendantById("models-search"),
   );
   if (profileId) {
-    await act(async () => setup.mockInput.pressTab());
+    await modelProfiles(setup);
     await frame();
     await act(async () => {
       await setup.mockInput.pasteBracketedText(profileId);
@@ -205,7 +206,7 @@ async function chooseModel(id: string, profileId?: string) {
     });
     await frame();
   }
-  await act(async () => setup.mockInput.pressKey("n", { ctrl: true }));
+  await menuAction(setup, "models-actions", "models-manual-action");
   await frame();
   await act(async () => {
     setup.mockInput.pressKey("a", { ctrl: true });
@@ -235,13 +236,10 @@ try {
   });
   await frame();
   expect(setup.captureCharFrame()).toContain("/code-review");
-  await act(async () => {
-    setup.mockInput.pressTab();
-  });
-  await frame();
-  await act(async () => {
-    setup.mockInput.pressEnter();
-  });
+  await uiKey(setup, "TAB", true);
+  await uiKey(setup, "ARROW_RIGHT");
+  await uiKey(setup, "TAB");
+  await uiKey(setup, "RETURN");
   await frame();
   await act(async () => {
     setup.mockInput.pressEscape();

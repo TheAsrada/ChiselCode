@@ -8,6 +8,7 @@ import {
   availableApprovalModes,
 } from "../security/approval-mode.js";
 import type { Palette } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
@@ -46,12 +47,21 @@ export function OpenTuiPermissions({
     const next = modes[index];
     if (next) onSelect(next);
   };
+  const menuActions = [
+    { id: "permissions-settings", label: "Настройки", run: onSettings },
+  ];
+  const navigation = useMenuNavigation(
+    ["list", "actions"],
+    menuActions,
+    "list",
+  );
   useUiKeyboard((key) => {
+    if (navigation.handle(key)) return;
     if (key.ctrl && key.name === "c") return;
     if (key.name === "escape") {
       key.preventDefault();
       onClose();
-    } else if (key.name === "up" || key.name === "down" || key.name === "f4") {
+    } else if (key.name === "up" || key.name === "down") {
       key.preventDefault();
       selectedRef.current =
         (selectedRef.current + (key.name === "up" ? -1 : 1) + modes.length) %
@@ -60,9 +70,6 @@ export function OpenTuiPermissions({
     } else if (key.name === "return") {
       key.preventDefault();
       choose(selectedRef.current);
-    } else if (key.name === "tab") {
-      key.preventDefault();
-      onSettings();
     }
   });
   return (
@@ -161,11 +168,12 @@ export function OpenTuiPermissions({
             ? "Up/Down выбрать | Enter применить"
             : "Up/Down | Enter | Esc"}
         </text>
-        <DialogAction
-          id="permissions-settings"
-          label="Tab Settings"
+        <MenuActions
+          id="permissions-actions"
+          actions={menuActions}
+          navigation={navigation}
+          width={innerWidth}
           palette={palette}
-          onSelect={onSettings}
         />
       </box>
     </OpenTuiDialog>

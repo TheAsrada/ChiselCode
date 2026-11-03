@@ -12,6 +12,7 @@ import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import type { ModelListResult } from "../../src/ui/settings-values.js";
 import { createTuiApprovalResolver } from "../../src/ui/tui-contract.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
+import { menuAction, modelProfiles } from "../fixtures/menu-navigation.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
 const current: ModelSelection = {
@@ -125,12 +126,12 @@ for (const [width, height] of [
       expect(setup.captureCharFrame()).toContain("Выбор модели");
       expect(setup.captureCharFrame()).toContain("+ model-current");
       expect(setup.captureCharFrame()).not.toMatch(/[⚙↻⚠↵\ufffd]/u);
-      if (width === 40) expect(setup.captureCharFrame()).toContain("API");
+      if (width === 40) expect(setup.captureCharFrame()).toContain("Действия:");
       for (const id of [
         "models-search",
         "models-row-0",
         "models-select",
-        "models-settings",
+        "models-actions",
       ]) {
         const node = setup.renderer.root.findDescendantById(id);
         expect(node).toBeTruthy();
@@ -153,7 +154,7 @@ test("profile switch is a draft until a model is chosen and isolates same-provid
   const { actions, selected } = api();
   const setup = await picker(actions);
   try {
-    await key(setup, "TAB");
+    await modelProfiles(setup);
     await paste(setup, "личный");
     await key(setup, "RETURN");
     expect(selected).toEqual([]);
@@ -249,7 +250,7 @@ test("slow or failed catalog leaves manual ID usable and ignores late responses 
   let closed = 0;
   try {
     await paste(setup, "custom/new-model");
-    await key(setup, "n", true);
+    await menuAction(setup, "models-actions", "models-manual-action");
     expect(
       (
         setup.renderer.root.findDescendantById(
@@ -287,7 +288,7 @@ test("late catalog preserves highlight and stale profile responses cannot replac
   });
   const setup = await picker(actions);
   try {
-    await key(setup, "TAB");
+    await modelProfiles(setup);
     await key(setup, "ARROW_DOWN");
     await key(setup, "RETURN");
     await act(async () => {
@@ -324,12 +325,13 @@ test("refresh preserves selection by ID when a catalog arrives in a different or
   const setup = await picker(actions);
   try {
     await key(setup, "ARROW_DOWN");
-    await key(setup, "r", true);
+    await menuAction(setup, "models-actions", "models-refresh");
     await act(async () => {
       resolve({ ok: true, models: [{ id: "b" }, { id: "0" }, { id: "a" }] });
     });
     await frame(setup);
     await key(setup, "RETURN");
+    await menuAction(setup, "models-actions", "models-select");
     expect(selected[0]?.model).toBe("a");
   } finally {
     destroy(setup);

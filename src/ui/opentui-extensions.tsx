@@ -810,7 +810,7 @@ export function OpenTuiExtensions({
       key.ctrl ||
       key.meta ||
       key.option ||
-      ["escape", "tab", "f2"].includes(key.name)
+      ["escape", "tab"].includes(key.name)
     )
       return;
     const name = key.name.toLowerCase();

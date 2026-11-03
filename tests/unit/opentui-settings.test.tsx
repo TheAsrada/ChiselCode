@@ -14,6 +14,11 @@ import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import type { TuiSettingsValues } from "../../src/ui/settings.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+import {
+  focusMenuAction,
+  menuAction,
+  uiKey,
+} from "../fixtures/menu-navigation.js";
 
 test("graphics are always enabled and settings preserve the composer across tab changes", async () => {
   const workspace = new TuiWorkspace(process.cwd());
@@ -411,7 +416,7 @@ test("connection errors redact the entered key and preserve the editable draft",
     await key(setup, "ENTER");
     await paste(setup, " sk-private-key ");
     await key(setup, "ENTER");
-    await key(setup, "r", true);
+    await menuAction(setup, "settings-actions", "settings-check");
     expect(setup.captureCharFrame()).toContain("[ключ скрыт]");
     expect(setup.captureCharFrame()).not.toContain("sk-private-key");
     await key(setup, "s", true);
@@ -434,7 +439,7 @@ test("Escape cancels a slow connection check and ignores its late result", async
     closed++;
   });
   try {
-    await key(setup, "r", true);
+    await menuAction(setup, "settings-actions", "settings-check");
     expect(setup.captureCharFrame()).toContain("Проверяем");
     await key(setup, "ESCAPE");
     expect(closed).toBe(1);
@@ -546,7 +551,9 @@ for (const [width, height] of [
       expect(popup.x + popup.width).toBeLessThanOrEqual(width);
       expect(popup.y + popup.height).toBeLessThanOrEqual(height);
       if (width < 100 || height < 26) await key(setup, "ENTER");
+      await focusMenuAction(setup, "settings-actions", "settings-save");
       expect(setup.captureCharFrame()).toContain("Сохранить");
+      await uiKey(setup, "TAB", true);
       await key(setup, "DOWN");
       await key(setup, "ENTER");
       await paste(setup, "sonnet");

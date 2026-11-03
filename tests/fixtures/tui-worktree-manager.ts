@@ -15,6 +15,7 @@ import { execa } from "execa";
 import { act } from "react";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { menuAction } from "./menu-navigation.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const directory = await mkdtemp(join(tmpdir(), "chisel-worktree-manager-"));
@@ -370,7 +371,7 @@ try {
   await click(tab.id);
   await key("ESCAPE");
   await idle();
-  await key("r");
+  await menuAction(t, "worktree-actions", "worktree-refresh-action");
   await idle();
   const clean = await create("Чистая проверка");
   await click("worktree-action-2");

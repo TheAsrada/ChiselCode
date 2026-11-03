@@ -21,6 +21,7 @@ import {
 } from "../mcp/schema.js";
 import { mcpTrustPreview } from "../mcp/trust-preview.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction } from "./opentui-dialog.js";
 import {
   cleanSettingsInput,
@@ -774,10 +775,86 @@ export function OpenTuiMcp({
         });
       });
   };
+  const menuActions = [
+    ...(busy
+      ? [
+          {
+            id: "mcp-stop-check",
+            label: "Остановить проверку",
+            run: () => lifetime.current.abort?.abort(),
+          },
+        ]
+      : []),
+    { id: "mcp-back", label: "Назад", run: back },
+    ...(screen === "servers"
+      ? [
+          {
+            id: "mcp-add",
+            label: "Добавить MCP",
+            run: () => go("add"),
+            disabled: !!busy,
+          },
+        ]
+      : []),
+    ...(screen === "form"
+      ? [
+          {
+            id: "mcp-test",
+            label: "Проверить подключение",
+            run: test,
+            disabled: !!busy,
+          },
+        ]
+      : []),
+    ...(screen === "trust" && entry
+      ? [
+          {
+            id: "mcp-trust",
+            label: "Доверить и запустить",
+            run: trust,
+            disabled: !!busy,
+          },
+        ]
+      : []),
+    ...(screen === "permissions" || (screen === "preview" && testedDraft)
+      ? [
+          {
+            id: screen === "permissions" ? "mcp-save-permissions" : "mcp-save",
+            label: "Сохранить",
+            run: save,
+            disabled:
+              !!busy ||
+              (screen === "preview" &&
+                !["connected", "authentication_required"].includes(
+                  preview?.server.state ?? "",
+                )),
+          },
+        ]
+      : []),
+    ...(screen === "remove"
+      ? [{ id: "mcp-remove", label: "Удалить", run: remove, disabled: !!busy }]
+      : []),
+    ...(screen === "tool" && entry
+      ? [
+          {
+            id: "mcp-tool-permission",
+            label: "Изменить правило",
+            run: changeToolPermission,
+            disabled: !!busy,
+          },
+        ]
+      : []),
+  ];
+  const navigation = useMenuNavigation(
+    ["content", "actions"],
+    menuActions,
+    "content",
+  );
   useUiKeyboard((key) => {
     if (!active || !focused) return;
-    if (embedded && ["escape", "tab", "f2"].includes(key.name)) return;
+    if (embedded && ["escape", "tab"].includes(key.name)) return;
     if (embedded && key.ctrl && ["f", "s"].includes(key.name)) return;
+    if (navigation.handle(key)) return;
     if (key.ctrl && key.name === "c") {
       lifetime.current.abort?.abort();
       return;
@@ -797,11 +874,6 @@ export function OpenTuiMcp({
       save();
       return;
     }
-    if (!busy && key.ctrl && key.name === "r" && screen === "form") {
-      key.preventDefault();
-      test();
-      return;
-    }
     if (
       busy ||
       screen === "edit" ||
@@ -811,14 +883,21 @@ export function OpenTuiMcp({
       key.option
     )
       return;
-    if (key.name === "up" || key.name === "down") {
+    if (["up", "down", "home", "end"].includes(key.name)) {
       key.preventDefault();
       select(
         Math.max(
           0,
           Math.min(
             rows.length - 1,
-            selectedRef.current + (key.name === "up" ? -1 : 1),
+            selectedRef.current +
+              (key.name === "home"
+                ? -rows.length
+                : key.name === "end"
+                  ? rows.length
+                  : key.name === "up"
+                    ? -1
+                    : 1),
           ),
         ),
       );
@@ -836,8 +915,9 @@ export function OpenTuiMcp({
         ),
       );
     }
-    if (key.name === "return") {
+    if (["return", "space"].includes(key.name)) {
       key.preventDefault();
+      if (key.repeated) return;
       if (screen === "trust") trust();
       else if (screen === "remove") remove();
       else if (screen === "tool") changeToolPermission();
@@ -914,10 +994,13 @@ export function OpenTuiMcp({
         else if (screen === "credentials") authenticate();
         else if (["form", "env", "edit"].includes(screen))
           setNotice(
-            "Сначала проверьте подключение (Ctrl+R), затем сохраните результат проверки.",
+            "Выберите «Проверить подключение», затем сохраните результат проверки.",
           );
       },
       back: backStep,
+      tab(reverse) {
+        return navigation.tab(reverse, false);
+      },
       discard() {
         lifetime.current.abort?.abort();
         setToken("");
@@ -1078,7 +1161,7 @@ export function OpenTuiMcp({
               ) : (
                 <input
                   id="mcp-input"
-                  focused={active && focused}
+                  focused={active && focused && navigation.area === "content"}
                   value={editing}
                   onInput={(value) => setEditing(cleanSettingsInput(value))}
                   onSubmit={confirmEdit}
@@ -1096,7 +1179,7 @@ export function OpenTuiMcp({
           <TerminalScrollbox
             flexGrow={1}
             minHeight={0}
-            focused={active && focused}
+            focused={active && focused && navigation.area === "content"}
           >
             <text fg={palette.text}>
               {terminalSafeText(mcpTrustPreview(entry), 1_200_000)}
@@ -1106,7 +1189,7 @@ export function OpenTuiMcp({
           <TerminalScrollbox
             flexGrow={1}
             minHeight={0}
-            focused={active && focused}
+            focused={active && focused && navigation.area === "content"}
           >
             {reports.flatMap((report) => [
               <text key={report.id} fg={palette.accent}>
@@ -1126,7 +1209,7 @@ export function OpenTuiMcp({
           <TerminalScrollbox
             flexGrow={1}
             minHeight={0}
-            focused={active && focused}
+            focused={active && focused && navigation.area === "content"}
           >
             <text fg={palette.text}>
               {safe(
@@ -1147,7 +1230,7 @@ export function OpenTuiMcp({
           <TerminalScrollbox
             flexGrow={1}
             minHeight={0}
-            focused={active && focused}
+            focused={active && focused && navigation.area === "content"}
           >
             <text fg={palette.accent}>{tool.tool.title ?? tool.tool.name}</text>
             <text fg={palette.muted}>
@@ -1259,90 +1342,17 @@ export function OpenTuiMcp({
           {terminalSafeText(busy || notice, 1200)}
         </text>
       )}
-      <box
-        flexDirection="row"
-        gap={1}
-        height={1}
-        flexShrink={0}
-        marginTop={roomy ? 1 : 0}
-      >
-        {screen === "servers" && (
-          <DialogAction
-            id="mcp-add"
-            label="+ Добавить MCP"
-            palette={palette}
-            primary
-            onSelect={() => go("add")}
-            disabled={!!busy}
-          />
-        )}
-        {screen !== "servers" && (
-          <DialogAction label="< Назад" palette={palette} onSelect={back} />
-        )}
-        {screen === "form" && (
-          <DialogAction
-            id="mcp-test"
-            label="Проверить"
-            palette={palette}
-            primary
-            onSelect={test}
-            disabled={!!busy}
-          />
-        )}
-        {screen === "trust" && entry && (
-          <DialogAction
-            id="mcp-trust"
-            label={innerWidth < 48 ? "Доверить" : "Доверить и запустить"}
-            palette={palette}
-            primary
-            onSelect={trust}
-            disabled={!!busy}
-          />
-        )}
-        {screen === "permissions" && (
-          <DialogAction
-            id="mcp-save-permissions"
-            label="Сохранить"
-            palette={palette}
-            primary
-            onSelect={save}
-            disabled={!!busy}
-          />
-        )}
-        {screen === "preview" && testedDraft && (
-          <DialogAction
-            id="mcp-save"
-            label="Сохранить"
-            palette={palette}
-            primary
-            onSelect={save}
-            disabled={
-              !!busy ||
-              !["connected", "authentication_required"].includes(
-                preview?.server.state ?? "",
-              )
-            }
-          />
-        )}
-        {screen === "remove" && (
-          <DialogAction
-            label="Удалить"
-            palette={palette}
-            primary
-            onSelect={remove}
-            disabled={!!busy}
-          />
-        )}
-        {screen === "tool" && entry && (
-          <DialogAction
-            id="mcp-tool-permission"
-            label={`Правило: ${entry.permissions.tools[toolName] ? decisionLabels[entry.permissions.tools[toolName]] : "Наследовать"}`}
-            palette={palette}
-            onSelect={changeToolPermission}
-            disabled={!!busy}
-          />
-        )}
-      </box>
+      <MenuActions
+        id="mcp-actions"
+        actions={menuActions}
+        navigation={{
+          ...navigation,
+          area: active && focused ? navigation.area : "inactive",
+        }}
+        width={innerWidth}
+        palette={palette}
+        compact={tiny}
+      />
       {!tiny && (
         <text fg={palette.muted} height={1}>
           {terminalLine(
@@ -1351,7 +1361,7 @@ export function OpenTuiMcp({
               : screen === "permissions" || screen === "preview"
                 ? "Enter выбор / правило · Ctrl+S сохранить"
                 : screen === "form"
-                  ? "Ctrl+R проверить · Esc назад"
+                  ? "↑↓ выбор · Enter · Esc назад"
                   : screen === "trust"
                     ? "Enter доверить и запустить · Esc отменить"
                     : screen === "remove"

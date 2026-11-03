@@ -11,6 +11,7 @@ import {
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { skillCommandDraft, skillEditDraft } from "../../src/ui/skill-draft.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+import { menuAction, uiKey } from "../fixtures/menu-navigation.js";
 
 const review: Skill = {
   name: "code-review",
@@ -171,7 +172,9 @@ test("pinning is an explicit separate tab and Enter there does not choose a one-
   );
   try {
     await frame(setup);
-    await press(setup, "TAB");
+    await uiKey(setup, "TAB", true);
+    await uiKey(setup, "ARROW_RIGHT");
+    await uiKey(setup, "TAB");
     expect(setup.captureCharFrame()).toContain("Для постоянных правил");
     await press(setup, "RETURN");
     expect(active.has("code-review")).toBe(true);
@@ -233,7 +236,7 @@ test("agent-only skills can be inspected but cannot be invoked manually", async 
     await press(setup, "RETURN");
     expect(chosen).toBe(0);
     expect(active.size).toBe(0);
-    await press(setup, "o", { ctrl: true });
+    await menuAction(setup, "skills-actions", "skills-instructions-action");
     expect(setup.captureCharFrame()).toContain(
       "Проверьте изменения внимательно",
     );
@@ -264,7 +267,7 @@ test("creation and editing prepare creator prompts without executing them", asyn
   try {
     await frame(setup);
     await open(setup);
-    await press(setup, "e", { ctrl: true });
+    await menuAction(setup, "skills-actions", "skills-edit");
     const draft = setup.renderer.currentFocusedEditor?.plainText ?? "";
     expect(draft).toContain("/skill-creator");
     expect(draft).toContain(original);
@@ -273,7 +276,7 @@ test("creation and editing prepare creator prompts without executing them", asyn
       setup.renderer.currentFocusedEditor?.setText("");
     });
     await open(setup);
-    await press(setup, "n", { ctrl: true });
+    await menuAction(setup, "skills-actions", "skills-create");
     expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
       "/skill-creator ",
     );
@@ -428,8 +431,10 @@ for (const [width, height] of [
     try {
       await frame(setup);
       await open(setup);
-      expect(setup.captureCharFrame()).toContain("Применить к задаче");
-      expect(setup.captureCharFrame()).toContain("Up/Down выбрать");
+      expect(setup.captureCharFrame()).toContain(
+        width < 80 ? "Действия:" : "Применить к задаче",
+      );
+      expect(setup.captureCharFrame()).toContain("Tab области");
       await act(async () => {
         await setup.mockInput.typeText("skill-creator");
         setup.resize(100, 30);

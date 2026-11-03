@@ -16,6 +16,7 @@ import { act } from "react";
 import { storageLockDiagnostics } from "../../src/sessions/lock.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { menuAction, sidebarTab, uiKey } from "./menu-navigation.js";
 
 const directory = await realpath(
   await mkdtemp(join(tmpdir(), "chisel-subagents-")),
@@ -452,7 +453,7 @@ try {
     "Не виден partial ответ",
   );
   await capture("ordinary-tui-120x40-readonly-partial");
-  await key("s");
+  await menuAction(ui, "agent-detail-actions", "agent-action-stop");
   await until(async () => {
     parent = await store.load(parent.id);
     const reader = Object.values(parent.children ?? {}).find(
@@ -497,10 +498,10 @@ try {
   assert.ok(!ui.captureCharFrame().includes("[extension] builtin.subagents"));
   await capture("ordinary-tui-120x40-chat-cards");
   // The installed and compiled application must route sidebar actions through its real dialogs.
-  await key("1");
+  await sidebarTab(ui, "menu");
   await key("END");
-  await key("2");
-  await key("1");
+  await sidebarTab(ui, "context");
+  await sidebarTab(ui, "menu");
   await frame();
   const lastMenuItem = ui.renderer.root.findDescendantById("sidebar-menu-mcp");
   const menu = ui.renderer.root.findDescendantById("sidebar-menu");
@@ -550,9 +551,9 @@ try {
     "Меню не открыло настройки",
   );
   await key("ESCAPE");
-  await key("2");
+  await sidebarTab(ui, "context");
   await capture("ordinary-tui-120x40-context");
-  await key("3");
+  await sidebarTab(ui, "agents");
   assert.ok(ui.captureCharFrame().includes("Первая задача"));
   await key("RETURN");
   await until(
@@ -560,7 +561,9 @@ try {
     "Не открылась история помощника",
   );
   await capture("ordinary-tui-120x40-details");
+  await uiKey(ui, "TAB", true);
   await key("ARROW_RIGHT");
+  await uiKey(ui, "TAB");
   await until(
     () => !ui.captureCharFrame().includes("Загрузка сохранённой"),
     "Diff не загружен",

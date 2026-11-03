@@ -264,6 +264,7 @@ export function searchSettings(
       !terms.length ||
       matches([
         section.id,
+        section.group,
         section.title,
         section.description,
         ...section.keywords,

@@ -307,72 +307,90 @@ export function OpenTuiWorktrees({
       }
     });
   };
-  const operations = selected
-    ? [
-        ...(selected.kind === "origin"
-          ? [
-              {
-                label: "Открыть основной проект",
+  const operations: { id?: string; label: string; run(): void }[] = [
+    ...(selected
+      ? [
+          ...(selected.kind === "origin"
+            ? [
+                {
+                  label: "Открыть основной проект",
+                  run: () =>
+                    void perform(async () => {
+                      await execute("origin");
+                      if (mounted.current) onClose();
+                    }),
+                },
+              ]
+            : worktreeOwned(selected) &&
+                selected.id &&
+                selected.state === "ready" &&
+                !selected.readOnly
+              ? [
+                  {
+                    label: "Открыть копию",
+                    run: () =>
+                      void perform(async () => {
+                        await execute("open", { id: selected.id as string });
+                        if (mounted.current) onClose();
+                      }),
+                  },
+                  { label: "Посмотреть изменения", run: showDiff },
+                  {
+                    label: "Удалить копию…",
+                    run: () => {
+                      if (mutationBlock || removeBlock)
+                        setNotice(mutationBlock ?? removeBlock ?? "");
+                      else {
+                        setPage("remove");
+                        setActionIndex(0);
+                      }
+                    },
+                  },
+                ]
+              : []),
+          {
+            label: "Вкладки этой папки",
+            run: () => {
+              setPage("tabs");
+              setActionIndex(0);
+            },
+          },
+          {
+            label: "Полный путь и сведения",
+            run: () => {
+              setPage("info");
+              setFullPath(true);
+            },
+          },
+          worktreeOwned(selected)
+            ? {
+                label: "Вернуться в основной проект",
                 run: () =>
                   void perform(async () => {
                     await execute("origin");
                     if (mounted.current) onClose();
                   }),
-              },
-            ]
-          : worktreeOwned(selected) &&
-              selected.id &&
-              selected.state === "ready" &&
-              !selected.readOnly
-            ? [
-                {
-                  label: "Открыть копию",
-                  run: () =>
-                    void perform(async () => {
-                      await execute("open", { id: selected.id as string });
-                      if (mounted.current) onClose();
-                    }),
-                },
-                { label: "Посмотреть изменения", run: showDiff },
-                {
-                  label: "Удалить копию…",
-                  run: () => {
-                    if (mutationBlock || removeBlock)
-                      setNotice(mutationBlock ?? removeBlock ?? "");
-                    else {
-                      setPage("remove");
-                      setActionIndex(0);
-                    }
-                  },
-                },
-              ]
-            : []),
-        {
-          label: "Вкладки этой папки",
-          run: () => {
-            setPage("tabs");
-            setActionIndex(0);
-          },
-        },
-        {
-          label: "Полный путь и сведения",
-          run: () => {
-            setPage("info");
-            setFullPath(true);
-          },
-        },
-        worktreeOwned(selected)
-          ? {
-              label: "Вернуться в основной проект",
-              run: () =>
-                void perform(async () => {
-                  await execute("origin");
-                  if (mounted.current) onClose();
-                }),
-            }
-          : { label: "Скопировать путь", run: copyPath },
-      ]
-    : [];
+              }
+            : { label: "Скопировать путь", run: copyPath },
+        ]
+      : []),
+    {
+      id: "worktree-create-action",
+      label: "Создать копию",
+      run: () => {
+        if (mutationBlock) setNotice(mutationBlock);
+        else {
+          setPage("create");
+          setFocus("label");
+        }
+      },
+    },
+    {
+      id: "worktree-refresh-action",
+      label: "Обновить список",
+      run: () => void perform(readList),
+    },
+  ];
   const toggleFile = () => {
     const path = diffs[fileIndex]?.path;
     if (!path) return;
@@ -384,7 +402,7 @@ export function OpenTuiWorktrees({
     });
   };
   const confirm = () => {
-    if (tiny || busy || !active) return;
+    if (busy || !active) return;
     if (page === "create" && !mutationBlock && name.trim()) {
       setPage("create-review");
       setFocus("actions");
@@ -503,7 +521,11 @@ export function OpenTuiWorktrees({
       }
       return;
     }
-    if (page === "detail" || (page === "list" && focus === "actions"))
+    if (
+      page === "detail" ||
+      page === "diagnostic" ||
+      (page === "list" && focus === "actions")
+    )
       operations[actionIndex]?.run();
   };
   useUiKeyboard((key) => {
@@ -544,33 +566,23 @@ export function OpenTuiWorktrees({
             ] ?? "label"
           );
         });
-      else if (page === "list" || page === "diff")
+      else if (page === "list") {
+        const areas = ["search", "list", "actions"] as const;
+        const at = areas.indexOf(focus as (typeof areas)[number]);
+        setFocus(
+          areas[(at + (key.shift ? -1 : 1) + areas.length) % areas.length] ??
+            "list",
+        );
+      } else if (page === "diff")
         setFocus(focus === "list" ? "actions" : "list");
       return;
     }
     if (busy || focus === "search" || focus === "label" || focus === "ref")
       return;
-    if (key.name === "n" && page === "list") {
-      key.preventDefault();
-      key.stopPropagation();
-      if (mutationBlock) setNotice(mutationBlock);
-      else {
-        setPage("create");
-        setFocus("label");
-      }
-      return;
-    }
     if (key.name === "/" && page === "list") {
       key.preventDefault();
       key.stopPropagation();
       setFocus("search");
-      return;
-    }
-    if (key.name === "r") {
-      key.preventDefault();
-      key.stopPropagation();
-      if (page === "diff") showDiff();
-      else void perform(readList);
       return;
     }
     if (["pageup", "pagedown"].includes(key.name)) {
@@ -581,10 +593,18 @@ export function OpenTuiWorktrees({
       );
       return;
     }
-    if (["up", "down", "home", "end"].includes(key.name)) {
+    if (
+      [
+        "up",
+        "down",
+        "home",
+        "end",
+        ...(focus === "actions" ? ["left", "right"] : []),
+      ].includes(key.name)
+    ) {
       key.preventDefault();
       key.stopPropagation();
-      const delta = key.name === "up" ? -1 : 1;
+      const delta = ["up", "left"].includes(key.name) ? -1 : 1;
       if (page === "list" && focus === "list") {
         const current = filtered.findIndex(
           (item) => worktreeKey(item) === selection,
@@ -705,13 +725,13 @@ export function OpenTuiWorktrees({
             <text fg={p.yellow}>{terminalSafeText(removeBlock)}</text>
           )}
         </scrollbox>
-        <box flexDirection="column" flexShrink={0}>
+        <box id="worktree-actions" flexDirection="column" flexShrink={0}>
           {operations.map((operation, index) =>
             button(
               operation.label,
               operation.run,
               index,
-              `worktree-action-${index}`,
+              operation.id ?? `worktree-action-${index}`,
             ),
           )}
         </box>
@@ -742,18 +762,68 @@ export function OpenTuiWorktrees({
       </text>
       <text height={1} flexShrink={0} fg={p.muted}>
         {terminalLine(
-          `${busy ? "Выполняется…" : stale ? "Данные устарели · R обновить" : actions.mode === "plan" ? "Plan · просмотр" : "Build"} · ${actions.root}`,
+          `${busy ? "Выполняется…" : stale ? "Данные устарели · обновите список" : actions.mode === "plan" ? "Plan · просмотр" : "Build"} · ${actions.root}`,
           inner,
         )}
       </text>
       {tiny ? (
-        <box flexGrow={1} flexDirection="column">
-          <text height={1} fg={p.text}>
-            Мало места.
-          </text>
-          <text height={1} fg={p.muted}>
-            Увеличьте окно.
-          </text>
+        <box flexGrow={1} minHeight={1} flexDirection="column">
+          {focus === "search" && page === "list" ? (
+            <input
+              id="worktree-search"
+              focused={active}
+              value={query}
+              onInput={chooseQuery}
+              placeholder="Поиск…"
+            />
+          ) : page === "create" && ["label", "ref"].includes(focus) ? (
+            <input
+              id={`worktree-${focus}`}
+              focused={active}
+              value={focus === "label" ? name : base}
+              onInput={(value) =>
+                focus === "label" ? setName(value) : setBase(value)
+              }
+              placeholder={
+                focus === "label" ? "Название копии" : "Исходный коммит"
+              }
+            />
+          ) : (
+            <text height={1} fg={p.text}>
+              {terminalLine(
+                page === "create-review"
+                  ? `Создать «${name}»?`
+                  : page === "remove"
+                    ? "Удалить копию?"
+                    : (selected?.label ?? "Рабочих копий нет"),
+                inner,
+              )}
+            </text>
+          )}
+          {page === "list" || page === "detail"
+            ? button(
+                `Действия: ${operations[actionIndex]?.label ?? "Обновить список"}`,
+                () => operations[actionIndex]?.run(),
+                actionIndex,
+                "worktree-compact-action",
+              )
+            : page === "diff"
+              ? button(
+                  actionIndex === 0 ? "Перенести выбранное…" : "Обновить diff",
+                  confirm,
+                  actionIndex,
+                  "worktree-compact-diff",
+                )
+              : button(
+                  ["create-review", "remove", "apply"].includes(page)
+                    ? actionIndex === 0
+                      ? "Остаться"
+                      : "Подтвердить"
+                    : "Продолжить",
+                  confirm,
+                  actionIndex,
+                  "worktree-compact-confirm",
+                )}
         </box>
       ) : (
         <box flexDirection="column" height={bodyHeight} flexShrink={0}>
@@ -762,7 +832,7 @@ export function OpenTuiWorktrees({
               <box flexDirection="column" width={wide ? 38 : inner}>
                 <DialogAction
                   id="worktree-new"
-                  label="＋ Новая копия · N"
+                  label="Создать копию"
                   palette={p}
                   disabled={busy || !active || !!mutationBlock}
                   onSelect={() => {
@@ -829,7 +899,7 @@ export function OpenTuiWorktrees({
                     <text fg={p.muted}>
                       {busy
                         ? "Проверка репозитория…"
-                        : "Список недоступен · R повторить"}
+                        : "Список недоступен · обновите список"}
                     </text>
                   )}
                   {items && !filtered.length && (
@@ -852,14 +922,24 @@ export function OpenTuiWorktrees({
               {wide && detail()}
             </box>
           ) : page === "diagnostic" ? (
-            <scrollbox ref={detailScroll} flexGrow={1}>
-              <text fg={p.yellow}>Действие не выполнено</text>
-              <text fg={p.text}>{terminalSafeText(notice)}</text>
-              <text fg={p.muted}>
-                R — обновить сведения. Esc — вернуться. Ошибка не расширяет
-                права проекта.
-              </text>
-            </scrollbox>
+            <box flexDirection="column" flexGrow={1}>
+              <scrollbox ref={detailScroll} flexGrow={1} minHeight={1}>
+                <text fg={p.yellow}>Действие не выполнено</text>
+                <text fg={p.text}>{terminalSafeText(notice)}</text>
+                <text fg={p.muted}>
+                  Выберите «Обновить список». Esc — вернуться. Ошибка не
+                  расширяет права проекта.
+                </text>
+              </scrollbox>
+              <box id="worktree-actions" height={1} flexShrink={0}>
+                {button(
+                  "Обновить список",
+                  () => void perform(readList),
+                  actionIndex,
+                  "worktree-refresh-action",
+                )}
+              </box>
+            </box>
           ) : page === "detail" ? (
             detail()
           ) : page === "create" ? (
@@ -1133,11 +1213,11 @@ export function OpenTuiWorktrees({
       <text fg={p.muted} height={1} flexShrink={0}>
         {terminalLine(
           tiny
-            ? "Esc назад"
+            ? "↑↓ · Tab области · Enter · Esc"
             : page === "diff"
               ? "↑↓ файл · Space выбор · Enter дифф · Tab кнопки · Esc назад"
               : page === "list"
-                ? "↑↓ выбор · Enter карточка · N новая · / поиск · R обновить · Esc назад"
+                ? "↑↓ выбор · Tab действия · Enter · Esc назад"
                 : "↑↓ действие · Enter выбрать · Tab фокус · PgUp/PgDn · Esc назад",
           inner,
         )}

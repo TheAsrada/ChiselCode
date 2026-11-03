@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Skill } from "../skills/skills.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction as Action } from "./opentui-dialog.js";
 import { OpenTuiToolPane, toolPaneLayout } from "./opentui-tool-pane.js";
 import { terminalSafeText } from "./opentui-transcript.js";
@@ -10,7 +11,7 @@ import { useUiKeyboard } from "./overlay-input.js";
 import type { EmbeddedSettingsPanel } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
-import { ENTER_KEY, SKILL_MARK } from "./theme.js";
+import { SKILL_MARK } from "./theme.js";
 
 export interface OpenTuiSkillsActions {
   load(): Skill[];
@@ -82,7 +83,7 @@ export function OpenTuiSkills({
     }
   }, [enabled, actions]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(0);
+  const [selectedName, setSelectedName] = useState<string>();
   const [page, setPage] = useState<"library" | "pin">("library");
   const [instructions, setInstructions] = useState(false);
   const [error, setError] = useState("");
@@ -94,7 +95,10 @@ export function OpenTuiSkills({
       return words.every((word) => haystack.includes(word));
     });
   }, [skills, query]);
-  const index = Math.min(selected, Math.max(0, filtered.length - 1));
+  const index = Math.max(
+    0,
+    filtered.findIndex((skill) => skill.name === selectedName),
+  );
   const current = filtered[index];
   const canCreate = skills.some(
     (skill) => skill.name === "skill-creator" && skill.userInvocable !== false,
@@ -124,10 +128,63 @@ export function OpenTuiSkills({
     else if (current.userInvocable !== false && onChoose)
       run(() => onChoose(current));
   };
+  const menuActions = [
+    {
+      id: "skills-choose",
+      label:
+        page === "pin"
+          ? active.includes(current?.name ?? "")
+            ? "Открепить"
+            : "Закрепить"
+          : "Применить к задаче",
+      shortLabel: page === "pin" ? undefined : "Применить",
+      disabled:
+        !current ||
+        (page === "library" && (current.userInvocable === false || !onChoose)),
+      run: choose,
+    },
+    {
+      id: "skills-instructions-action",
+      label: instructions ? "К списку" : "Инструкции",
+      disabled: !current,
+      run: () => {
+        setInstructions((value) => !value);
+        navigation.setArea("list");
+      },
+    },
+    {
+      id: "skills-create",
+      label: "Создать",
+      disabled: !canCreate || !onCreate,
+      run: () => {
+        if (onCreate) run(onCreate);
+      },
+    },
+    {
+      id: "skills-edit",
+      label: "Изменить",
+      disabled: !canEdit,
+      run: () => {
+        if (current && onEdit) run(() => onEdit(current));
+      },
+    },
+    {
+      id: "skills-refresh",
+      label: "Обновить каталог",
+      run: () => refresh((value) => value + 1),
+    },
+  ];
+  const navigation = useMenuNavigation(
+    ["tabs", "search", "list", "actions"],
+    menuActions,
+  );
   if (controls)
     controls.current = {
       save() {},
       discard() {},
+      tab(reverse) {
+        return navigation.tab(reverse, false);
+      },
       back() {
         if (instructions) {
           setInstructions(false);
@@ -140,49 +197,56 @@ export function OpenTuiSkills({
     if (!enabled || !focused) return;
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;
-    if (embedded && ["escape", "tab", "f2"].includes(name)) return;
+    if (embedded && ["escape", "tab"].includes(name)) return;
     if (embedded && key.ctrl && ["f", "s"].includes(name)) return;
-    if (embedded && key.ctrl && name === "r") {
-      key.preventDefault();
-      refresh((value) => value + 1);
-      return;
-    }
-    if (embedded && (key.meta || key.option) && ["1", "2"].includes(name)) {
-      key.preventDefault();
-      changePage(name === "1" ? "library" : "pin");
-      return;
-    }
+    if (navigation.handle(key)) return;
+    if (key.ctrl || key.meta || key.option) return;
     if (name === "escape") {
       key.preventDefault();
       if (instructions) setInstructions(false);
       else onClose();
-    } else if (name === "tab") {
+    } else if (
+      navigation.area === "tabs" &&
+      ["left", "right", "return", "space"].includes(name)
+    ) {
       key.preventDefault();
-      changePage(page === "library" ? "pin" : "library");
-    } else if (key.ctrl && name === "o" && current) {
+      if (!key.repeated) changePage(page === "library" ? "pin" : "library");
+    } else if (name === "/" && navigation.area !== "search") {
       key.preventDefault();
-      setInstructions((value) => !value);
-    } else if (key.ctrl && name === "n" && canCreate && onCreate) {
+      navigation.setArea("search");
+    } else if (
+      name === "return" ||
+      name === "enter" ||
+      (name === "space" && navigation.area === "list")
+    ) {
+      if (instructions) return;
       key.preventDefault();
-      run(onCreate);
-    } else if (key.ctrl && name === "e" && canEdit && current && onEdit) {
-      key.preventDefault();
-      run(() => onEdit(current));
-    } else if (name === "return" || name === "enter") {
-      key.preventDefault();
-      choose();
+      if (!key.repeated) choose();
     } else if (
       !instructions &&
+      ["list", "search"].includes(navigation.area) &&
       (name === "up" ||
         name === "down" ||
         name === "pageup" ||
-        name === "pagedown")
+        name === "pagedown" ||
+        (navigation.area === "list" && ["home", "end"].includes(name)))
     ) {
       key.preventDefault();
       const delta =
-        name === "up" ? -1 : name === "down" ? 1 : name === "pageup" ? -5 : 5;
-      setSelected((value) =>
-        Math.max(0, Math.min(filtered.length - 1, value + delta)),
+        name === "home"
+          ? -filtered.length
+          : name === "end"
+            ? filtered.length
+            : name === "up"
+              ? -1
+              : name === "down"
+                ? 1
+                : name === "pageup"
+                  ? -5
+                  : 5;
+      setSelectedName(
+        filtered[Math.max(0, Math.min(filtered.length - 1, index + delta))]
+          ?.name,
       );
     }
   });
@@ -195,7 +259,7 @@ export function OpenTuiSkills({
   const wide = innerWidth >= 70 && roomy;
   const bodyHeight = Math.max(
     1,
-    popupHeight - (embedded ? (tiny ? 3 : roomy ? 12 : 5) : roomy ? 16 : 7),
+    popupHeight - (embedded ? (tiny ? 5 : roomy ? 12 : 5) : roomy ? 16 : 7),
   );
   const listWidth = wide
     ? Math.min(36, Math.floor(innerWidth * 0.43))
@@ -203,15 +267,6 @@ export function OpenTuiSkills({
   const rowHeight = roomy ? 3 : 2;
   const rows = Math.max(1, Math.floor(bodyHeight / rowHeight));
   const start = Math.max(0, Math.min(index - rows + 1, filtered.length - rows));
-  const primary =
-    page === "pin"
-      ? active.includes(current?.name ?? "")
-        ? "Открепить"
-        : "Закрепить"
-      : "Применить к задаче";
-  const disabled =
-    !current ||
-    (page === "library" && (current.userInvocable === false || !onChoose));
 
   return (
     <OpenTuiToolPane
@@ -251,7 +306,11 @@ export function OpenTuiSkills({
         marginTop={roomy ? 1 : 0}
         border={roomy ? true : []}
         borderStyle="rounded"
-        borderColor={instructions ? palette.border : palette.accent}
+        borderColor={
+          !instructions && focused && navigation.area === "search"
+            ? palette.accent
+            : palette.border
+        }
         backgroundColor={palette.raised}
         paddingLeft={1}
         paddingRight={1}
@@ -259,7 +318,9 @@ export function OpenTuiSkills({
         <input
           id="skills-search"
           value={query}
-          focused={enabled && focused && !instructions}
+          focused={
+            enabled && focused && !instructions && navigation.area === "search"
+          }
           placeholder="Поиск по названию или описанию..."
           backgroundColor={palette.raised}
           focusedBackgroundColor={palette.raised}
@@ -268,11 +329,11 @@ export function OpenTuiSkills({
           placeholderColor={palette.muted}
           onInput={(value) => {
             setQuery(value);
-            setSelected(0);
+            setSelectedName(undefined);
           }}
         />
       </box>
-      {!tiny && (
+      {
         <box
           height={1}
           flexShrink={0}
@@ -282,28 +343,20 @@ export function OpenTuiSkills({
         >
           <Action
             id="skills-library-tab"
-            label={`Библиотека ${skills.length}`}
-            active={page === "library"}
+            label={`${navigation.area === "tabs" && page === "library" && focused ? "› " : ""}Библиотека${innerWidth >= 45 ? ` ${skills.length}` : ""}`}
+            active={navigation.area === "tabs" && page === "library"}
             palette={palette}
             onSelect={() => changePage("library")}
           />
           <Action
             id="skills-pins-tab"
-            label={`Закрепление ${active.length}`}
-            active={page === "pin"}
+            label={`${navigation.area === "tabs" && page === "pin" && focused ? "› " : ""}Закрепление${innerWidth >= 45 ? ` ${active.length}` : ""}`}
+            active={navigation.area === "tabs" && page === "pin"}
             palette={palette}
             onSelect={() => changePage("pin")}
           />
-          {embedded && innerWidth >= 60 && (
-            <Action
-              id="skills-refresh"
-              label="↻ Обновить"
-              palette={palette}
-              onSelect={() => refresh((value) => value + 1)}
-            />
-          )}
         </box>
-      )}
+      }
       <box
         height={bodyHeight}
         flexShrink={0}
@@ -318,7 +371,7 @@ export function OpenTuiSkills({
             <TerminalScrollbox
               id="skills-instructions"
               flexGrow={1}
-              focused={enabled && focused}
+              focused={enabled && focused && navigation.area === "list"}
               viewportCulling
               scrollbarOptions={{ visible: false }}
             >
@@ -352,14 +405,16 @@ export function OpenTuiSkills({
                 const direction = event.scroll?.direction;
                 if (direction !== "up" && direction !== "down") return;
                 event.stopPropagation();
-                setSelected((value) =>
-                  Math.max(
-                    0,
-                    Math.min(
-                      filtered.length - 1,
-                      value + (direction === "up" ? -1 : 1),
-                    ),
-                  ),
+                setSelectedName(
+                  filtered[
+                    Math.max(
+                      0,
+                      Math.min(
+                        filtered.length - 1,
+                        index + (direction === "up" ? -1 : 1),
+                      ),
+                    )
+                  ]?.name,
                 );
               }}
             >
@@ -395,7 +450,7 @@ export function OpenTuiSkills({
                       }
                       onMouseUp={(event) => {
                         if (event.button !== 0) return;
-                        setSelected(start + offset);
+                        setSelectedName(skill.name);
                       }}
                     >
                       <box
@@ -483,71 +538,34 @@ export function OpenTuiSkills({
                           : "Примените к одному сообщению. После выбора можно добавить задачу и отправить её."}
                     </text>
                   </TerminalScrollbox>
-                  <Action
-                    label="Ctrl+O  Инструкции"
-                    palette={palette}
-                    onSelect={() => setInstructions(true)}
-                  />
                 </box>
               </>
             )}
           </>
         )}
       </box>
-      {!tiny && (
-        <box
-          height={2}
-          flexShrink={0}
-          marginTop={roomy ? 1 : 0}
-          flexDirection="column"
-        >
-          <box height={1} flexDirection="row" gap={1}>
-            <Action
-              label={`${ENTER_KEY} | ${primary}`}
-              primary
-              disabled={disabled}
-              palette={palette}
-              onSelect={choose}
-            />
-            {roomy && onCreate && canCreate && (
-              <Action
-                label="Ctrl+N Создать"
-                palette={palette}
-                onSelect={() => run(onCreate)}
-              />
-            )}
-            {wide && canEdit && current && onEdit && (
-              <Action
-                label="Ctrl+E Изменить"
-                palette={palette}
-                onSelect={() => run(() => onEdit(current))}
-              />
-            )}
-          </box>
-          <text height={1} fg={palette.muted}>
-            {terminalLine(
-              error ||
-                (page === "pin"
-                  ? embedded
-                    ? "Для текущей беседы · Alt+1 библиотека"
-                    : "На каждое сообщение этой вкладки | Tab библиотека | Esc закрыть"
-                  : roomy
-                    ? embedded
-                      ? `Alt+2 закрепление · Ctrl+O текст · ${filtered.length} найдено`
-                      : `Up/Down выбрать | Tab закрепление | Ctrl+O инструкции | ${filtered.length} найдено`
-                    : embedded
-                      ? "Alt+2 закрепление · Ctrl+O текст"
-                      : "Up/Down выбрать | Tab закрепление | Ctrl+O текст"),
-              innerWidth,
-            )}
-          </text>
-        </box>
-      )}
-      {tiny && (
-        <text height={1} fg={palette.muted}>
-          {terminalLine(`Enter ${primary}`, innerWidth)}
-        </text>
-      )}
+      <MenuActions
+        id="skills-actions"
+        actions={menuActions}
+        navigation={{
+          ...navigation,
+          area: enabled && focused ? navigation.area : "inactive",
+        }}
+        width={innerWidth}
+        palette={palette}
+        compact={!roomy}
+      />
+      <text height={1} flexShrink={0} fg={error ? palette.red : palette.muted}>
+        {terminalLine(
+          error ||
+            (navigation.area === "actions"
+              ? "←→ действие · Enter · Esc"
+              : width < 50
+                ? "Tab области · Enter · Esc"
+                : "↑↓ выбор · Tab области · Enter · Esc"),
+          innerWidth,
+        )}
+      </text>
     </OpenTuiToolPane>
   );
 }

@@ -88,6 +88,10 @@ Linux выбран базовой средой ради скорости и ра
 
 Сценарий `extension-commands-tui.test.ts` проверяет настоящий picker при задержанной активации: отмена не открывает ошибку, не создаёт беседу и освобождает неиспользуемый scope. После повторного выбора проверяются отмена очереди и поздний callback своей вкладки. Совместное ожидание активации и сохранение чужого запроса при отмене отдельно остаются в `extensions-lifecycle.test.ts`; гонка A → B и deadline с cleanup — в `project-admission.test.ts`. Проверки не требуют прежней немедленной смены root до завершения допуска.
 
+## Навигация меню
+
+`bun test tests/unit/menu-keybindings.test.tsx` проверяет настоящий renderer на 120×40, 80×24, 60×15 и 32×10: действия моделей/навыков/истории, снятые сочетания, native input, прокрутку, подтверждение удаления и повтор клавиши. Файл не входит в быстрый профиль. Существующие `opentui-models`, `opentui-skills`, `opentui-sessions`, `opentui-settings`, `opentui-mcp`, `opentui-sidebar`, `opentui-subagents`, `opentui-background` и `opentui-worktrees` сохраняют сценарии фокуса, мыши, resize и отмены. Production fixtures истории, Settings, помощников, фона и рабочих копий используют обычную навигацию и прежние runtime assertions. [Кадры и результаты](reports/menu-keybindings.md).
+
 ## Выпуск
 
 Перед созданием тега запустите `gh workflow run ci.yml --ref main` и дождитесь шести успешных jobs на точном release source. Зелёный Quick CI другого или того же source не заменяет Native validation.

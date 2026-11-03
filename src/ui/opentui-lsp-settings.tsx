@@ -1014,7 +1014,6 @@ export function OpenTuiLspSettings({
     if (
       key.name === "escape" ||
       key.name === "tab" ||
-      key.name === "f2" ||
       (key.ctrl && ["s", "f"].includes(key.name))
     )
       return;

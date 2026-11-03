@@ -165,7 +165,7 @@ jobs:
           tests/unit/opentui-web.test.tsx tests/unit/opentui-message.test.tsx
           tests/unit/opentui-clipboard.test.tsx
           tests/integration/graphics-runtime.test.ts
-          tests/unit/settings-shell.test.tsx tests/unit/opentui-mcp.test.tsx
+          tests/unit/settings-shell.test.tsx tests/unit/menu-keybindings.test.tsx tests/unit/opentui-mcp.test.tsx
           tests/unit/opentui-skills.test.tsx tests/integration/settings-tools-runtime.test.ts
           tests/unit/opentui-extension-settings.test.tsx
           tests/unit/self-update.test.ts tests/unit/update-controller.test.ts

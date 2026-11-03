@@ -1339,10 +1339,6 @@ function OpenTuiScreen({
         key.preventDefault();
         key.stopPropagation();
         workspace.newDraft();
-      } else if (key.name === "tab" && sidebarTab !== "agents") {
-        key.preventDefault();
-        key.stopPropagation();
-        backFromSidebar();
       }
       return;
     }

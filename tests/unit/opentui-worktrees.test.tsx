@@ -8,6 +8,7 @@ import { OpenTuiWorktrees } from "../../src/ui/opentui-worktrees.js";
 import { useOverlayInputOwner } from "../../src/ui/overlay-input.js";
 import type { WorktreeManagerActions } from "../../src/ui/worktree-actions.js";
 import type { WorktreeDescriptor } from "../../src/worktrees/service.js";
+import { menuAction } from "../fixtures/menu-navigation.js";
 
 const origin: WorktreeDescriptor = {
   kind: "origin",
@@ -122,7 +123,7 @@ for (const paper of [false, true])
       expect(setup.captureCharFrame()).not.toContain(
         "Внешняя (только просмотр)",
       );
-      await key(setup, "n");
+      await menuAction(setup, "worktree-actions", "worktree-create-action");
       await act(async () => {
         await setup.mockInput.pasteBracketedText("Новая задача");
       });
@@ -206,16 +207,16 @@ test("refresh failure remains readable and an absent selection never redirects a
     await frame(setup);
     await key(setup, "ARROW_DOWN");
     fail = true;
-    await key(setup, "r");
+    await menuAction(setup, "worktree-actions", "worktree-refresh-action");
     await frame(setup);
     expect(setup.captureCharFrame()).toContain("Git временно недоступен");
-    await key(setup, "r");
+    await menuAction(setup, "worktree-actions", "worktree-refresh-action");
     await frame(setup);
     await key(setup, "ESCAPE");
     expect(setup.captureCharFrame()).toContain("Отдельная задача");
     fail = false;
     removed = true;
-    await key(setup, "r");
+    await menuAction(setup, "worktree-actions", "worktree-refresh-action");
     await frame(setup);
     expect(setup.captureCharFrame()).toContain("исчезла");
     await key(setup, "RETURN");

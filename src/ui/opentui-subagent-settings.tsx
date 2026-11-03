@@ -144,7 +144,6 @@ export function OpenTuiSubagentSettings({
     if (
       key.name === "escape" ||
       key.name === "tab" ||
-      key.name === "f2" ||
       (key.ctrl && key.name === "s")
     )
       return;

@@ -6,6 +6,8 @@ export interface SettingsPanelControl {
   back(): boolean;
   discard(): void;
   search?(): void;
+  /** Return false at the boundary to let Settings move to its next area. */
+  tab?(reverse: boolean): boolean;
 }
 
 export interface EmbeddedSettingsPanel {

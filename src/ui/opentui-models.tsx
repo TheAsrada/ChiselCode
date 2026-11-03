@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProviderId } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { useUiKeyboard } from "./overlay-input.js";
@@ -200,6 +201,7 @@ export function OpenTuiModels({
         profile.selection.model,
     );
     setPage("manual");
+    navigation.setArea("search");
     setError("");
   };
   const apply = (id: string) => {
@@ -241,6 +243,41 @@ export function OpenTuiModels({
   const close = () => {
     if (!life.current.saving) onClose();
   };
+  const menuActions = [
+    {
+      id: "models-select",
+      label: "Выбрать",
+      disabled:
+        saving || !profile || (page === "manual" ? !manual.trim() : !chosen),
+      run: () => (page === "manual" ? apply(manual) : choose()),
+    },
+    {
+      id: "models-manual-action",
+      label: "Ввести ID",
+      disabled: saving || !profile,
+      run: enterManual,
+    },
+    {
+      id: "models-refresh",
+      label: "Обновить каталог",
+      disabled: saving || !profile,
+      run: () => {
+        if (profile) fetchModels(profile, current, true);
+      },
+    },
+    {
+      id: "models-settings",
+      label: "Настройки",
+      disabled: saving,
+      run: onSettings,
+    },
+  ];
+  const navigation = useMenuNavigation(
+    page === "manual"
+      ? ["search", "actions"]
+      : ["tabs", "search", ...(choices.length ? ["list"] : []), "actions"],
+    menuActions,
+  );
   useUiKeyboard((key) => {
     const name = key.name.toLowerCase();
     if (key.ctrl && name === "c") return;
@@ -254,27 +291,44 @@ export function OpenTuiModels({
       key.preventDefault();
       return;
     }
-    if (name === "tab") {
+    if (navigation.handle(key)) return;
+    if (key.ctrl || key.meta || key.option) return;
+    if (
+      navigation.area === "tabs" &&
+      ["left", "right", "return", "space"].includes(name)
+    ) {
       key.preventDefault();
-      changePage(page === "profiles" ? "models" : "profiles");
+      key.stopPropagation();
+      if (!key.repeated)
+        changePage(page === "profiles" ? "models" : "profiles");
       return;
     }
-    if (key.ctrl && name === "n") {
+    if (name === "/" && navigation.area !== "search") {
       key.preventDefault();
-      enterManual();
+      navigation.setArea("search");
       return;
     }
-    if (key.ctrl && name === "r") {
+    if (navigation.area === "list" && ["return", "space"].includes(name)) {
       key.preventDefault();
-      if (profile) fetchModels(profile, current, true);
+      key.stopPropagation();
+      if (!key.repeated) choose();
       return;
     }
     if (page === "manual") return;
-    if (["up", "down", "pageup", "pagedown"].includes(name)) {
+    if (
+      ["search", "list"].includes(navigation.area) &&
+      ["up", "down", "pageup", "pagedown", "home", "end"].includes(name)
+    ) {
+      if (navigation.area === "search" && ["home", "end"].includes(name))
+        return;
       key.preventDefault();
       move(
-        (name === "up" || name === "pageup" ? -1 : 1) *
-          (name.startsWith("page") ? capacity : 1),
+        name === "home"
+          ? -choices.length
+          : name === "end"
+            ? choices.length
+            : (name === "up" || name === "pageup" ? -1 : 1) *
+              (name.startsWith("page") ? capacity : 1),
       );
     }
   });
@@ -324,15 +378,15 @@ export function OpenTuiModels({
       >
         <DialogAction
           id="models-tab"
-          label="Модели"
-          active={page !== "profiles"}
+          label={`${navigation.area === "tabs" && page !== "profiles" ? "› " : ""}Модели`}
+          active={navigation.area === "tabs" && page !== "profiles"}
           palette={palette}
           onSelect={() => changePage("models")}
         />
         <DialogAction
           id="models-profiles-tab"
-          label={`Профили | ${profiles.length}`}
-          active={page === "profiles"}
+          label={`${navigation.area === "tabs" && page === "profiles" ? "› " : ""}Профили | ${profiles.length}`}
+          active={navigation.area === "tabs" && page === "profiles"}
           palette={palette}
           onSelect={() => changePage("profiles")}
         />
@@ -359,7 +413,7 @@ export function OpenTuiModels({
           id={page === "manual" ? "models-manual" : "models-search"}
           key={page === "manual" ? "manual" : "search"}
           width="100%"
-          focused={!saving}
+          focused={!saving && navigation.area === "search"}
           value={page === "manual" ? manual : query}
           placeholder={
             page === "manual"
@@ -453,7 +507,11 @@ export function OpenTuiModels({
                   <text
                     height={1}
                     selectable={false}
-                    fg={selected ? palette.accent : palette.text}
+                    fg={
+                      selected && navigation.area === "list"
+                        ? palette.accent
+                        : palette.text
+                    }
                   >
                     {text(
                       `${selected ? ">" : " "} ${active ? "+" : " "} ${item.title}`,
@@ -534,46 +592,25 @@ export function OpenTuiModels({
                 ? "Обновляю каталог... | можно выбрать ID вручную"
                 : page === "manual"
                   ? "Enter выбрать | Esc назад"
-                  : `${choices.length ? `${start + 1}-${Math.min(start + capacity, choices.length)} / ${choices.length}` : "0 результатов"} | ${layout.roomy ? "+ текущая" : "Up/Down Enter | Tab | Esc"}`,
+                  : `${choices.length ? `${start + 1}-${Math.min(start + capacity, choices.length)} / ${choices.length}` : "0 результатов"}${layout.roomy ? " | + текущая" : ""}`,
         )}
       </text>
-      <box
-        flexDirection="row"
-        flexShrink={0}
-        height={1}
-        marginTop={layout.roomy ? 1 : 0}
-      >
-        <DialogAction
-          id="models-select"
-          label="Выбрать"
-          primary
-          palette={palette}
-          disabled={
-            saving || !profile || (page === "manual" ? !manual.trim() : !chosen)
-          }
-          onSelect={() => (page === "manual" ? apply(manual) : choose())}
-        />
-        <DialogAction
-          id="models-manual-action"
-          label={layout.innerWidth < 45 ? "ID" : "Ввести ID"}
-          palette={palette}
-          disabled={saving || !profile}
-          onSelect={enterManual}
-        />
-        <DialogAction
-          id="models-settings"
-          label={layout.innerWidth < 45 ? "API" : "Настройки"}
-          palette={palette}
-          disabled={saving}
-          onSelect={onSettings}
-        />
-      </box>
-      {layout.roomy && (
+      <MenuActions
+        id="models-actions"
+        actions={menuActions}
+        navigation={navigation}
+        width={layout.innerWidth}
+        palette={palette}
+        compact={!layout.roomy}
+      />
+      {layout.popupHeight >= 9 && (
         <text height={1} flexShrink={0} fg={palette.muted}>
           {text(
-            layout.innerWidth >= 90
-              ? "Up/Down выбор | Enter принять | Tab профили | Ctrl+N ID | Ctrl+R обновить | Esc"
-              : "Up/Down выбор | Enter | Tab профили | Ctrl+N ID | Ctrl+R обн. | Esc",
+            navigation.area === "actions"
+              ? "←→ действие · Enter · Esc"
+              : width < 50
+                ? "Tab области · Enter · Esc"
+                : "↑↓ выбор · Tab области · Enter · Esc",
           )}
         </text>
       )}

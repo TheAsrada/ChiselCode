@@ -7,6 +7,7 @@ import { act } from "react";
 import { subagentDescriptor } from "../../src/subagents/service.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
+import { menuAction } from "../fixtures/menu-navigation.js";
 import { childFixture } from "../helpers/subagent.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
@@ -146,7 +147,7 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const)
       await key(setup, "RETURN");
       expect(controller.snapshot.agentView?.id).toBe(child.id);
       await capture(setup, `${theme}-graphics-160x50-details`);
-      await key(setup, "s");
+      await menuAction(setup, "agent-detail-actions", "agent-action-stop");
       expect(stopped).toEqual([child.id]);
       for (const [width, height] of [
         [120, 40],

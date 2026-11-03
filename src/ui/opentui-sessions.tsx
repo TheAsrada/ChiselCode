@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
 import { type Palette, THEMES } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FormattedMessage } from "./opentui-message.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
@@ -80,12 +81,8 @@ export function OpenTuiSessions({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [focus, setFocus] = useState(-1);
   const input = useRef<InputRenderable>(null);
   const life = useRef({ mounted: true, busy: false });
-  useEffect(() => {
-    if (!layout.roomy) setFocus(-1);
-  }, [layout.roomy]);
   useEffect(() => {
     if (mode === "rename") input.current?.gotoBufferEnd();
   }, [mode]);
@@ -118,7 +115,7 @@ export function OpenTuiSessions({
   const selected = filtered[index];
   const headerRows = layout.roomy ? 2 : 1;
   const searchRows = layout.roomy ? 3 : 1;
-  const footerRows = layout.roomy ? 3 : 1;
+  const footerRows = 2;
   const statusRows = error || mode !== "search" ? 2 : 0;
   const bodyHeight = Math.max(
     1,
@@ -204,7 +201,7 @@ export function OpenTuiSessions({
     if (!selected || selected.archive) return;
     setDraft(selected.title);
     setMode("rename");
-    setFocus(-1);
+    navigation.setArea("search");
   };
   const remove = () => {
     if (selected && !selected.archive) setMode("delete");
@@ -214,15 +211,49 @@ export function OpenTuiSessions({
     if (life.current.mounted) {
       setSessions(items);
       setMode("search");
-      setFocus(-1);
+      navigation.setArea("search");
     }
   };
-  const buttons = [choose, viewHistory, rename, remove];
+  const menuActions = [
+    {
+      id: "resume-continue",
+      label: selected?.archive ? "Просмотр" : "Продолжить",
+      run: choose,
+      disabled: busy || !selected,
+    },
+    {
+      id: "resume-preview",
+      label: "Просмотр",
+      run: viewHistory,
+      disabled: busy || !selected,
+    },
+    {
+      id: "resume-rename",
+      label: "Переименовать",
+      run: rename,
+      disabled: busy || !selected || selected.archive,
+    },
+    {
+      id: "resume-delete",
+      label: "Удалить…",
+      run: remove,
+      disabled: busy || !selected || selected.archive,
+    },
+  ];
+  const navigation = useMenuNavigation(
+    ["search", ...(filtered.length ? ["list"] : []), "actions"],
+    menuActions,
+  );
 
   useUiKeyboard((key) => {
     const owner = capturedInputOwner(key);
     if (owner && owner !== "dialog") return;
     const name = key.name.toLowerCase();
+    if (key.repeated && name === "return") {
+      key.preventDefault();
+      key.stopPropagation();
+      return;
+    }
     if (readonlySession) {
       if (name === "escape" || (key.ctrl && name === "c")) {
         key.preventDefault();
@@ -271,33 +302,35 @@ export function OpenTuiSessions({
       }
       return;
     }
-    if (name === "tab" && layout.roomy) {
-      key.preventDefault();
-      setFocus((value) => ((value + (key.shift ? 5 : 2)) % 5) - 1);
-      return;
-    }
-    if (["up", "down", "pageup", "pagedown"].includes(name)) {
+    if (navigation.handle(key)) return;
+    if (key.ctrl || key.meta || key.option) return;
+    if (
+      [
+        "up",
+        "down",
+        "pageup",
+        "pagedown",
+        ...(navigation.area === "list" ? ["home", "end"] : []),
+      ].includes(name)
+    ) {
       key.preventDefault();
       move(
         index +
-          (name === "up"
-            ? -1
-            : name === "down"
-              ? 1
-              : name === "pageup"
-                ? -pageSize
-                : pageSize),
+          (name === "home"
+            ? -filtered.length
+            : name === "end"
+              ? filtered.length
+              : name === "up"
+                ? -1
+                : name === "down"
+                  ? 1
+                  : name === "pageup"
+                    ? -pageSize
+                    : pageSize),
       );
     } else if (name === "return") {
       key.preventDefault();
-      (focus < 0 ? choose : buttons[focus])?.();
-    } else if (name === "f3" || (key.ctrl && name === "p")) {
-      key.preventDefault();
-      viewHistory();
-    } else if (key.ctrl && (name === "r" || name === "d")) {
-      key.preventDefault();
-      if (name === "r") rename();
-      else remove();
+      if (!key.repeated) choose();
     }
   });
 
@@ -414,7 +447,9 @@ export function OpenTuiSessions({
             paddingLeft={1}
             paddingRight={1}
             border={layout.roomy ? true : []}
-            borderColor={focus < 0 ? palette.accent : palette.border}
+            borderColor={
+              navigation.area === "search" ? palette.accent : palette.border
+            }
             backgroundColor={palette.raised}
           >
             <text width={2} fg={palette.accent}>
@@ -425,7 +460,12 @@ export function OpenTuiSessions({
               id="resume-search"
               key={mode === "rename" ? "rename" : "search"}
               flexGrow={1}
-              focused={!busy && !loading && focus < 0 && mode !== "delete"}
+              focused={
+                !busy &&
+                !loading &&
+                navigation.area === "search" &&
+                mode !== "delete"
+              }
               value={mode === "rename" ? draft : query}
               placeholder={
                 mode === "rename"
@@ -612,43 +652,21 @@ export function OpenTuiSessions({
               </text>
             </box>
           )}
-          {layout.roomy && (
-            <box
-              height={2}
-              flexShrink={0}
-              alignItems="center"
-              flexDirection="row"
-              gap={1}
-            >
-              {[
-                selected?.archive
-                  ? "Просмотр ↵"
-                  : busy
-                    ? "Открываем…"
-                    : "Продолжить ↵",
-                "Просмотр F3",
-                "Имя ^R",
-                "Удалить ^D",
-              ].map((label, button) => (
-                <DialogAction
-                  key={label}
-                  label={label}
-                  palette={palette}
-                  primary={button === 0}
-                  active={focus === button}
-                  disabled={
-                    busy || !selected || (button >= 2 && selected.archive)
-                  }
-                  onSelect={() => buttons[button]?.()}
-                />
-              ))}
-            </box>
-          )}
+          <MenuActions
+            id="resume-actions"
+            actions={menuActions}
+            navigation={navigation}
+            width={layout.innerWidth}
+            palette={palette}
+            compact={!layout.roomy}
+          />
           <text height={1} flexShrink={0} fg={palette.muted}>
             {line(
-              layout.roomy
-                ? "↑↓ выбор · PgUp/PgDn страницы · Tab действия · Esc назад"
-                : "↑↓ · Enter открыть · F3 просмотр · ^R/^D · Esc",
+              navigation.area === "actions"
+                ? "←→ действие · Enter · Esc"
+                : width < 50
+                  ? "Tab области · Enter · Esc"
+                  : "↑↓ выбор · Tab области · Enter · Esc",
             )}
           </text>
         </>

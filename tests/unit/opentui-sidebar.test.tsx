@@ -10,6 +10,7 @@ import { subagentDescriptor } from "../../src/subagents/service.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+import { sidebarTab } from "../fixtures/menu-navigation.js";
 import { childFixture } from "../helpers/subagent.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
@@ -190,22 +191,22 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
       await key(setup, "ESCAPE");
       expect(controller.snapshot.focus).toBe("sidebar");
       expect(controller.snapshot.draft).toBe("Черновик следующего сообщения");
-      await key(setup, "]");
+      await sidebarTab(setup, "context");
       expect(controller.snapshot.agentTree?.view).toBe("context");
       const context = setup.renderer.root.findDescendantById(
         "context-sidebar",
       ) as ScrollBoxRenderable;
       expect(context.focused).toBe(true);
-      await key(setup, "3");
+      await sidebarTab(setup, "agents");
       expect(controller.snapshot.agentTree?.view).toBe("agents");
       await key(setup, "ARROW_DOWN");
       expect(controller.snapshot.agentTree?.selected).toBe(child.id);
       await capture(setup, `${theme}-agents`);
       await key(setup, "c", true);
       expect(cancellations).toBe(0);
-      await key(setup, "1");
-      await key(setup, "2");
-      await key(setup, "3");
+      await sidebarTab(setup, "menu");
+      await sidebarTab(setup, "context");
+      await sidebarTab(setup, "agents");
       expect(controller.snapshot.agentTree?.selected).toBe(child.id);
       await click(setup, "sidebar-tab-context");
       await key(setup, "ESCAPE");
@@ -255,8 +256,8 @@ test("sidebar drawer anchors to the right, restores scroll and uses the full nar
     ) as ScrollBoxRenderable;
     expect(context.scrollTop).toBeGreaterThan(0);
     const position = context.scrollTop;
-    await key(setup, "1");
-    await key(setup, "2");
+    await sidebarTab(setup, "menu");
+    await sidebarTab(setup, "context");
     const restored = setup.renderer.root.findDescendantById(
       "context-sidebar",
     ) as ScrollBoxRenderable;
@@ -282,8 +283,8 @@ test("sidebar drawer anchors to the right, restores scroll and uses the full nar
     await frame(setup);
     expect(setup.captureCharFrame()).toContain("Аг.2");
     await capture(setup, "tiny-agents");
-    await key(setup, "1");
-    await key(setup, "2");
+    await sidebarTab(setup, "menu");
+    await sidebarTab(setup, "context");
     expect(controller.snapshot.agentTree?.view).toBe("context");
     await key(setup, "ESCAPE");
     expect(controller.snapshot.focus).toBe("composer");

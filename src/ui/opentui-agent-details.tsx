@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { subagentActive } from "../subagents/contracts.js";
 import { subagentStatusTitle } from "../subagents/service.js";
 import type { Palette } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { useClipboardActions } from "./opentui-clipboard.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FormattedMessage } from "./opentui-message.js";
@@ -45,7 +46,6 @@ export function OpenTuiAgentDetails({
   const body = useRef<ScrollBoxRenderable>(null);
   const sticky = useRef(true);
   const [follow, setFollow] = useState(true);
-  const [focus, setFocus] = useState(0);
   const [newText, setNewText] = useState(false);
   const origin = useRef(controller.currentGeneration);
   const owner = `agent-view:${controller.conversationId}:${origin.current}`;
@@ -61,15 +61,23 @@ export function OpenTuiAgentDetails({
   const sections = ["history", "changes", "result"] as const;
   const actions = [
     {
+      id: "agent-action-back",
       label: tiny ? "Назад" : "Назад · Esc",
       run: () => controller.hideAgent(),
     },
     ...(active && record
-      ? [{ label: tiny ? "Стоп" : "Остановить", run: () => onStop(record.id) }]
+      ? [
+          {
+            id: "agent-action-stop",
+            label: tiny ? "Стоп" : "Остановить",
+            run: () => onStop(record.id),
+          },
+        ]
       : []),
     ...(apply && record
       ? [
           {
+            id: "agent-action-apply",
             label: tiny ? "Перенос" : "Применить",
             run: () => onApply(record.id),
           },
@@ -78,6 +86,7 @@ export function OpenTuiAgentDetails({
     ...(record?.text
       ? [
           {
+            id: "agent-action-copy",
             label: tiny ? "Копия" : "Копировать",
             run: () => {
               void clipboard?.copyText(record.text);
@@ -88,6 +97,7 @@ export function OpenTuiAgentDetails({
     ...(record?.worktree
       ? [
           {
+            id: "agent-action-path",
             label: tiny ? "Путь" : "Копировать путь",
             run: () => {
               const path = record.worktree?.path;
@@ -97,6 +107,12 @@ export function OpenTuiAgentDetails({
         ]
       : []),
   ];
+  const menuActions = actions;
+  const navigation = useMenuNavigation(
+    ["tabs", "body", "actions"],
+    menuActions,
+    "body",
+  );
   const recordId = record?.id;
   const anchor = `${recordId}:${section}`;
   useLayoutEffect(() => {
@@ -139,17 +155,11 @@ export function OpenTuiAgentDetails({
       controller.hideAgent();
       return;
     }
-    if (key.name === "tab") {
-      key.preventDefault();
-      key.stopPropagation();
-      setFocus(
-        (current) =>
-          (current + (key.shift ? -1 : 1) + actions.length + 1) %
-          (actions.length + 1),
-      );
-      return;
-    }
-    if (key.name === "left" || key.name === "right") {
+    if (navigation.handle(key)) return;
+    if (
+      navigation.area === "tabs" &&
+      (key.name === "left" || key.name === "right")
+    ) {
       key.preventDefault();
       key.stopPropagation();
       switchSection(
@@ -159,20 +169,8 @@ export function OpenTuiAgentDetails({
       );
       return;
     }
-    if (key.name === "s" && active && record) {
-      key.preventDefault();
-      key.stopPropagation();
-      onStop(record.id);
-      return;
-    }
-    if ((key.name === "return" || key.name === "enter") && focus) {
-      key.preventDefault();
-      key.stopPropagation();
-      actions[focus - 1]?.run();
-      return;
-    }
     if (
-      !focus &&
+      navigation.area === "body" &&
       ["up", "down", "pageup", "pagedown", "home", "end"].includes(key.name)
     ) {
       key.preventDefault();
@@ -230,7 +228,7 @@ export function OpenTuiAgentDetails({
                 : (["Ход работы", "Изменения", "Итог"][index] ?? item)
             }
             palette={palette}
-            active={section === item}
+            active={navigation.area === "tabs" && section === item}
             onSelect={() => switchSection(item)}
           />
         ))}
@@ -244,7 +242,7 @@ export function OpenTuiAgentDetails({
         stickyScroll={follow}
         stickyStart="bottom"
         onMouseDown={() => {
-          setFocus(0);
+          navigation.setArea("body");
           sticky.current = false;
           setFollow(false);
         }}
@@ -377,27 +375,14 @@ export function OpenTuiAgentDetails({
         )}
         {newText && <text fg={palette.accent}>Новый текст · End к ответу</text>}
       </TerminalScrollbox>
-      <box height={1} flexDirection="row" flexShrink={0}>
-        {width < 60 ? (
-          <text fg={palette.accent}>
-            {terminalLine(
-              `[${actions[Math.max(0, focus - 1)]?.label ?? "Назад"}] Tab · Enter${active ? " · S стоп" : ""}`,
-              contentWidth,
-            )}
-          </text>
-        ) : (
-          actions.map((action, index) => (
-            <DialogAction
-              key={action.label}
-              id={`agent-action-${index}`}
-              label={action.label}
-              active={focus === index + 1}
-              palette={palette}
-              onSelect={action.run}
-            />
-          ))
-        )}
-      </box>
+      <MenuActions
+        id="agent-detail-actions"
+        actions={menuActions}
+        navigation={navigation}
+        width={contentWidth}
+        palette={palette}
+        compact={width < 60}
+      />
     </OpenTuiDialog>
   );
 }

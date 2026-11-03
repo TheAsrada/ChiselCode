@@ -5,7 +5,7 @@ import { contextProgress } from "../core/context-usage.js";
 import { type Palette, THEMES } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { uiTone } from "./opentui-extension-details.js";
-import { SidebarSection } from "./sidebar-panel.js";
+import { SidebarSection, useSidebarNavigation } from "./sidebar-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import type {
@@ -23,7 +23,7 @@ export function ContextSidebar({
   state,
   width = 40,
   height = 24,
-  focused = false,
+  focused: enabled = false,
   palette = THEMES.obsidian,
   presentation,
   onAction,
@@ -40,6 +40,7 @@ export function ContextSidebar({
     item: import("../extensions/ui-types.js").OwnedUiContribution,
   ): void;
 }) {
+  const { focused } = useSidebarNavigation(enabled);
   const scroll = useRef<ScrollBoxRenderable>(null);
   const remembered = useRef(presentation?.scroll.get("context"));
   const restore = () => {

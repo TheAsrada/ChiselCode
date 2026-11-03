@@ -9,6 +9,7 @@ import {
   defaultExtensions,
 } from "../../src/extensions/index.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { menuAction, settingsRoute } from "./menu-navigation.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const storage = await mkdtemp(join(tmpdir(), "chisel-ui-design-"));
@@ -354,7 +355,7 @@ try {
     () => !!t.renderer.root.findDescendantById("settings-popup"),
     "Settings did not open",
   );
-  await key("t", true);
+  await settingsRoute(t, "Внешний вид");
   await until(
     () => !!t.renderer.root.findDescendantById("settings-motion"),
     "Appearance not ready",
@@ -396,7 +397,7 @@ try {
   let config = JSON.parse(await readFile(configPath, "utf8"));
   assert.equal(config.ui.theme, theme);
   assert.equal(config.ui.future, "preserve");
-  await key("m");
+  await menuAction(t, "settings-actions", "settings-motion-action");
   await until(
     async () =>
       JSON.parse(await readFile(configPath, "utf8")).ui.motion === "full",

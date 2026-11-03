@@ -20,6 +20,7 @@ flowchart LR
 | --- | --- |
 | Цикл запроса, контекст, разрешения и инструменты | [Core runtime](architecture/runtime.md) |
 | Сервисы моделей, профили и драйверы | [Провайдеры](architecture/providers.md) · [Потоковые ответы](architecture/provider-streams.md) |
+| Навигация встроенных меню | [Фокус и именованные действия](architecture/menu-navigation.md) |
 | Выбор модели в интерфейсе | [Состояние и сохранение](architecture/model-selection.md) |
 | Запуск и выбор проекта | [Допуск путей, главная, история и контекст запроса](architecture/project-startup.md) |
 | Программно подключённые расширения | [Внутренний API](architecture/linked-extensions.md) |

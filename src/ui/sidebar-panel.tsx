@@ -1,8 +1,13 @@
 /** @jsxImportSource @opentui/react */
 import { TextAttributes } from "@opentui/core";
-import { useRenderer } from "@opentui/react";
 
-import { type ReactNode, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useRef,
+  useState,
+} from "react";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
@@ -11,6 +16,14 @@ import { terminalLine } from "./terminal-text.js";
 
 export type SidebarTab = "menu" | "context" | "agents";
 const tabs: readonly SidebarTab[] = ["menu", "context", "agents"];
+const SidebarNavigation = createContext({ strip: false, focusStrip() {} });
+export function useSidebarNavigation(focused: boolean) {
+  const navigation = useContext(SidebarNavigation);
+  return {
+    focused: focused && !navigation.strip,
+    focusStrip: navigation.focusStrip,
+  };
+}
 
 export function sidebarChrome(height: number) {
   return {
@@ -52,19 +65,18 @@ export function SidebarPanel({
   children: ReactNode;
 }) {
   const [hovered, setHovered] = useState<SidebarTab>();
-  const renderer = useRenderer();
+  const [strip, setStrip] = useState(false);
   const pressed = useRef<SidebarTab | undefined>(undefined);
   const chrome = sidebarChrome(height);
   const tabWidth = Math.max(1, Math.floor((width - (width >= 30 ? 2 : 0)) / 3));
   useUiKeyboard((key) => {
     if (!focused || capturedInputOwner(key) !== owner) return;
-    if (
-      renderer.currentFocusedRenderable?.id === "sidebar-menu-search" &&
-      !key.ctrl &&
-      !key.meta &&
-      !key.option
-    )
+    if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
+      key.preventDefault();
+      key.stopPropagation();
+      setStrip((value) => !value);
       return;
+    }
     if (key.name === "f7" && tab !== "agents") {
       key.preventDefault();
       key.stopPropagation();
@@ -78,21 +90,18 @@ export function SidebarPanel({
       return;
     }
     const direction =
-      key.name === "[" || (key.ctrl && key.name === "left")
-        ? -1
-        : key.name === "]" || (key.ctrl && key.name === "right")
-          ? 1
-          : 0;
-    const direct =
-      !key.ctrl && !key.option && !key.meta && /^[123]$/.test(key.name)
-        ? tabs[Number(key.name) - 1]
-        : undefined;
-    if (direction || direct) {
+      strip && !key.ctrl && !key.meta && !key.option
+        ? key.name === "left"
+          ? -1
+          : key.name === "right"
+            ? 1
+            : 0
+        : 0;
+    if (direction) {
       key.preventDefault();
       key.stopPropagation();
       onSelect(
-        direct ??
-          tabs[(tabs.indexOf(tab) + direction + tabs.length) % tabs.length] ??
+        tabs[(tabs.indexOf(tab) + direction + tabs.length) % tabs.length] ??
           "context",
       );
     }
@@ -161,7 +170,7 @@ export function SidebarPanel({
                   ? "Конт."
                   : `Аг.${running}${approvals ? `!${approvals}` : ""}`;
             return (
-              // biome-ignore lint/a11y/noStaticElementInteractions: 1/2/3 and brackets switch the same tabs.
+              // biome-ignore lint/a11y/noStaticElementInteractions: Tab and arrows reach the same tabs.
               // biome-ignore lint/a11y/useKeyWithMouseEvents: Keyboard focus is shared by the strip; the active focused tab has its own marker.
               <box
                 key={item}
@@ -181,6 +190,7 @@ export function SidebarPanel({
                   pressed.current = undefined;
                   event.stopPropagation();
                   if (accept) {
+                    setStrip(false);
                     onFocus();
                     onSelect(item);
                   }
@@ -206,7 +216,7 @@ export function SidebarPanel({
                         : palette.surface
                   }
                   content={terminalLine(
-                    `${active && focused ? "> " : " "}${name.length + 2 <= tabWidth ? name : compact}`,
+                    `${active && focused && strip ? "> " : " "}${name.length + 2 <= tabWidth ? name : compact}`,
                     tabWidth,
                   )}
                 />
@@ -231,7 +241,11 @@ export function SidebarPanel({
         flexShrink={0}
         flexDirection="column"
       >
-        {children}
+        <SidebarNavigation.Provider
+          value={{ strip, focusStrip: () => setStrip(true) }}
+        >
+          {children}
+        </SidebarNavigation.Provider>
       </box>
       {chrome.footer > 0 && (
         <text
@@ -242,9 +256,9 @@ export function SidebarPanel({
           selectable={false}
           content={terminalLine(
             focused
-              ? tab === "menu"
-                ? "Enter открыть · / поиск · Esc в чат"
-                : "1-3 разделы · [ ] · Esc в чат"
+              ? strip
+                ? "←→ раздел · Tab содержимое"
+                : "Tab разделы · Enter · Esc в чат"
               : "Ctrl+B панель · F7 агенты",
             Math.max(1, width - 1),
           )}

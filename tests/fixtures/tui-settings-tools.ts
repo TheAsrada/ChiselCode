@@ -7,6 +7,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import { z } from "zod";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { menuAction } from "./menu-navigation.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const storage = await mkdtemp(join(tmpdir(), "chisel-settings-tools-"));
@@ -326,7 +327,7 @@ try {
     await key("RETURN");
     assert.ok(ui.captureCharFrame().includes("Закрепление 1"));
     await capture("skills-pins");
-    await key("o", true);
+    await menuAction(ui, "skills-actions", "skills-instructions-action");
     assert.ok(ui.renderer.root.findDescendantById("skills-instructions"));
     await capture("skills-instructions");
     await key("ESCAPE");

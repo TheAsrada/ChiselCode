@@ -116,3 +116,7 @@ Traceback, `AttributeError`, `AssertionError` и `FAILED` после успеш�
 ## Profiles и custom providers
 
 Provider unavailable: проверьте `chisel providers list/validate` и восстановите manifest; history/config остаются читаемыми. Multiple profiles: укажите --profile. Invalid config: исходный файл не reset, путь показан в ошибке; перед ручным исправлением сохраните backup. `config.v1.backup.json` создаётся при первом save v2, а credentials.enc не мигрирует. Подробности — [migration notes](provider-migration.md).
+
+## Действие меню не выполняется по прежнему сочетанию
+
+Локальные сочетания меню заменены именованными действиями. Нажимайте Tab до нужной области, стрелками выберите операцию и подтвердите Enter или Space. В узком окне перебирайте строку «Действия: …». В Settings сохранение доступно через Ctrl+S; глобальные переходы чата сохранены. [Актуальная таблица управления](keybindings.md#настройки-модели-навыки-и-сессии).

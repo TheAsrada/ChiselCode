@@ -9,6 +9,7 @@ import {
   type OpenTuiSessionsActions,
 } from "../../src/ui/opentui-sessions.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
+import { menuAction } from "../fixtures/menu-navigation.js";
 
 const base: SessionSummary = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -61,7 +62,7 @@ test("session rename and search paste/delete whole emoji and combining graphemes
   });
   try {
     await frame();
-    await act(async () => setup.mockInput.pressKey("r", { ctrl: true }));
+    await menuAction(setup, "resume-actions", "resume-rename");
     await act(async () => setup.mockInput.pressBackspace());
     await frame();
     expect(setup.captureCharFrame()).toContain("Новое название: Проект 👩‍💻");
@@ -130,9 +131,7 @@ test("session picker searches, previews and resumes without losing the composer"
     });
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Сессий: 1");
-    await act(async () => {
-      setup.mockInput.pressKey("F3");
-    });
+    await menuAction(setup, "resume-actions", "resume-preview");
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Секретный запрос");
     expect(setup.captureCharFrame()).toContain("только просмотр");
@@ -147,9 +146,7 @@ test("session picker searches, previews and resumes without losing the composer"
       });
     }
     expect(setup.captureCharFrame()).toContain("Продолжить разговор");
-    await act(async () => {
-      setup.mockInput.pressEnter();
-    });
+    await menuAction(setup, "resume-actions", "resume-continue");
     await setup.renderOnce();
     expect(resumed).toEqual([base.id]);
     expect(setup.captureCharFrame()).toContain("Опишите задачу");
@@ -192,9 +189,7 @@ test("session picker confirms deletion and refreshes without deleting on Escape"
     });
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Первый сеанс");
-    await act(async () => {
-      setup.mockInput.pressKey("r", { ctrl: true });
-    });
+    await menuAction(setup, "resume-actions", "resume-rename");
     await act(async () => {
       setup.mockInput.pressKey("!");
     });
@@ -203,9 +198,7 @@ test("session picker confirms deletion and refreshes without deleting on Escape"
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(entries[0]?.title).toBe("Первый сеанс!");
-    await act(async () => {
-      setup.mockInput.pressKey("d", { ctrl: true });
-    });
+    await menuAction(setup, "resume-actions", "resume-delete");
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Удалить");
     await act(async () => {
@@ -213,9 +206,7 @@ test("session picker confirms deletion and refreshes without deleting on Escape"
       await new Promise((resolve) => setTimeout(resolve, 120));
     });
     expect(deleted).toEqual([]);
-    await act(async () => {
-      setup.mockInput.pressKey("d", { ctrl: true });
-    });
+    await menuAction(setup, "resume-actions", "resume-delete");
     await act(async () => {
       setup.mockInput.pressKey("y");
       await new Promise((resolve) => setTimeout(resolve, 0));

@@ -9,6 +9,7 @@ import type { BackgroundTask } from "../../src/background/contracts.js";
 import { createSession } from "../../src/sessions/store.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
+import { menuAction, uiKey } from "../fixtures/menu-navigation.js";
 
 function countRows(node: Renderable): number {
   return (
@@ -134,11 +135,7 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
       ]) {
         await act(async () => setup.renderer.resize(width!, height!));
         await frame();
-        for (const id of [
-          "background-action-0",
-          "background-action-1",
-          "background-action-2",
-        ])
+        for (const id of ["background-actions", "background-search"])
           expect(setup.renderer.root.findDescendantById(id)).toBeDefined();
         if (folder) {
           await mkdir(folder, { recursive: true });
@@ -202,6 +199,34 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
         }
         expect(setup.renderer.listenerCount("resize")).toBe(listeners);
         expect(setup.renderer.keyInput.listenerCount("keypress")).toBe(keys);
+        const beforeFilter = controller.snapshot.backgroundList?.filter;
+        for (const removed of ["s", "f", "a"]) await press(removed);
+        expect(controller.snapshot.backgroundList?.filter).toBe(beforeFilter);
+        await menuAction(setup, "background-actions", "background-filter");
+        expect(controller.snapshot.backgroundList?.filter).toBe("active");
+        let stopped: readonly string[] = [];
+        controller.stopBackgroundSet = async (ids) => {
+          stopped = [...ids];
+        };
+        await menuAction(setup, "background-actions", "background-stop-all");
+        expect(stopped).toEqual([]);
+        const late = { ...tasks[0]!, id: crypto.randomUUID(), ordinal: 257 };
+        await act(async () =>
+          controller.acceptBackground({
+            type: "accepted",
+            ownerId: session.id,
+            task: late,
+          }),
+        );
+        await frame();
+        await uiKey(setup, "RETURN");
+        expect(stopped).toContain(tasks[0]!.id);
+        expect(stopped).not.toContain(late.id);
+        expect(stopped.length).toBe(
+          tasks.filter((task) =>
+            ["running", "queued", "awaiting_approval"].includes(task.state),
+          ).length,
+        );
       }
       await press("ESCAPE");
       expect(controller.snapshot.backgroundPanel).toBe(false);

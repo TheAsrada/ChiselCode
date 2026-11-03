@@ -17,6 +17,11 @@ import { ThemeCatalog } from "../themes/catalog.js";
 import type { ProviderId } from "../types/domain.js";
 import type { WebSettingsActions } from "../web/settings.js";
 import { type Palette, THEMES, type ThemeName } from "./appearance.js";
+import {
+  type MenuAction,
+  MenuActions,
+  useMenuNavigation,
+} from "./menu-navigation.js";
 import { OpenTuiBackgroundSettings } from "./opentui-background-settings.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { OpenTuiExtensions } from "./opentui-extensions.js";
@@ -876,6 +881,100 @@ export function OpenTuiSettings({
       } else save();
     }
   };
+  const settingsMenuActions: MenuAction[] =
+    page === "tools.skills"
+      ? [{ id: "settings-close", label: "Закрыть настройки", run: close }]
+      : page === "appearance"
+        ? [
+            {
+              id: "settings-apply-theme",
+              label: "Применить тему",
+              disabled: !!busy,
+              run: applyTheme,
+            },
+            {
+              id: "settings-cancel-theme",
+              label: "Отменить предпросмотр",
+              disabled: !!busy,
+              run: () => {
+                setThemeSearch("");
+                setThemeSearchFocus(false);
+                setThemeIndex(
+                  Math.max(
+                    0,
+                    catalog
+                      .list()
+                      .findIndex((item) => item.key === restore.current.theme),
+                  ),
+                );
+                onThemePreview?.(restore.current.theme);
+                setNotice("");
+              },
+            },
+            {
+              id: "settings-motion-action",
+              label: `Анимации: ${motion.preference === "full" ? "плавные" : "минимум"}`,
+              disabled: !!busy,
+              run: changeMotion,
+            },
+          ]
+        : page === "permissions"
+          ? [
+              {
+                id: "settings-bypass-action",
+                label: bypassAllowed ? "Выключить Bypass" : "Включить Bypass",
+                disabled: !!busy || !onBypassAvailabilityChange,
+                run: toggleBypass,
+              },
+            ]
+          : page === "connection" && (field || selector)
+            ? [
+                {
+                  id: "settings-back",
+                  label: "Назад",
+                  disabled: busy === "save",
+                  run: back,
+                },
+                {
+                  id: "settings-confirm",
+                  label: field ? "Подтвердить" : "Выбрать",
+                  disabled:
+                    !!busy &&
+                    !(
+                      busy === "models" &&
+                      choices[
+                        Math.min(selected, Math.max(0, choices.length - 1))
+                      ]?.id === "__manual"
+                    ),
+                  run: () => {
+                    if (field) acceptField();
+                    else choose();
+                  },
+                },
+              ]
+            : [
+                ...(page === "connection"
+                  ? [
+                      {
+                        id: "settings-check",
+                        label: "Проверить подключение",
+                        disabled: !!busy,
+                        run: check,
+                      },
+                    ]
+                  : []),
+                {
+                  id: "settings-save",
+                  label: "Сохранить",
+                  disabled: !!busy || (page === "connection" && !loaded),
+                  run: saveCurrent,
+                },
+              ];
+  const actionNavigation = useMenuNavigation(
+    ["actions"],
+    settingsMenuActions,
+    "actions",
+  );
   const selectRoute = (index: number) => {
     const item = catalogue[index];
     if (!item) return;
@@ -890,6 +989,11 @@ export function OpenTuiSettings({
   useUiKeyboard((key) => {
     if (!active) return;
     const name = key.name.toLowerCase();
+    if (key.repeated && name === "return") {
+      key.preventDefault();
+      key.stopPropagation();
+      return;
+    }
     if (key.ctrl && name === "c") return;
     if (key.ctrl && name === "f") {
       key.preventDefault();
@@ -930,18 +1034,11 @@ export function OpenTuiSettings({
     }
     if (page === "appearance" && !navigationOnly) {
       if (
-        name === "m" &&
-        !key.repeated &&
+        name === "/" &&
+        !key.ctrl &&
         !themeSearchFocus &&
-        shellFocus !== "search" &&
-        !key.ctrl
+        shellFocus !== "search"
       ) {
-        key.preventDefault();
-        key.stopPropagation();
-        changeMotion();
-        return;
-      }
-      if (name === "/" && !key.ctrl) {
         key.preventDefault();
         setShellFocus("content");
         setThemeSearchFocus(true);
@@ -958,13 +1055,28 @@ export function OpenTuiSettings({
     }
     if (name === "tab") {
       key.preventDefault();
-      const zones = navigationOnly
+      key.stopPropagation();
+      if (
+        shellFocus === "content" &&
+        (page === "tools.skills" || page === "tools.mcp") &&
+        (page === "tools.skills"
+          ? skillsControls.current
+          : mcpControls.current
+        )?.tab?.(key.shift)
+      )
+        return;
+      const zonesWithActions = navigationOnly
         ? (["search", "navigation"] as const)
         : split
           ? (["search", "navigation", "content", "actions"] as const)
           : compactDetail
             ? (["content", "actions", "search"] as const)
             : (["search", "navigation"] as const);
+      const zones = zonesWithActions.filter(
+        (zone) =>
+          zone !== "actions" ||
+          settingsMenuActions.some((item) => !item.disabled),
+      );
       const index = zones.indexOf(shellFocus as never);
       setShellFocus(
         zones[(index + (key.shift ? -1 : 1) + zones.length) % zones.length] ??
@@ -985,10 +1097,28 @@ export function OpenTuiSettings({
           setNavigationIndex(0);
           setShellFocus(compactDetail ? "content" : "navigation");
         } else close();
-      } else if (["up", "down", "pageup", "pagedown"].includes(name)) {
+      } else if (
+        [
+          "up",
+          "down",
+          "pageup",
+          "pagedown",
+          ...(shellFocus === "search" ? [] : ["home", "end"]),
+        ].includes(name)
+      ) {
         key.preventDefault();
         const delta =
-          name === "up" ? -1 : name === "down" ? 1 : name === "pageup" ? -6 : 6;
+          name === "home"
+            ? -catalogue.length
+            : name === "end"
+              ? catalogue.length
+              : name === "up"
+                ? -1
+                : name === "down"
+                  ? 1
+                  : name === "pageup"
+                    ? -6
+                    : 6;
         setNavigationIndex((i) =>
           Math.max(0, Math.min(catalogue.length - 1, i + delta)),
         );
@@ -998,17 +1128,12 @@ export function OpenTuiSettings({
       }
       return;
     }
-    if (name === "f2" || (key.ctrl && name === "s")) {
+    if (key.ctrl && name === "s") {
       key.preventDefault();
       saveCurrent();
       return;
     }
-    if (shellFocus === "actions" && name === "return") {
-      key.preventDefault();
-      if (page === "permissions") toggleBypass();
-      else saveCurrent();
-      return;
-    }
+    if (shellFocus === "actions" && actionNavigation.handle(key)) return;
     if (
       page === "tools.mcp" ||
       page === "tools.skills" ||
@@ -1070,21 +1195,12 @@ export function OpenTuiSettings({
       }
       return;
     }
-    if (key.ctrl && name === "t") {
-      key.preventDefault();
-      changePage("appearance");
-      return;
-    }
     if (lifetime.current.busy) {
       if (lifetime.current.busy === "models" && name === "return") choose();
       if (name === "return" || name === "tab") key.preventDefault();
       return;
     }
-    if (key.ctrl && name === "r") {
-      key.preventDefault();
-      if (page === "connection") check();
-      return;
-    }
+    if (key.ctrl || key.meta || key.option) return;
     if (page === "permissions") {
       if (name === "return" || name === "space") {
         key.preventDefault();
@@ -1109,14 +1225,22 @@ export function OpenTuiSettings({
         name === "up" ||
         name === "down" ||
         name === "left" ||
-        name === "right"
+        name === "right" ||
+        name === "home" ||
+        name === "end"
       ) {
         key.preventDefault();
         setNotice("");
         setThemeIndex(
           (i) =>
             (i +
-              (name === "up" || name === "left" ? -1 : 1) +
+              (name === "home"
+                ? -i
+                : name === "end"
+                  ? names.length - 1 - i
+                  : name === "up" || name === "left"
+                    ? -1
+                    : 1) +
               Math.max(1, names.length)) %
             Math.max(1, names.length),
         );
@@ -1343,7 +1467,7 @@ export function OpenTuiSettings({
               <box flexDirection="column" height="100%" width="100%">
                 <DialogAction
                   id="settings-motion"
-                  label={`Анимации: ${motion.preference === "full" ? (surfaceWidth < 35 ? "да" : "плавные") : surfaceWidth < 35 ? "мин" : "минимум"} · M`}
+                  label={`Анимации: ${motion.preference === "full" ? (surfaceWidth < 35 ? "да" : "плавные") : surfaceWidth < 35 ? "мин" : "минимум"}`}
                   palette={palette}
                   disabled={motion.saving || !motion.change}
                   onSelect={changeMotion}
@@ -2016,132 +2140,23 @@ export function OpenTuiSettings({
           {terminalLine(safeValue(notice), innerWidth)}
         </text>
       )}
-      <box height={1} flexShrink={0} flexDirection="row" gap={1}>
-        {simpleFooter ? (
-          <text fg={palette.muted}>
-            {terminalLine(
-              navigationOnly
-                ? surfaceWidth < 28
-                  ? "Enter | Esc назад"
-                  : surfaceWidth < 55
-                    ? "Enter открыть | Ctrl+F | Esc назад"
-                    : "Enter открыть | Tab фокус | Ctrl+F поиск | Esc назад"
-                : page === "extensions"
-                  ? "Tab фокус | Ctrl+F разделы | Esc назад"
-                  : page === "tools.skills"
-                    ? "Tab фокус | Alt+1/2 вкладки | Ctrl+O текст | Esc назад"
-                    : page === "tools.mcp"
-                      ? "Tab фокус | Ctrl+R проверка | Ctrl+S сохранить | Esc назад"
-                      : tiny
-                        ? "F2 сохр | Esc назад"
-                        : surfaceWidth < 55
-                          ? "F2 сохранить | Esc назад"
-                          : "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад",
-              surfaceWidth,
-            )}
-          </text>
-        ) : page === "web" ? (
-          <text fg={palette.muted}>
-            {terminalLine("Ctrl+S/F2 сохранить Web | Esc назад", surfaceWidth)}
-          </text>
-        ) : page === "permissions" ? (
-          <DialogAction
-            id="settings-bypass-action"
-            label={
-              busy === "permissions"
-                ? "Сохраняем..."
-                : bypassAllowed
-                  ? "Выключить Bypass"
-                  : "Включить Bypass"
-            }
-            palette={palette}
-            disabled={!!busy || !onBypassAvailabilityChange}
-            onSelect={toggleBypass}
-          />
-        ) : page === "appearance" ? (
-          <>
-            <DialogAction
-              id="settings-apply-theme"
-              label={
-                busy === "theme"
-                  ? "Сохраняем..."
-                  : tiny
-                    ? "Применить"
-                    : "Применить тему"
-              }
-              primary
-              palette={palette}
-              disabled={!!busy}
-              onSelect={applyTheme}
-            />
-            <DialogAction
-              id="settings-cancel-theme"
-              label={surfaceWidth < 55 ? "Отмена" : "Отменить предпросмотр"}
-              palette={palette}
-              disabled={!!busy}
-              onSelect={() => {
-                setThemeSearch("");
-                setThemeSearchFocus(false);
-                setThemeIndex(
-                  Math.max(
-                    0,
-                    catalog
-                      .list()
-                      .findIndex((item) => item.key === restore.current.theme),
-                  ),
-                );
-                onThemePreview?.(restore.current.theme);
-                setNotice("");
-              }}
-            />
-          </>
-        ) : field || selector ? (
-          <>
-            <DialogAction
-              id="settings-back"
-              label="< Назад"
-              palette={palette}
-              onSelect={back}
-              disabled={busy === "save"}
-            />
-            <DialogAction
-              id="settings-confirm"
-              label={field ? "Подтвердить" : "Выбрать"}
-              primary
-              palette={palette}
-              disabled={
-                !!busy &&
-                !(busy === "models" && choices[index]?.id === "__manual")
-              }
-              onSelect={field ? acceptField : () => choose()}
-            />
-          </>
-        ) : (
-          <>
-            <DialogAction
-              id="settings-check"
-              label={
-                busy === "check"
-                  ? "Проверяем..."
-                  : !loaded && !busy
-                    ? "Повторить"
-                    : "Проверить"
-              }
-              palette={palette}
-              onSelect={check}
-              disabled={!!busy}
-            />
-            <DialogAction
-              id="settings-save"
-              label={busy === "save" ? "Сохраняем..." : "Сохранить"}
-              primary
-              palette={palette}
-              disabled={!!busy || !loaded}
-              onSelect={save}
-            />
-          </>
-        )}
-      </box>
+      {navigationOnly ? (
+        <text height={1} flexShrink={0} fg={palette.muted}>
+          {terminalLine("↑↓ выбор · Tab области · Enter · Esc", surfaceWidth)}
+        </text>
+      ) : (
+        <MenuActions
+          id="settings-actions"
+          actions={settingsMenuActions}
+          navigation={{
+            ...actionNavigation,
+            area: shellFocus === "actions" ? "actions" : "content",
+          }}
+          width={surfaceWidth}
+          palette={palette}
+          compact={simpleFooter || !roomy}
+        />
+      )}
       {showHint && (
         <text height={1} fg={palette.muted}>
           {terminalSafeText(
@@ -2151,11 +2166,13 @@ export function OpenTuiSettings({
                 : busy === "check"
                   ? "Проверяем подключение... | Esc закрыть"
                   : "Подождите..."
-              : innerWidth >= 70
-                ? "Ctrl+F поиск | Tab фокус | Ctrl+S/F2 сохранить | Esc назад"
-                : innerWidth >= 32
-                  ? "Tab фокус · Ctrl+S · Esc назад"
-                  : "Tab · Esc назад",
+              : shellFocus === "actions"
+                ? "←→ · Enter · Ctrl+S · Esc"
+                : innerWidth >= 70
+                  ? "Tab области · ←→ действия · Ctrl+S · Esc"
+                  : innerWidth >= 32
+                    ? "Tab фокус · Ctrl+S · Esc назад"
+                    : "Tab · Esc назад",
             innerWidth,
           )}
         </text>

@@ -13,6 +13,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { menuAction } from "./menu-navigation.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const directory = await realpath(
@@ -308,7 +309,7 @@ try {
   );
   await send("/resume");
   await search("Orbit навигация");
-  await key("r", true);
+  await menuAction(ui, "resume-actions", "resume-rename");
   await wait(
     () => ui.captureCharFrame().includes("Новое название:"),
     "rename mode",
@@ -342,10 +343,10 @@ try {
   await key("escape");
   await key("escape"); // viewer -> list -> clear query
   await search("Orbit Навигация");
-  await key("d", true);
+  await menuAction(ui, "resume-actions", "resume-delete");
   await key("escape");
   assert.ok(await bStore.load(b.id), "delete cancellation preserves history");
-  await key("d", true);
+  await menuAction(ui, "resume-actions", "resume-delete");
   await key("y");
   await wait(
     () =>

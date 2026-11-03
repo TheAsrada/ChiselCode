@@ -5,6 +5,7 @@ import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
+import { useSidebarNavigation } from "./sidebar-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiPresentationController as TuiController } from "./tui-controller.js";
@@ -24,7 +25,7 @@ export function SidebarMenu({
   width,
   height,
   palette,
-  focused,
+  focused: enabled,
   owner,
   onFocus,
 }: {
@@ -37,6 +38,7 @@ export function SidebarMenu({
   owner: string;
   onFocus(): void;
 }) {
+  const { focused, focusStrip } = useSidebarNavigation(enabled);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const actions = useMemo(() => {
@@ -106,6 +108,14 @@ export function SidebarMenu({
       key.option
     )
       return;
+    if (key.name === "tab") {
+      key.preventDefault();
+      key.stopPropagation();
+      if ((searching && key.shift) || (!searching && !key.shift) || !canSearch)
+        focusStrip();
+      else setSearching(!searching);
+      return;
+    }
     if (searching) {
       if (
         ["escape", "tab", "down", "up", "return", "enter"].includes(key.name)

@@ -14,6 +14,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 import { quoteShellArg } from "../helpers/shell.js";
+import { focusMenuAction, menuAction, uiKey } from "./menu-navigation.js";
 
 const directory = await realpath(
   await mkdtemp(join(tmpdir(), "chisel-background-tui-")),
@@ -282,8 +283,9 @@ try {
       ui.renderer.resize(width!, height!);
     });
     await capture(`ordinary-tui-${width}x${height}-background-popup`);
-    assert.ok(ui.renderer.root.findDescendantById("background-action-0"));
-    assert.ok(ui.renderer.root.findDescendantById("background-action-1"));
+    assert.ok(ui.renderer.root.findDescendantById("background-actions"));
+    await focusMenuAction(ui, "background-actions", "background-stop");
+    await uiKey(ui, "TAB", true);
   }
   await act(async () => {
     ui.renderer.resize(120, 40);
@@ -336,7 +338,7 @@ try {
     () => !!ui.renderer.root.findDescendantById("background-tasks-popup"),
     "Esc не вернул список задач",
   );
-  await key("s");
+  await menuAction(ui, "background-actions", "background-stop");
   await until(
     () => ui.captureCharFrame().includes("Остановлено"),
     "Выбранная задача не остановилась",

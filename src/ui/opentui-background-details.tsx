@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { backgroundActive } from "../background/contracts.js";
 import { backgroundStateLabels } from "../background/presentation.js";
 import type { Palette } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { useClipboardActions } from "./opentui-clipboard.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
@@ -38,17 +39,12 @@ export function OpenTuiBackgroundDetails({
   const renderer = useRenderer();
   const clipboard = useClipboardActions();
   const body = useRef<ScrollBoxRenderable>(null);
-  const [action, setAction] = useState(0);
-  const [secondary, setSecondary] = useState(false);
-  const [searching, setSearching] = useState(false);
   const [deleteId, setDeleteId] = useState<string>();
   const layout = dialogLayout(width, height);
   const tiny = height < 12 || width < 30;
   const rows = Math.max(
     1,
-    layout.popupHeight -
-      (layout.tiny ? 3 : tiny ? 5 : 8) -
-      (secondary && !tiny ? 1 : 0),
+    layout.popupHeight - (layout.tiny ? 5 : tiny ? 7 : layout.roomy ? 11 : 9),
   );
   const inner = Math.max(1, layout.popupWidth - (layout.tiny ? 2 : 4));
   const section = viewer.section;
@@ -56,45 +52,119 @@ export function OpenTuiBackgroundDetails({
   const active = task ? backgroundActive(task.state) : false;
   const owner = `background-view:${controller.conversationId}:${controller.currentGeneration}`;
   const anchor = `${viewer.id}:${section}`;
-  const actions = [
-    { label: "Назад", run: () => controller.hideBackground() },
-    ...(active
-      ? [
-          {
-            label: tiny ? "Стоп" : "Остановить S",
-            run: () => {
-              void controller.stopBackground(viewer.id);
-            },
-          },
-        ]
-      : []),
-    ...(task?.foreground && active
-      ? [
-          {
-            label: "В фон",
-            run: () => {
-              void controller.promoteBackground(viewer.id);
-            },
-          },
-        ]
-      : []),
-    ...(!tiny
-      ? [
-          {
-            label: "Копировать",
-            run: () => {
-              void clipboard?.copyText(
-                renderer.getSelection()?.getSelectedText() ||
-                  viewer.searchOutput ||
-                  viewer.page?.text ||
-                  "",
-              );
-            },
-          },
-          { label: "Ещё", run: () => setSecondary((value) => !value) },
-        ]
-      : []),
+  const menuActions = [
+    {
+      id: "background-detail-back",
+      label: "Назад",
+      run: () => controller.hideBackground(),
+    },
+    {
+      id: "background-detail-stop",
+      label: "Остановить",
+      disabled: !active,
+      run: () => {
+        void controller.stopBackground(viewer.id);
+      },
+    },
+    {
+      id: "background-promote",
+      label: "В фон",
+      disabled: !task?.foreground || !active,
+      run: () => {
+        void controller.promoteBackground(viewer.id);
+      },
+    },
+    {
+      id: "background-copy",
+      label: "Копировать",
+      run: () => {
+        void clipboard?.copyText(
+          renderer.getSelection()?.getSelectedText() ||
+            viewer.searchOutput ||
+            viewer.page?.text ||
+            "",
+        );
+      },
+    },
+    {
+      id: "background-previous",
+      label: "Ранее",
+      disabled: !viewer.page || viewer.page.cursor <= 0,
+      run: () => {
+        controller.setBackgroundView({ follow: false });
+        void controller.loadBackground(
+          viewer.id,
+          false,
+          Math.max(0, (viewer.page?.cursor ?? 0) - 32768),
+        );
+      },
+    },
+    {
+      id: "background-next",
+      label: "Дальше",
+      disabled: !viewer.page || viewer.page.next >= viewer.page.end,
+      run: () => {
+        controller.setBackgroundView({ follow: false });
+        void controller.loadBackground(viewer.id, false, viewer.page?.next);
+      },
+    },
+    {
+      id: "background-follow",
+      label: "В конец / Следить",
+      run: () => {
+        controller.setBackgroundView({ follow: true });
+        void controller.loadBackground(viewer.id, true);
+      },
+    },
+    {
+      id: "background-command",
+      label: "Копировать команду",
+      run: () => {
+        void clipboard?.copyText(task?.commandPreview ?? "");
+      },
+    },
+    {
+      id: "background-path",
+      label: "Копировать путь",
+      run: () => {
+        void clipboard?.copyText(task?.workspace ?? "");
+      },
+    },
+    {
+      id: "background-recover",
+      label: "Восстановить очистку",
+      disabled: active || !task?.cleanup.recoveryRequired,
+      run: () => {
+        void controller.recoverBackground(viewer.id);
+      },
+    },
+    {
+      id: "background-retry",
+      label: "Повторить",
+      disabled:
+        active ||
+        !!task?.cleanup.recoveryRequired ||
+        !task?.cleanup.confirmed ||
+        !task.replayable ||
+        !onRetry,
+      run: () => {
+        controller.hideBackground();
+        controller.hideBackgroundPanel();
+        onRetry?.(viewer.id);
+      },
+    },
+    {
+      id: "background-history-delete",
+      label: "Удалить историю…",
+      disabled: active || !task?.cleanup.confirmed,
+      run: () => setDeleteId(viewer.id),
+    },
   ];
+  const navigation = useMenuNavigation(
+    ["tabs", "search", "body", "actions"],
+    menuActions,
+    "body",
+  );
   const lines =
     section === "output"
       ? (viewer.searchOutput ?? viewer.page?.text ?? "").split("\n")
@@ -120,7 +190,7 @@ export function OpenTuiBackgroundDetails({
             task?.truncated ? "Часть вывода не сохранена" : "",
             task?.error ?? "",
             task?.cleanup.recoveryRequired
-              ? "Не повторяйте команду. H — проверить подтверждение исходного backend; при его отсутствии блокировка сохраняется."
+              ? "Не повторяйте команду. Выберите «Восстановить очистку» для проверки исходного backend; без подтверждения блокировка сохраняется."
               : "",
           ];
   const visible = (
@@ -151,9 +221,19 @@ export function OpenTuiBackgroundDetails({
       return;
     }
     if (key.ctrl || key.meta || key.option) return;
-    key.preventDefault();
-    key.stopPropagation();
-    if (key.shift && ["left", "right"].includes(key.name)) {
+    if (
+      navigation.area !== "search" ||
+      ["tab", "escape"].includes(key.name) ||
+      deleteId
+    ) {
+      key.preventDefault();
+      key.stopPropagation();
+    }
+    if (
+      navigation.area !== "search" &&
+      key.shift &&
+      ["left", "right"].includes(key.name)
+    ) {
       controller.setBackgroundView({
         horizontal: Math.max(
           0,
@@ -167,62 +247,41 @@ export function OpenTuiBackgroundDetails({
       });
       return;
     }
-    if (searching) {
-      if (["escape", "return", "enter"].includes(key.name)) {
-        setSearching(false);
-        if (section === "output")
-          void controller.searchBackground(
-            viewer.id,
-            key.name === "escape" ? "" : (viewer.search ?? ""),
-          );
-      } else if (key.name === "backspace")
-        controller.setBackgroundView({
-          search: [...(viewer.search ?? "")].slice(0, -1).join(""),
-          searchOutput: undefined,
-        });
+    if (deleteId) {
+      if (key.name === "escape") setDeleteId(undefined);
       else if (
-        key.sequence &&
-        [...key.sequence].length === 1 &&
-        (viewer.search?.length ?? 0) < 120
-      )
-        controller.setBackgroundView({
-          search: (viewer.search ?? "") + key.sequence,
-          searchOutput: undefined,
-        });
+        ["return", "enter"].includes(key.name) &&
+        !key.repeated &&
+        deleteId === viewer.id &&
+        !active &&
+        task?.cleanup.confirmed
+      ) {
+        const id = deleteId;
+        setDeleteId(undefined);
+        void controller.deleteBackgroundHistory(id);
+      }
       return;
     }
+    if (navigation.handle(key)) return;
     if (key.name === "escape") {
-      setDeleteId(undefined);
+      if (navigation.area === "search") {
+        navigation.setArea("body");
+        if (section === "output")
+          void controller.searchBackground(viewer.id, "");
+        return;
+      }
       controller.hideBackground();
-    } else if (
-      key.name === "d" &&
-      deleteId === viewer.id &&
-      !active &&
-      task?.cleanup.confirmed
-    ) {
-      setDeleteId(undefined);
-      void controller.deleteBackgroundHistory(viewer.id);
-    } else if (key.name === "s" && active)
-      void controller.stopBackground(viewer.id);
-    else if (key.name === "h" && !active && task?.cleanup.recoveryRequired)
-      void controller.recoverBackground(viewer.id);
-    else if (key.name === "b" && task?.foreground && active)
-      void controller.promoteBackground(viewer.id);
-    else if (key.name === "tab")
-      setAction(
-        (current) =>
-          (current + (key.shift ? actions.length : 1)) % (actions.length + 1),
-      );
-    else if (["enter", "return"].includes(key.name))
-      actions[Math.max(0, action - 1)]?.run();
-    else if (["left", "right"].includes(key.name))
+      return;
+    }
+    if (navigation.area === "search") return;
+    if (navigation.area === "tabs" && ["left", "right"].includes(key.name)) {
       controller.setBackgroundView({
         section:
           sections[
             (sections.indexOf(section) + (key.name === "left" ? 2 : 1)) % 3
           ],
       });
-    else if (key.name === "/") setSearching(true);
+    } else if (key.name === "/") navigation.setArea("search");
     else if (
       ["up", "down", "pageup", "pagedown", "home", "end"].includes(key.name)
     ) {
@@ -257,7 +316,7 @@ export function OpenTuiBackgroundDetails({
         {terminalLine(task?.label ?? "Фоновая задача недоступна", inner)}
       </text>
       <box height={1} flexShrink={0} flexDirection="row">
-        {(tiny ? [section] : sections).map((item) => (
+        {sections.map((item) => (
           <DialogAction
             key={item}
             label={
@@ -267,21 +326,28 @@ export function OpenTuiBackgroundDetails({
                   ? "Сведения"
                   : "Итог"
             }
-            active={section === item}
+            active={navigation.area === "tabs" && section === item}
             palette={palette}
             onSelect={() => controller.setBackgroundView({ section: item })}
           />
         ))}
       </box>
-      {!tiny && (
-        <text height={1} fg={palette.muted}>
-          {terminalLine(
-            viewer.notice ??
-              `${task?.ownerLabel ?? ""} · ${task?.workspaceLabel ?? ""}${viewer.loading ? " · Чтение…" : ""}${viewer.search ? ` · Поиск: ${viewer.search}` : ""}`,
-            inner,
-          )}
-        </text>
-      )}
+      <input
+        id="background-output-search"
+        value={viewer.search ?? ""}
+        focused={navigation.area === "search" && !deleteId}
+        placeholder="Поиск в выводе…"
+        backgroundColor={palette.raised}
+        textColor={palette.text}
+        onInput={(search) =>
+          controller.setBackgroundView({ search, searchOutput: undefined })
+        }
+        onSubmit={(value) => {
+          if (typeof value === "string" && section === "output")
+            void controller.searchBackground(viewer.id, value);
+          navigation.setArea("body");
+        }}
+      />
       <TerminalScrollbox
         id="background-output"
         ref={body}
@@ -290,7 +356,10 @@ export function OpenTuiBackgroundDetails({
         focused={false}
         stickyScroll={viewer.follow && section === "output"}
         stickyStart="bottom"
-        onMouseDown={() => controller.setBackgroundView({ follow: false })}
+        onMouseDown={() => {
+          navigation.setArea("body");
+          controller.setBackgroundView({ follow: false });
+        }}
         onMouseScroll={() => {
           controller.setBackgroundView({ follow: false });
           if (body.current)
@@ -321,108 +390,34 @@ export function OpenTuiBackgroundDetails({
           </text>
         )}
       </TerminalScrollbox>
-      {!tiny && section === "output" && (
-        <box height={1} flexShrink={0} flexDirection="row">
-          <DialogAction
-            label="Раньше"
-            disabled={!viewer.page?.cursor}
-            palette={palette}
-            onSelect={() => {
-              controller.setBackgroundView({ follow: false });
-              void controller.loadBackground(
-                viewer.id,
-                false,
-                Math.max(0, (viewer.page?.cursor ?? 0) - 32768),
-              );
-            }}
-          />
-          <DialogAction
-            label="Дальше"
-            disabled={!viewer.page || viewer.page.next >= viewer.page.end}
-            palette={palette}
-            onSelect={() => {
-              controller.setBackgroundView({ follow: false });
-              void controller.loadBackground(
-                viewer.id,
-                false,
-                viewer.page?.next,
-              );
-            }}
-          />
-          <DialogAction
-            label={
-              viewer.follow
-                ? "Следить"
-                : `Новые строки: ${Math.max(0, (task?.outputLines ?? 0) - (viewer.pausedAtLine ?? task?.outputLines ?? 0))} / В конец`
-            }
-            palette={palette}
-            active={viewer.follow}
-            onSelect={() => {
-              controller.setBackgroundView({ follow: true });
-              void controller.loadBackground(viewer.id, true);
-            }}
-          />
-        </box>
+      {deleteId ? (
+        <text height={1} fg={palette.yellow}>
+          {terminalLine("Удалить историю? Enter / Esc", inner)}
+        </text>
+      ) : (
+        <MenuActions
+          id="background-detail-actions"
+          actions={menuActions}
+          navigation={navigation}
+          width={inner}
+          palette={palette}
+          compact
+        />
       )}
-      {secondary && !tiny && (
-        <box height={1} flexShrink={0} flexDirection="row">
-          <DialogAction
-            label="Команда"
-            palette={palette}
-            onSelect={() => {
-              void clipboard?.copyText(task?.commandPreview ?? "");
-            }}
-          />
-          <DialogAction
-            label="Путь"
-            palette={palette}
-            onSelect={() => {
-              void clipboard?.copyText(task?.workspace ?? "");
-            }}
-          />
-          <DialogAction
-            label={task?.cleanup.recoveryRequired ? "Проверить H" : "Повторить"}
-            disabled={
-              active ||
-              (!task?.cleanup.recoveryRequired &&
-                (!task?.cleanup.confirmed || !task.replayable))
-            }
-            palette={palette}
-            onSelect={() => {
-              if (task?.cleanup.recoveryRequired) {
-                void controller.recoverBackground(viewer.id);
-                return;
-              }
-              controller.hideBackground();
-              controller.hideBackgroundPanel();
-              onRetry?.(viewer.id);
-            }}
-          />
-          <DialogAction
-            label="Удалить историю"
-            disabled={active || !task?.cleanup.confirmed}
-            palette={palette}
-            onSelect={() => {
-              setDeleteId(viewer.id);
-              controller.setBackgroundView({
-                notice:
-                  "Удаление истории и сохранённых логов: повторно нажмите D для подтверждения.",
-              });
-            }}
-          />
-        </box>
+      {!tiny && (
+        <text height={1} fg={palette.muted}>
+          {terminalLine(
+            viewer.notice ||
+              (!viewer.follow && section === "output"
+                ? `Новые строки: ${Math.max(0, (task?.outputLines ?? 0) - (viewer.pausedAtLine ?? task?.outputLines ?? 0))} · В конец через действия`
+                : undefined) ||
+              (navigation.area === "actions"
+                ? "←→ действие · Enter · Esc назад"
+                : "Tab области · ↑↓ прокрутка · Esc"),
+            inner,
+          )}
+        </text>
       )}
-      <box height={1} flexShrink={0} flexDirection="row">
-        {actions.map((item, i) => (
-          <DialogAction
-            key={item.label}
-            label={item.label}
-            active={action === i + 1}
-            palette={palette}
-            onSelect={item.run}
-          />
-        ))}
-      </box>
     </OpenTuiDialog>
   );
 }

@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { backgroundActive } from "../background/contracts.js";
 import { backgroundStateLabels } from "../background/presentation.js";
 import type { Palette } from "./appearance.js";
+import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { elapsedSeconds } from "./request-timing.js";
@@ -36,8 +37,7 @@ export function BackgroundTaskList({
   const tiny = height < 12 || width < 30;
   const pressed = useRef<string | undefined>(undefined);
   const body = useRef<ScrollBoxRenderable>(null);
-  const [action, setAction] = useState(0);
-  const [searching, setSearching] = useState(false);
+
   const [windowStart, setWindowStart] = useState(0);
   const [stopSet, setStopSet] =
     useState<readonly { id: string; label: string }[]>();
@@ -82,17 +82,64 @@ export function BackgroundTaskList({
   const shown = tasks.slice(start, start + 64);
   const shownGroups = [...new Set(shown.map((task) => task.childId ?? "main"))];
   const rowHeight = tiny ? 1 : height >= 20 ? 6 : 3;
-  const rows = Math.max(1, height - (tiny ? 2 : 5) - (list.childId ? 1 : 0));
-  const actions = [
-    () => {
-      if (selected) void controller.openBackground(selected.id);
+  const rows = Math.max(1, height - (tiny ? 3 : 5) - (list.childId ? 1 : 0));
+  const menuActions = [
+    {
+      id: "background-open",
+      label: "Открыть",
+      disabled: !selected,
+      run: () => {
+        if (selected) void controller.openBackground(selected.id);
+      },
     },
-    () => {
-      if (selected && backgroundActive(selected.state))
-        void controller.stopBackground(selected.id);
+    {
+      id: "background-stop",
+      label: "Остановить",
+      disabled: !selected || !backgroundActive(selected.state),
+      run: () => {
+        if (selected) void controller.stopBackground(selected.id);
+      },
     },
-    onBack,
+    {
+      id: "background-filter",
+      label: `Фильтр: ${list.filter === "all" ? "Все" : list.filter === "active" ? "Работают" : "Завершены"}`,
+      run: () =>
+        controller.setBackgroundList({
+          filter:
+            list.filter === "all"
+              ? "active"
+              : list.filter === "active"
+                ? "terminal"
+                : "all",
+        }),
+    },
+    {
+      id: "background-stop-all",
+      label: "Остановить все…",
+      disabled: !active,
+      run: () =>
+        setStopSet(
+          all
+            .filter((task) => backgroundActive(task.state))
+            .map((task) => ({ id: task.id, label: task.label })),
+        ),
+    },
+    ...(list.childId
+      ? [
+          {
+            id: "background-all-owners",
+            label: "Все владельцы",
+            run: () => controller.setBackgroundList({ childId: undefined }),
+          },
+        ]
+      : []),
+    { id: "background-back", label: "Назад", run: onBack },
   ];
+  const navigation = useMenuNavigation(
+    ["search", ...(tasks.length ? ["list"] : []), "actions"],
+    menuActions,
+    "list",
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: Stable selection scrolling depends on row identity and layout, not output batches.
   useLayoutEffect(() => {
     if (!list.selected && tasks[0])
@@ -121,77 +168,40 @@ export function BackgroundTaskList({
       key.preventDefault();
       key.stopPropagation();
       if (key.name === "escape") setStopSet(undefined);
-      else if (["return", "enter"].includes(key.name)) {
+      else if (["return", "enter"].includes(key.name) && !key.repeated) {
         const captured = stopSet.map((task) => task.id);
         setStopSet(undefined);
         void controller.stopBackgroundSet(captured);
       }
       return;
     }
-    if (searching) {
+    if (navigation.handle(key)) return;
+    if (key.name === "escape") {
       key.preventDefault();
       key.stopPropagation();
-      if (["escape", "return", "enter"].includes(key.name)) setSearching(false);
-      else if (key.name === "backspace")
-        controller.setBackgroundList({
-          search: [...list.search].slice(0, -1).join(""),
-        });
-      else if (
-        key.sequence &&
-        [...key.sequence].length === 1 &&
-        list.search.length < 120
-      )
-        controller.setBackgroundList({ search: list.search + key.sequence });
+      onBack();
       return;
     }
-    if (
-      ![
-        "escape",
-        "tab",
-        "return",
-        "enter",
-        "up",
-        "down",
-        "j",
-        "k",
-        "home",
-        "end",
-        "pageup",
-        "pagedown",
-        "s",
-        "f",
-        "/",
-        "a",
-      ].includes(key.name)
-    )
+    if (key.name === "/" && navigation.area !== "search") {
+      key.preventDefault();
+      navigation.setArea("search");
       return;
-    key.preventDefault();
-    key.stopPropagation();
-    if (key.name === "a")
-      setStopSet(
-        all
-          .filter((task) => backgroundActive(task.state))
-          .map((task) => ({ id: task.id, label: task.label })),
-      );
-    else if (key.name === "escape") onBack();
-    else if (key.name === "tab")
-      setAction((current) => (current + (key.shift ? 3 : 1)) % 4);
-    else if (["return", "enter"].includes(key.name))
-      actions[Math.max(0, action - 1)]?.();
-    else if (key.name === "s") actions[1]?.();
-    else if (key.name === "/") setSearching(true);
-    else if (key.name === "f")
-      controller.setBackgroundList({
-        filter:
-          list.filter === "all"
-            ? "active"
-            : list.filter === "active"
-              ? "terminal"
-              : "all",
-      });
-    else {
+    }
+    if (["return", "enter"].includes(key.name)) {
+      key.preventDefault();
+      key.stopPropagation();
+      if (!key.repeated && selected)
+        void controller.openBackground(selected.id);
+      return;
+    }
+    if (navigation.area === "search") return;
+    if (
+      ["up", "down", "home", "end", "pageup", "pagedown"].includes(key.name)
+    ) {
+      key.preventDefault();
+      key.stopPropagation();
       const delta =
-        (["up", "k", "pageup"].includes(key.name) ? -1 : 1) *
+        (["up", "pageup"].includes(key.name) ? -1 : 1) *
         (key.name.startsWith("page")
           ? Math.max(1, Math.floor(rows / rowHeight))
           : 1);
@@ -226,16 +236,15 @@ export function BackgroundTaskList({
           width,
         )}
       </text>
-      {!tiny && (
-        <text height={1} flexShrink={0} fg={palette.muted}>
-          {terminalLine(
-            searching
-              ? `Поиск: ${list.search}_`
-              : `${list.filter === "all" ? "Все" : list.filter === "active" ? "Работают" : "Завершены"} · F фильтр · / поиск ${list.search}`,
-            width,
-          )}
-        </text>
-      )}
+      <input
+        id="background-search"
+        value={list.search}
+        focused={focused && navigation.area === "search"}
+        placeholder="Поиск задач…"
+        textColor={palette.text}
+        backgroundColor={palette.raised}
+        onInput={(search) => controller.setBackgroundList({ search })}
+      />
       {list.childId && (
         <DialogAction
           label="Все владельцы"
@@ -453,7 +462,7 @@ export function BackgroundTaskList({
                 ? `${selected.ownerLabel} · ${selected.workspaceLabel}`
                 : list.selected
                   ? "Выбранная задача скрыта фильтром"
-                  : "↑↓ выбор · Enter вывод · S остановить",
+                  : "↑↓ выбор · Tab действия · Enter вывод",
               width,
             )}
           </text>
@@ -479,38 +488,14 @@ export function BackgroundTaskList({
           </text>
         </box>
       )}
-      <box height={1} flexShrink={0} flexDirection="row">
-        {[tiny ? "Откр." : "Открыть", tiny ? "Стоп" : "Стоп S", "Назад"].map(
-          (label, i) => (
-            <DialogAction
-              key={label}
-              id={`background-action-${i}`}
-              label={label}
-              palette={palette}
-              active={action === i + 1}
-              disabled={
-                i < 2 &&
-                (!selected || (i === 1 && !backgroundActive(selected.state)))
-              }
-              onSelect={actions[i]!}
-            />
-          ),
-        )}
-        {!tiny && (
-          <DialogAction
-            label="Все A"
-            palette={palette}
-            disabled={!active}
-            onSelect={() =>
-              setStopSet(
-                all
-                  .filter((task) => backgroundActive(task.state))
-                  .map((task) => ({ id: task.id, label: task.label })),
-              )
-            }
-          />
-        )}
-      </box>
+      <MenuActions
+        id="background-actions"
+        actions={menuActions}
+        navigation={navigation}
+        width={width}
+        palette={palette}
+        compact={tiny}
+      />
     </box>
   );
 }

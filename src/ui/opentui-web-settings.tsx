@@ -125,7 +125,7 @@ export function OpenTuiWebSettings({
         "ask";
     }
     setState({ ...state, config });
-    setNotice("Draft · Ctrl+S / F2 сохранить");
+    setNotice("Draft · Ctrl+S сохранить");
   };
   const acceptKey = () => {
     if (keyInput !== undefined) {
@@ -164,7 +164,7 @@ export function OpenTuiWebSettings({
       return;
     }
     if (busy) return;
-    if (!controls && (key.name === "f2" || (key.ctrl && key.name === "s"))) {
+    if (!controls && key.ctrl && key.name === "s") {
       key.preventDefault();
       saveCurrent();
       return;
@@ -338,7 +338,7 @@ export function OpenTuiWebSettings({
         )}
         <DialogAction
           id="settings-web-save"
-          label={busy ? "Сохраняем…" : "Сохранить Web · Ctrl+S / F2"}
+          label={busy ? "Сохраняем…" : "Сохранить Web · Ctrl+S"}
           palette={palette}
           primary
           disabled={busy || !state}

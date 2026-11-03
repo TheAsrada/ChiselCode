@@ -7,6 +7,7 @@ import { subagentStatusTitle } from "../subagents/service.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
+import { useSidebarNavigation } from "./sidebar-panel.js";
 import { SubagentElapsed } from "./subagent-elapsed.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
@@ -21,7 +22,7 @@ export function AgentsSidebar({
   width,
   height,
   palette,
-  focused,
+  focused: enabled,
   embedded = false,
   onFocus,
   onBack,
@@ -42,6 +43,7 @@ export function AgentsSidebar({
   onOpen(id: string): void;
   onStop(id: string): void;
 }) {
+  const { focused, focusStrip } = useSidebarNavigation(enabled);
   const body = useRef<ScrollBoxRenderable>(null);
   const pressed = useRef<string | undefined>(undefined);
   const [action, setAction] = useState(0);
@@ -109,40 +111,41 @@ export function AgentsSidebar({
     if (key.name === "tab") {
       key.preventDefault();
       key.stopPropagation();
-      setAction(
-        (current) =>
-          (current + (key.shift ? -1 : 1) + actions.length + 1) %
-          (actions.length + 1),
-      );
+      const next = action + (key.shift ? -1 : 1);
+      if (embedded && (next < 0 || next > actions.length)) {
+        setAction(0);
+        focusStrip();
+      } else setAction((next + actions.length + 1) % (actions.length + 1));
       return;
     }
-    if (key.name === "return" || key.name === "enter") {
+    if (["return", "enter", "space"].includes(key.name)) {
       key.preventDefault();
       key.stopPropagation();
+      if (key.repeated) return;
       if (action) actions[action - 1]?.();
       else if (selected) onOpen(selected.id);
       else onBack();
       return;
     }
-    if (key.name === "s" && selected && subagentActive(selected.status)) {
-      key.preventDefault();
-      key.stopPropagation();
-      onStop(selected.id);
+    if (action !== 0) {
+      if (["up", "down", "left", "right"].includes(key.name)) {
+        key.preventDefault();
+        key.stopPropagation();
+        setAction(
+          ((action -
+            1 +
+            (["up", "left"].includes(key.name) ? -1 : 1) +
+            actions.length) %
+            actions.length) +
+            1,
+        );
+      }
       return;
     }
-    if (key.name === "c" && !key.ctrl) {
-      key.preventDefault();
-      key.stopPropagation();
-      onContext();
-      return;
-    }
-    if (action !== 0) return;
     if (
       [
         "up",
         "down",
-        "j",
-        "k",
         "home",
         "end",
         "pageup",
@@ -158,9 +161,7 @@ export function AgentsSidebar({
         return;
       }
       const delta =
-        (key.name === "up" || key.name === "k" || key.name === "pageup"
-          ? -1
-          : 1) *
+        (key.name === "up" || key.name === "pageup" ? -1 : 1) *
         (key.name.startsWith("page")
           ? Math.max(1, Math.floor(bodyHeight / rowHeight))
           : 1);
@@ -208,7 +209,7 @@ export function AgentsSidebar({
           </text>
           <DialogAction
             id="agents-context"
-            label="Контекст C"
+            label="Контекст"
             palette={palette}
             onSelect={onContext}
           />
@@ -396,7 +397,7 @@ export function AgentsSidebar({
                 ? `[${[selected ? "Обзор" : "Чат", ...(selected && subagentActive(selected.status) ? ["Стоп"] : []), "Контекст", "Назад"][action - 1]}] Enter Esc`
                 : selected
                   ? subagentActive(selected.status)
-                    ? "Enter обзор S стоп Esc"
+                    ? "Enter обзор · Tab действия"
                     : "Enter обзор Esc назад"
                   : "Enter чат Esc назад",
               width,
@@ -414,7 +415,7 @@ export function AgentsSidebar({
             {selected && subagentActive(selected.status) && (
               <DialogAction
                 id="agents-stop"
-                label="Стоп S"
+                label="Остановить"
                 palette={palette}
                 active={action === 2}
                 onSelect={() => onStop(selected.id)}
