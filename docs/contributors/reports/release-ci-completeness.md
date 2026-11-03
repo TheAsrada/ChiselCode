@@ -2,7 +2,7 @@
 
 [Материалы для участников](../README.md) · [Порядок проверок](../testing.md) · [Разработка](../../development.md)
 
-Изменения готовятся после source `f7d857c9ae3ac6d3e3d62ac124eecfb10f87052a`, версия CLI остаётся 0.6.49. Задача меняет CI и порядок допуска к публикации; новый выпуск не запускался. Изменения меню и исправления цикла инструментов сохранены.
+Проверяемый code source — `82e3e7b9a41b27b8778b519954bc2778e798d051`, база — `f7d857c9ae3ac6d3e3d62ac124eecfb10f87052a`. Версия CLI остаётся 0.6.49. Задача меняет CI и порядок допуска к публикации; новый выпуск не запускался. Изменения меню и исправления цикла инструментов сохранены. Последующее дополнение отчёта меняет только Markdown.
 
 ## Найденные пробелы
 
@@ -20,4 +20,28 @@ PR сохраняет быстрые проверки. Изменения тол
 
 ## Проверки
 
-Точечные тесты проверяют отказ для частичного JUnit, пропущенных файлов и steps, неверного SHA, старого зелёного run при новом неуспешном, а также привязку сборок к проверенному source и повторный допуск перед публикацией. Результаты автоматического прогона и реальной проверки GitHub API будут записаны после завершения CI.
+Локально на Linux/Bun 1.4.2:
+
+- Точечные проверки JUnit и release gate: 12 pass, 0 fail, 251 assertions. Проверены частичный отчёт, пропущенные файлы и steps, неверный SHA, старый зелёный run при новом неуспешном, привязка сборок к проверенному source и повторный допуск перед публикацией.
+- Быстрый профиль: 505 pass, 0 fail, 3731 assertions, 53 files, 1,76 с. Новая проверка отчёта работает без процессов, серверов и GUI.
+- Typecheck, build и actionlint всех workflows успешны. Lint успешен с прежними 416 warnings и 58 infos. Документация: 138 страниц, 1550 локальных ссылок, 0 ошибок.
+- Настоящий JUnit Bun с пятью успешными cases и Linux clipboard skip принят при соответствующем списке файлов. Частичный отчёт, проверенный по всему source inventory, отклоняется.
+
+Push source запустил [Native validation 41640053713](https://github.com/TheAsrada/ChiselCode/actions/runs/41640053713) автоматически, без workflow dispatch. [Quick CI](https://github.com/TheAsrada/ChiselCode/actions/runs/41640053734) и [Docs CI](https://github.com/TheAsrada/ChiselCode/actions/runs/41640053269) успешны.
+
+Native validation завершился успешно с первой попытки, без rerun:
+
+| Job | Фактический результат |
+| --- | --- |
+| `Full source (ubuntu-latest)` | 1517 pass, 3 platform skips, 0 fail; 192 файла, 385,68 с. Проверка JUnit подтвердила 1520 cases из всех файлов. Документация, typecheck/lint, 14 offline evals и оба дополнительных source UI-fixtures успешны. |
+| `Native smoke (ubuntu-latest)` | Installed/compiled CLI и SDK, настоящий LSP, shell, помощники, worktrees, background processes и native OpenTUI успешны. |
+| `Native smoke (macos-latest)` | Дополнительный source subset: 467 pass, 3 platform skips, 0 fail; 59 файлов, 105,66 с. Installed/compiled smoke успешны. |
+| `Native smoke (windows-latest)` | Дополнительный source subset: 469 pass, 1 platform skip, 0 fail; 59 файлов, 351,55 с. Настоящие NSIS updater/launcher и installed/compiled smoke успешны. |
+| `LSP lifecycle (macos-latest)` | 56 pass, 0 fail; 8 файлов, 77,64 с; installed/compiled меню успешны. |
+| `LSP lifecycle (windows-latest)` | 56 pass, 0 fail; 8 файлов, 111,91 с; installed/compiled меню успешны. |
+
+Логи обеих платформ содержат успешный native clipboard case: Unicode copy/paste, нормализация переноса строк и сохранение редактора. Полный source остаётся Linux-проверкой; subset и smoke Windows/macOS не объявляются повтором всего source-набора.
+
+Реальный вызов `GITHUB_REPOSITORY=TheAsrada/ChiselCode bun scripts/verify-release-ci.ts` во время очереди этого source завершился отказом `queued/null`. Старый зелёный native run другого коммита не принят. После завершения того же автоматического run команда завершилась успешно и подтвердила шесть обязательных jobs и все 42 обязательных steps на `82e3e7b9a41b27b8778b519954bc2778e798d051`.
+
+Release workflow проверен через actionlint и unit-контракты YAML: checkout по сохранённому SHA, обязательные зависимости jobs, сверка тега и повторный gate до публикации. Настоящая публикация, создание draft/tag, полный внешний каталог LSP, платные live evals и запуск macOS x64 на Intel в этом задании не выполнялись.
