@@ -37,4 +37,4 @@ Compiled Windows CLI вернул 0.6.48 и прошёл настоящие TS/P
 
 Windows native subset подтвердил ту же ошибку Settings; остальные 427 проверок прошли. Два macOS jobs первого Native run не получили runner и были отменены GitHub с сообщением о capacity constraints для arm64. Отдельный [LSP catalog](https://github.com/TheAsrada/ChiselCode/actions/runs/41476304340) на `49fed85` прошёл на Linux, Windows и macOS, включая SourceKit на macOS; последующие исправления относятся к фокусу UI и fixtures, backend не меняется.
 
-Итоговые source, Native validation, проверки поставки и ограничения платформ будут зафиксированы в отчёте выпуска после их выполнения. Текущий текст не объявляет ещё не выполненные проверки успешными.
+CLI 0.6.48 [опубликован](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.48) из `cd4bd74c33cc2d626131d243a36aa504063c6dd0`. Шесть обязательных Native jobs, Release и проверки опубликованных Windows/npm payload прошли. [Отчёт выпуска](release-0.6.48.md) содержит результаты, один сетевой повтор Windows, контрольные суммы, кадр окончательного source и непроверенные платформы.

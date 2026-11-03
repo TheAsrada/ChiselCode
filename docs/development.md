@@ -81,7 +81,7 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 ## Релизы
 
-Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Запустите Native validation вручную и дождитесь успешного Full source и трёх Native smoke jobs на этом точном коммите по [порядку проверок](contributors/testing.md). Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
+Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Запустите Native validation вручную и дождитесь шести успешных jobs на этом точном коммите: Full source, трёх Native smoke и двух LSP lifecycle, по [порядку проверок](contributors/testing.md). Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
 
 [Release workflow](../.github/workflows/release.yml) запускается по push тега `v*` или вручную из `main` с параметром `tag`:
 
