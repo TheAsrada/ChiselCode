@@ -2,6 +2,8 @@ import { realpath } from "node:fs/promises";
 import { relative } from "node:path";
 import { z } from "zod";
 import { gitCommand } from "../../git/driver.js";
+import { RuntimeError } from "../../runtime/errors.js";
+import type { ToolExecutionResult } from "../../types/domain.js";
 import { defineTool } from "../handler.js";
 import type { ToolContext } from "../types.js";
 
@@ -12,6 +14,21 @@ async function git(context: ToolContext, args: string[]) {
       (await gitCommand(context.workspace.root, args, context.signal)) ||
       "Git operation completed.",
   };
+}
+async function gitRead(
+  operation: () => Promise<ToolExecutionResult>,
+): Promise<ToolExecutionResult> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!(error instanceof RuntimeError) || error.code !== "GIT_NOT_REPOSITORY")
+      throw error;
+    return {
+      output: error.message,
+      isError: false,
+      details: { git: { available: false, reason: "not_repository" } },
+    };
+  }
 }
 export function gitHandlers() {
   return [
@@ -26,7 +43,9 @@ export function gitHandlers() {
       z.object({}),
       async () => ({ data: {}, preview: "git status", resources: [] }),
       (context) =>
-        git(context, ["--no-optional-locks", "status", "--short", "--", "."]),
+        gitRead(() =>
+          git(context, ["--no-optional-locks", "status", "--short", "--", "."]),
+        ),
     ),
     defineTool(
       {
@@ -56,47 +75,48 @@ export function gitHandlers() {
           resources: path ? [path] : [],
         };
       },
-      async (context, { data }) => {
-        const diff = (revision: string[]) =>
-          gitCommand(
-            context.workspace.root,
-            [
-              "diff",
-              "--no-ext-diff",
-              "--no-textconv",
-              ...revision,
-              "--",
-              data.path || ".",
-            ],
-            context.signal,
-          );
-        const hasHead =
-          data.scope === "all" &&
-          (await gitCommand(
-            context.workspace.root,
-            ["rev-parse", "--verify", "--quiet", "HEAD"],
-            context.signal,
-            true,
-          ));
-        // An unborn branch has no HEAD to diff against. Read the index and
-        // worktree separately, without staging files or creating a commit.
-        const output =
-          data.scope === "all" && !hasHead
-            ? (await diff(["--cached"])) + (await diff([]))
-            : await diff(
-                data.scope === "staged"
-                  ? ["--cached"]
-                  : data.scope === "all"
-                    ? ["HEAD"]
-                    : [],
-              );
-        return {
-          isError: false,
-          output:
-            output ||
-            "Нет изменений отслеживаемых файлов. Новые файлы смотрите через git_status и read_file.",
-        };
-      },
+      (context, { data }) =>
+        gitRead(async () => {
+          const diff = (revision: string[]) =>
+            gitCommand(
+              context.workspace.root,
+              [
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                ...revision,
+                "--",
+                data.path || ".",
+              ],
+              context.signal,
+            );
+          const hasHead =
+            data.scope === "all" &&
+            (await gitCommand(
+              context.workspace.root,
+              ["rev-parse", "--verify", "--quiet", "HEAD"],
+              context.signal,
+              true,
+            ));
+          // An unborn branch has no HEAD to diff against. Read the index and
+          // worktree separately, without staging files or creating a commit.
+          const output =
+            data.scope === "all" && !hasHead
+              ? (await diff(["--cached"])) + (await diff([]))
+              : await diff(
+                  data.scope === "staged"
+                    ? ["--cached"]
+                    : data.scope === "all"
+                      ? ["HEAD"]
+                      : [],
+                );
+          return {
+            isError: false,
+            output:
+              output ||
+              "Нет изменений отслеживаемых файлов. Новые файлы смотрите через git_status и read_file.",
+          };
+        }),
     ),
     defineTool(
       {

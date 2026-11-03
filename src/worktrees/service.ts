@@ -2029,6 +2029,7 @@ export class WorktreeService {
       if (
         error instanceof RuntimeError &&
         (error.code === "WORKTREE_UNAVAILABLE" ||
+          error.code === "GIT_NOT_REPOSITORY" ||
           error.code === "WORKTREE_GIT_ERROR")
       )
         return { dispose() {} };

@@ -51,7 +51,9 @@ export async function gitBytes(
     if (process.env[key]) env[key] = process.env[key] as string;
   env.GIT_TERMINAL_PROMPT = "0";
   env.GIT_OPTIONAL_LOCKS = "0";
-  let result: { exitCode?: number; stdout: Uint8Array };
+  // Only Git's diagnostics are classified; locale must not change that boundary.
+  env.LC_ALL = "C";
+  let result: { exitCode?: number; stdout: Uint8Array; stderr: Uint8Array };
   const cwd = await realpath(root);
   const child = execa(
     "git",
@@ -143,12 +145,23 @@ export async function gitBytes(
       "TOOL_TIMEOUT",
       "Git operation timed out; its process tree was stopped.",
     );
-  if (result.exitCode !== 0 && !allowFailure)
+  if (result.exitCode !== 0 && !allowFailure) {
+    if (
+      /^fatal: not a git repository\b/m.test(
+        Buffer.from(result.stderr).toString("utf8"),
+      )
+    )
+      throw new RuntimeError(
+        "GIT_NOT_REPOSITORY",
+        "Открытая папка не является репозиторием Git. Обычная работа с файлами и shell доступна по разрешениям проекта.",
+        { exitCode: result.exitCode },
+      );
     throw new RuntimeError(
       "WORKTREE_GIT_ERROR",
       "Git rejected the operation. Inspect repository state before retrying.",
       { exitCode: result.exitCode },
     );
+  }
   return result.exitCode === 0 ? Buffer.from(result.stdout) : Buffer.alloc(0);
 }
 /** Attribute probing never runs filter programs. Installed but unused drivers

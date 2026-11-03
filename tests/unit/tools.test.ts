@@ -276,6 +276,44 @@ describe("ToolRegistry", () => {
     }
   });
 
+  test("Git reads report a non-Git folder without worktree errors, while corrupt metadata and commits still fail", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chiselcode-no-git-"));
+    paths.push(root);
+    const tools = registry(root);
+    for (const [name, input] of [
+      ["git_status", {}],
+      ["git_diff", { scope: "all" }],
+    ] as const) {
+      const result = await tools.execute(name, input);
+      expect(result.isError, result.output).toBe(false);
+      expect(result.output).toContain("не является репозиторием Git");
+      expect(result.details?.git).toEqual({
+        available: false,
+        reason: "not_repository",
+      });
+    }
+    expect(
+      (await tools.execute("git_commit", { message: "must not initialize" }))
+        .errorCode,
+    ).toBe("GIT_NOT_REPOSITORY");
+    expect(
+      (
+        await tools.execute("write_file", {
+          path: "local.txt",
+          content: "local work",
+        })
+      ).isError,
+    ).not.toBe(true);
+    expect(await readFile(join(root, "local.txt"), "utf8")).toBe("local work");
+    await writeFile(join(root, ".git"), "corrupt git metadata\n");
+    for (const name of ["git_status", "git_diff"]) {
+      const result = await tools.execute(name, {});
+      expect(result.isError).toBe(true);
+      expect(result.errorCode).toBe("WORKTREE_GIT_ERROR");
+      expect(result.details?.git).toBeUndefined();
+    }
+  });
+
   test("git_status and git_diff distinguish staged and unstaged changes", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-git-tools-"));
     paths.push(root);

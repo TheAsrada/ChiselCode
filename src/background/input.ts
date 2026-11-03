@@ -9,7 +9,12 @@ export const ShellInputSchema = z
         (value) =>
           Buffer.byteLength(value, "utf8") <= BACKGROUND_LIMITS.commandBytes,
       ),
-    cwd: z.string().optional(),
+    cwd: z
+      .string()
+      .optional()
+      .describe(
+        "Рабочая папка внутри выбранного проекта или рабочей копии; обычно опускайте поле. При targetWorktreeId путь отсчитывается от выбранной копии: опустите cwd или укажите относительный путь внутри неё, не абсолютный путь исходного проекта.",
+      ),
     timeout: z.number().int().min(1000).max(600000).optional(),
     background: z.boolean().optional(),
     taskKind: z.enum(["batch", "service"]).optional(),
