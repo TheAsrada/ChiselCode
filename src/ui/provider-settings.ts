@@ -5,7 +5,10 @@ import {
   type CredentialsReader,
   resolveCredential,
 } from "../providers/auth.js";
-import type { ProviderProfile } from "../providers/contracts.js";
+import type {
+  ConnectionChallenge,
+  ProviderProfile,
+} from "../providers/contracts.js";
 import { builtinDefinitions } from "../providers/definitions/index.js";
 import { normalizeEndpoint } from "../providers/endpoint.js";
 import type { ProviderRegistry } from "../providers/registry.js";
@@ -239,4 +242,27 @@ export async function removeProviderProfile(
     registry.require(removed.providerId).auth.type !== "subscription"
   )
     await credentials.delete(removed.apiKeyRef);
+}
+
+/** Keep profile/schema validation in the settings service, outside the renderer import graph. */
+export async function connectProviderAccount(
+  values: TuiSettingsValues,
+  registry: ProviderRegistry,
+  signal: AbortSignal,
+  challenge: (value: ConnectionChallenge) => void,
+  options: { configPath?: string } = {},
+) {
+  signal.throwIfAborted();
+  const profileId = ProfileIdSchema.parse(values.profileId);
+  const current = await loadGlobalConfig(options.configPath);
+  signal.throwIfAborted();
+  if (
+    current.profiles[profileId] &&
+    current.profiles[profileId]?.providerId !== values.provider
+  )
+    throw new Error("Профиль принадлежит другому сервису.");
+  const connection = registry.connection(values.provider);
+  if (!connection)
+    throw new Error("Этот сервис не поддерживает вход по подписке.");
+  return connection.connect({ profileId, signal, challenge });
 }

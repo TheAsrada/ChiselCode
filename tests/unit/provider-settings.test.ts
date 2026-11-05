@@ -7,6 +7,7 @@ import { createProviderCatalog } from "../../src/providers/catalog.js";
 import { createBuiltinProviderRegistry } from "../../src/providers/runtime.js";
 import { CredentialStore } from "../../src/security/credentials.js";
 import {
+  connectProviderAccount,
   removeProviderProfile,
   saveProviderSettings,
   selectorWindow,
@@ -187,6 +188,98 @@ test("profile removal rejects stale confirmation, preserves shared credentials a
     expect(await credentials.get("shared")).toBeUndefined();
     expect(
       (await loadGlobalConfig(configPath)).defaultProfileId,
+    ).toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("connection settings validate profile ownership and cancellation before invoking a provider", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-connect-profile-"));
+  const configPath = join(root, "config.json");
+  const registry = createBuiltinProviderRegistry();
+  let connects = 0;
+  registry.registerContribution(
+    {
+      definition: {
+        ...registry.require("chatgpt"),
+        id: "fixture/subscription",
+        driverId: "fixture-subscription",
+      },
+      create: () => ({
+        providerId: "fixture/subscription",
+        async *streamChat() {},
+      }),
+      connection: {
+        status: async () => ({ connected: false }),
+        disconnect: async () => {},
+        connect: async (input) => {
+          connects++;
+          input.challenge({
+            url: "https://example.test/login",
+            code: "TEST",
+            expiresAt: Date.now() + 60000,
+          });
+          return { connected: true };
+        },
+      },
+    },
+    "fixture.subscription",
+  );
+  try {
+    await saveGlobalConfig(
+      {
+        schemaVersion: 2,
+        profiles: { work: { providerId: "openai", defaultModel: "gpt-5" } },
+      },
+      configPath,
+    );
+    const values = {
+      provider: "fixture/subscription",
+      profileId: "work",
+      model: "fixture",
+    };
+    const signal = new AbortController().signal;
+    await expect(
+      connectProviderAccount(values, registry, signal, () => {}, {
+        configPath,
+      }),
+    ).rejects.toThrow("другому сервису");
+    await expect(
+      connectProviderAccount(
+        { ...values, profileId: "../escape" },
+        registry,
+        signal,
+        () => {},
+        { configPath },
+      ),
+    ).rejects.toThrow();
+    await expect(
+      connectProviderAccount(
+        { ...values, profileId: "personal" },
+        registry,
+        AbortSignal.abort(),
+        () => {},
+        { configPath },
+      ),
+    ).rejects.toThrow();
+    expect(connects).toBe(0);
+    const challenges: string[] = [];
+    expect(
+      await connectProviderAccount(
+        { ...values, profileId: "personal" },
+        registry,
+        signal,
+        (value) => {
+          challenges.push(value.code);
+        },
+        { configPath },
+      ),
+    ).toEqual({ connected: true });
+    expect(connects).toBe(1);
+    expect(challenges).toEqual(["TEST"]);
+    expect(
+      (await loadGlobalConfig(configPath)).profiles.personal,
     ).toBeUndefined();
   } finally {
     await rm(root, { recursive: true, force: true });

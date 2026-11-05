@@ -6,11 +6,13 @@
 
 В текущих исходниках `builtin.chatgpt` входит в стандартную композицию. Расширение владеет входом, токенами, адаптером Responses, каталогом моделей и кешем лимитов. Ядро агента получает обычный `ProviderAdapter`; настройки используют общий `ProviderConnection`. Проверок конкретного provider ID в runtime и форме подключения нет.
 
-`ChiselExtension.providers` — необязательные application contributions внутреннего linked-контракта: `definition`, `create(context)`, `connection`. Их регистрирует `registerExtensionProviders` при построении каталога, до открытия проекта. `ProviderRegistry` сохраняет source `{type: "extension", extensionId}`, проверяет определения и конфликты драйверов. Один application instance используется каталогом, входом и workspace UI. Создание каталога не читает токены и не выполняет сетевые запросы.
+`ChiselExtension.providers` — необязательные application contributions внутреннего linked-контракта: `definition`, `create(context)`, `connection`. Эти contributions регистрирует `registerExtensionProviders` при построении каталога, до открытия проекта. `ProviderRegistry` сохраняет source `{type: "extension", extensionId}`, проверяет определения и конфликты драйверов. Один application instance используется каталогом, входом и workspace UI. Создание каталога не читает токены и не выполняет сетевые запросы.
 
 Это дополнение внутреннего контракта. Внешний ESM SDK не получил загрузку исполняемых провайдеров: у внешних пакетов сохраняются прежние trust/lifecycle и ограничения. SDK v1 дополнен только проекцией выбранной модели и видимостью UI snapshots.
 
 ## Вход и профили
+
+Проверка ID, принадлежности профиля и отмены перед входом находится в settings service; renderer получает готовое действие без прямого импорта config schema. Это сохраняет независимую инициализацию compiled UI.
 
 `ProviderDefinition.auth.type` опционален: отсутствие означает прежний API-ключ; `subscription` выбирает `ProviderConnection`. Контракт предоставляет `status(profileId)`, `connect({profileId, signal, challenge})` и `disconnect(profileId)`. Challenge содержит адрес, одноразовый код и deadline. UI показывает эти данные, позволяет отменить ожидание и применяет результат только своей живой операции.
 

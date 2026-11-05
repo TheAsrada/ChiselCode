@@ -1,4 +1,3 @@
-import { ProfileIdSchema } from "../config/schema.js";
 /** @jsxImportSource @opentui/react */
 
 import { randomUUID } from "node:crypto";
@@ -136,6 +135,7 @@ import type { OpenTuiSettingsActions } from "./opentui-settings.js";
 import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
 import {
+  connectProviderAccount,
   removeProviderProfile,
   saveProviderSettings,
   settingsDraft,
@@ -1154,19 +1154,10 @@ async function runApplication(
         warmModelCapabilities(owner);
         return outcome;
       },
-      connect: async (values, signal, challenge) => {
-        const profileId = ProfileIdSchema.parse(values.profileId);
-        const current = await loadGlobalConfig(options.configPath);
-        if (
-          current.profiles[profileId] &&
-          current.profiles[profileId]?.providerId !== values.provider
-        )
-          throw new Error("Профиль принадлежит другому сервису.");
-        const connection = catalog.registry.connection(values.provider);
-        if (!connection)
-          throw new Error("Этот сервис не поддерживает вход по подписке.");
-        return connection.connect({ profileId, signal, challenge });
-      },
+      connect: (values, signal, challenge) =>
+        connectProviderAccount(values, catalog.registry, signal, challenge, {
+          configPath: options.configPath,
+        }),
       disconnect: async (values) => {
         if (!values.profileId) throw new Error("Выберите профиль.");
         await catalog.registry
