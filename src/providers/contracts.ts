@@ -24,7 +24,11 @@ export interface ProviderDefinition {
   label: string;
   description?: string;
   driverId: DriverId;
-  auth: { required: boolean; envVars: string[] };
+  auth: {
+    required: boolean;
+    envVars: string[];
+    type?: "api-key" | "subscription";
+  };
   endpoint: {
     required: boolean;
     defaultBaseUrl?: string;
@@ -37,6 +41,7 @@ export interface ProviderDefinition {
 }
 export type ProviderSource =
   | { type: "builtin" }
+  | { type: "extension"; extensionId: string }
   | { type: "user-manifest"; directory: string; manifestPath: string };
 export interface RegisteredProvider {
   definition: ProviderDefinition;
@@ -61,6 +66,7 @@ export interface ProviderDiagnostic {
 export interface ProviderDriverContext {
   definition: ProviderDefinition;
   profile: ProviderProfile;
+  profileId?: string;
   apiKey?: string;
   baseUrl?: string;
 }
@@ -77,4 +83,29 @@ export interface ProviderHealthResult {
 export interface CostEstimate {
   usd?: number;
   source: "provider" | "estimated" | "unknown";
+}
+
+export interface ConnectionChallenge {
+  url: string;
+  code: string;
+  expiresAt: number;
+}
+export interface ConnectionStatus {
+  connected: boolean;
+  label?: string;
+}
+export interface ProviderConnection {
+  status(profileId: string): Promise<ConnectionStatus>;
+  connect(input: {
+    profileId: string;
+    signal: AbortSignal;
+    challenge(value: ConnectionChallenge): void;
+  }): Promise<ConnectionStatus>;
+  disconnect(profileId: string): Promise<void>;
+}
+/** Linked application contribution, captured independently of workspace activation. */
+export interface ProviderContribution {
+  readonly definition: ProviderDefinition;
+  create(context: ProviderDriverContext): ProviderAdapter;
+  readonly connection?: ProviderConnection;
 }

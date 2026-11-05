@@ -6,5 +6,7 @@ export const SDK_CAPABILITIES = Object.freeze([
   "ui.panes",
   "ui.media",
   "agent.events",
+  "ui.modelSelection",
+  "ui.visibility",
 ] as const);
 export type SdkCapability = (typeof SDK_CAPABILITIES)[number];

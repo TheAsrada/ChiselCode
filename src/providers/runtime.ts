@@ -1,3 +1,7 @@
+import {
+  builtinProviderExtensions,
+  registerExtensionProviders,
+} from "../extensions/provider-contributions.js";
 import { CredentialStore } from "../security/credentials.js";
 import type { ProviderAdapter } from "../types/domain.js";
 import { type CredentialsReader, resolveCredential } from "./auth.js";
@@ -17,6 +21,7 @@ export function createBuiltinProviderRegistry(
 ): ProviderRegistry {
   const registry = new ProviderRegistry(drivers);
   for (const definition of builtinDefinitions) registry.register(definition);
+  registerExtensionProviders(registry, builtinProviderExtensions);
   return registry;
 }
 export class MissingApiKeyError extends ProviderError {
@@ -48,27 +53,38 @@ export async function resolveProviderRuntime(input: {
   const registry =
     input.registry ??
     catalog?.registry ??
-    createBuiltinProviderRegistry(drivers);
-  const definition = input.definition ?? registry.get(input.profile.providerId);
+    (input.definition ? undefined : createBuiltinProviderRegistry(drivers));
+  const definition =
+    input.definition ?? registry?.get(input.profile.providerId);
   if (!definition)
     throw new ProviderError(
       "unavailable",
       `Provider "${input.profile.providerId}" is unavailable.`,
     );
-  const apiKey = await resolveCredential(
-    definition,
-    input.profile,
-    input.credentials ?? new CredentialStore(),
-    input.apiKey,
-    input.environment,
-  );
-  if (definition.auth.required && !apiKey)
+  const apiKey =
+    definition.auth.type === "subscription"
+      ? undefined
+      : await resolveCredential(
+          definition,
+          input.profile,
+          input.credentials ?? new CredentialStore(),
+          input.apiKey,
+          input.environment,
+        );
+  if (
+    definition.auth.type !== "subscription" &&
+    definition.auth.required &&
+    !apiKey
+  )
     throw new MissingApiKeyError(definition.label);
   const baseUrl = resolveEndpoint(
     definition,
     input.baseUrl ?? input.profile.baseUrl,
   );
-  const driver = drivers.require(definition.driverId);
+  const driver =
+    input.drivers?.require(definition.driverId) ??
+    registry?.driver(definition.driverId) ??
+    drivers.require(definition.driverId);
   return {
     profile: input.profile,
     profileId: input.profileId,
@@ -76,6 +92,7 @@ export async function resolveProviderRuntime(input: {
     adapter: driver.create({
       definition,
       profile: input.profile,
+      profileId: input.profileId,
       apiKey,
       baseUrl,
     }),

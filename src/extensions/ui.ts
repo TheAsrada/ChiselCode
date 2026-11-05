@@ -493,7 +493,9 @@ export class UiSubscription implements Disposable {
     });
   }
   get items(): readonly OwnedUiContribution[] {
-    return [...this.cache.values()];
+    return [...this.cache.values()].filter(
+      (item) => item.snapshot.visible !== false,
+    );
   }
   isLive(): boolean {
     return !this.disposed && !this.binding.signal.aborted;

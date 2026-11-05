@@ -374,6 +374,7 @@ export const UiSnapshotSchema = z
   .object({
     revision: z.number().int().nonnegative(),
     state: UiStateSchema,
+    visible: z.boolean().optional(),
     label: title.optional(),
     detail: detail.optional(),
     tone: UiToneSchema.optional(),
@@ -393,6 +394,7 @@ export const UiDetailsPageSchema = z
   .object({
     revision: z.number().int().nonnegative(),
     state: UiStateSchema,
+    visible: z.boolean().optional(),
     summary: detail.optional(),
     fields: z.array(UiRowSchema).max(16).optional(),
     rows: z.array(UiRowSchema).max(100).optional(),
@@ -415,6 +417,11 @@ export type UiTone = z.infer<typeof UiToneSchema>;
 
 /** Read-only owner projection. No Session or runtime authority crosses this port. */
 export interface UiOwnerSummary {
+  readonly modelSelection?: {
+    readonly provider: string;
+    readonly profileId?: string;
+    readonly model: string;
+  };
   readonly background: {
     readonly active: number;
     readonly errors: number;

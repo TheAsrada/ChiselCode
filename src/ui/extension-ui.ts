@@ -83,6 +83,7 @@ export class ExtensionUiBinding {
       );
       const children = controller.snapshot.children ?? [];
       return {
+        modelSelection: controller.snapshot.modelSelection,
         background: {
           active: tasks.filter((task) => backgroundActive(task.state)).length,
           errors: tasks.filter((task) =>

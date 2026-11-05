@@ -9,6 +9,7 @@ Provider != Protocol != User Configuration.
 ```mermaid
 flowchart TD
   Builtins[Built-in Definitions] --> Catalog[Provider Catalog]
+  Extensions[Linked extension providers] --> Catalog
   Manifests[Home/providers/*/provider.json] --> Discovery[Declarative Discovery]
   Discovery --> Catalog
   Catalog --> Registry[ProviderRegistry]
@@ -29,7 +30,9 @@ flowchart TD
 | ProviderAdapter | Runtime объект выбранного definition/profile/credential; providerId и обязательный streamChat, optional methods |
 | ProviderRegistry | Definitions и source, duplicate/driver validation, lookup/list/search; не сканирует filesystem |
 | DriverRegistry | Implementations по открытому driverId; один driver обслуживает много definitions |
-| Provider Catalog | Built-ins + custom discovery, diagnostics и отключение всех duplicate custom IDs |
+| Provider Catalog | Built-ins + linked extension contributions + custom discovery, diagnostics и отклонение конфликтующих custom IDs |
+
+Для подписки `auth.type: "subscription"` resolver передаёт `profileId` фабрике расширения и не читает API-ключ. Вход и локальный статус предоставляет `ProviderConnection`; форма настроек не зависит от ID сервиса. [Решение и контракт ChatGPT](chatgpt.md).
 
 Resolver: profile lookup (selectProfile) → definition → transient/env/store credential → endpoint normalization → driver → adapter. App не импортирует SDK, env vars или конкретные constructors. Definition endpoint/default model — source of truth; global model другого provider не применяется.
 
@@ -41,7 +44,7 @@ Protocol drivers нормализуют TokenUsage.contextInputTokens: Anthropic
 
 - AgentLoop/AgentRuntime знают только ProviderAdapter, ProviderRequest и StreamEvent; не Registry/Definition/Profile storage или SDK.
 - UI/CLI получают каталог через ProviderRegistry; нет закрытой provider validation или отдельного label/default/env каталога.
-- SDK imports и wire semantics находятся только в drivers.
+- Сетевые SDK и wire semantics находятся в drivers или в реализации linked provider extension.
 - Persistent config/session identities — open strings, providerId/profileId; Session читается без установленного provider.
 - Один driver обслуживает множество definitions; новое определение на существующем protocol не меняет generic layers.
 - Profile владеет user config, CredentialStore — secrets, Definition — metadata.

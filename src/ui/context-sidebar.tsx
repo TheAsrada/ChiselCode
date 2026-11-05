@@ -326,7 +326,11 @@ export function ContextSidebar({
         </SidebarSection>
       )}
       {(state.uiContributions ?? [])
-        .filter((item) => item.descriptor.slot === "context_section")
+        .filter(
+          (item) =>
+            item.descriptor.slot === "context_section" &&
+            item.snapshot.visible !== false,
+        )
         .map((item) => (
           <SidebarSection
             key={item.key}

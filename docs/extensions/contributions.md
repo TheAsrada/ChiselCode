@@ -14,6 +14,10 @@ Activation context содержит workspaceRoot, lifetime signal, registration
 
 Точные DTO/scoping/limits совпадают с [контрактом UI](../architecture/ui-contributions.md): 12 contributions и 8 views на extension, 64 KiB snapshot, 8 preview rows, page до 100 и mount до 64 rows, cache до 256 KiB, readonly provider timeout 2 секунды, coalescing до 10 publications/second. Для данных до Session используйте empty/unknown; UI не создаёт Session или model request.
 
+`binding.read.ownerSummary().modelSelection` содержит optional `{provider, profileId, model}` текущей беседы. Запросите capability `ui.modelSelection`; для workspace scope проекция отсутствует. Это metadata без ключей и права менять выбранное подключение.
+
+`UiSnapshot.visible: false` скрывает contribution из UI, сохраняя subscription для будущих обновлений. Capability — `ui.visibility`; без поля действует прежняя видимость. Snapshot и page читают готовый кеш; сетевую работу выполняет доменная служба с отменой и cleanup.
+
 ## Context и guards
 
 `contextProviders.register({id,collect})` получает readonly invocation snapshot и возвращает `{text}`. Context входит через обычный budget как данные, не system authority. Collect не получает tools/model. Error и sanitation используют существующий pipeline.

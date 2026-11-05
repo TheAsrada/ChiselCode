@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { loadGlobalConfig, updateGlobalConfig } from "../config/load.js";
 import { ProfileIdSchema } from "../config/schema.js";
 import {
@@ -58,6 +59,7 @@ export function settingsDraft(
       profile?.defaultModel ??
       definition?.defaults.model ??
       "",
+    label: profile?.label,
     baseUrl:
       selection.baseUrl ??
       profile?.baseUrl ??
@@ -73,6 +75,11 @@ export async function settingsKeyReady(
 ): Promise<boolean> {
   const d = registry.get(profile.providerId);
   if (!d) return false;
+  if (d.auth.type === "subscription")
+    return profile.apiKeyRef
+      ? (await registry.connection(d.id)?.status(profile.apiKeyRef))
+          ?.connected === true
+      : false;
   if (!d.auth.required) return true;
   return Boolean(await resolveCredential(d, profile, credentials));
 }
@@ -117,7 +124,8 @@ export async function saveProviderSettings(
     !definition.endpoint.defaultBaseUrl
   )
     throw new Error("Provider requires baseUrl.");
-  const key = values.apiKey?.trim();
+  const key =
+    definition.auth.type === "subscription" ? undefined : values.apiKey?.trim();
   const credentials = options.credentials ?? new CredentialStore();
   let profile: ProviderProfile = {
     ...previous,
@@ -131,12 +139,19 @@ export async function saveProviderSettings(
       throw new Error(
         `Profile "${id}" belongs to another provider; reload Settings.`,
       );
-    const apiKeyRef = existing?.apiKeyRef ?? (key ? id : undefined);
+    const apiKeyRef =
+      definition.auth.type === "subscription"
+        ? id
+        : (existing?.apiKeyRef ?? (key ? id : undefined));
     if (key && apiKeyRef) await credentials.set(apiKeyRef, key);
     profile = {
       ...existing,
       providerId: values.provider,
       apiKeyRef,
+      label:
+        values.label === undefined
+          ? existing?.label
+          : values.label.trim() || undefined,
       baseUrl,
       defaultModel: model,
     };
@@ -170,4 +185,58 @@ export function selectorWindow<T>(
     Math.min(selected - 3, Math.max(0, items.length - Math.max(1, height - 7))),
   );
   return items.slice(start, start + Math.max(1, height - 7));
+}
+
+/** Remove one account without touching credentials referenced by another profile. */
+export async function removeProviderProfile(
+  profileId: string,
+  registry: ProviderRegistry,
+  options: {
+    configPath?: string;
+    credentials?: CredentialStore;
+    expected?: ProviderProfile;
+  } = {},
+): Promise<void> {
+  const credentials = options.credentials ?? new CredentialStore();
+  let removed: ProviderProfile | undefined;
+  let shared = false;
+  await updateGlobalConfig(options.configPath, (latest) => {
+    removed = latest.profiles[profileId];
+    if (!removed) throw new Error("Профиль уже удалён. Обновите список.");
+    if (options.expected && !isDeepStrictEqual(removed, options.expected))
+      throw new Error(
+        "Профиль изменился. Обновите список и подтвердите удаление заново.",
+      );
+    const profiles = { ...latest.profiles };
+    delete profiles[profileId];
+    shared =
+      !!removed.apiKeyRef &&
+      Object.values(profiles).some(
+        (profile) => profile.apiKeyRef === removed?.apiKeyRef,
+      );
+    const defaultProfileId =
+      latest.defaultProfileId === profileId
+        ? Object.keys(profiles)[0]
+        : latest.defaultProfileId;
+    return {
+      ...latest,
+      profiles,
+      defaultProfileId,
+      ui: {
+        ...latest.ui,
+        lastModelSelection:
+          latest.ui?.lastModelSelection?.profileId === profileId
+            ? undefined
+            : latest.ui?.lastModelSelection,
+      },
+    };
+  });
+  if (!removed) return;
+  await registry.connection(removed.providerId)?.disconnect(profileId);
+  if (
+    removed.apiKeyRef &&
+    !shared &&
+    registry.require(removed.providerId).auth.type !== "subscription"
+  )
+    await credentials.delete(removed.apiKeyRef);
 }

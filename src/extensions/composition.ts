@@ -21,6 +21,7 @@ import {
   ExtensionLifecycleError,
   operationSignal,
 } from "./lifecycle.js";
+import { builtinProviderExtensions } from "./provider-contributions.js";
 
 /** Internal composition dependency, not persisted settings or a CLI option. */
 export type ExtensionDependencies =
@@ -44,6 +45,7 @@ export function defaultExtensions(
     projectExtension,
     createLspExtension(options),
     btwExtension,
+    ...builtinProviderExtensions,
     createSubagentExtension(subagents),
     createBackgroundExtension(
       options.backgroundService ?? new BackgroundTaskService(worktrees),

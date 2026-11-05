@@ -2,6 +2,7 @@ import type { ProviderId } from "../types/domain.js";
 export interface TuiSettingsValues {
   provider: ProviderId;
   profileId?: string;
+  label?: string;
   model: string;
   baseUrl?: string;
   /**

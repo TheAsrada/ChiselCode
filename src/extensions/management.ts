@@ -50,6 +50,7 @@ import {
 import { ExtensionSettingsStore } from "./settings-store.js";
 
 const builtinNames = {
+  "builtin.chatgpt": ["ChatGPT", "Подписка, модели и лимиты", "connection"],
   "builtin.lsp": [
     "Анализ кода (LSP)",
     "Ошибки, определения и ссылки в коде",

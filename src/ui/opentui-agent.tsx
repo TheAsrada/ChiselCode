@@ -1,3 +1,4 @@
+import { ProfileIdSchema } from "../config/schema.js";
 /** @jsxImportSource @opentui/react */
 
 import { randomUUID } from "node:crypto";
@@ -135,6 +136,7 @@ import type { OpenTuiSettingsActions } from "./opentui-settings.js";
 import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
 import {
+  removeProviderProfile,
   saveProviderSettings,
   settingsDraft,
   settingsKeyReady,
@@ -1099,6 +1101,13 @@ async function runApplication(
             catalog.registry,
             profile ?? { providerId: values.provider },
           ),
+          accountLabel: values.profileId
+            ? (
+                await catalog.registry
+                  .connection(values.provider)
+                  ?.status(values.profileId)
+              )?.label
+            : undefined,
         };
       },
       hasKey: async (provider, profileId) => {
@@ -1107,7 +1116,13 @@ async function runApplication(
           catalog.registry,
           profileId
             ? (current.profiles[profileId] ?? { providerId: provider })
-            : { providerId: provider },
+            : {
+                providerId: provider,
+                apiKeyRef:
+                  catalog.registry.get(provider)?.auth.type === "subscription"
+                    ? profileId
+                    : undefined,
+              },
         );
       },
       save: async (values) => {
@@ -1138,6 +1153,58 @@ async function runApplication(
         );
         warmModelCapabilities(owner);
         return outcome;
+      },
+      connect: async (values, signal, challenge) => {
+        const profileId = ProfileIdSchema.parse(values.profileId);
+        const current = await loadGlobalConfig(options.configPath);
+        if (
+          current.profiles[profileId] &&
+          current.profiles[profileId]?.providerId !== values.provider
+        )
+          throw new Error("Профиль принадлежит другому сервису.");
+        const connection = catalog.registry.connection(values.provider);
+        if (!connection)
+          throw new Error("Этот сервис не поддерживает вход по подписке.");
+        return connection.connect({ profileId, signal, challenge });
+      },
+      disconnect: async (values) => {
+        if (!values.profileId) throw new Error("Выберите профиль.");
+        await catalog.registry
+          .connection(values.provider)
+          ?.disconnect(values.profileId);
+        modelCache.clear();
+        capabilityRequests.clear();
+        modelCacheGeneration++;
+      },
+      removeProfile: async (profileId, expected) => {
+        await removeProviderProfile(profileId, catalog.registry, {
+          configPath: options.configPath,
+          expected,
+        });
+        config = await loadGlobalConfig(options.configPath);
+        if (
+          owner.isCurrent(generation) &&
+          owner.snapshot.modelSelection?.profileId === profileId
+        ) {
+          const next = settingsDraft(config, catalog.registry);
+          defaultModel = next.model;
+          activeOptions = {
+            ...activeOptions,
+            profile: next.profileId,
+            provider: undefined,
+            model: next.model,
+            baseUrl: next.baseUrl,
+          };
+          owner.setActiveModel(
+            next.provider,
+            next.model,
+            next.profileId,
+            next.baseUrl,
+          );
+        }
+        modelCache.clear();
+        capabilityRequests.clear();
+        modelCacheGeneration++;
       },
       check: async (values) => {
         const result = await checkProviderConnection(values, {

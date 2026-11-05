@@ -248,6 +248,7 @@ export type {
 } from "./ui-composition.js";
 export { UI_SURFACES } from "./ui-composition.js";
 export interface UiSnapshot {
+  visible?: boolean;
   revision: number;
   state: ViewState;
   label?: string;
@@ -282,6 +283,11 @@ export interface UiBinding {
   readonly signal: AbortSignal;
   readonly read: {
     ownerSummary(): {
+      readonly modelSelection?: {
+        readonly provider: string;
+        readonly profileId?: string;
+        readonly model: string;
+      };
       readonly background: {
         readonly active: number;
         readonly errors: number;

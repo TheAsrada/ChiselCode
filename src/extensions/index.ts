@@ -6,6 +6,12 @@ export type {
   ModelRequestPort,
   ModelRequestResult,
 } from "../models/contracts.js";
+export type {
+  ConnectionChallenge,
+  ConnectionStatus,
+  ProviderConnection,
+  ProviderContribution,
+} from "../providers/contracts.js";
 export type { ThemeContribution, ThemeToken } from "../themes/contracts.js";
 export { defineTool } from "../tools/handler.js";
 export type {

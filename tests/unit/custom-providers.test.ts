@@ -67,7 +67,7 @@ test("empty Home/providers initialized exactly, built-ins are not copied", async
         (
           await createProviderCatalog({ root: providersRootDir() })
         ).registry.list(),
-      ).toHaveLength(5);
+      ).toHaveLength(6);
     } finally {
       if (old === undefined) delete process.env.XDG_DATA_HOME;
       else process.env.XDG_DATA_HOME = old;
@@ -147,6 +147,11 @@ for (const [name, patch, code] of [
   ["reserved", { ...manifest, id: "openai" }, "reserved_id"],
   ["driver", { ...manifest, driver: "unknown-protocol" }, "unknown_driver"],
   [
+    "subscription-driver",
+    { ...manifest, driver: "chatgpt-responses" },
+    "invalid_driver_options",
+  ],
+  [
     "options",
     { ...manifest, driverOptions: { includeUsage: "not-boolean" } },
     "invalid_driver_options",
@@ -222,7 +227,7 @@ test("catalog loads 500 manifests, supports search without fixed limits", async 
         label: `Scale ${i}`,
       });
     const c = await createProviderCatalog({ root });
-    expect(c.registry.list()).toHaveLength(505);
+    expect(c.registry.list()).toHaveLength(506);
     expect(c.registry.search("Scale 499")).toHaveLength(1);
     expect(c.diagnostics).toEqual([]);
   });

@@ -291,6 +291,9 @@ test("provider search handles 500 definitions and clears the previous unsaved ke
     expect(setup.captureCharFrame()).toContain("Scale 499");
     expect(setup.captureCharFrame()).not.toContain("Scale 498");
     await key(setup, "ENTER");
+    expect(setup.captureCharFrame()).toContain("Сохранить изменения профиля?");
+    expect(setup.captureCharFrame()).not.toContain("private-key");
+    await click(setup, "settings-connection-discard");
     await key(setup, "s", true);
     expect(saved[0]?.provider).toBe("scale/provider-499");
     expect(saved[0]?.model).toBe("coder-499");
@@ -391,6 +394,7 @@ test("new profile rejects duplicates and starts with a separate key", async () =
   const setup = await settings(actions);
   try {
     await click(setup, "settings-row-profile-id");
+    await click(setup, "settings-row-anthropic");
     await paste(setup, "work");
     await key(setup, "ENTER");
     expect(setup.captureCharFrame()).toContain("Такой профиль уже есть");

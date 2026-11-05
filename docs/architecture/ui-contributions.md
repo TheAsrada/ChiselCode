@@ -10,7 +10,7 @@
 
 `ctx.ui.register(contribution)` и `ctx.ui.registerView(view)` входят в существующий staged lifecycle `WorkspaceExtensionScope`. Identity — canonical workspace, scope instance, host-assigned extension ID и local ID. Local ID соответствует `[a-z][a-z0-9_-]{0,63}`. Метаданные и ссылки функций захватываются при регистрации; поздние регистрации, дубликаты и ошибочная metadata отклоняются. Публикация происходит после общего seal. Rollback и reverse disposal продолжают cleanup остальных ресурсов после ошибки.
 
-Четыре slots: `status`, `context_section`, `menu_entry`, `render` (последний начиная с 0.6.33). Menu group ограничен `conversation`, `project`, `extensions`; core groups остаются первыми. Порядок стабилен по order, extension ID и local ID. Идентичные local IDs разных расширений разрешены. Renderer выбирает Palette, размеры, размещение и input ownership.
+Пять slots: `status`, `context_section`, `menu_entry`, `render` и `pane`. `render` доступен с 0.6.33; отдельные панели описаны в [композиции интерфейса](../extensions/ui-composition.md). Menu group ограничен `conversation`, `project`, `extensions`; core groups остаются первыми. Порядок стабилен по order, extension ID и local ID. Идентичные local IDs разных расширений разрешены. Renderer выбирает Palette, размеры, размещение и input ownership.
 
 ```ts
 import type { ChiselExtension, UiSnapshot } from "../../src/extensions/index.js";
@@ -41,7 +41,7 @@ export const extension: ChiselExtension = {
 
 ## Binding и данные
 
-Core назначает `UiBinding.workspaceRoot`, `scopeInstance`, optional conversation/session IDs, generation и signal. До Session её ID отсутствует; просмотр Session не создаёт. Conversation provider получает только readonly `read.ownerSummary()` и `read.subscribeOwner()`, ограниченные его владельцем. Workspace provider не получает conversation/session identity или чужие owner counters. Mutable Session, controller, SDK, credentials и raw environment не выдаются.
+Core назначает `UiBinding.workspaceRoot`, `scopeInstance`, optional conversation/session IDs, generation и signal. До Session её ID отсутствует; просмотр Session не создаёт. Conversation provider получает только readonly `read.ownerSummary()` и `read.subscribeOwner()`, ограниченные его владельцем. В текущих исходниках conversation summary также содержит optional `modelSelection: {provider, profileId, model}` без credentials. Workspace provider не получает эту проекцию, conversation/session identity или чужие owner counters. `UiSnapshot.visible: false` скрывает contribution из общей проекции, сохраняя её подписку; это additive SDK v1 capability `ui.visibility`. Mutable Session, controller, SDK, credentials и raw environment не выдаются.
 
 `ExtensionUiBinding` — application adapter, не extension port. Он связывает видимый controller со scope, отписывается при switch/replacement и хранит selection/cursor/search/scroll по owned view key. Закрытие UI отменяет readonly requests; runtime фоновых задач и помощников продолжает существующее владение. Старые результаты fenced по scope instance, binding lifetime, generation и request serial; старые revisions игнорируются.
 

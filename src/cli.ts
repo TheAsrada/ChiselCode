@@ -245,7 +245,7 @@ program
       `${mark(Boolean(model))} Модель: ${model ?? "не выбрана"}\n`,
     );
     process.stdout.write(
-      `${mark(keyReady)} API-ключ: ${definition?.auth.required === false ? "не требуется" : keyReady ? "доступен" : "не настроен"}\n`,
+      `${mark(keyReady)} ${definition?.auth.type === "subscription" ? "Аккаунт" : "API-ключ"}: ${definition?.auth.required === false ? "не требуется" : keyReady ? "доступен" : "не настроен"}\n`,
     );
     if (definition)
       process.stdout.write(
@@ -320,7 +320,7 @@ providersCommand
     process.stdout.write("ID\tSource\tDriver\tStatus\n");
     for (const d of catalog.registry.list())
       process.stdout.write(
-        `${d.id}\t${catalog.registry.source(d.id)?.type === "builtin" ? "builtin" : "custom"}\t${d.driverId}\tready\n`,
+        `${d.id}\t${catalog.registry.source(d.id)?.type === "user-manifest" ? "custom" : (catalog.registry.source(d.id)?.type ?? "unknown")}\t${d.driverId}\tready\n`,
       );
     for (const d of catalog.diagnostics)
       process.stderr.write(`${formatProviderDiagnostic(d)}\n`);

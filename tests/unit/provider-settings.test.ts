@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadGlobalConfig } from "../../src/config/load.js";
+import { loadGlobalConfig, saveGlobalConfig } from "../../src/config/load.js";
 import { createProviderCatalog } from "../../src/providers/catalog.js";
 import { createBuiltinProviderRegistry } from "../../src/providers/runtime.js";
+import { CredentialStore } from "../../src/security/credentials.js";
 import {
+  removeProviderProfile,
   saveProviderSettings,
   selectorWindow,
   settingsDraft,
@@ -127,4 +129,66 @@ test("setup model defaults use selected definition and window limits scale", () 
       15,
     ),
   ).toContain(499);
+});
+
+test("profile removal rejects stale confirmation, preserves shared credentials and repairs the default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-profile-removal-"));
+  const configPath = join(root, "config.json");
+  const credentials = new CredentialStore(root);
+  const registry = createBuiltinProviderRegistry();
+  const personal = {
+    providerId: "openai",
+    apiKeyRef: "shared",
+    defaultModel: "gpt-5",
+    label: "Личный",
+  };
+  const work = { ...personal, label: "Рабочий" };
+  try {
+    await credentials.set("shared", "fixture-secret");
+    await saveGlobalConfig(
+      {
+        schemaVersion: 2,
+        defaultProfileId: "personal",
+        profiles: { personal, work },
+        ui: {
+          lastModelSelection: {
+            provider: "openai",
+            profileId: "personal",
+            model: "gpt-5",
+          },
+        },
+      },
+      configPath,
+    );
+    await expect(
+      removeProviderProfile("personal", registry, {
+        configPath,
+        credentials,
+        expected: { ...personal, label: "старое название" },
+      }),
+    ).rejects.toThrow("изменился");
+    expect(
+      (await loadGlobalConfig(configPath)).profiles.personal,
+    ).toBeDefined();
+    await removeProviderProfile("personal", registry, {
+      configPath,
+      credentials,
+      expected: personal,
+    });
+    const config = await loadGlobalConfig(configPath);
+    expect(config.defaultProfileId).toBe("work");
+    expect(config.ui?.lastModelSelection).toBeUndefined();
+    expect(await credentials.get("shared")).toBe("fixture-secret");
+    await removeProviderProfile("work", registry, {
+      configPath,
+      credentials,
+      expected: work,
+    });
+    expect(await credentials.get("shared")).toBeUndefined();
+    expect(
+      (await loadGlobalConfig(configPath)).defaultProfileId,
+    ).toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -23,10 +23,17 @@ export interface SettingsDescriptor {
 export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
   {
     id: "connection",
-    group: "Модель и подключение",
-    title: "Подключение",
-    description: "Сервис, профиль, модель и доступ к API",
-    keywords: ["connection", "provider", "подключение"],
+    group: "Подключения",
+    title: "Подключения",
+    description: "Профили, модели, API и подписки",
+    keywords: [
+      "connection",
+      "provider",
+      "подключение",
+      "подписка",
+      "chatgpt",
+      "аккаунт",
+    ],
     fields: [
       { id: "providers", title: "Сервис", keywords: ["provider", "service"] },
       { id: "profiles", title: "Профиль", keywords: ["profile", "account"] },

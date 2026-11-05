@@ -153,6 +153,10 @@ export async function hasApiKey(
   const { registry } = await getProviderCatalog();
   const d = registry.get(provider);
   if (!d) return false;
+  if (d.auth.type === "subscription")
+    return keyRef
+      ? (await registry.connection(d.id)?.status(keyRef))?.connected === true
+      : false;
   if (!d.auth.required) return true;
   return Boolean(
     await resolveCredential(
@@ -341,7 +345,7 @@ async function resolveConnectionRuntime(
   };
   return resolveProviderRuntime({
     profile,
-    profileId: input.profileId,
+    profileId: input.profileId ?? profile.apiKeyRef,
     registry,
     drivers,
     apiKey: input.apiKey,

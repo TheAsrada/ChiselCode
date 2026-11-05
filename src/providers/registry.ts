@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type {
+  ProviderContribution,
   ProviderDefinition,
+  ProviderDriver,
   ProviderSource,
   RegisteredProvider,
 } from "./contracts.js";
@@ -41,6 +43,7 @@ export const providerDefinitionSchema = z.object({
   driverId: z.string().min(1),
   auth: z.object({
     required: z.boolean(),
+    type: z.enum(["api-key", "subscription"]).optional(),
     envVars: z.array(envVarNameSchema).max(10),
   }),
   endpoint: endpointSchema,
@@ -57,7 +60,50 @@ export const providerDefinitionSchema = z.object({
     )
     .optional(),
 });
+const contributedDrivers = new WeakMap<ProviderDriver, ProviderContribution>();
 export class ProviderRegistry {
+  private connections = new Map<string, ProviderContribution["connection"]>();
+  driver(id: string) {
+    return this.drivers.require(id);
+  }
+  connection(id: string) {
+    return this.connections.get(id);
+  }
+  registerContribution(
+    contribution: ProviderContribution,
+    extensionId: string,
+  ): void {
+    const definition = providerDefinitionSchema.parse(contribution.definition);
+    const id = definition.id;
+    if (this.has(id)) throw new Error(`Duplicate provider ID "${id}".`);
+    if (definition.auth.type === "subscription" && !contribution.connection)
+      throw new Error("Subscription providers require a connection port.");
+    const existing = this.drivers.get(definition.driverId);
+    if (existing && contributedDrivers.get(existing) !== contribution)
+      throw new Error(
+        `Extension driver "${definition.driverId}" is already registered.`,
+      );
+    if (!existing) {
+      const driver: ProviderDriver = {
+        id: definition.driverId,
+        create: (context) => contribution.create(context),
+        validateDefinition: (candidate) =>
+          candidate.id === id
+            ? []
+            : [
+                {
+                  severity: "error",
+                  code: "invalid_driver_options",
+                  message: "Драйвер расширения принадлежит другому провайдеру.",
+                },
+              ],
+      };
+      this.drivers.register(driver);
+      contributedDrivers.set(driver, contribution);
+    }
+    this.register(definition, { type: "extension", extensionId });
+    this.connections.set(id, contribution.connection);
+  }
   private entries = new Map<string, RegisteredProvider>();
   constructor(private drivers: DriverRegistry = createDriverRegistry()) {}
   register(
