@@ -265,7 +265,7 @@ try {
   expect(prompts[0]).toContain("code-review");
   await frame();
   expect(setup.renderer.root.findDescendantById("welcome")).toBeFalsy();
-  expect(setup.captureCharFrame()).toMatch(/Думаю\s+·/);
+  expect(setup.captureCharFrame()).toMatch(/Ожидаю ответ модели\s+·/);
   expect(setup.captureCharFrame()).not.toContain("Internal reasoning");
   expect(setup.captureCharFrame()).not.toContain("Rejected partial prose");
   expect(setup.captureCharFrame()).not.toContain("Размышление");
@@ -308,7 +308,7 @@ try {
       ?.getChildren()
       .filter((item) => item.id.startsWith("session-tab-")).length,
   ).toBe(2);
-  expect(setup.captureCharFrame()).toMatch(/Думаю\s+·/);
+  expect(setup.captureCharFrame()).toMatch(/Ожидаю ответ модели\s+·/);
   expect(setup.renderer.root.findDescendantById("request-status")).toBeTruthy();
   await act(async () => {
     await setup.mockInput.pasteBracketedText("second follow-up");

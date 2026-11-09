@@ -197,7 +197,6 @@ try {
     await until(
       () =>
         ui.captureCharFrame().includes(`Разговор продолжен: ${turn}.`) &&
-        !ui.captureCharFrame().includes("Думаю") &&
         !ui.renderer.root.findDescendantById("request-status"),
       "Восстановленный разговор не продолжился",
     );

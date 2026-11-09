@@ -82,7 +82,8 @@ describe("AgentLoop", () => {
       kind: "openai-compatible",
       providerId: "openai-compatible",
       async *streamChat(request) {
-        requests.push(structuredClone(request));
+        const { signal: _signal, ...payload } = request;
+        requests.push(structuredClone(payload));
         yield {
           type: "turn_complete",
           message:
