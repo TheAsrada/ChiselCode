@@ -112,27 +112,20 @@ for (const [width, height] of [
       expect(setup.captureCharFrame()).toContain("Разрешено");
       expect(setup.captureCharFrame()).toContain("Авто");
       await click(setup, "settings-web-row-1");
-      expect(saved).toEqual([]);
-      await key(setup, "s", true);
       expect(saved).toEqual(["deny"]);
       await click(setup, "settings-web-row-1");
-      await key(setup, "s", true);
       expect(config.permissions.search).toBe("ask");
       expect(setup.captureCharFrame()).toContain("Спрашивать");
       await click(setup, "settings-web-row-1");
-      await key(setup, "s", true);
       expect(config.permissions.search).toBe("allow");
       await click(setup, "settings-web-row-3");
-      await key(setup, "s", true);
       expect(config.search.provider).toBe("exa");
       expect(setup.captureCharFrame()).toContain("Exa");
       await click(setup, "settings-web-row-3");
-      await key(setup, "s", true);
       expect(config.search.provider).toBe("parallel");
       expect(setup.captureCharFrame()).toContain("Parallel");
       expect(setup.captureCharFrame()).not.toContain("Brave API-ключ");
       await click(setup, "settings-web-row-3");
-      await key(setup, "s", true);
       expect(config.search.provider).toBe("brave");
       await key(setup, "ARROW_DOWN");
       await key(setup, "ENTER");
@@ -143,7 +136,6 @@ for (const [width, height] of [
       await frame(setup);
       expect(setup.captureCharFrame()).not.toContain("brave-ui-secret-123456");
       await key(setup, "ENTER");
-      await key(setup, "s", true);
       expect(saved).toContain("brave-ui-secret-123456");
     } finally {
       await act(async () => setup.renderer.destroy());

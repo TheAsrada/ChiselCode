@@ -390,11 +390,10 @@ try {
     () => !!ui.renderer.root.findDescendantById("extensions-setting-title"),
     "No mod settings",
   );
-  // Settings test uses the existing boolean field and the standard save route.
+  // The existing boolean field persists and updates the mounted UI automatically.
   await click("extensions-setting-compact");
-  await key("s", { ctrl: true });
   await until(
-    () => ui.captureCharFrame().includes("Интерфейс расширения обновлён"),
+    () => ui.captureCharFrame().includes("Сохранено"),
     "Settings require restart",
   );
   await closeSettings();

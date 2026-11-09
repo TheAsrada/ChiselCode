@@ -10,6 +10,7 @@ import { DialogAction } from "./opentui-dialog.js";
 import { SettingsSecretInput } from "./opentui-settings-input.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { useSettingsAutosave } from "./settings-autosave.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 
@@ -80,32 +81,31 @@ export function OpenTuiWebSettings({
     else if (row && row.y + row.height > box.viewport.y + box.viewport.height)
       box.scrollBy(row.y + row.height - box.viewport.y - box.viewport.height);
   }, [selected, keyInput, active]);
-  const save = async (config: WebConfig, apiKey?: string) => {
-    if (working.current) return;
-    working.current = true;
-    setBusy(true);
-    setNotice("");
-    try {
-      const next = await actions.save(config, apiKey);
-      if (alive.current) {
-        setState(next);
-        setSaved(next);
-        setPendingKey(undefined);
-        setKeyInput(undefined);
-        setNotice("Сохранено");
-      }
-    } catch {
-      if (alive.current)
-        setNotice(
-          "Не удалось сохранить. Проверьте ключ и доступ к конфигурации.",
-        );
-    } finally {
-      working.current = false;
-      if (alive.current) setBusy(false);
-    }
-  };
+  const autosave = useSettingsAutosave(
+    dirty
+      ? JSON.stringify({ config: state?.config, key: keyInput ?? pendingKey })
+      : undefined,
+    async () => {
+      if (!state) return;
+      const next = await actions.save(state.config, keyInput ?? pendingKey);
+      setSaved(next);
+      setState((current) =>
+        current?.config === state.config ? next : current,
+      );
+      setPendingKey((current) =>
+        current === pendingKey ? undefined : current,
+      );
+      setNotice("Сохранено");
+    },
+    (error) =>
+      setNotice(error instanceof Error ? error.message : String(error)),
+    keyInput !== undefined ? 350 : 0,
+    state
+      ? JSON.stringify({ config: state.config, key: keyInput ?? pendingKey })
+      : undefined,
+  );
   const activate = (index: number) => {
-    if (!state || working.current) return;
+    if (!state) return;
     const config = structuredClone(state.config);
     if (index === 0) config.enabled = !config.enabled;
     else if (index === 3) {
@@ -125,21 +125,23 @@ export function OpenTuiWebSettings({
         "ask";
     }
     setState({ ...state, config });
-    setNotice("Draft · Ctrl+S сохранить");
+    setNotice("");
   };
   const acceptKey = () => {
-    if (keyInput !== undefined) {
-      setPendingKey(keyInput);
-      setKeyInput(undefined);
-      setNotice("Ключ в draft; сохраните форму.");
-    }
+    void autosave.flush().then((ok) => {
+      if (ok) {
+        setPendingKey(undefined);
+        setKeyInput(undefined);
+      }
+    });
   };
   const saveCurrent = () => {
-    if (state) void save(state.config, keyInput ?? pendingKey);
+    void autosave.flush();
   };
   if (controls)
     controls.current = {
       save: saveCurrent,
+      flush: autosave.flush,
       discard: () => {
         setState(saved);
         setKeyInput(undefined);
@@ -148,7 +150,9 @@ export function OpenTuiWebSettings({
       },
       back: () => {
         if (keyInput !== undefined) {
-          setKeyInput(undefined);
+          void autosave.flush().then((ok) => {
+            if (ok) setKeyInput(undefined);
+          });
           return true;
         }
         return false;
@@ -159,11 +163,14 @@ export function OpenTuiWebSettings({
     if ((key.ctrl && key.name === "c") || key.name === "tab") return;
     if (key.name === "escape") {
       key.preventDefault();
-      if (keyInput !== undefined) setKeyInput(undefined);
-      else onClose();
+      if (keyInput !== undefined) acceptKey();
+      else
+        void autosave.flush().then((ok) => {
+          if (ok) onClose();
+        });
       return;
     }
-    if (busy) return;
+
     if (!controls && key.ctrl && key.name === "s") {
       key.preventDefault();
       saveCurrent();
@@ -227,7 +234,7 @@ export function OpenTuiWebSettings({
             <box flexDirection="row" gap={1}>
               <DialogAction
                 id="settings-web-key-save"
-                label="Принять ключ в draft"
+                label="Готово"
                 primary
                 palette={palette}
                 disabled={busy}
@@ -235,10 +242,10 @@ export function OpenTuiWebSettings({
               />
               <DialogAction
                 id="settings-web-key-cancel"
-                label="Отмена"
+                label="Назад"
                 palette={palette}
                 disabled={busy}
-                onSelect={() => setKeyInput(undefined)}
+                onSelect={acceptKey}
               />
             </box>
           </box>
@@ -336,14 +343,6 @@ export function OpenTuiWebSettings({
             </text>
           </>
         )}
-        <DialogAction
-          id="settings-web-save"
-          label={busy ? "Сохраняем…" : "Сохранить Web · Ctrl+S"}
-          palette={palette}
-          primary
-          disabled={busy || !state}
-          onSelect={saveCurrent}
-        />
         {notice && (
           <text fg={palette.muted}>{terminalSafeText(notice, 300)}</text>
         )}

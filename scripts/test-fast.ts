@@ -39,6 +39,7 @@ const names = [
   "provider-conformance",
   "provider-registry",
   "provider-settings",
+  "settings-autosave",
   "provider-stream-events",
   "provider-tool-arguments",
   "release-ci",

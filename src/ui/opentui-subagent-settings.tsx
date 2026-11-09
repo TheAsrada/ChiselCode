@@ -19,6 +19,7 @@ import type {
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { useSettingsAutosave } from "./settings-autosave.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 export function OpenTuiSubagentSettings({
@@ -47,6 +48,8 @@ export function OpenTuiSubagentSettings({
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const body = useRef<ScrollBoxRenderable>(null);
   const dirty =
     !!state &&
@@ -74,41 +77,51 @@ export function OpenTuiSubagentSettings({
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
   const fields = ["enabled"] as const;
   const names = ["Помощники"];
+  const autosave = useSettingsAutosave(
+    dirty ? JSON.stringify({ project, draft }) : undefined,
+    async () => {
+      const current = stateRef.current;
+      if (!current) return;
+      const validated = project
+        ? ProjectSubagentConfigSchema.parse(draft)
+        : SubagentConfigSchema.parse(draft);
+      setBusy(true);
+      try {
+        const value = await (project
+          ? actions.saveProject(validated, current.projectRevision)
+          : actions.saveGlobal(
+              SubagentConfigSchema.parse(validated),
+              current.globalRevision,
+            ));
+        stateRef.current = value;
+        setState(value);
+        setNotice("Сохранено");
+      } finally {
+        setBusy(false);
+      }
+    },
+    (error) =>
+      setNotice(error instanceof Error ? error.message : String(error)),
+    0,
+    state ? JSON.stringify({ project, draft }) : undefined,
+  );
   const save = () => {
-    if (!state || busy) return;
-    const validated = project
-      ? ProjectSubagentConfigSchema.parse(draft)
-      : SubagentConfigSchema.parse(draft);
-    setBusy(true);
-    void (
-      project
-        ? actions.saveProject(validated, state.projectRevision)
-        : actions.saveGlobal(
-            SubagentConfigSchema.parse(validated),
-            state.globalRevision,
-          )
-    )
-      .then((value) => {
-        if (alive.current) {
-          setState(value);
-          setDraft({ ...(project ? value.project : value.global) });
-          setNotice(
-            "Сохранено. Отключение останавливает задачи, сохраняя копии.",
-          );
-        }
-      })
-      .catch((error) => {
-        if (alive.current) setNotice(error.message);
-      })
-      .finally(() => {
-        if (alive.current) setBusy(false);
-      });
+    void autosave.flush();
+  };
+  const changeScope = () => {
+    void autosave.flush().then((ok) => {
+      if (!ok) return;
+      const value = stateRef.current;
+      setProject(!project);
+      setDraft({ ...(!project ? value?.project : value?.global) });
+    });
   };
   const discard = () => {
     if (state) setDraft({ ...(project ? state.project : state.global) });
   };
   useLayoutEffect(() => {
     controls.current = {
+      flush: autosave.flush,
       save: () => {
         try {
           save();
@@ -125,13 +138,7 @@ export function OpenTuiSubagentSettings({
   });
   const activate = () => {
     if (selected === 0) {
-      if (dirty) {
-        setNotice("Сохраните или отмените изменения перед сменой области.");
-        return;
-      }
-      const next = !project;
-      setProject(next);
-      setDraft({ ...(next ? state?.project : state?.global) });
+      changeScope();
     } else if (selected === 1) {
       const next = { ...draft };
       if (project && draft.enabled === true) delete next.enabled;
@@ -152,7 +159,7 @@ export function OpenTuiSubagentSettings({
       setSelected((index) =>
         Math.max(
           0,
-          Math.min(fields.length + 1, index + (key.name === "up" ? -1 : 1)),
+          Math.min(fields.length, index + (key.name === "up" ? -1 : 1)),
         ),
       );
     } else if (key.name === "return") {
@@ -178,7 +185,6 @@ export function OpenTuiSubagentSettings({
             (name, index) =>
               `${name}: ${index === 0 ? (draft.enabled === undefined ? "наследовать" : draft.enabled ? "включены" : "выключены") : (draft[fields[index]!] ?? "наследовать")}`,
           ),
-          busy ? "Сохранение…" : "Сохранить (Ctrl+S)",
         ].map((label, index) => (
           <DialogAction
             key={label}
@@ -189,10 +195,7 @@ export function OpenTuiSubagentSettings({
             onSelect={() => {
               setSelected(index);
               if (index === 0) {
-                if (!dirty) {
-                  setProject(!project);
-                  setDraft({ ...(!project ? state.project : state.global) });
-                }
+                changeScope();
               } else if (index === 1) {
                 const next = { ...draft };
                 if (project && draft.enabled === true) delete next.enabled;
@@ -221,9 +224,36 @@ export function OpenTuiSubagentSettings({
           Контекст и ответ определяются моделью. Остановить помощника можно в
           панели задач. Цена без тарифа неизвестна.
         </text>
+        {dirty && !busy && (
+          <DialogAction
+            id="subagent-retry"
+            label="Повторить"
+            palette={palette}
+            onSelect={save}
+          />
+        )}
+        {dirty && notice && (
+          <DialogAction
+            id="subagent-reload"
+            label="Обновить данные"
+            palette={palette}
+            onSelect={() => {
+              void actions
+                .load()
+                .then((value) => {
+                  stateRef.current = value;
+                  setState(value);
+                  setNotice(
+                    "Данные обновлены; ввод сохранён. Повторите запись.",
+                  );
+                })
+                .catch((error) => setNotice(error.message));
+            }}
+          />
+        )}
       </TerminalScrollbox>
       <text height={1} fg={notice ? palette.yellow : palette.muted}>
-        {notice || "↑↓ Enter · Ctrl+S сохранить · Esc назад"}
+        {notice || "↑↓ Enter · Esc назад"}
       </text>
     </box>
   );

@@ -136,7 +136,7 @@ for (const [width, height] of [
           models: ["models-actions", "models-refresh"],
           skills: ["skills-actions", "skills-instructions-action"],
           sessions: ["resume-actions", "resume-preview"],
-          settings: ["settings-actions", "settings-save"],
+          settings: ["settings-actions", "settings-confirm"],
         }[name];
         if (rail) await focusMenuAction(setup, rail[0] ?? "", rail[1] ?? "");
       }

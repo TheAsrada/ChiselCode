@@ -285,3 +285,169 @@ test("connection settings validate profile ownership and cancellation before inv
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("empty installations stay empty across load/reopen and last deletion; browsing never creates profiles", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-empty-settings-"));
+  const configPath = join(root, "config.json");
+  const registry = createBuiltinProviderRegistry();
+  try {
+    for (let i = 0; i < 2; i++) {
+      const config = await loadGlobalConfig(configPath);
+      expect(config.profiles).toEqual({});
+      expect(config.defaultProfileId).toBeUndefined();
+      expect(settingsDraft(config, registry).profileId).toBeUndefined();
+    }
+    const credentials = { get: async () => undefined, set: async () => {} };
+    expect(
+      await saveProviderSettings(
+        { provider: "openai", profileId: "work", model: "gpt-5" },
+        registry,
+        { configPath, credentials, activate: false },
+      ),
+    ).toBe("setup_required");
+    const saved = await loadGlobalConfig(configPath);
+    expect(saved.profiles.work?.defaultModel).toBe("gpt-5");
+    expect(saved.defaultProfileId).toBeUndefined();
+    await removeProviderProfile("work", registry, { configPath });
+    expect((await loadGlobalConfig(configPath)).profiles).toEqual({});
+    expect(
+      settingsDraft(await loadGlobalConfig(configPath), registry).profileId,
+    ).toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("autosave patches changed profile fields and detects an external edit without overwriting it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-settings-patch-"));
+  const configPath = join(root, "config.json");
+  const registry = createBuiltinProviderRegistry();
+  const previous = {
+    provider: "openai",
+    profileId: "work",
+    model: "gpt-5",
+    label: "Рабочий",
+  };
+  try {
+    await saveGlobalConfig(
+      {
+        schemaVersion: 2,
+        profiles: {
+          work: {
+            providerId: "openai",
+            defaultModel: "gpt-5",
+            label: "Рабочий",
+            custom: "preserved",
+          },
+        },
+      },
+      configPath,
+    );
+    const config = await loadGlobalConfig(configPath);
+    config.profiles.work!.label = "Из другого окна";
+    await saveGlobalConfig(config, configPath);
+    await saveProviderSettings({ ...previous, model: "gpt-new" }, registry, {
+      configPath,
+      previous,
+      activate: false,
+    });
+    expect((await loadGlobalConfig(configPath)).profiles.work).toMatchObject({
+      label: "Из другого окна",
+      defaultModel: "gpt-new",
+      custom: "preserved",
+    });
+    await expect(
+      saveProviderSettings({ ...previous, model: "stale" }, registry, {
+        configPath,
+        previous,
+        activate: false,
+      }),
+    ).rejects.toThrow("изменилось");
+    expect(
+      (await loadGlobalConfig(configPath)).profiles.work?.defaultModel,
+    ).toBe("gpt-new");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("replacing a shared secret only changes the edited profile's credential reference", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-shared-key-edit-"));
+  const configPath = join(root, "config.json");
+  const keys = new Map([["legacy-shared", "old-key"]]);
+  const credentials = {
+    get: async (id: string) => keys.get(id),
+    set: async (id: string, key: string) => {
+      keys.set(id, key);
+    },
+  };
+  try {
+    const profile = {
+      providerId: "openai",
+      defaultModel: "gpt-5",
+      apiKeyRef: "legacy-shared",
+    };
+    await saveGlobalConfig(
+      { schemaVersion: 2, profiles: { a: profile, b: profile } },
+      configPath,
+    );
+    await saveProviderSettings(
+      { provider: "openai", profileId: "a", model: "gpt-5", apiKey: "new-key" },
+      createBuiltinProviderRegistry(),
+      { configPath, credentials, activate: false },
+    );
+    const config = await loadGlobalConfig(configPath);
+    expect(config.profiles.b?.apiKeyRef).toBe("legacy-shared");
+    expect(keys.get("legacy-shared")).toBe("old-key");
+    expect(keys.get(config.profiles.a!.apiKeyRef!)).toBe("new-key");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("editing the selected model survives restart without selecting another viewed profile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-settings-selected-"));
+  const configPath = join(root, "config.json");
+  const registry = createBuiltinProviderRegistry();
+  try {
+    await saveGlobalConfig(
+      {
+        schemaVersion: 2,
+        defaultProfileId: "a",
+        profiles: {
+          a: { providerId: "openai", defaultModel: "old" },
+          b: { providerId: "openai", defaultModel: "other" },
+        },
+        ui: {
+          lastModelSelection: {
+            provider: "openai",
+            profileId: "a",
+            model: "old",
+          },
+        },
+      },
+      configPath,
+    );
+    await saveProviderSettings(
+      { provider: "openai", profileId: "b", model: "edited-other" },
+      registry,
+      { configPath, activate: false },
+    );
+    expect(
+      (await loadGlobalConfig(configPath)).ui?.lastModelSelection?.model,
+    ).toBe("old");
+    await saveProviderSettings(
+      { provider: "openai", profileId: "a", model: "edited-active" },
+      registry,
+      { configPath, activate: false, updateSelectedModel: true },
+    );
+    const restarted = await loadGlobalConfig(configPath);
+    expect(restarted.ui?.lastModelSelection).toMatchObject({
+      profileId: "a",
+      model: "edited-active",
+    });
+    expect(restarted.defaultProfileId).toBe("a");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

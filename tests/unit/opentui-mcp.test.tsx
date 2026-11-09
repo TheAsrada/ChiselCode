@@ -12,6 +12,7 @@ import { OpenTuiApproval } from "../../src/ui/opentui-approval.js";
 import { OpenTuiMcp } from "../../src/ui/opentui-mcp.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+import { menuAction } from "../fixtures/menu-navigation.js";
 
 function actions(withServer = true) {
   const servers: McpServerStatus[] = withServer
@@ -255,10 +256,7 @@ test("URL onboarding tests before saving and offers separate category permission
     expect(view).toContain("12 tools");
     expect(view).toContain("Внешняя запись");
     expect(view).toContain("Спрашивать");
-    await act(async () => {
-      setup.mockInput.pressKey("s", { ctrl: true });
-    });
-    await frame(setup);
+    await menuAction(setup, "mcp-actions", "mcp-save");
     expect(calls.filter((call) => call.kind === "save")).toHaveLength(1);
   } finally {
     destroy(setup);
@@ -350,12 +348,8 @@ test("server details, tool classification, permission editor and safe error diag
     await press(setup, "RETURN");
     expect(setup.captureCharFrame()).toContain("Разрушительные действия");
     await press(setup, "RETURN");
-    const view = setup.captureCharFrame().split("\n");
-    const y = view.findIndex((line) => line.includes("Сохранить"));
-    await act(async () => {
-      await setup.mockMouse.click((view[y]?.indexOf("Сохранить") ?? 0) + 1, y);
-    });
     await frame(setup);
+    await press(setup, "ESCAPE");
     expect(calls[0]?.kind).toBe("permissions");
     for (let i = 0; i < 4; i++) await press(setup, "DOWN");
     await press(setup, "RETURN");

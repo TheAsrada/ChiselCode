@@ -20,6 +20,7 @@ import type {
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { useSettingsAutosave } from "./settings-autosave.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 export function OpenTuiBackgroundSettings({
@@ -47,9 +48,16 @@ export function OpenTuiBackgroundSettings({
   const [selected, setSelected] = useState(0);
   const [editing, setEditing] = useState(false);
   const [input, setInput] = useState("");
+  const openedInput = useRef("");
+  const beginInput = (value: string) => {
+    openedInput.current = value;
+    setInput(value);
+  };
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const body = useRef<ScrollBoxRenderable>(null);
   const dirty =
     !!state &&
@@ -91,35 +99,53 @@ export function OpenTuiBackgroundSettings({
     "Вывод, байт (до 16 MiB)",
     "Хранение, дни (1–7)",
   ];
+  const inputDirty = editing && input !== openedInput.current;
+  const pendingDraft = inputDirty
+    ? {
+        ...draft,
+        [fields[selected - 1]!]: input.trim() ? Number(input) : undefined,
+      }
+    : draft;
+  const autosave = useSettingsAutosave(
+    dirty || inputDirty
+      ? JSON.stringify({ project, draft: pendingDraft })
+      : undefined,
+    async () => {
+      const current = stateRef.current;
+      if (!current) return;
+      const validated = project
+        ? ProjectBackgroundConfigSchema.parse(pendingDraft)
+        : BackgroundConfigSchema.parse(pendingDraft);
+      setBusy(true);
+      try {
+        const value = await (project
+          ? actions.saveProject(validated, current.projectRevision)
+          : actions.saveGlobal(
+              BackgroundConfigSchema.parse(validated),
+              current.globalRevision,
+            ));
+        stateRef.current = value;
+        setState(value);
+        setNotice("Сохранено");
+      } finally {
+        setBusy(false);
+      }
+    },
+    (error) =>
+      setNotice(error instanceof Error ? error.message : String(error)),
+    editing ? 350 : 0,
+    state ? JSON.stringify({ project, draft: pendingDraft }) : undefined,
+  );
   const save = () => {
-    if (!state || busy) return;
-    const validated = project
-      ? ProjectBackgroundConfigSchema.parse(draft)
-      : BackgroundConfigSchema.parse(draft);
-    setBusy(true);
-    void (
-      project
-        ? actions.saveProject(validated, state.projectRevision)
-        : actions.saveGlobal(
-            BackgroundConfigSchema.parse(validated),
-            state.globalRevision,
-          )
-    )
-      .then((value) => {
-        if (alive.current) {
-          setState(value);
-          setDraft({ ...(project ? value.project : value.global) });
-          setNotice(
-            "Сохранено. Отключение останавливает команды, сохраняя логи и файлы.",
-          );
-        }
-      })
-      .catch((error) => {
-        if (alive.current) setNotice(error.message);
-      })
-      .finally(() => {
-        if (alive.current) setBusy(false);
-      });
+    void autosave.flush();
+  };
+  const changeScope = () => {
+    void autosave.flush().then((ok) => {
+      if (!ok) return;
+      const value = stateRef.current;
+      setProject(!project);
+      setDraft({ ...(!project ? value?.project : value?.global) });
+    });
   };
   const discard = () => {
     if (state) setDraft({ ...(project ? state.project : state.global) });
@@ -127,6 +153,7 @@ export function OpenTuiBackgroundSettings({
   };
   useLayoutEffect(() => {
     controls.current = {
+      flush: autosave.flush,
       save: () => {
         try {
           save();
@@ -136,7 +163,12 @@ export function OpenTuiBackgroundSettings({
       },
       back: () => {
         if (!editing) return false;
-        setEditing(false);
+        void autosave.flush().then((ok) => {
+          if (ok) {
+            setDraft(pendingDraft);
+            setEditing(false);
+          }
+        });
         return true;
       },
       discard,
@@ -164,20 +196,14 @@ export function OpenTuiBackgroundSettings({
   };
   const activate = () => {
     if (selected === 0) {
-      if (dirty) {
-        setNotice("Сохраните или отмените изменения перед сменой области.");
-        return;
-      }
-      const next = !project;
-      setProject(next);
-      setDraft({ ...(next ? state?.project : state?.global) });
+      changeScope();
     } else if (selected === 1) {
       const next = { ...draft };
       if (project && draft.enabled === true) delete next.enabled;
       else next.enabled = draft.enabled === undefined ? false : !draft.enabled;
       setDraft(next);
     } else if (selected <= fields.length) {
-      setInput(
+      beginInput(
         String(
           draft[fields[selected - 1]!] ??
             state?.global[fields[selected - 1]!] ??
@@ -201,7 +227,7 @@ export function OpenTuiBackgroundSettings({
       setSelected((index) =>
         Math.max(
           0,
-          Math.min(fields.length + 1, index + (key.name === "up" ? -1 : 1)),
+          Math.min(fields.length, index + (key.name === "up" ? -1 : 1)),
         ),
       );
     } else if (key.name === "return") {
@@ -236,7 +262,7 @@ export function OpenTuiBackgroundSettings({
           textColor={palette.text}
           focusedTextColor={palette.text}
         />
-        <text fg={palette.yellow}>{notice}</text>
+        <text fg={palette.yellow}>{busy ? "Сохранение…" : notice}</text>
         <text fg={palette.muted}>Enter — принять · Esc — назад</text>
       </box>
     );
@@ -249,7 +275,6 @@ export function OpenTuiBackgroundSettings({
             (name, index) =>
               `${name}: ${index === 0 ? (draft.enabled === undefined ? "наследовать" : draft.enabled ? "включены" : "выключены") : (draft[fields[index]!] ?? "наследовать")}`,
           ),
-          busy ? "Сохранение…" : "Сохранить (Ctrl+S)",
         ].map((label, index) => (
           <DialogAction
             key={label}
@@ -260,10 +285,7 @@ export function OpenTuiBackgroundSettings({
             onSelect={() => {
               setSelected(index);
               if (index === 0) {
-                if (!dirty) {
-                  setProject(!project);
-                  setDraft({ ...(!project ? state.project : state.global) });
-                }
+                changeScope();
               } else if (index === 1) {
                 const next = { ...draft };
                 if (project && draft.enabled === true) delete next.enabled;
@@ -272,7 +294,7 @@ export function OpenTuiBackgroundSettings({
                     draft.enabled === undefined ? false : !draft.enabled;
                 setDraft(next);
               } else if (index <= fields.length) {
-                setInput(
+                beginInput(
                   String(
                     draft[fields[index - 1]!] ??
                       state.global[fields[index - 1]!],
@@ -297,8 +319,35 @@ export function OpenTuiBackgroundSettings({
           сервис: 1 час; вывод: 16 MiB на задачу, 128 MiB на владельца;
           хранение: 100 результатов / 7 дней.
         </text>
+        {dirty && !busy && (
+          <DialogAction
+            id="background-retry"
+            label="Повторить"
+            palette={palette}
+            onSelect={save}
+          />
+        )}
+        {dirty && notice && (
+          <DialogAction
+            id="background-reload"
+            label="Обновить данные"
+            palette={palette}
+            onSelect={() => {
+              void actions
+                .load()
+                .then((value) => {
+                  stateRef.current = value;
+                  setState(value);
+                  setNotice(
+                    "Данные обновлены; ввод сохранён. Повторите запись.",
+                  );
+                })
+                .catch((error) => setNotice(error.message));
+            }}
+          />
+        )}
       </TerminalScrollbox>
-      <text fg={palette.yellow}>{notice}</text>
+      <text fg={palette.yellow}>{busy ? "Сохранение…" : notice}</text>
     </box>
   );
 }

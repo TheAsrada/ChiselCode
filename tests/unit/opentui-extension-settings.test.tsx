@@ -285,10 +285,9 @@ test("unconfirmed input is dirty, secret stays masked, and settings remain bound
       expect(ui.captureCharFrame()).toContain("***");
     }
     await key(ui, "RETURN");
-    await click(ui, "extensions-settings-save");
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      values: { message: "Привет" },
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({
+      values: { message: "Привет новый" },
       secrets: { token: "private-test-token" },
     });
   } finally {

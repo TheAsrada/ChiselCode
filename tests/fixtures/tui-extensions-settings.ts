@@ -337,9 +337,8 @@ if (phase < 0) {
       for (let i = 0; i < 6; i++) await key("BACKSPACE");
       await paste("После restart");
       await key("RETURN");
-      await key("s", true);
       await until(
-        () => ui.captureCharFrame().includes("Параметры расширения применятся"),
+        () => ui.captureCharFrame().includes("Параметры применятся"),
         "Параметры не сохранены",
       );
       await capture("settings-120x36");

@@ -150,8 +150,7 @@ async function click(id: string) {
 }
 async function navigate(query: string) {
   // Из содержимого LSP Ctrl+F ищет серверы; общий поиск принадлежит оболочке.
-  await key("TAB", false, true);
-  await key("f", true);
+  await click("settings-global-search");
   assert.equal(ui.renderer.currentFocusedEditor?.id, "settings-global-search");
   await key("a", true);
   await paste(query);
@@ -360,13 +359,6 @@ try {
     await act(async () => ui.resize(120, 36));
     await frame();
     await click("settings-close");
-    assert.ok(
-      ui.renderer.root.findDescendantById("settings-stay"),
-      "Потеряна защита черновика MCP",
-    );
-    await click("settings-stay");
-    await click("settings-close");
-    await click("settings-discard");
     await until(
       () => !ui.renderer.root.findDescendantById("settings-popup"),
       "Settings не закрылся",

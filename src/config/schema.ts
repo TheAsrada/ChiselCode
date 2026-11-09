@@ -20,7 +20,7 @@ export const ProviderProfileSchema = z.looseObject({
 export const GlobalConfigV2Schema = z.looseObject({
   subagents: SubagentConfigSchema.optional(),
   backgroundTasks: BackgroundConfigSchema.optional(),
-  lsp: LspConfigSchema.optional(),
+  lsp: z.lazy(() => LspConfigSchema).optional(),
   schemaVersion: z.literal(2),
   defaultProfileId: ProfileIdSchema.optional(),
   profiles: z.record(ProfileIdSchema, ProviderProfileSchema),

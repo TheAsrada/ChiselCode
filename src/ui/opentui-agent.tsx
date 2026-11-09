@@ -1125,10 +1125,63 @@ async function runApplication(
               },
         );
       },
-      save: async (values) => {
+      save: async (values, previous) => {
         if (values.apiKey?.trim()) uiRedactor.add(values.apiKey.trim());
         const outcome = await saveProviderSettings(values, catalog.registry, {
           configPath: options.configPath,
+          activate: false,
+          updateSelectedModel:
+            owner.isCurrent(generation) &&
+            owner.snapshot.modelSelection?.profileId === values.profileId,
+          previous,
+        });
+        config = await loadGlobalConfig(options.configPath);
+        modelCache.clear();
+        capabilityRequests.clear();
+        modelCacheGeneration++;
+        if (
+          owner.isCurrent(generation) &&
+          owner.snapshot.modelSelection?.profileId === values.profileId
+        ) {
+          owner.setActiveModel(
+            values.provider,
+            values.model,
+            values.profileId,
+            values.baseUrl,
+          );
+          if (activeOptions.profile === values.profileId) {
+            activeOptions = {
+              ...activeOptions,
+              model: values.model,
+              baseUrl: values.baseUrl,
+            };
+            defaultModel = values.model;
+          }
+          warmModelCapabilities(owner);
+        }
+        return outcome;
+      },
+      activate: async (values) => {
+        await updateGlobalConfig(options.configPath, (latest) => {
+          if (!owner.isCurrent(generation))
+            throw new Error("Беседа изменилась. Откройте настройки заново.");
+          if (
+            !values.profileId ||
+            latest.profiles[values.profileId]?.providerId !== values.provider
+          )
+            throw new Error("Подключение изменилось. Обновите список.");
+          return {
+            ...latest,
+            defaultProfileId: values.profileId,
+            ui: {
+              ...latest.ui,
+              lastModelSelection: {
+                provider: values.provider,
+                profileId: values.profileId,
+                model: values.model,
+              },
+            },
+          };
         });
         config = await loadGlobalConfig(options.configPath);
         defaultModel = values.model;
@@ -1144,7 +1197,7 @@ async function runApplication(
         modelCache.clear();
         capabilityRequests.clear();
         modelCacheGeneration++;
-        if (!owner.isCurrent(generation)) return outcome;
+        if (!owner.isCurrent(generation)) return;
         owner.setActiveModel(
           values.provider,
           values.model,
@@ -1152,7 +1205,7 @@ async function runApplication(
           values.baseUrl,
         );
         warmModelCapabilities(owner);
-        return outcome;
+        return;
       },
       connect: (values, signal, challenge) =>
         connectProviderAccount(values, catalog.registry, signal, challenge, {

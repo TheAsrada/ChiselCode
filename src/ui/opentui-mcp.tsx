@@ -30,6 +30,7 @@ import {
 import { OpenTuiToolPane, toolPaneLayout } from "./opentui-tool-pane.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { useSettingsAutosave } from "./settings-autosave.js";
 import type { EmbeddedSettingsPanel } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
@@ -709,6 +710,21 @@ export function OpenTuiMcp({
       selected - Math.floor(visibleCount / 2),
     ),
   );
+  const permissionAutosave = useSettingsAutosave(
+    screen === "permissions" &&
+      entry &&
+      JSON.stringify(permissions) !== JSON.stringify(entry.permissions)
+      ? JSON.stringify({ serverId, permissions })
+      : undefined,
+    async () => {
+      await actions.permissions(serverId, permissions);
+    },
+    (error) => setNotice(safe(error)),
+    0,
+    screen === "permissions"
+      ? JSON.stringify({ serverId, permissions })
+      : undefined,
+  );
   const save = () =>
     void work("Сохраняю…", async () => {
       if (screen === "permissions") {
@@ -816,11 +832,11 @@ export function OpenTuiMcp({
           },
         ]
       : []),
-    ...(screen === "permissions" || (screen === "preview" && testedDraft)
+    ...(screen === "preview" && testedDraft
       ? [
           {
-            id: screen === "permissions" ? "mcp-save-permissions" : "mcp-save",
-            label: "Сохранить",
+            id: "mcp-save",
+            label: "Добавить, доверить и подключить",
             run: save,
             disabled:
               !!busy ||
@@ -871,7 +887,7 @@ export function OpenTuiMcp({
       (screen === "permissions" || screen === "preview")
     ) {
       key.preventDefault();
-      save();
+      void permissionAutosave.flush();
       return;
     }
     if (
@@ -989,6 +1005,7 @@ export function OpenTuiMcp({
   }, [formDirty, permissionDirty, busy, onDirty]);
   if (controls)
     controls.current = {
+      flush: permissionAutosave.flush,
       save() {
         if (screen === "permissions" || screen === "preview") save();
         else if (screen === "credentials") authenticate();
@@ -1359,7 +1376,7 @@ export function OpenTuiMcp({
             screen === "servers"
               ? `${servers.filter((item) => item.state === "connected").length}/${servers.length} подключено · ↑ ↓ выбор · Enter открыть`
               : screen === "permissions" || screen === "preview"
-                ? "Enter выбор / правило · Ctrl+S сохранить"
+                ? "Enter выбор / правило · Автосохранение"
                 : screen === "form"
                   ? "↑↓ выбор · Enter · Esc назад"
                   : screen === "trust"

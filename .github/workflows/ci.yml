@@ -176,6 +176,7 @@ jobs:
           tests/integration/host-clipboard.test.tsx
           tests/integration/graphics-runtime.test.ts
           tests/unit/settings-shell.test.tsx tests/unit/menu-keybindings.test.tsx tests/unit/opentui-mcp.test.tsx
+          tests/unit/settings-autosave.test.ts tests/unit/settings-autosave-runtime.test.tsx tests/unit/provider-settings.test.ts
           tests/unit/opentui-skills.test.tsx tests/integration/settings-tools-runtime.test.ts
           tests/unit/opentui-extension-settings.test.tsx
           tests/unit/self-update.test.ts tests/unit/update-controller.test.ts

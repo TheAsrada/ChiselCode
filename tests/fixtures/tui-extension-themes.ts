@@ -227,10 +227,6 @@ try {
     ]) {
       await act(async () => ui.renderer.resize(width!, height!));
       await frame();
-      await focusMenuAction(ui, "settings-actions", "settings-apply-theme");
-      assert.ok(ui.renderer.root.findDescendantById("settings-apply-theme"));
-      await focusMenuAction(ui, "settings-actions", "settings-cancel-theme");
-      assert.ok(ui.renderer.root.findDescendantById("settings-cancel-theme"));
       assert.ok(
         ui.captureCharFrame().includes(`> ${name}`),
         "Resize скрыл выбранную тему\n" + ui.captureCharFrame(),
@@ -239,7 +235,6 @@ try {
     }
     await act(async () => ui.renderer.resize(160, 50));
     await frame();
-    await menuAction(ui, "settings-actions", "settings-apply-theme");
     await until(
       () => ui.captureCharFrame().includes("Тема сохранена"),
       "Выбор не сохранён",
@@ -263,8 +258,7 @@ try {
     await openThemes();
     assert.match(ui.captureCharFrame(), new RegExp(name));
   }
-  await click("settings-theme-extension:fixture.themes:north");
-  await menuAction(ui, "settings-actions", "settings-cancel-theme");
+  await key("ARROW_UP");
   assert.equal(
     JSON.parse(await readFile(configPath, "utf8")).ui.theme,
     "extension:fixture.themes:linen",
@@ -283,7 +277,6 @@ try {
     ),
     ui.captureCharFrame(),
   );
-  await menuAction(ui, "settings-actions", "settings-cancel-theme");
   await key("ESCAPE");
   assert.equal(
     fetches,

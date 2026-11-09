@@ -20,6 +20,7 @@ import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { useSettingsAutosave } from "./settings-autosave.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
@@ -132,6 +133,8 @@ export function OpenTuiLspSettings({
   onChooseProject?(): void;
 }) {
   const [state, setState] = useState<LspSettingsState>();
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [global, setGlobal] = useState<LspConfig>({ servers: {} });
   const [project, setProject] = useState<ProjectLspConfig>({});
   const [scope, setScope] = useState<"global" | "project">("project");
@@ -142,6 +145,8 @@ export function OpenTuiLspSettings({
   const [searching, setSearching] = useState(false);
   const [draft, setDraft] = useState<ServerDraft>();
   const [originalId, setOriginalId] = useState<string>();
+  const originalIdRef = useRef(originalId);
+  originalIdRef.current = originalId;
   const formOriginCard = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState(0);
   const selectedRef = useRef(0);
@@ -172,6 +177,7 @@ export function OpenTuiLspSettings({
     (!!draft && JSON.stringify(draft) !== baselineDraft.current) ||
     (editing !== undefined && text !== String(draft?.[editing] ?? ""));
   const apply = (next: LspSettingsState, refresh = true) => {
+    stateRef.current = next;
     setState(next);
     if (refresh) {
       setGlobal(next.global);
@@ -348,6 +354,7 @@ export function OpenTuiLspSettings({
         next.id = `${backend === "generic" ? "custom" : "typescript"}-${suffix++}`;
     }
     setDraft(next);
+    originalIdRef.current = id;
     setOriginalId(id);
     setCardId(id);
     formOriginCard.current = id;
@@ -381,37 +388,41 @@ export function OpenTuiLspSettings({
       ),
     );
   }, [fieldTarget, active, !!state]);
-  const save = () => {
-    if (!state) return;
-    if (screen !== "form" && draft) {
-      navigate("form");
-      setNotice("Сохранение относится к ручной форме. Проверьте черновик.");
-      return;
-    }
-    const nextDraft = accepted();
-    run(async (signal) => {
-      const nextGlobal = structuredClone(global);
-      nextGlobal.mode ??= globalLspMode(state.global);
-      if (nextDraft) {
-        const id = LspServerIdSchema.parse(nextDraft.id);
-        if (id !== originalId && nextGlobal.servers[id])
-          throw new Error("Server ID уже существует.");
-        if (originalId && originalId !== id)
-          delete nextGlobal.servers[originalId];
-        nextGlobal.servers[id] = draftConfig(nextDraft);
-      }
-      const next = await actions.saveGlobal(nextGlobal, state.globalRevision);
-      if (!alive.current || signal.aborted) return;
+  const pendingDraft = draft && editing ? { ...draft, [editing]: text } : draft;
+  const autosave = useSettingsAutosave(
+    state &&
+      pendingDraft &&
+      JSON.stringify(pendingDraft) !== baselineDraft.current
+      ? JSON.stringify(pendingDraft)
+      : undefined,
+    async () => {
+      const current = stateRef.current;
+      if (!current || !pendingDraft) return;
+      const id = LspServerIdSchema.parse(pendingDraft.id);
+      const nextGlobal = structuredClone(current.global);
+      const previousId = originalIdRef.current;
+      if (id !== previousId && nextGlobal.servers[id])
+        throw new Error("Server ID уже существует.");
+      if (previousId && previousId !== id)
+        delete nextGlobal.servers[previousId];
+      nextGlobal.servers[id] = draftConfig(pendingDraft);
+      const next = await actions.saveGlobal(nextGlobal, current.globalRevision);
       apply(next);
-      if (nextDraft) {
-        setOriginalId(nextDraft.id);
-        baselineDraft.current = JSON.stringify(nextDraft);
-      }
+      originalIdRef.current = id;
+      setOriginalId(id);
+      baselineDraft.current = JSON.stringify(pendingDraft);
       setNotice(
         next.applicationError ??
-          "Сохранено. Для ручного сервера нужно отдельное доверие проекта.",
+          "Сохранено · доверие и запуск — отдельные действия",
       );
-    });
+    },
+    (error) =>
+      setNotice(error instanceof Error ? error.message : String(error)),
+    editing ? 350 : 0,
+    pendingDraft ? JSON.stringify(pendingDraft) : undefined,
+  );
+  const save = () => {
+    void autosave.flush();
   };
   const discard = () => {
     if (state) apply(state);
@@ -431,8 +442,12 @@ export function OpenTuiLspSettings({
       return true;
     }
     if (screen === "form") {
-      setCardId(formOriginCard.current);
-      navigate(formOriginCard.current ? "card" : "overview");
+      void autosave.flush().then((ok) => {
+        if (ok) {
+          setCardId(formOriginCard.current);
+          navigate(formOriginCard.current ? "card" : "overview");
+        }
+      });
       return true;
     }
     if (screen !== "overview") {
@@ -443,6 +458,7 @@ export function OpenTuiLspSettings({
   };
   controls.current = {
     save,
+    flush: autosave.flush,
     discard,
     back,
     search: () => {
@@ -540,6 +556,18 @@ export function OpenTuiLspSettings({
   let rows: MenuRow[] = [];
   if (screen === "form" && draft) {
     rows = [
+      {
+        id: "reload",
+        label: "Обновить данные",
+        value: "Сохранить ввод и обновить revisions",
+        activate: refreshBaseline,
+      },
+      {
+        id: "discard",
+        label: "Отменить изменения формы",
+        value: "Вернуться к записанным значениям",
+        activate: discard,
+      },
       ...(
         [
           ["id", "Server ID"],
@@ -624,9 +652,7 @@ export function OpenTuiLspSettings({
               (value) => value !== root,
             ),
           });
-          setNotice(
-            "Доверие будет отозвано после сохранения. Ctrl+S остановит сервер этого проекта.",
-          );
+          setNotice("Отзываем доверие и останавливаем сервер этого проекта.");
         },
       })),
       {
@@ -1246,10 +1272,10 @@ export function OpenTuiLspSettings({
           Применяется…
         </text>
       )}
-      {!editing && screen === "form" && (
+      {!editing && screen === "form" && dirty && notice && (
         <DialogAction
           id="lsp-save"
-          label="Сохранить · Ctrl+S"
+          label="Повторить"
           primary
           palette={palette}
           disabled={busy || !state}

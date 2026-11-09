@@ -90,9 +90,9 @@ for (const [width, height] of [
       expect(
         setup.renderer.root.findDescendantById("settings-motion"),
       ).toBeFalsy();
+      await menuAction(setup, "settings-actions", "settings-back");
       await menuAction(setup, "settings-actions", "settings-check");
-      await menuAction(setup, "settings-actions", "settings-save");
-      expect([checked, saved]).toEqual([1, 1]);
+      expect([checked, saved]).toEqual([1, 0]);
       const rail = setup.renderer.root.findDescendantById("settings-actions");
       expect((rail?.y ?? height) + (rail?.height ?? 1)).toBeLessThanOrEqual(
         height,

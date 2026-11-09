@@ -30,7 +30,7 @@ const ProjectConfigSchema = z.object({
     .optional(),
   backgroundTasks: ProjectBackgroundConfigSchema.optional(),
   subagents: ProjectSubagentConfigSchema.optional(),
-  lsp: ProjectLspConfigSchema.optional(),
+  lsp: z.lazy(() => ProjectLspConfigSchema).optional(),
   web: ProjectWebConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
   context: z

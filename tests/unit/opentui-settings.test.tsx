@@ -138,12 +138,15 @@ async function settings(
       actions={actions}
       width={100}
       height={30}
-      initialSelection={selection}
+      initialSelection={0}
       onClose={onClose}
     />,
     { width: 100, height: 30 },
   );
   await frame(setup);
+  await key(setup, "ENTER");
+  for (let i = 0; i < 12; i++) await key(setup, "UP");
+  for (let i = 0; i < selection; i++) await key(setup, "DOWN");
   return setup;
 }
 
@@ -174,6 +177,7 @@ test("settings overlay preserves native composer, cursor and ongoing conversatio
     expect(editor.focused).toBe(false);
     act(() => controller.append("Ответ продолжает поступать", "assistant"));
     await frame(setup);
+    await key(setup, "ESCAPE");
     await key(setup, "ESCAPE");
     expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
     expect(editor.plainText).toBe("первая строка\nвторая строка");
@@ -207,7 +211,6 @@ test("secret input masks its native buffer and edits at cursor with undo/redo", 
     await key(setup, "y", true);
     expect(input.value).toMatch(/^\*+$/);
     await key(setup, "ENTER");
-    await key(setup, "s", true);
     expect(saved[0]?.apiKey).toBe("sk-секрет123Z");
     expect(setup.captureCharFrame()).not.toContain("sk-секрет123");
   } finally {
@@ -228,18 +231,18 @@ test("masked selection replacement changes only the selected secret characters",
     await paste(setup, "Ж");
     expect(input.value).toBe("****");
     await key(setup, "ENTER");
-    await key(setup, "s", true);
     expect(saved[0]?.apiKey).toBe("aЖef");
   } finally {
     destroy(setup);
   }
 });
 
-test("URL uses native cursor editing and Escape discards a field draft", async () => {
+test("URL uses native cursor editing and Escape saves a valid field", async () => {
   const { actions, saved } = api({
     load: async () => ({
       values: {
         provider: "openai-compatible",
+        profileId: "work",
         model: "coder",
         baseUrl: "https://api.example.com/v1",
       },
@@ -249,14 +252,12 @@ test("URL uses native cursor editing and Escape discards a field draft", async (
   const setup = await settings(actions, 3);
   try {
     await key(setup, "ENTER");
-    await paste(setup, "discard");
     await key(setup, "ESCAPE");
     await key(setup, "ENTER");
     await key(setup, "HOME");
     for (let i = 0; i < 8; i++) await key(setup, "RIGHT");
     await paste(setup, "new.");
     await key(setup, "ENTER");
-    await key(setup, "s", true);
     expect(saved[0]?.baseUrl).toBe("https://new.api.example.com/v1");
   } finally {
     destroy(setup);
@@ -280,21 +281,25 @@ test("provider search handles 500 definitions and clears the previous unsaved ke
     }),
     hasKey: async () => false,
   });
-  const setup = await settings(actions, 2);
+  const setup = await testRender(
+    <OpenTuiSettings
+      actions={actions}
+      width={100}
+      height={30}
+      onClose={() => {}}
+    />,
+    { width: 100, height: 30 },
+  );
+  await frame(setup);
   try {
-    await key(setup, "ENTER");
-    await paste(setup, "private-key");
-    await key(setup, "ENTER");
-    await click(setup, "settings-row-providers");
+    await click(setup, "settings-row-__new-profile");
     expect(setup.captureCharFrame()).not.toContain("Scale 499");
     await paste(setup, "Сервис номер 499");
     expect(setup.captureCharFrame()).toContain("Scale 499");
     expect(setup.captureCharFrame()).not.toContain("Scale 498");
     await key(setup, "ENTER");
-    expect(setup.captureCharFrame()).toContain("Сохранить изменения профиля?");
-    expect(setup.captureCharFrame()).not.toContain("private-key");
-    await click(setup, "settings-connection-discard");
-    await key(setup, "s", true);
+    await paste(setup, "new-499");
+    await key(setup, "ENTER");
     expect(saved[0]?.provider).toBe("scale/provider-499");
     expect(saved[0]?.model).toBe("coder-499");
     expect(saved[0]?.apiKey).toBeUndefined();
@@ -311,7 +316,6 @@ test("model search selects a discovered model", async () => {
     await paste(setup, "sonnet");
     expect(setup.captureCharFrame()).toContain("claude-sonnet-5");
     await key(setup, "ENTER");
-    await key(setup, "s", true);
     expect(saved[0]?.model).toBe("claude-sonnet-5");
   } finally {
     destroy(setup);
@@ -346,7 +350,6 @@ for (const slow of [false, true]) {
         await act(async () =>
           finish?.({ ok: true, models: [{ id: "late-model" }] }),
         );
-      await key(setup, "s", true);
       expect(saved[0]?.model).toBe("coder-custom");
     } finally {
       destroy(setup);
@@ -381,9 +384,10 @@ test("profile search loads the selected account", async () => {
     await click(setup, "settings-row-profiles");
     await paste(setup, "Личный");
     await key(setup, "ENTER");
-    await key(setup, "s", true);
-    expect(saved[0]?.profileId).toBe("personal");
-    expect(saved[0]?.model).toBe("personal-model");
+    expect(saved).toEqual([]);
+    expect(setup.captureCharFrame()).toContain("personal-model");
+    await key(setup, "ESCAPE");
+    expect(setup.captureCharFrame()).not.toContain("Несохранённые");
   } finally {
     destroy(setup);
   }
@@ -401,7 +405,6 @@ test("new profile rejects duplicates and starts with a separate key", async () =
     await key(setup, "u", true);
     await paste(setup, "second");
     await key(setup, "ENTER");
-    await key(setup, "s", true);
     expect(saved[0]?.profileId).toBe("second");
     expect(saved[0]?.apiKey).toBeUndefined();
   } finally {
@@ -411,7 +414,8 @@ test("new profile rejects duplicates and starts with a separate key", async () =
 
 test("connection errors redact the entered key and preserve the editable draft", async () => {
   const { actions, saved } = api({
-    check: async (values) => {
+    save: async (values) => {
+      saved.push(values);
       throw new Error(`Ошибка ${values.apiKey?.trim()}`);
     },
   });
@@ -420,10 +424,8 @@ test("connection errors redact the entered key and preserve the editable draft",
     await key(setup, "ENTER");
     await paste(setup, " sk-private-key ");
     await key(setup, "ENTER");
-    await menuAction(setup, "settings-actions", "settings-check");
     expect(setup.captureCharFrame()).toContain("[ключ скрыт]");
     expect(setup.captureCharFrame()).not.toContain("sk-private-key");
-    await key(setup, "s", true);
     expect(saved[0]?.apiKey).toBe("sk-private-key");
   } finally {
     destroy(setup);
@@ -455,16 +457,36 @@ test("Escape cancels a slow connection check and ignores its late result", async
 });
 
 for (const values of [
-  { provider: "openai", model: "coder", baseUrl: "ftp://example.com" },
+  {
+    provider: "openai-compatible",
+    model: "coder",
+    baseUrl: "ftp://example.com",
+  },
   { provider: "openai", model: "" },
 ]) {
   test(`invalid connection is not saved: ${values.baseUrl ?? "empty model"}`, async () => {
     const { actions, saved } = api({
-      load: async () => ({ values, hasKey: true }),
+      load: async () => ({
+        values: {
+          ...values,
+          baseUrl: values.baseUrl ? "https://api.example.com" : undefined,
+          profileId: "work",
+          model: "working",
+        },
+        hasKey: true,
+      }),
     });
     const setup = await settings(actions);
     try {
-      await key(setup, "s", true);
+      if (values.baseUrl) await key(setup, "DOWN");
+      await click(
+        setup,
+        values.baseUrl ? "settings-row-base-url" : "settings-row-model-list",
+      );
+      if (!values.baseUrl) await click(setup, "settings-row-__manual");
+      await key(setup, "u", true);
+      await paste(setup, values.baseUrl ?? "");
+      await key(setup, "ENTER");
       expect(saved).toEqual([]);
       expect(setup.captureCharFrame()).toContain(
         values.baseUrl ? "http:// или https://" : "Введите",
@@ -480,7 +502,11 @@ test("first-run theme save does not bypass required connection setup", async () 
   let completed = 0;
   const { actions, saved } = api({
     load: async () => ({
-      values: { provider: "anthropic", model: "claude-opus-5" },
+      values: {
+        provider: "anthropic",
+        profileId: "work",
+        model: "claude-opus-5",
+      },
       hasKey: false,
     }),
     save: async (values) => {
@@ -504,22 +530,14 @@ test("first-run theme save does not bypass required connection setup", async () 
   );
   try {
     expect(await frame(setup)).not.toContain("Опишите задачу");
-    await key(setup, "TAB");
-    await key(setup, "DOWN");
-    await key(setup, "ENTER");
+    await click(setup, "settings-row-work");
     expect(completed).toBe(0);
-    expect(setup.captureCharFrame()).not.toContain("Опишите задачу");
-    await key(setup, "TAB");
-    await key(setup, "TAB");
-    await key(setup, "s", true);
-    expect(completed).toBe(0);
-    await key(setup, "DOWN");
-    await key(setup, "DOWN");
-    await key(setup, "ENTER");
+    await click(setup, "settings-row-key");
     await paste(setup, "new-private-key");
     await key(setup, "ENTER");
-    await key(setup, "s", true);
     expect(saved.at(-1)?.apiKey).toBe("new-private-key");
+    expect(completed).toBe(0);
+    await menuAction(setup, "settings-actions", "settings-use-profile");
     expect(completed).toBe(1);
     expect(exited).toBe(0);
     expect(setup.captureCharFrame()).toContain("Опишите задачу");
@@ -555,11 +573,9 @@ for (const [width, height] of [
       expect(popup.x + popup.width).toBeLessThanOrEqual(width);
       expect(popup.y + popup.height).toBeLessThanOrEqual(height);
       if (width < 100 || height < 26) await key(setup, "ENTER");
-      await focusMenuAction(setup, "settings-actions", "settings-save");
-      expect(setup.captureCharFrame()).toContain("Сохранить");
-      await uiKey(setup, "TAB", true);
-      await key(setup, "DOWN");
-      await key(setup, "ENTER");
+      await click(setup, "settings-row-work");
+      expect(setup.captureCharFrame()).not.toContain("Сохранить");
+      await click(setup, "settings-row-model-list");
       await paste(setup, "sonnet");
       await act(async () => setup.resize(100, 30));
       await frame(setup);
@@ -595,10 +611,10 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
       const editor = setup.renderer.currentFocusedEditor;
       await key(setup, "t", true);
       await click(setup, `settings-theme-${theme}`);
-      expect(persisted).toEqual([]);
-      await click(setup, "settings-apply-theme");
-      expect(persisted).toEqual([theme]);
-      expect(setup.captureCharFrame()).toContain("Тема сохранена");
+
+      expect(persisted).toEqual(theme === "obsidian" ? [] : [theme]);
+      if (theme !== "obsidian")
+        expect(setup.captureCharFrame()).toContain("Тема сохранена");
       await key(setup, "ESCAPE");
       expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
       expect(editor?.plainText).toBe("черновик\nвторая строка");
@@ -627,25 +643,16 @@ test("cancelled preview and failed persistence restore the saved theme", async (
   try {
     await frame(setup);
     await key(setup, "t", true);
-    await click(setup, "settings-theme-ember");
-    await key(setup, "ESCAPE");
+    await key(setup, "DOWN");
     expect(persisted).toEqual([]);
-    expect(setup.captureCharFrame()).toContain("Несохранённые");
-    await click(setup, "settings-discard");
-    await key(setup, "t", true);
-    expect(setup.captureCharFrame()).toContain("Paper");
     await click(setup, "settings-theme-graphite");
-    await key(setup, "ENTER");
     expect(setup.captureCharFrame()).toContain("Не удалось записать конфиг");
     expect(persisted).toEqual(["graphite"]);
     await key(setup, "ESCAPE");
-    await click(setup, "settings-discard");
-    await key(setup, "t", true);
-    const paper = setup.renderer.root.findDescendantById(
-      "settings-theme-paper",
-    );
-    expect(paper).toBeDefined();
-    expect(setup.captureCharFrame()).toContain("> Paper");
+    expect(
+      setup.renderer.root.findDescendantById("settings-popup"),
+    ).toBeDefined();
+    expect(setup.captureCharFrame()).not.toContain("Несохранённые");
   } finally {
     destroy(setup);
   }

@@ -26,6 +26,7 @@ import {
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { useSettingsAutosave } from "./settings-autosave.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
@@ -302,7 +303,91 @@ export function OpenTuiExtensions({
       );
     });
   };
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const selectedSettingsRef = useRef(selected);
+  selectedSettingsRef.current = selected;
+  const pendingValues =
+    edit && !edit.secret
+      ? {
+          ...values,
+          [edit.name]: edit.type === "number" ? Number(input) : input,
+        }
+      : values;
+  const pendingSecrets =
+    edit?.secret && input ? { ...secrets, [edit.name]: input } : secrets;
+  const settingsKey =
+    settings &&
+    (JSON.stringify(pendingValues) !== JSON.stringify(settings.values) ||
+      Object.keys(pendingSecrets).length ||
+      clearSecrets.length)
+      ? JSON.stringify({
+          id: selected?.id,
+          values: pendingValues,
+          secrets: pendingSecrets,
+          clearSecrets,
+        })
+      : undefined;
+  const autosave = useSettingsAutosave(
+    settingsKey,
+    async () => {
+      const current = settingsRef.current;
+      const item = selectedSettingsRef.current;
+      if (!current || !item?.digest) return;
+      const next = await management.settings(
+        { id: item.id, digest: item.digest, revision: item.revision },
+        {
+          id: item.id,
+          digest: item.digest,
+          revision: item.revision,
+          settingsRevision: current.revision,
+          values: pendingValues,
+          secrets: pendingSecrets,
+          clearSecrets,
+        },
+      );
+      settingsRef.current = next;
+      setSettings(next);
+      setValues((value) =>
+        JSON.stringify(value) === JSON.stringify(values) ? next.values : value,
+      );
+      setSecrets((value) =>
+        JSON.stringify(value) === JSON.stringify(secrets) ? {} : value,
+      );
+      setClearSecrets((value) => (value === clearSecrets ? [] : value));
+      await refresh();
+      setNotice(
+        next.restartRequired
+          ? "Сохранено. Параметры применятся после перезапуска."
+          : "Сохранено",
+      );
+    },
+    (error) =>
+      setNotice(
+        terminalSafeText(
+          Object.values(pendingSecrets).reduce(
+            (message, secret) =>
+              secret ? message.split(secret).join("[ключ скрыт]") : message,
+            error instanceof Error ? error.message : String(error),
+          ),
+          600,
+        ),
+      ),
+    edit ? 350 : 0,
+    settings
+      ? JSON.stringify({
+          id: selected?.id,
+          values: pendingValues,
+          secrets: pendingSecrets,
+          clearSecrets,
+        })
+      : undefined,
+  );
   const saveSettings = (reset = false) => {
+    if (!reset) {
+      void autosave.flush();
+      return;
+    }
     if (!settings || !selected?.digest) return;
     run(async () => {
       const next = await management.settings(
@@ -316,10 +401,10 @@ export function OpenTuiExtensions({
           digest: selected.digest!,
           revision: selected.revision,
           settingsRevision: settings.revision,
-          values,
-          secrets,
-          clearSecrets,
-          reset,
+          values: {},
+          secrets: {},
+          clearSecrets: [],
+          reset: true,
         },
       );
       setSettings(next);
@@ -327,11 +412,6 @@ export function OpenTuiExtensions({
       setSecrets({});
       setClearSecrets([]);
       await refresh();
-      setNotice(
-        next.restartRequired
-          ? "Сохранено. Параметры расширения применятся после перезапуска приложения."
-          : "Сохранено. Интерфейс расширения обновлён.",
-      );
     });
   };
   const action = (name: ExtensionAction) => {
@@ -419,8 +499,9 @@ export function OpenTuiExtensions({
   };
   const back = () => {
     if (edit) {
-      setEdit(undefined);
-      setInput("");
+      void autosave.flush().then((ok) => {
+        if (ok) acceptEdit();
+      });
       return true;
     }
     if (searching) {
@@ -444,9 +525,9 @@ export function OpenTuiExtensions({
       return true;
     }
     if (view === "settings" && dirty) {
-      setNotice(
-        "Есть несохранённые изменения. Выберите «Сохранить» или «Отменить изменения».",
-      );
+      void autosave.flush().then((ok) => {
+        if (ok) openView("details");
+      });
       return true;
     }
     if (view === "catalog") return false;
@@ -461,6 +542,7 @@ export function OpenTuiExtensions({
   };
   useLayoutEffect(() => {
     controls.current = {
+      flush: autosave.flush,
       save: () => {
         if (view !== "settings") return;
         if (edit) setNotice("Сначала подтвердите значение клавишей Enter.");
@@ -685,7 +767,7 @@ export function OpenTuiExtensions({
                         ? [
                             {
                               id: "extensions-settings-save",
-                              label: "Сохранить",
+                              label: "Повторить",
                               run: () => saveSettings(),
                             },
                             {
@@ -1184,7 +1266,11 @@ export function OpenTuiExtensions({
                         <SettingsSecretInput
                           value={input}
                           onChange={setInput}
-                          onSubmit={acceptEdit}
+                          onSubmit={() => {
+                            void autosave.flush().then((ok) => {
+                              if (ok) acceptEdit();
+                            });
+                          }}
                           palette={palette}
                           active={active && focused}
                         />
@@ -1195,7 +1281,11 @@ export function OpenTuiExtensions({
                           onInput={(value) =>
                             setInput(cleanSettingsInput(value))
                           }
-                          onSubmit={acceptEdit}
+                          onSubmit={() => {
+                            void autosave.flush().then((ok) => {
+                              if (ok) acceptEdit();
+                            });
+                          }}
                           focused={active && focused}
                           backgroundColor={palette.raised}
                           textColor={palette.text}
@@ -1208,8 +1298,8 @@ export function OpenTuiExtensions({
               ))}
               {settings.schema.fields.length > 0 && (
                 <box flexDirection="column" marginTop={roomy ? 1 : 0}>
-                  {button("extensions-settings-save", { primary: true })}
-                  {button("extensions-settings-discard")}
+                  {settingsKey && notice && button("extensions-settings-save")}
+
                   {button("extensions-settings-reset")}
                   {button("extensions-settings-reload")}
                 </box>

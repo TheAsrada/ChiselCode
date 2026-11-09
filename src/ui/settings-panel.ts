@@ -3,6 +3,8 @@ import type { MutableRefObject } from "react";
 /** A section stays mounted while navigation owns input; closing is owned by Settings. */
 export interface SettingsPanelControl {
   save(): void;
+  /** Drain validated changes before navigation; false retains the form and error. */
+  flush?(): Promise<boolean>;
   back(): boolean;
   discard(): void;
   search?(): void;

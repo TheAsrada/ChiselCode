@@ -454,22 +454,24 @@ export async function runLspTuiScenario(
       false,
     );
     assert.deepEqual(
-      JSON.parse(await readFile(configPath, "utf8")).lsp.servers ?? {},
-      {},
-      "Quick patch silently saved custom draft",
+      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
+        .command,
+      paths.command,
+      "Autosave lost the manual server",
     );
     await key("ESCAPE");
     await choose("lsp-row-draft");
-    assert.ok(setup.captureCharFrame().includes("draft *"));
+    assert.ok(setup.captureCharFrame().includes("typescript"));
     await choose("lsp-row-check");
     await wait(
       () => setup.captureCharFrame().includes("Пути доступны"),
       "Real path validation failed",
     );
-    await click("lsp-save");
     await wait(
-      () => setup.captureCharFrame().includes("Сохранено"),
-      "Manual save failed",
+      async () =>
+        JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
+          ?.command === paths.command,
+      "Manual autosave failed",
     );
     let savedConfig = JSON.parse(await readFile(configPath, "utf8"));
     assert.equal(savedConfig.lsp.servers.typescript.command, paths.command);
@@ -561,13 +563,14 @@ export async function runLspTuiScenario(
     assert.equal(
       JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
         .trustedWorkspaces.length,
-      1,
-      "Unsaved trust changed permissions",
+      0,
+      "Explicit trust revocation was not persisted",
     );
-    await click("lsp-save");
     await wait(
-      () => setup.captureCharFrame().includes("Сохранено"),
-      "Trust revocation save failed",
+      async () =>
+        JSON.parse(await readFile(configPath, "utf8")).lsp.servers.typescript
+          .trustedWorkspaces.length === 0,
+      "Trust revocation autosave failed",
     );
     await waitForLspProcessExit(descendants);
     await key("ESCAPE");
@@ -582,10 +585,11 @@ export async function runLspTuiScenario(
     await choose("lsp-row-args");
     await paste("-e\nprocess.exit(3)");
     await click("lsp-field-done");
-    await click("lsp-save");
     await wait(
-      () => setup.captureCharFrame().includes("Сохранено"),
-      "Generic save failed",
+      async () =>
+        JSON.parse(await readFile(configPath, "utf8")).lsp.servers.broken
+          ?.command === paths.command,
+      "Generic autosave failed",
     );
     await choose("lsp-row-trust");
     await wait(
@@ -635,24 +639,26 @@ export async function runLspTuiScenario(
     // Conflict keeps the real native form and unrelated external settings.
     await choose("lsp-row-server-broken");
     await choose("lsp-row-settings");
-    await field("node", join(storage, "missing-node"));
+    await choose("lsp-row-args");
+    await paste("\n--external-conflict");
     savedConfig = JSON.parse(await readFile(configPath, "utf8"));
     savedConfig.lsp.serverOverrides["auto-lua"] = { enabled: false };
     await writeFile(configPath, JSON.stringify(savedConfig));
-    await click("lsp-save");
+    await click("lsp-field-done");
     await wait(
       () => setup.captureCharFrame().includes("изменились"),
       "Concurrent config edit was overwritten",
     );
     await capture("form-conflict-120x40");
-    await key("ESCAPE");
-    await key("ESCAPE");
-    await key("ESCAPE");
-    await wait(
-      () => !!setup.renderer.root.findDescendantById("settings-discard"),
-      "Dirty form close did not offer preservation",
+    await click("settings-route-appearance");
+    assert.ok(
+      setup.renderer.root.findDescendantById("lsp-row-args"),
+      "Write failure lost the input form",
     );
-    await click("settings-discard");
+    assert.equal(
+      setup.renderer.root.findDescendantById("settings-discard"),
+      undefined,
+    );
     assert.equal(
       JSON.parse(await readFile(configPath, "utf8")).lsp.servers.broken.command,
       paths.command,
@@ -682,6 +688,8 @@ export async function runLspTuiScenario(
       );
     }
     assert.ok(invocationFound, "LSP checkpoint persistence missing");
+    await choose("lsp-row-discard");
+    await key("ESCAPE");
     await command("/exit");
     await application;
     process.stdout.write(`${LSP_TUI_MARKER}\n`);

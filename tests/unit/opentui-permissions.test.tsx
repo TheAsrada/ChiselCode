@@ -6,6 +6,7 @@ import { createSession } from "../../src/sessions/store.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { createTuiApprovalResolver } from "../../src/ui/tui-contract.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+import { menuAction } from "../fixtures/menu-navigation.js";
 
 type Setup = Awaited<ReturnType<typeof testRender>>;
 async function frame(setup: Setup) {
@@ -84,7 +85,7 @@ for (const [width, height] of [
       await click(setup, "settings-bypass-toggle");
       expect(setup.captureCharFrame()).toContain("Cannot save settings");
       failSave = false;
-      await click(setup, "settings-bypass-toggle");
+      await menuAction(setup, "settings-actions", "settings-retry");
       expect(saved).toEqual([true]);
       expect(workspace.controller.snapshot.approvalMode).toBe("default");
       await click(setup, "settings-close");

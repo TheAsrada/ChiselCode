@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { loadGlobalConfig, updateGlobalConfig } from "../config/load.js";
 import { ProfileIdSchema } from "../config/schema.js";
@@ -51,12 +52,7 @@ export function settingsDraft(
   const definition = registry.get(provider);
   return {
     provider,
-    profileId:
-      profileId ??
-      (Object.values(config.profiles).filter((p) => p.providerId === provider)
-        .length > 1
-        ? undefined
-        : `${provider.replaceAll("/", "-")}-default`),
+    profileId,
     model:
       selection.model ??
       profile?.defaultModel ??
@@ -91,6 +87,9 @@ export async function saveProviderSettings(
   registry: ProviderRegistry,
   options: {
     configPath?: string;
+    activate?: boolean;
+    updateSelectedModel?: boolean;
+    previous?: TuiSettingsValues;
     credentials?: CredentialsReader & {
       set(ref: string, key: string): Promise<void>;
     };
@@ -142,29 +141,71 @@ export async function saveProviderSettings(
       throw new Error(
         `Profile "${id}" belongs to another provider; reload Settings.`,
       );
+    const baseline = options.previous;
+    if (baseline && !existing)
+      throw new Error("Профиль удалён. Обновите список подключений.");
+    const fields = {
+      defaultModel: model,
+      baseUrl,
+      label:
+        values.label === undefined
+          ? existing?.label
+          : values.label.trim() || undefined,
+    };
+    const before = baseline
+      ? {
+          defaultModel: baseline.model.trim(),
+          baseUrl: baseline.baseUrl?.trim()
+            ? normalizeEndpoint(
+                definition.endpoint.normalization,
+                baseline.baseUrl.trim(),
+              )
+            : undefined,
+          label: baseline.label?.trim() || undefined,
+        }
+      : undefined;
+    const patch: Partial<ProviderProfile> = {};
+    for (const field of ["defaultModel", "baseUrl", "label"] as const) {
+      if (before && fields[field] === before[field]) continue;
+      if (
+        before &&
+        existing?.[field] !== before[field] &&
+        existing?.[field] !== fields[field]
+      )
+        throw new Error(
+          `Поле ${field} изменилось в другом окне. Обновите подключение и повторите изменение.`,
+        );
+      patch[field] = fields[field];
+    }
+    // A new secret must not change a key already used by a working/shared profile
+    // before the config's atomic commit points at the new reference.
     const apiKeyRef =
       definition.auth.type === "subscription"
         ? id
-        : (existing?.apiKeyRef ?? (key ? id : undefined));
+        : key && existing?.apiKeyRef
+          ? `${id}-${randomUUID()}`
+          : (existing?.apiKeyRef ?? (key ? id : undefined));
     if (key && apiKeyRef) await credentials.set(apiKeyRef, key);
     profile = {
       ...existing,
       providerId: values.provider,
       apiKeyRef,
-      label:
-        values.label === undefined
-          ? existing?.label
-          : values.label.trim() || undefined,
-      baseUrl,
-      defaultModel: model,
+      ...patch,
     };
     return {
       ...latest,
-      defaultProfileId: id,
+      defaultProfileId:
+        options.activate === false ? latest.defaultProfileId : id,
       profiles: { ...latest.profiles, [id]: profile },
       ui: {
         ...latest.ui,
-        lastModelSelection: { provider: values.provider, profileId: id, model },
+        lastModelSelection:
+          options.activate === false
+            ? options.updateSelectedModel &&
+              latest.ui?.lastModelSelection?.profileId === id
+              ? { ...latest.ui.lastModelSelection, model }
+              : latest.ui?.lastModelSelection
+            : { provider: values.provider, profileId: id, model },
       },
     };
   });

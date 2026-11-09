@@ -54,7 +54,11 @@ function api() {
   const actions: OpenTuiSettingsActions = {
     catalog: async () => ({ providers: builtinDefinitions, profiles: {} }),
     load: async () => ({
-      values: { provider: "anthropic", model: "claude-opus-5" },
+      values: {
+        provider: "anthropic",
+        profileId: "work",
+        model: "claude-opus-5",
+      },
       hasKey: true,
     }),
     hasKey: async () => true,
@@ -158,19 +162,13 @@ test("search deep links native secret input; hidden/composer controls cannot con
     await key(setup, "f", true);
     await paste(setup, "api");
     await key(setup, "ENTER");
-    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
-      "*".repeat("private-key-value".length),
-    );
+    expect(setup.renderer.currentFocusedEditor?.plainText).toBe("");
     await key(setup, "ESCAPE");
     await key(setup, "ESCAPE");
-    expect(setup.captureCharFrame()).toContain("Несохранённые");
-    await key(setup, "DOWN");
-    await key(setup, "DOWN");
-    await key(setup, "ENTER");
     expect(setup.renderer.currentFocusedEditor === composer).toBe(true);
     expect(composer?.plainText).toBe("ordinary draft");
     expect(prompts).toBe(0);
-    expect(saves).toEqual([]);
+    expect(saves).toHaveLength(1);
   } finally {
     act(() => setup.renderer.destroy());
   }
@@ -190,11 +188,10 @@ test("Web draft survives navigation, targeted save persists only Web, Escape que
     await key(setup, "t", true);
     await click(setup, "settings-route-tools.web");
     await click(setup, "settings-web-row-0");
-    expect(saves).toEqual([]);
+    expect(saves).toHaveLength(1);
     await click(setup, "settings-route-connection");
     await click(setup, "settings-route-tools.web");
     expect(setup.captureCharFrame()).toContain("Выключен");
-    await key(setup, "s", true);
     expect(saves).toHaveLength(1);
     expect(saves[0]).toMatchObject({ enabled: false });
     await key(setup, "f", true);
@@ -325,14 +322,12 @@ test("subagent Settings popup saves global/project enablement across resize with
       ).toBeUndefined();
     }
     expect(setup.captureCharFrame()).toContain("Помощники: выключены");
-    await key(setup, "s", true);
     await saved(async () => (await settings.load()).global.enabled === false);
     await click(setup, "settings-route-appearance");
     await click(setup, "settings-route-tools.subagents");
     expect(setup.captureCharFrame()).toContain("Помощники: выключены");
     await click(setup, "subagent-setting-0");
     await click(setup, "subagent-setting-1");
-    await key(setup, "s", true);
     await saved(async () => (await settings.load()).project.enabled === false);
     const global = JSON.parse(await readFile(path, "utf8"));
     expect(global.subagents).toEqual({ enabled: false });
@@ -405,20 +400,6 @@ test("choosing a Settings skill waits for dirty forms; staying cancels the pendi
     await key(setup, "t", true);
     await click(setup, "settings-route-tools.web");
     await click(setup, "settings-web-row-0");
-    await key(setup, "f", true);
-    await paste(setup, "навыки");
-    await key(setup, "ENTER");
-    await key(setup, "ENTER");
-    expect(
-      setup.renderer.root.findDescendantById("settings-stay"),
-    ).toBeDefined();
-    await click(setup, "settings-stay");
-    await click(setup, "settings-close");
-    await click(setup, "settings-discard");
-    expect(setup.renderer.currentFocusedEditor?.plainText).toBe(
-      "основной черновик",
-    );
-    await key(setup, "t", true);
     await key(setup, "f", true);
     await paste(setup, "навыки");
     await key(setup, "ENTER");

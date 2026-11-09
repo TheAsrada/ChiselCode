@@ -250,10 +250,15 @@ for (const theme of ["obsidian", "paper"] as const)
       { width: 120, height: 40 },
     );
     try {
+      await wait(
+        ui,
+        () => !!ui.renderer.root.findDescendantById("settings-row-personal"),
+      );
+      await click(ui, "settings-row-personal");
       await wait(ui, () => ui.captureCharFrame().includes("Аккаунт"));
       await capture(ui, `${theme}-connection-120x40`);
       expect(ui.captureCharFrame()).not.toContain("API-ключ");
-      await click(ui, "settings-profiles");
+      await click(ui, "settings-profile-switcher");
       expect(ui.captureCharFrame()).toContain("Рабочий API");
       expect(ui.captureCharFrame()).toContain("Личный");
       await capture(ui, `${theme}-profiles-120x40`);
@@ -267,13 +272,13 @@ for (const theme of ["obsidian", "paper"] as const)
       f.release();
       await wait(ui, () => ui.captureCharFrame().includes("Выберите модель"));
       await click(ui, "settings-row-codex-personal");
-      await act(async () => {
-        ui.mockInput.pressKey("s", { ctrl: true });
-      });
-      await wait(ui, () => f.saved.length === 1);
-      expect(f.saved[0]?.provider).toBe("chatgpt");
-      expect(f.saved[0]?.model).toBe("codex-personal");
-      expect(f.saved[0]?.apiKey).toBeUndefined();
+      await wait(
+        ui,
+        () =>
+          ui.captureCharFrame().includes("Подключён") ||
+          ui.captureCharFrame().includes("готово к работе"),
+      );
+      expect(f.saved).toHaveLength(0);
       expect(ui.captureCharFrame()).not.toContain("test-refresh");
     } finally {
       act(() => ui.renderer.destroy());
@@ -294,6 +299,11 @@ test("Esc cancels a pending login and never applies its late result", async () =
     { width: 80, height: 24 },
   );
   try {
+    await wait(
+      ui,
+      () => !!ui.renderer.root.findDescendantById("settings-row-personal"),
+    );
+    await click(ui, "settings-row-personal");
     await wait(ui, () => ui.captureCharFrame().includes("Аккаунт"));
     await click(ui, "settings-row-login");
     await wait(ui, () => ui.captureCharFrame().includes("TEST-1234"));
@@ -324,19 +334,20 @@ test("switching accounts protects an edited profile and profile deletion require
     { width: 120, height: 40 },
   );
   try {
+    await wait(
+      ui,
+      () => !!ui.renderer.root.findDescendantById("settings-row-personal"),
+    );
+    await click(ui, "settings-row-personal");
     await wait(ui, () => ui.captureCharFrame().includes("Аккаунт"));
     await click(ui, "settings-row-profile-label");
     await act(async () => {
       await ui.mockInput.pasteBracketedText("Изменён");
     });
     await key(ui, "RETURN");
-    await click(ui, "settings-profiles");
+    await click(ui, "settings-profile-switcher");
     await click(ui, "settings-row-work");
-    expect(ui.captureCharFrame()).toContain("Сохранить изменения профиля?");
-    await click(ui, "settings-connection-cancel");
-    expect(f.saved).toHaveLength(0);
-    await click(ui, "settings-row-work");
-    await click(ui, "settings-connection-save");
+    expect(ui.captureCharFrame()).not.toContain("Сохранить изменения профиля?");
     await wait(ui, () => ui.captureCharFrame().includes("gpt-5"));
     expect(f.saved[0]?.profileId).toBe("personal");
     expect(f.saved[0]?.label).toContain("Изменён");
@@ -374,14 +385,15 @@ for (const [width, height] of [
     try {
       await wait(
         ui,
-        () => !!ui.renderer.root.findDescendantById("settings-profiles"),
+        () => !!ui.renderer.root.findDescendantById("settings-row-personal"),
       );
-      await click(ui, "settings-profiles");
       await capture(ui, `obsidian-profiles-${width}x${height}`);
       expect(ui.captureCharFrame()).toContain("Профили");
       await key(ui, "ARROW_DOWN");
       await key(ui, "RETURN");
-      await wait(ui, () => ui.captureCharFrame().includes("gpt-5"));
+      await wait(ui, () =>
+        ui.captureCharFrame().includes(width! < 40 ? "Рабочий API" : "gpt-5"),
+      );
       expect(ui.captureCharFrame().split("\n").length).toBeGreaterThan(0);
     } finally {
       act(() => ui.renderer.destroy());

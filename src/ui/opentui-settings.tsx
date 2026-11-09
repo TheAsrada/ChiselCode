@@ -39,6 +39,7 @@ import { OpenTuiSubagentSettings } from "./opentui-subagent-settings.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { useSettingsAutosave } from "./settings-autosave.js";
 import {
   SETTINGS_SECTIONS,
   type SettingsRoute,
@@ -72,7 +73,11 @@ export interface OpenTuiSettingsActions {
     accountLabel?: string;
   }>;
   hasKey(provider: ProviderId, profileId?: string): Promise<boolean>;
-  save(values: TuiSettingsValues): Promise<"saved" | "setup_required">;
+  save(
+    values: TuiSettingsValues,
+    previous?: TuiSettingsValues,
+  ): Promise<"saved" | "setup_required">;
+  activate?(values: TuiSettingsValues): Promise<void>;
   check(values: TuiSettingsValues): Promise<string>;
   models(values: TuiSettingsValues): Promise<ModelListResult>;
   connect?(
@@ -205,7 +210,12 @@ export function OpenTuiSettings({
     createBuiltinProviderRegistry().list(),
   );
   const [profiles, setProfiles] = useState<Record<string, ProviderProfile>>({});
-  const [hasKey, setHasKey] = useState(false);
+  const [hasKey, setHasKeyState] = useState(false);
+  const readiness = useRef(false);
+  const setHasKey = (ready: boolean) => {
+    readiness.current = ready;
+    setHasKeyState(ready);
+  };
   const [loaded, setLoaded] = useState(!actions);
   const [page, setPage] = useState<Page>(
     actions || initialPage === "permissions" ? initialPage : "appearance",
@@ -219,7 +229,6 @@ export function OpenTuiSettings({
     setup || initialPage !== "connection",
   );
   const [fieldTarget, setFieldTarget] = useState<string>();
-  const [confirmClose, setConfirmClose] = useState(false);
   const afterClose = useRef<(() => void) | undefined>(undefined);
   const completeClose = (outcome?: "saved") => {
     const next = afterClose.current;
@@ -227,12 +236,8 @@ export function OpenTuiSettings({
     onClose(outcome);
     next?.();
   };
+  const recordDirty = useCallback((_dirty: boolean) => {}, []);
   const [mcp, setMcp] = useState<OpenTuiMcpActions>();
-  const [mcpDirty, setMcpDirty] = useState(false);
-  const recordMcpDirty = useCallback(
-    (value: boolean) => setMcpDirty(value),
-    [],
-  );
   const mcpControls = useRef<SettingsPanelControl | undefined>(undefined);
   const skillsControls = useRef<SettingsPanelControl | undefined>(undefined);
   const [skillsVisited, setSkillsVisited] = useState(
@@ -248,47 +253,21 @@ export function OpenTuiSettings({
       }
     }
   }, [page, mcp, getMcpActions]);
-  const [backgroundDirty, setBackgroundDirty] = useState(false);
-  const [extensionsDirty, setExtensionsDirty] = useState(false);
   const extensionsControls = useRef<SettingsPanelControl | undefined>(
     undefined,
-  );
-  const recordExtensionsDirty = useCallback(
-    (dirty: boolean) => setExtensionsDirty(dirty),
-    [],
   );
   const backgroundControls = useRef<SettingsPanelControl | undefined>(
     undefined,
   );
-  const recordBackgroundDirty = useCallback(
-    (value: boolean) => setBackgroundDirty(value),
-    [],
-  );
-  const [subagentDirty, setSubagentDirty] = useState(false);
   const subagentControls = useRef<SettingsPanelControl | undefined>(undefined);
-  const recordSubagentDirty = useCallback(
-    (value: boolean) => setSubagentDirty(value),
-    [],
-  );
-  const [webDirty, setWebDirty] = useState(false);
   const webControls = useRef<SettingsPanelControl | undefined>(undefined);
-  const recordWebDirty = useCallback(
-    (value: boolean) => setWebDirty(value),
-    [],
-  );
-  const [closeSelection, setCloseSelection] = useState(0);
-  const [lspDirty, setLspDirty] = useState(false);
+
   const lspControls = useRef<SettingsPanelControl | undefined>(undefined);
-  const recordLspDirty = useCallback(
-    (dirty: boolean) => setLspDirty(dirty),
-    [],
-  );
   const authAbort = useRef<AbortController | undefined>(undefined);
   const [challenge, setChallenge] = useState<ConnectionChallenge>();
   const [accountLabel, setAccountLabel] = useState<string>();
-  const pendingProviderSelection = useRef<(() => void) | undefined>(undefined);
   const [connectionConfirm, setConnectionConfirm] = useState<{
-    type: "switch" | "delete" | "disconnect";
+    type: "delete" | "disconnect";
     profileId: string;
   }>();
   const [connectionChoice, setConnectionChoice] = useState(0);
@@ -337,6 +316,8 @@ export function OpenTuiSettings({
     setThemeIndexState(next);
   };
   const [savedTheme, setSavedTheme] = useState(theme);
+  const [chosenTheme, setChosenTheme] = useState(theme);
+  const [savedBypass, setSavedBypass] = useState(allowBypassPermissions);
   const [bypassAllowed, setBypassAllowed] = useState(allowBypassPermissions);
   const lifetime = useRef({
     mounted: true,
@@ -344,6 +325,8 @@ export function OpenTuiSettings({
     busy: undefined as Work | undefined,
   });
   const baseline = useRef("");
+  const editorEpoch = useRef(0);
+  const acknowledged = useRef<TuiSettingsValues | undefined>(undefined);
   const restore = useRef({ theme, preview: onThemePreview });
   restore.current.preview = onThemePreview;
   const valuesRef = useRef(values);
@@ -389,8 +372,7 @@ export function OpenTuiSettings({
       (roomy ? 2 : 0) -
       (tiny && compactDetail && shellFocus !== "search" ? 0 : 2) -
       (showHint ? 2 : 1) -
-      (notice ? 1 : 0) -
-      (page === "appearance" ? 1 : 0),
+      (notice ? 1 : 0),
   );
   const bodyHeight = Math.max(1, contentHeight - (split ? 2 : 0));
   const wide = innerWidth >= 70 && roomy;
@@ -413,7 +395,12 @@ export function OpenTuiSettings({
   );
   const themeVisibleCount = Math.max(
     1,
-    Math.floor(Math.max(1, bodyHeight - 3) / rowHeight),
+    Math.floor(
+      Math.max(
+        1,
+        bodyHeight - (roomy ? 3 : height >= 12 || themeSearchFocus ? 1 : 0),
+      ) / rowHeight,
+    ),
   );
   const themeFirst = Math.max(
     0,
@@ -436,7 +423,7 @@ export function OpenTuiSettings({
       screen: "providers",
       label: "Сервис",
       value: definition?.label ?? values.provider,
-      help: "Сервис этого профиля.",
+      help: "Сервис этого профиля. Для другого сервиса добавьте подключение.",
     },
     {
       screen: "model-list",
@@ -480,7 +467,7 @@ export function OpenTuiSettings({
     },
     {
       screen: "profile-id",
-      label: "Новый профиль",
+      label: "Добавить подключение",
       value: "Добавить аккаунт",
       help: "Выберите сервис и задайте имя нового профиля.",
     },
@@ -547,7 +534,7 @@ export function OpenTuiSettings({
             })),
             {
               id: "__new-profile",
-              label: "+ Новый профиль",
+              label: "Добавить подключение",
               hint: "API или подписка",
             },
           ]
@@ -640,9 +627,11 @@ export function OpenTuiSettings({
       }
       setValues(draft.values);
       baseline.current = JSON.stringify(draft.values);
+      acknowledged.current = draft.values;
       setHasKey(draft.hasKey);
       setAccountLabel(draft.accountLabel);
       setLoaded(true);
+      setScreen("profiles");
     });
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: Load once for each actions object; previews must not reload connection drafts.
@@ -660,100 +649,126 @@ export function OpenTuiSettings({
   useEffect(() => {
     if (page === "appearance" && names.length) onThemePreview?.(currentTheme);
   }, [page, currentTheme]);
-  const close = (next?: () => void) => {
-    if (
-      lifetime.current.busy === "save" ||
-      lifetime.current.busy === "theme" ||
-      lifetime.current.busy === "permissions"
-    )
-      return;
-    afterClose.current = next;
-    if (
-      dirty ||
-      currentTheme !== savedTheme ||
-      lspDirty ||
-      webDirty ||
-      subagentDirty ||
-      backgroundDirty ||
-      extensionsDirty ||
-      mcpDirty
-    ) {
-      setCloseSelection(0);
-      setConfirmClose(true);
-      return;
+  const flushPanels = async () => {
+    if (!(await connectionAutosave.flush())) return false;
+    if (!(await themeAutosave.flush()) || !(await bypassAutosave.flush()))
+      return false;
+    for (const control of [
+      webControls,
+      lspControls,
+      subagentControls,
+      backgroundControls,
+      extensionsControls,
+      mcpControls,
+    ]) {
+      if (control.current?.flush && !(await control.current.flush()))
+        return false;
     }
-    cancelWork();
-    onThemePreview?.(restore.current.theme);
-    completeClose();
+    return true;
+  };
+  const close = (next?: () => void) => {
+    void (async () => {
+      if (!(await flushPanels())) return;
+      afterClose.current = next;
+      cancelWork();
+      completeClose();
+    })();
   };
   const changePage = (next: Page) => {
-    if (
-      lifetime.current.busy === "save" ||
-      lifetime.current.busy === "theme" ||
-      lifetime.current.busy === "permissions"
-    )
-      return;
-    if (next === "connection" && !actions) return;
-    if (lifetime.current.busy !== "load") cancelWork();
-    setNavigationIndex(
-      SETTINGS_SECTIONS.findIndex(
-        (item) => item.id === (next === "web" ? "tools.web" : next),
-      ),
-    );
-    setPage(next === "tools.web" ? "web" : next);
-    setCompactDetail(true);
-    setShellFocus("content");
-    setFieldTarget(undefined);
-    setNotice("");
+    void (async () => {
+      if (!(await flushPanels())) return;
+      if (
+        lifetime.current.busy === "save" ||
+        lifetime.current.busy === "theme" ||
+        lifetime.current.busy === "permissions"
+      )
+        return;
+      if (next === "connection" && !actions) return;
+      if (lifetime.current.busy !== "load") cancelWork();
+      setNavigationIndex(
+        SETTINGS_SECTIONS.findIndex(
+          (item) => item.id === (next === "web" ? "tools.web" : next),
+        ),
+      );
+      setPage(next === "tools.web" ? "web" : next);
+      setCompactDetail(true);
+      setShellFocus("content");
+      setFieldTarget(undefined);
+      setNotice("");
+    })();
   };
-  const save = (draftValues = values, after?: () => void) => {
-    if (!actions || !loaded) return;
-    run("save", async (valid) => {
+  const fieldValues = () =>
+    field && screen !== "profile-id"
+      ? {
+          ...values,
+          [screen === "profile-label"
+            ? "label"
+            : screen === "key"
+              ? "apiKey"
+              : screen === "base-url"
+                ? "baseUrl"
+                : "model"]: editing,
+        }
+      : values;
+  const pendingValues = fieldDirty ? fieldValues() : values;
+  const connectionAutosave = useSettingsAutosave(
+    loaded &&
+      values.profileId &&
+      !addingProfile &&
+      baseline.current !== JSON.stringify(pendingValues)
+      ? JSON.stringify(pendingValues)
+      : undefined,
+    async () => {
+      if (!actions) return;
       const next = {
-        ...draftValues,
-        model: draftValues.model.trim(),
-        apiKey: draftValues.apiKey?.trim() || undefined,
-        baseUrl: draftValues.baseUrl?.trim() || undefined,
+        ...pendingValues,
+        model: pendingValues.model.trim(),
+        apiKey: pendingValues.apiKey?.trim() || undefined,
+        baseUrl: pendingValues.baseUrl?.trim() || undefined,
       };
       if (!next.model) throw new Error("Введите название модели");
-      if (
-        definition?.endpoint.required &&
-        !next.baseUrl &&
-        !definition.endpoint.defaultBaseUrl
-      )
-        throw new Error("Введите адрес API");
       if (next.baseUrl) {
-        let url: URL;
-        try {
-          url = new URL(next.baseUrl);
-        } catch {
-          throw new Error(
-            "Введите полный адрес API, например https://api.example.com",
-          );
-        }
-        if (url.protocol !== "https:" && url.protocol !== "http:")
+        const url = new URL(next.baseUrl);
+        if (!["http:", "https:"].includes(url.protocol))
           throw new Error("Адрес API должен начинаться с http:// или https://");
       }
-      const result = await actions.save(next);
-      if (!valid()) return;
-      if (result === "saved") {
-        const saved = { ...next, apiKey: undefined };
-        setValues(saved);
-        baseline.current = JSON.stringify(saved);
-        setHasKey(true);
-        const catalog = await actions.catalog?.();
-        if (!valid()) return;
-        if (catalog) setProfiles(catalog.profiles);
-        setMessage("Подключение сохранено", "success");
-        after?.();
-        if (setup) completeClose("saved");
-      } else
-        setMessage(
-          subscription
-            ? "Войдите в аккаунт"
-            : "Добавьте API-ключ для выбранного сервиса",
-          "error",
-        );
+      setMessage("Сохранение…");
+      const result = await actions.save(
+        next,
+        next.profileId && profiles[next.profileId]
+          ? acknowledged.current
+          : undefined,
+      );
+      const saved = { ...next, apiKey: undefined };
+      baseline.current = JSON.stringify(saved);
+      acknowledged.current = saved;
+      // A delayed response only acknowledges its snapshot, never newer typing.
+      setValues((current) =>
+        JSON.stringify(current) === JSON.stringify(values) ? saved : current,
+      );
+      setHasKey(result === "saved");
+      const catalog = await actions.catalog?.();
+      if (catalog) setProfiles(catalog.profiles);
+      setMessage(
+        result === "saved"
+          ? "Сохранено · готово к работе"
+          : "Сохранено · требуется настройка / авторизация",
+        result === "saved" ? "success" : "info",
+      );
+    },
+    (error) =>
+      setMessage(
+        safeNotice(error, pendingValues, editing, screen === "key"),
+        "error",
+      ),
+    field ? 350 : 0,
+    loaded && values.profileId && !addingProfile
+      ? JSON.stringify(pendingValues)
+      : undefined,
+  );
+  const save = (_draftValues = values, after?: () => void) => {
+    void connectionAutosave.flush().then((ok) => {
+      if (ok) after?.();
     });
   };
   const check = () => {
@@ -770,31 +785,43 @@ export function OpenTuiSettings({
         );
     });
   };
+  const themeAutosave = useSettingsAutosave(
+    chosenTheme !== savedTheme ? chosenTheme : undefined,
+    async () => {
+      await onThemeChange?.(chosenTheme);
+      restore.current.theme = chosenTheme;
+      setSavedTheme(chosenTheme);
+      setMessage("Тема сохранена", "success");
+    },
+    (error) =>
+      setMessage(
+        String(error instanceof Error ? error.message : error),
+        "error",
+      ),
+    0,
+    chosenTheme,
+  );
   const applyTheme = () => {
     const chosen = names[themeIndexRef.current];
-    if (!chosen) return;
-    run("theme", async (valid) => {
-      await onThemeChange?.(chosen);
-      if (!valid()) return;
-      restore.current.theme = chosen;
-      setSavedTheme(chosen);
-      setMessage("Тема сохранена", "success");
-    });
+    if (chosen) setChosenTheme(chosen);
   };
-  const toggleBypass = () => {
-    if (!onBypassAvailabilityChange) return;
-    const allowed = !bypassAllowed;
-    run("permissions", async (valid) => {
-      await onBypassAvailabilityChange(allowed);
-      if (!valid()) return;
-      setBypassAllowed(allowed);
+  const bypassAutosave = useSettingsAutosave(
+    bypassAllowed !== savedBypass ? String(bypassAllowed) : undefined,
+    async () => {
+      await onBypassAvailabilityChange?.(bypassAllowed);
+      setSavedBypass(bypassAllowed);
+      setMessage("Настройка разрешений сохранена", "success");
+    },
+    (error) =>
       setMessage(
-        allowed
-          ? "Bypass доступен в выборе режимов; текущий режим сохранён"
-          : "Bypass выключен; выбранные Bypass-сессии переведены в Manual",
-        "success",
-      );
-    });
+        String(error instanceof Error ? error.message : error),
+        "error",
+      ),
+    0,
+    String(bypassAllowed),
+  );
+  const toggleBypass = () => {
+    if (onBypassAvailabilityChange) setBypassAllowed((value) => !value);
   };
   const login = () => {
     if (!actions?.connect || !values.profileId) {
@@ -832,6 +859,8 @@ export function OpenTuiSettings({
       const loaded = await actions.load(profileId);
       if (!valid()) return;
       setValues(loaded.values);
+      baseline.current = JSON.stringify(loaded.values);
+      acknowledged.current = loaded.values;
       setHasKey(loaded.hasKey);
       setAccountLabel(loaded.accountLabel);
       setScreen("menu");
@@ -842,9 +871,10 @@ export function OpenTuiSettings({
   };
   const newProfile = (discard = false) => {
     if (lifetime.current.busy || !loaded) return;
-    if (dirty && !discard) {
-      setConnectionConfirm({ type: "switch", profileId: "__new" });
-      setConnectionChoice(0);
+    if (!discard) {
+      void connectionAutosave.flush().then((ok) => {
+        if (ok) newProfile(true);
+      });
       return;
     }
     setAddingProfile(true);
@@ -859,14 +889,30 @@ export function OpenTuiSettings({
     setNotice("");
     setQuery("");
     setSelected(0);
+    if (
+      !values.profileId &&
+      !addingProfile &&
+      next !== "profiles" &&
+      next !== "profile-id"
+    ) {
+      setScreen("profiles");
+      setMessage("Нет подключений · выберите «Добавить подключение»");
+      return;
+    }
     if (next === "disconnect" || next === "delete-profile") {
-      if (values.profileId) {
-        setConnectionConfirm({
-          type: next === "disconnect" ? "disconnect" : "delete",
-          profileId: values.profileId,
-        });
-        setConnectionChoice(0);
-      }
+      void connectionAutosave.flush().then((ok) => {
+        if (ok && values.profileId) {
+          setConnectionConfirm({
+            type: next === "disconnect" ? "disconnect" : "delete",
+            profileId: values.profileId,
+          });
+          setConnectionChoice(0);
+        }
+      });
+      return;
+    }
+    if (next === "providers" && !addingProfile) {
+      newProfile();
       return;
     }
     if (next === "login") {
@@ -877,6 +923,7 @@ export function OpenTuiSettings({
       newProfile();
       return;
     }
+    ++editorEpoch.current;
     setScreen(next);
     if (next === "providers")
       setSelected(
@@ -904,9 +951,26 @@ export function OpenTuiSettings({
       });
     }
   };
-  const back = () => {
+  const back = (accepted = false) => {
+    if (field && !accepted) {
+      if (screen === "profile-id") {
+        setScreen("profiles");
+        setAddingProfile(false);
+        if (acknowledged.current) setValues(acknowledged.current);
+        return;
+      }
+      const epoch = editorEpoch.current;
+      void connectionAutosave.flush().then((ok) => {
+        if (ok && epoch === editorEpoch.current) {
+          setValues((current) => ({ ...current, apiKey: undefined }));
+          back(true);
+        }
+      });
+      return;
+    }
     if (lifetime.current.busy === "save" || lifetime.current.busy === "theme")
       return;
+    ++editorEpoch.current;
     cancelWork();
     setAddingProfile(false);
     if (field) setEditing("");
@@ -924,6 +988,10 @@ export function OpenTuiSettings({
     setNotice("");
   };
   const acceptField = () => {
+    if (screen !== "profile-id") {
+      back();
+      return;
+    }
     let next: TuiSettingsValues;
     if (screen === "profile-id") {
       const id = editing.trim();
@@ -956,12 +1024,11 @@ export function OpenTuiSettings({
               : "model"]: editing,
       };
     setValues(next);
-    back();
+    back(true);
     return next;
   };
   const choose = (
     index = Math.min(selectedRef.current, choices.length - 1),
-    discard = false,
   ) => {
     if (!actions) return;
     const picked = choices[index];
@@ -989,24 +1056,12 @@ export function OpenTuiSettings({
         back();
         return;
       }
-      if (dirty) {
-        setConnectionConfirm({ type: "switch", profileId: picked.id });
-        setConnectionChoice(0);
-      } else switchProfile(picked.id);
+      void connectionAutosave.flush().then((ok) => {
+        if (ok) switchProfile(picked.id);
+      });
     } else {
       const provider = filteredProviders[index];
       if (!provider) return;
-      if (
-        dirty &&
-        !addingProfile &&
-        !discard &&
-        provider.id !== values.provider
-      ) {
-        pendingProviderSelection.current = () => choose(index, true);
-        setConnectionConfirm({ type: "switch", profileId: "__provider" });
-        setConnectionChoice(0);
-        return;
-      }
       if (addingProfile) {
         setValues({
           provider: provider.id,
@@ -1027,50 +1082,12 @@ export function OpenTuiSettings({
         back();
         return;
       }
-      const accounts = Object.entries(profiles).filter(
-        ([, p]) => p.providerId === provider.id,
-      );
-      const profileId =
-        accounts.length === 1
-          ? accounts[0]?.[0]
-          : accounts.length === 0
-            ? `${provider.id.replaceAll("/", "-")}-default`
-            : undefined;
-      const next: TuiSettingsValues = {
-        provider: provider.id,
-        profileId,
-        model: provider.defaults.model ?? "",
-        baseUrl:
-          provider.endpoint.normalization !== "none"
-            ? provider.endpoint.defaultBaseUrl
-            : undefined,
-      };
-      setValues(next);
-      setHasKey(false);
-      setQuery("");
-      setSelected(0);
-      if (accounts.length > 1) {
-        setQuery("");
-        setScreen("profiles");
-        return;
-      }
-      run("profile", async (valid) => {
-        if (accounts.length === 1 && profileId) {
-          const loaded = await actions.load(profileId);
-          if (!valid()) return;
-          setValues(loaded.values);
-          setHasKey(loaded.hasKey);
-        } else {
-          const saved = await actions.hasKey(provider.id, profileId);
-          if (!valid()) return;
-          setHasKey(saved);
-        }
-        back();
-      });
+      back();
     }
   };
   const saveCurrent = () => {
-    if (page === "appearance") applyTheme();
+    if (page === "appearance") void themeAutosave.flush();
+    else if (page === "permissions") void bypassAutosave.flush();
     else if (page === "tools.lsp") lspControls.current?.save();
     else if (page === "tools.subagents") subagentControls.current?.save();
     else if (page === "tools.background") backgroundControls.current?.save();
@@ -1090,31 +1107,6 @@ export function OpenTuiSettings({
       : page === "appearance"
         ? [
             {
-              id: "settings-apply-theme",
-              label: "Применить тему",
-              disabled: !!busy,
-              run: applyTheme,
-            },
-            {
-              id: "settings-cancel-theme",
-              label: "Отменить предпросмотр",
-              disabled: !!busy,
-              run: () => {
-                setThemeSearch("");
-                setThemeSearchFocus(false);
-                setThemeIndex(
-                  Math.max(
-                    0,
-                    catalog
-                      .list()
-                      .findIndex((item) => item.key === restore.current.theme),
-                  ),
-                );
-                onThemePreview?.(restore.current.theme);
-                setNotice("");
-              },
-            },
-            {
               id: "settings-motion-action",
               label: `Анимации: ${motion.preference === "full" ? "плавные" : "минимум"}`,
               disabled: !!busy,
@@ -1132,6 +1124,36 @@ export function OpenTuiSettings({
             ]
           : page === "connection" && (field || selector || screen === "login")
             ? [
+                ...(noticeKind === "error" && values.profileId
+                  ? [
+                      {
+                        id: "settings-reload-field",
+                        label: "Обновить данные",
+                        run: () => {
+                          void actions
+                            ?.load(values.profileId)
+                            .then((draft) => {
+                              acknowledged.current = draft.values;
+                              baseline.current = JSON.stringify(draft.values);
+                              setMessage(
+                                "Данные обновлены; ввод сохранён. Повторите выход из поля.",
+                              );
+                            })
+                            .catch((error) =>
+                              setMessage(
+                                safeNotice(
+                                  error,
+                                  values,
+                                  editing,
+                                  screen === "key",
+                                ),
+                                "error",
+                              ),
+                            );
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   id: "settings-back",
                   label: "Назад",
@@ -1186,13 +1208,89 @@ export function OpenTuiSettings({
                       },
                     ]
                   : []),
-                {
-                  id: "settings-save",
-                  label: "Сохранить",
-                  disabled: !!busy || (page === "connection" && !loaded),
-                  run: saveCurrent,
-                },
+                ...(page === "connection" &&
+                values.profileId &&
+                profiles[values.profileId]
+                  ? [
+                      {
+                        id: "settings-use-profile",
+                        label: "Использовать подключение",
+                        disabled: !!busy,
+                        run: () => {
+                          void connectionAutosave.flush().then(async (ok) => {
+                            if (!ok) return;
+                            try {
+                              await actions?.activate?.(values);
+                              if (setup && readiness.current)
+                                completeClose("saved");
+                              else
+                                setMessage(
+                                  readiness.current
+                                    ? "Подключение выбрано"
+                                    : "Подключение выбрано · требуется настройка",
+                                  "success",
+                                );
+                            } catch (error) {
+                              setMessage(
+                                safeNotice(
+                                  error,
+                                  values,
+                                  editing,
+                                  screen === "key",
+                                ),
+                                "error",
+                              );
+                            }
+                          });
+                        },
+                      },
+                    ]
+                  : []),
+                ...(noticeKind === "error"
+                  ? [
+                      {
+                        id: "settings-retry",
+                        label: "Повторить",
+                        run: saveCurrent,
+                      },
+                      {
+                        id: "settings-reload",
+                        label: "Обновить данные",
+                        run: () => {
+                          void actions
+                            ?.load(values.profileId)
+                            .then((draft) => {
+                              acknowledged.current = draft.values;
+                              baseline.current = JSON.stringify(draft.values);
+                              setMessage(
+                                "Данные обновлены; введённые значения сохранены. Повторите запись.",
+                              );
+                            })
+                            .catch((error) =>
+                              setMessage(
+                                safeNotice(
+                                  error,
+                                  values,
+                                  editing,
+                                  screen === "key",
+                                ),
+                                "error",
+                              ),
+                            );
+                        },
+                      },
+                    ]
+                  : []),
               ];
+  if (
+    noticeKind === "error" &&
+    !settingsMenuActions.some((item) => item.id === "settings-retry")
+  )
+    settingsMenuActions.push({
+      id: "settings-retry",
+      label: "Повторить",
+      run: saveCurrent,
+    });
   const actionNavigation = useMenuNavigation(
     ["actions"],
     settingsMenuActions,
@@ -1205,21 +1303,6 @@ export function OpenTuiSettings({
       return;
     }
     setConnectionConfirm(undefined);
-    if (pending.type === "switch") {
-      const next = () =>
-        pending.profileId === "__new"
-          ? newProfile(true)
-          : pending.profileId === "__provider"
-            ? pendingProviderSelection.current?.()
-            : switchProfile(pending.profileId);
-      if (choice === 2)
-        save(values, () => {
-          lifetime.current.busy = undefined;
-          next();
-        });
-      else next();
-      return;
-    }
     run("remove", async (valid) => {
       if (pending.type === "disconnect") await actions?.disconnect?.(values);
       else
@@ -1240,6 +1323,7 @@ export function OpenTuiSettings({
         if (draft) {
           setValues(draft.values);
           baseline.current = JSON.stringify(draft.values);
+          acknowledged.current = draft.values;
           setHasKey(draft.hasKey);
         }
         setScreen("profiles");
@@ -1270,7 +1354,7 @@ export function OpenTuiSettings({
     if (key.ctrl && name === "c") return;
     if (key.ctrl && name === "f") {
       key.preventDefault();
-      if (page === "tools.lsp" && shellFocus === "content" && !confirmClose)
+      if (page === "tools.lsp" && shellFocus === "content")
         lspControls.current?.search?.();
       else setShellFocus("search");
       return;
@@ -1280,46 +1364,9 @@ export function OpenTuiSettings({
       if (name === "escape") setConnectionConfirm(undefined);
       else if (["up", "down", "tab"].includes(name))
         setConnectionChoice(
-          (i) =>
-            (i +
-              (name === "up" || key.shift
-                ? connectionConfirm.type === "switch"
-                  ? 2
-                  : 1
-                : 1)) %
-            (connectionConfirm.type === "switch" ? 3 : 2),
+          (i) => (i + (name === "up" || key.shift ? 1 : 1)) % 2,
         );
       else if (name === "return") confirmConnection(connectionChoice);
-      return;
-    }
-    if (confirmClose) {
-      key.preventDefault();
-      if (name === "escape") {
-        afterClose.current = undefined;
-        setConfirmClose(false);
-      } else if (["up", "down", "tab"].includes(name))
-        setCloseSelection(
-          (i) => (i + (name === "up" || key.shift ? 2 : 1)) % 3,
-        );
-      else if (name === "return") {
-        if (closeSelection === 0) {
-          afterClose.current = undefined;
-          setConfirmClose(false);
-        } else if (closeSelection === 1) {
-          afterClose.current = undefined;
-          setConfirmClose(false);
-          saveCurrent();
-        } else {
-          webControls.current?.discard();
-          lspControls.current?.discard();
-          subagentControls.current?.discard();
-          backgroundControls.current?.discard();
-          extensionsControls.current?.discard();
-          mcpControls.current?.discard();
-          onThemePreview?.(restore.current.theme);
-          completeClose();
-        }
-      }
       return;
     }
     if (page === "appearance" && !navigationOnly) {
@@ -1368,6 +1415,7 @@ export function OpenTuiSettings({
           settingsMenuActions.some((item) => !item.disabled),
       );
       const index = zones.indexOf(shellFocus as never);
+      if (field) void connectionAutosave.flush();
       setShellFocus(
         zones[(index + (key.shift ? -1 : 1) + zones.length) % zones.length] ??
           "content",
@@ -1420,7 +1468,6 @@ export function OpenTuiSettings({
     }
     if (key.ctrl && name === "s") {
       key.preventDefault();
-      saveCurrent();
       return;
     }
     if (shellFocus === "actions" && actionNavigation.handle(key)) return;
@@ -1471,7 +1518,8 @@ export function OpenTuiSettings({
     }
     if (name === "escape") {
       key.preventDefault();
-      if (page === "connection" && screen !== "menu") back();
+      if (page === "connection" && screen === "profiles") close();
+      else if (page === "connection" && screen !== "menu") back();
       else if (!split && compactDetail) {
         setCompactDetail(false);
         setShellFocus("navigation");
@@ -1617,12 +1665,7 @@ export function OpenTuiSettings({
             <input
               id="settings-global-search"
               value={settingsQuery}
-              focused={
-                active &&
-                !confirmClose &&
-                !connectionConfirm &&
-                shellFocus === "search"
-              }
+              focused={active && !connectionConfirm && shellFocus === "search"}
               placeholder="Поиск настроек · Ctrl+F"
               backgroundColor={palette.raised}
               focusedBackgroundColor={palette.raised}
@@ -1714,6 +1757,41 @@ export function OpenTuiSettings({
             flexDirection="column"
             overflow="hidden"
           >
+            {page === "connection" &&
+              loaded &&
+              (field || screen === "login") && (
+                <box height={tiny ? 1 : 2} flexShrink={0} flexDirection="row">
+                  <DialogAction
+                    id="settings-profile-switcher"
+                    label={
+                      values.label || values.profileId || "Нет подключений"
+                    }
+                    palette={palette}
+                    onSelect={() => {
+                      void connectionAutosave.flush().then((ok) => {
+                        if (ok) {
+                          setScreen("profiles");
+                          setSelected(0);
+                        }
+                      });
+                    }}
+                  />
+                  <DialogAction
+                    id="settings-add-profile"
+                    label="Добавить подключение"
+                    palette={palette}
+                    onSelect={() => newProfile()}
+                  />
+                </box>
+              )}
+            {page === "connection" &&
+              loaded &&
+              screen === "profiles" &&
+              !Object.keys(profiles).length && (
+                <text height={1} fg={palette.muted}>
+                  Нет подключений
+                </text>
+              )}
             {page === "tools.lsp" ? (
               actions?.lsp ? null : (
                 <text fg={palette.muted}>
@@ -1760,35 +1838,43 @@ export function OpenTuiSettings({
               </TerminalScrollbox>
             ) : page === "appearance" ? (
               <box flexDirection="column" height="100%" width="100%">
-                <DialogAction
-                  id="settings-motion"
-                  label={`Анимации: ${motion.preference === "full" ? (surfaceWidth < 35 ? "да" : "плавные") : surfaceWidth < 35 ? "мин" : "минимум"}`}
-                  palette={palette}
-                  disabled={motion.saving || !motion.change}
-                  onSelect={changeMotion}
-                />
-                <input
-                  id="settings-theme-search"
-                  value={themeSearch}
-                  focused={active && themeSearchFocus && !confirmClose}
-                  placeholder="Поиск тем /"
-                  onMouseDown={() => {
-                    setShellFocus("content");
-                    setThemeSearchFocus(true);
-                  }}
-                  backgroundColor={palette.raised}
-                  textColor={palette.text}
-                  focusedTextColor={palette.text}
-                  placeholderColor={palette.muted}
-                  onInput={(value) => {
-                    if (value === themeSearch) return;
-                    setThemeSearch(cleanSettingsInput(value));
-                    setThemeIndex(0);
-                  }}
-                />
+                {roomy && (
+                  <DialogAction
+                    id="settings-motion"
+                    label={`Анимации: ${motion.preference === "full" ? (surfaceWidth < 35 ? "да" : "плавные") : surfaceWidth < 35 ? "мин" : "минимум"}`}
+                    palette={palette}
+                    disabled={motion.saving || !motion.change}
+                    onSelect={changeMotion}
+                  />
+                )}
+                {(height >= 12 || themeSearchFocus) && (
+                  <input
+                    id="settings-theme-search"
+                    value={themeSearch}
+                    focused={active && themeSearchFocus}
+                    placeholder="Поиск тем /"
+                    onMouseDown={() => {
+                      setShellFocus("content");
+                      setThemeSearchFocus(true);
+                    }}
+                    backgroundColor={palette.raised}
+                    textColor={palette.text}
+                    focusedTextColor={palette.text}
+                    placeholderColor={palette.muted}
+                    onInput={(value) => {
+                      if (value === themeSearch) return;
+                      setThemeSearch(cleanSettingsInput(value));
+                      setThemeIndex(0);
+                    }}
+                  />
+                )}
                 <box
                   flexDirection="row"
-                  height={Math.max(1, bodyHeight - 3)}
+                  height={Math.max(
+                    1,
+                    bodyHeight -
+                      (roomy ? 3 : height >= 12 || themeSearchFocus ? 1 : 0),
+                  )}
                   width="100%"
                 >
                   <box
@@ -1836,7 +1922,7 @@ export function OpenTuiSettings({
                                 disabled={!!busy}
                                 onSelect={() => {
                                   setThemeIndex(names.indexOf(name));
-                                  setNotice("");
+                                  applyTheme();
                                 }}
                               />
                               {listWidth >= 30 && (
@@ -1896,8 +1982,9 @@ export function OpenTuiSettings({
                         клавишей M.
                       </text>
                       <text marginTop={1} fg={palette.muted}>
-                        Стрелки показывают тему во всём интерфейсе. Примените
-                        понравившийся вариант или нажмите Esc, чтобы вернуться.
+                        Стрелки показывают тему во всём интерфейсе. Enter
+                        сохраняет понравившийся вариант или нажмите Esc, чтобы
+                        вернуться.
                       </text>
                     </box>
                   )}
@@ -1959,7 +2046,6 @@ export function OpenTuiSettings({
                       palette={palette}
                       active={
                         active &&
-                        !confirmClose &&
                         !connectionConfirm &&
                         shellFocus === "content" &&
                         page === "connection"
@@ -1972,7 +2058,6 @@ export function OpenTuiSettings({
                       value={editing}
                       focused={
                         active &&
-                        !confirmClose &&
                         !connectionConfirm &&
                         shellFocus === "content" &&
                         page === "connection"
@@ -2001,10 +2086,10 @@ export function OpenTuiSettings({
                 {roomy && (
                   <text marginTop={1} fg={palette.muted}>
                     {screen === "key"
-                      ? "Ключ скрыт и будет записан только после сохранения подключения."
+                      ? "Ключ скрыт и автоматически записывается в защищённое хранилище."
                       : screen === "profile-id"
                         ? "Уникальное имя для отдельного аккаунта этого сервиса."
-                        : "Введите значение. Enter подтвердит его, Esc отменит редактирование."}
+                        : "Введите значение. Enter и Esc завершают запись."}
                   </text>
                 )}
               </box>
@@ -2017,7 +2102,7 @@ export function OpenTuiSettings({
                   justifyContent="space-between"
                 >
                   <DialogAction
-                    id="settings-profiles"
+                    id="settings-profile-switcher"
                     label={screen === "profiles" ? "Профили" : "‹ Профили"}
                     palette={palette}
                     onSelect={() => open("profiles")}
@@ -2052,7 +2137,6 @@ export function OpenTuiSettings({
                       value={query}
                       focused={
                         active &&
-                        !confirmClose &&
                         !connectionConfirm &&
                         shellFocus === "content" &&
                         page === "connection"
@@ -2207,8 +2291,10 @@ export function OpenTuiSettings({
                           fg={dirty ? palette.yellow : palette.green}
                         >
                           {dirty
-                            ? "Есть несохранённые изменения"
-                            : "Подключение сохранено"}
+                            ? "Сохранение изменений…"
+                            : hasKey
+                              ? "Сохранено · готово к работе"
+                              : "Сохранено · требуется настройка"}
                         </text>
                       )}
                     </box>
@@ -2232,15 +2318,10 @@ export function OpenTuiSettings({
                 width={innerWidth}
                 height={bodyHeight}
                 palette={palette}
-                active={
-                  active &&
-                  page === "tools.mcp" &&
-                  !navigationOnly &&
-                  !confirmClose
-                }
+                active={active && page === "tools.mcp" && !navigationOnly}
                 focused={shellFocus === "content"}
                 controls={mcpControls}
-                onDirty={recordMcpDirty}
+                onDirty={recordDirty}
                 onClose={() => {
                   setCompactDetail(false);
                   setShellFocus("navigation");
@@ -2269,12 +2350,7 @@ export function OpenTuiSettings({
                 width={innerWidth}
                 height={bodyHeight}
                 palette={palette}
-                active={
-                  active &&
-                  page === "tools.skills" &&
-                  !navigationOnly &&
-                  !confirmClose
-                }
+                active={active && page === "tools.skills" && !navigationOnly}
                 focused={shellFocus === "content"}
                 controls={skillsControls}
                 onClose={() => {
@@ -2313,16 +2389,11 @@ export function OpenTuiSettings({
                 palette={palette}
                 width={innerWidth}
                 height={bodyHeight}
-                active={
-                  active &&
-                  page === "extensions" &&
-                  !navigationOnly &&
-                  !confirmClose
-                }
+                active={active && page === "extensions" && !navigationOnly}
                 focused={shellFocus === "content"}
                 controls={extensionsControls}
                 onOpenBuiltin={changePage}
-                onDirty={recordExtensionsDirty}
+                onDirty={recordDirty}
                 onFocus={() => setShellFocus("content")}
               />
             </box>
@@ -2342,11 +2413,10 @@ export function OpenTuiSettings({
                   active &&
                   page === "web" &&
                   !navigationOnly &&
-                  shellFocus === "content" &&
-                  !confirmClose
+                  shellFocus === "content"
                 }
                 controls={webControls}
-                onDirty={recordWebDirty}
+                onDirty={recordDirty}
                 onClose={() => {}}
               />
             </box>
@@ -2363,14 +2433,11 @@ export function OpenTuiSettings({
                 width={innerWidth}
                 height={bodyHeight}
                 active={
-                  active &&
-                  page === "tools.background" &&
-                  !navigationOnly &&
-                  !confirmClose
+                  active && page === "tools.background" && !navigationOnly
                 }
                 focused={shellFocus === "content"}
                 controls={backgroundControls}
-                onDirty={recordBackgroundDirty}
+                onDirty={recordDirty}
               />
             </box>
           )}
@@ -2385,15 +2452,10 @@ export function OpenTuiSettings({
                 palette={palette}
                 width={innerWidth}
                 height={bodyHeight}
-                active={
-                  active &&
-                  page === "tools.subagents" &&
-                  !navigationOnly &&
-                  !confirmClose
-                }
+                active={active && page === "tools.subagents" && !navigationOnly}
                 focused={shellFocus === "content"}
                 controls={subagentControls}
-                onDirty={recordSubagentDirty}
+                onDirty={recordDirty}
               />
             </box>
           )}
@@ -2411,17 +2473,12 @@ export function OpenTuiSettings({
                 palette={palette}
                 width={innerWidth}
                 height={bodyHeight}
-                active={
-                  active &&
-                  page === "tools.lsp" &&
-                  !navigationOnly &&
-                  !confirmClose
-                }
+                active={active && page === "tools.lsp" && !navigationOnly}
                 focused={shellFocus === "content"}
                 fieldTarget={fieldTarget}
                 onFieldTargetHandled={() => setFieldTarget(undefined)}
                 controls={lspControls}
-                onDirty={recordLspDirty}
+                onDirty={recordDirty}
                 onChooseProject={
                   onChooseProject ? () => close(onChooseProject) : undefined
                 }
@@ -2441,11 +2498,9 @@ export function OpenTuiSettings({
           flexDirection="column"
         >
           <text fg={palette.yellow}>
-            {connectionConfirm.type === "switch"
-              ? "Сохранить изменения профиля?"
-              : connectionConfirm.type === "delete"
-                ? `Удалить профиль ${values.label || connectionConfirm.profileId}?`
-                : "Отключить аккаунт?"}
+            {connectionConfirm.type === "delete"
+              ? `Удалить профиль ${values.label || connectionConfirm.profileId}?`
+              : "Отключить аккаунт?"}
           </text>
           <DialogAction
             id="settings-connection-cancel"
@@ -2457,76 +2512,11 @@ export function OpenTuiSettings({
           <DialogAction
             id="settings-connection-discard"
             label={
-              connectionConfirm.type === "switch"
-                ? "Переключить без сохранения"
-                : connectionConfirm.type === "delete"
-                  ? "Удалить"
-                  : "Отключить"
+              connectionConfirm.type === "delete" ? "Удалить" : "Отключить"
             }
             active={connectionChoice === 1}
             palette={palette}
             onSelect={() => confirmConnection(1)}
-          />
-          {connectionConfirm.type === "switch" && (
-            <DialogAction
-              id="settings-connection-save"
-              label="Сохранить и переключить"
-              active={connectionChoice === 2}
-              palette={palette}
-              onSelect={() => confirmConnection(2)}
-            />
-          )}
-        </box>
-      )}
-      {confirmClose && (
-        <box
-          position="absolute"
-          left={1}
-          top={1}
-          width="100%"
-          height={Math.max(1, popupHeight - (tiny ? 1 : 2))}
-          backgroundColor={palette.surface}
-          flexDirection="column"
-        >
-          <text height={1} fg={palette.yellow}>
-            {tiny ? "Есть изменения" : "Несохранённые изменения"}
-          </text>
-          <DialogAction
-            id="settings-stay"
-            active={closeSelection === 0}
-            label={tiny ? "Остаться" : "Остаться (Esc)"}
-            palette={palette}
-            onSelect={() => {
-              afterClose.current = undefined;
-              setConfirmClose(false);
-            }}
-          />
-          <DialogAction
-            id="settings-save-current"
-            active={closeSelection === 1}
-            label={tiny ? "Сохранить текущую" : "Сохранить текущую форму"}
-            palette={palette}
-            onSelect={() => {
-              afterClose.current = undefined;
-              setConfirmClose(false);
-              saveCurrent();
-            }}
-          />
-          <DialogAction
-            id="settings-discard"
-            active={closeSelection === 2}
-            label={tiny ? "Сбросить всё" : "Сбросить все изменения и закрыть"}
-            palette={palette}
-            onSelect={() => {
-              webControls.current?.discard();
-              lspControls.current?.discard();
-              subagentControls.current?.discard();
-              backgroundControls.current?.discard();
-              extensionsControls.current?.discard();
-              mcpControls.current?.discard();
-              onThemePreview?.(restore.current.theme);
-              completeClose();
-            }}
           />
         </box>
       )}
@@ -2572,11 +2562,11 @@ export function OpenTuiSettings({
                   ? "Проверяем подключение... | Esc закрыть"
                   : "Подождите..."
               : shellFocus === "actions"
-                ? "←→ · Enter · Ctrl+S · Esc"
+                ? "←→ · Enter · Esc"
                 : innerWidth >= 70
-                  ? "Tab области · ←→ действия · Ctrl+S · Esc"
+                  ? "Tab области · ←→ действия · Esc"
                   : innerWidth >= 32
-                    ? "Tab фокус · Ctrl+S · Esc назад"
+                    ? "Tab фокус · Esc назад"
                     : "Tab · Esc назад",
             innerWidth,
           )}

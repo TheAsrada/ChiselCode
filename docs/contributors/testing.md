@@ -121,3 +121,7 @@ Release закрепляет checkout всех сборок и публикац�
 Native LSP catalog probe повторяет только начальную подготовку при retryable HTTP 502/503/504: cleanup, одна секунда, одна новая попытка. Assertions, activation, protocol, unsafe targets, cancellation и 429 не получают этот retry. Постоянный отказ остаётся ошибкой. Обычные core policy/integrity и Retry-After не обходятся.
 
 Измеряйте тесты, setup, jobs, очередь и суммарные runner minutes отдельно. Результат конкретного source и непроверенные платформы фиксируйте в [отчётах](README.md), без обещания миллисекунд для настоящего GUI/сервера.
+
+## Автосохранение Settings
+
+`bun test tests/unit/settings-autosave.test.ts tests/unit/provider-settings.test.ts tests/unit/settings-autosave-runtime.test.tsx` проверяет очередь, ошибки/повтор, защищённые ключи, пустую установку и настоящий OpenTUI с файловым хранилищем. Нативный сценарий включает клавиатуру, мышь, resize, быстрый ввод во время записи, закрытие и повторное открытие. Эти файлы входят в Linux full source; Windows/macOS выполняют их в существующем platform subset без повторения в installed/compiled smoke. Профиль fast включает только очередь и сервис профилей. [Кадры и воспроизведение](../assets/settings-autosave/README.md).
