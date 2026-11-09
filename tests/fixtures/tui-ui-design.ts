@@ -446,7 +446,7 @@ try {
       line.spans
         .map((span) => span.text)
         .join("")
-        .includes("Думаю"),
+        .includes("Ожидаю ответ модели"),
     );
     activityColors.add(
       JSON.stringify(activity?.spans.map((span) => span.fg.toInts())),

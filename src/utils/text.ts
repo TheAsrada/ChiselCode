@@ -27,3 +27,19 @@ export function textTail(input: string, maxChars: number): string {
     ? input.slice(item.index < start ? item.index + item.segment.length : start)
     : "";
 }
+
+/** Prefer an exception header over matching words inside stack frames. */
+export function failureLine(output: string): string | undefined {
+  const lines = output.split(/\r?\n/);
+  const header = lines.find((line) =>
+    /^\s*(?:[\w]+\.)*\w*(?:Error|Exception):\s*\S/.test(line),
+  );
+  return (
+    header ??
+    lines.find((line) =>
+      /\b\w*(?:Error|Exception)\b|\b(?:FAILED|denied)\b|ошибк|отказ/i.test(
+        line,
+      ),
+    )
+  )?.trim();
+}

@@ -13,6 +13,10 @@ import type {
 } from "../types/domain.js";
 import { RuntimeError } from "./errors.js";
 import type { RuntimeEventBus } from "./events.js";
+import {
+  PROVIDER_IDLE_TIMEOUT_MS,
+  readProviderStream,
+} from "./provider-stream.js";
 export type AssistantTurn = Extract<StreamEvent, { type: "turn_complete" }>;
 export class TurnRunner {
   constructor(
@@ -23,6 +27,7 @@ export class TurnRunner {
       request: ProviderRequest,
       estimated: number,
     ) => Promise<{ request: ProviderRequest; estimated: number }>,
+    private readonly providerIdleTimeoutMs = PROVIDER_IDLE_TIMEOUT_MS,
   ) {}
   async run(
     request: ProviderRequest,
@@ -55,9 +60,14 @@ export class TurnRunner {
       });
       if (request.signal?.aborted)
         throw new ProviderError("cancelled", "Provider request cancelled.");
+      let preparingTool = false;
       for await (const event of prepared.synthetic
         ? syntheticModelEvents(prepared.synthetic)
-        : this.provider.streamChat(request)) {
+        : readProviderStream(
+            this.provider,
+            request,
+            this.providerIdleTimeoutMs,
+          )) {
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
         if (event.type === "error") {
@@ -67,6 +77,13 @@ export class TurnRunner {
             event.message,
           );
         }
+        if (event.type === "tool_delta") {
+          if (!preparingTool)
+            await this.events.emit({ type: "provider_tool_delta" });
+          preparingTool = true;
+          continue;
+        }
+        preparingTool = false;
         if (event.type === "text_delta" && !filterText)
           await this.events.emit({
             type: "provider_text_delta",

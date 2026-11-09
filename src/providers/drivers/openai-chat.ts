@@ -213,6 +213,8 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
           if (call.function?.arguments)
             current.arguments += call.function.arguments;
           toolCalls.set(index, current);
+          if (call.function?.arguments || call.function?.name)
+            yield { type: "tool_delta" };
         }
       }
 

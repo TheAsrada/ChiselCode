@@ -166,6 +166,8 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
             json: "",
             closed: false,
           });
+          if (event.content_block.type === "tool_use")
+            yield { type: "tool_delta" };
         }
         if (event.type === "content_block_stop") {
           const current = blocks.get(event.index);
@@ -190,6 +192,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
               "Tool arguments delta has an invalid block type.",
             );
           current.json += event.delta.partial_json;
+          if (event.delta.partial_json) yield { type: "tool_delta" };
         }
         if (event.delta.type === "text_delta") {
           if (current.block.type !== "text")

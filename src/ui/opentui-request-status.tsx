@@ -36,7 +36,7 @@ export function OpenTuiRequestStatus({
   const phase =
     awaitingApproval || view.awaitingApproval
       ? requestActivity("approval")
-      : (view.requestActivity ?? requestActivity("thinking"));
+      : (view.requestActivity ?? requestActivity("waiting"));
   const node = useRef<TextRenderable>(null);
   const current = useRef({ phase, palette, width, enabled });
   current.current = { phase, palette, width, enabled };

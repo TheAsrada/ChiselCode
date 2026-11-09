@@ -11,6 +11,7 @@ import {
   type RuntimeOptions,
 } from "../../src/runtime/agent-runtime.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
+import { TurnRunner } from "../../src/runtime/turn-runner.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { createSession } from "../../src/sessions/store.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
@@ -78,6 +79,94 @@ function completed(text = "Готово"): StreamEvent {
     usage: { inputTokens: 1, outputTokens: 1 },
   };
 }
+
+for (const phase of ["headers", "tool", "cancel"] as const)
+  test(`stalled provider ${phase} ends the wait and aborts the SDK request`, async () => {
+    const events = new RuntimeEventBus("stall");
+    const user = new AbortController();
+    let networkSignal: AbortSignal | null | undefined;
+    const release = Promise.withResolvers<void>();
+    const fragment = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: "call",
+                function: { name: "write_file", arguments: '{"path":' },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const failures: (string | undefined)[] = [];
+    events.subscribe((event) => {
+      if (event.type === "provider_tool_delta") release.resolve();
+      if (event.type === "provider_failed") failures.push(event.errorCode);
+    });
+    const provider = new OpenAIProtocolAdapter({
+      apiKey: "fixture",
+      maxRetries: 0,
+      async fetch(_input, init) {
+        networkSignal = init?.signal;
+        if (phase !== "tool") {
+          release.resolve();
+          await new Promise<void>((resolve) =>
+            networkSignal?.addEventListener("abort", () => resolve(), {
+              once: true,
+            }),
+          );
+          networkSignal?.throwIfAborted();
+        }
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              networkSignal?.addEventListener(
+                "abort",
+                () => controller.error(networkSignal?.reason),
+                { once: true },
+              );
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `data: ${JSON.stringify(fragment)}\n\n`,
+                ),
+              );
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      },
+    });
+    const turn = new TurnRunner(
+      provider,
+      events,
+      undefined,
+      undefined,
+      150,
+    ).run(
+      {
+        model: "mock",
+        system: "",
+        messages: [],
+        tools: [],
+        signal: user.signal,
+      },
+      0,
+    );
+    const expected = phase === "cancel" ? "cancelled" : "timeout";
+    await release.promise;
+    if (phase === "cancel") user.abort();
+    await expect(turn).rejects.toMatchObject({
+      code: expected,
+      ...(phase === "tool"
+        ? { message: expect.stringContaining("Поток ответа") }
+        : {}),
+    });
+    expect(networkSignal?.aborted).toBe(true);
+    expect(failures).toEqual([expected]);
+  });
 for (const failure of ["invalid_tool_arguments", "output_truncated"] as const)
   test(`${failure}: regenerate without executing the rejected call or saving its prose`, async () => {
     const setup = await fixture();

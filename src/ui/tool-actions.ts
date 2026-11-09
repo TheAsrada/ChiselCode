@@ -2,6 +2,7 @@ import type { ToolInvocationState } from "../tools/invocation.js";
 import type { ToolSource } from "../tools/types.js";
 import type { OwnedChatCard } from "../types/chat-presentation.js";
 import type { ToolExecutionResult } from "../types/domain.js";
+import { failureLine } from "../utils/text.js";
 import type { TranscriptEntry } from "./tui-controller.js";
 
 export interface ToolAction {
@@ -156,15 +157,10 @@ export function actionLabel(action: ToolAction): string {
 export function actionReason(action: ToolAction): string {
   if (typeof action.result?.details?.failureReason === "string")
     return action.result.details.failureReason;
-  const lines = action.result?.output.trim().split(/\r?\n/) ?? [];
+  const output = action.result?.output.trim();
   return (
-    (
-      lines.find((line) =>
-        /\b\w*(?:Error|Exception)\b|\b(?:FAILED|denied)\b|ошибк|отказ/i.test(
-          line,
-        ),
-      ) ?? lines.find((line) => line.trim())
-    )?.trim() || actionStateLabels[action.state]
+    (output && (failureLine(output) || output.split(/\r?\n/, 1)[0]?.trim())) ||
+    actionStateLabels[action.state]
   );
 }
 export function mergeToolAction(

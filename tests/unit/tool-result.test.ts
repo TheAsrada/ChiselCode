@@ -45,7 +45,8 @@ test("offloaded failure reasons keep complete graphemes and preserve the error a
   const store = new ToolResultStore(root);
   try {
     const reason = "Error: " + "x".repeat(392) + "🧪 подробности";
-    const rawOutput = reason + "\n" + "trace\n".repeat(2000);
+    const traceback = "    response = self.parent.error(\n" + reason;
+    const rawOutput = traceback + "\n" + "trace\n".repeat(2000);
     const result = await normalizeResult(
       {
         output: "Command failed",
@@ -59,7 +60,7 @@ test("offloaded failure reasons keep complete graphemes and preserve the error a
     expect(result.isError).toBe(true);
     expect(result.errorCode).toBe("WEB_HTTP_ERROR");
     expect(result.details?.failureReason).toBe("Error: " + "x".repeat(392));
-    expect(await store.read(result.artifact?.uri ?? "", 0, 1)).toBe(reason);
+    expect(await store.read(result.artifact?.uri ?? "", 0, 2)).toBe(traceback);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

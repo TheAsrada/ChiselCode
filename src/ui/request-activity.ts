@@ -2,8 +2,10 @@ import type { RuntimeEvent } from "../runtime/events.js";
 import type { ToolSource } from "../tools/types.js";
 
 export type RequestActivityKind =
+  | "waiting"
   | "thinking"
   | "answering"
+  | "model_tool"
   | "reading"
   | "searching"
   | "editing"
@@ -28,8 +30,20 @@ export interface RequestActivity {
 }
 
 const phases: Record<RequestActivityKind, Omit<RequestActivity, "kind">> = {
+  waiting: {
+    label: "Ожидаю ответ модели",
+    short: "Жду модель",
+    icon: "◷",
+    moving: true,
+  },
   thinking: { label: "Думаю", short: "Думаю", icon: "✦", moving: true },
   answering: { label: "Отвечаю", short: "Отвечаю", icon: "✦", moving: true },
+  model_tool: {
+    label: "Модель готовит вызов",
+    short: "Готовит вызов",
+    icon: "◇",
+    moving: true,
+  },
   reading: { label: "Читаю файлы", short: "Читаю", icon: "▤", moving: true },
   searching: { label: "Ищу", short: "Ищу", icon: "⌕", moving: true },
   editing: {
@@ -152,9 +166,9 @@ type ActiveTool = {
 /** Ephemeral, per-foreground-request projection. It never enters model history. */
 export class RequestActivityTracker {
   private tools = new Map<string, ActiveTool>();
-  private model: RequestActivityKind = "thinking";
+  private model: RequestActivityKind = "waiting";
   private compacting = false;
-  reset(initial: "thinking" | "tool" = "thinking"): RequestActivity {
+  reset(initial: "waiting" | "tool" = "waiting"): RequestActivity {
     this.tools.clear();
     this.model = initial;
     this.compacting = false;
@@ -169,9 +183,14 @@ export class RequestActivityTracker {
     if (this.model === "stopping") return this.snapshot();
     switch (event.type) {
       case "provider_request_started":
-      case "provider_thinking_delta":
       case "provider_response_recovery":
+        this.model = "waiting";
+        break;
+      case "provider_thinking_delta":
         this.model = "thinking";
+        break;
+      case "provider_tool_delta":
+        this.model = "model_tool";
         break;
       case "provider_text_delta":
         if (event.text) this.model = "answering";
@@ -204,7 +223,7 @@ export class RequestActivityTracker {
         ].includes(event.type)
       ) {
         const prior = this.tools.get(event.invocationId);
-        this.model = "thinking";
+        this.model = "waiting";
         this.tools.set(event.invocationId, {
           kind: event.toolSource
             ? toolActivityKind(event.name, event.toolSource)

@@ -32,7 +32,7 @@ test("live status ticks without remounting its row and uses the controller clock
     await act(async () => {
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).toMatch(/Думаю\s+· 0 с/);
+    expect(setup.captureCharFrame()).toMatch(/Ожидаю ответ модели\s+· 0 с/);
     const row = setup.renderer.root.findDescendantById("request-status");
     now += 2000;
     await act(async () => {
@@ -42,7 +42,7 @@ test("live status ticks without remounting its row and uses the controller clock
       await setup.renderOnce();
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).toMatch(/Думаю\s+· 2 с/);
+    expect(setup.captureCharFrame()).toMatch(/Ожидаю ответ модели\s+· 2 с/);
     expect(setup.renderer.root.findDescendantById("request-status")).toBe(row);
   } finally {
     act(() => setup.renderer.destroy());
@@ -134,7 +134,7 @@ for (const theme of ["obsidian", "paper"] as const) {
                 line.spans
                   .map((span) => span.text)
                   .join("")
-                  .includes("Думаю"),
+                  .includes("Ожидаю ответ модели"),
               )
               ?.spans.map((span) => [span.text, span.fg.toInts()]),
           ),
@@ -171,6 +171,11 @@ for (const theme of ["obsidian", "paper"] as const) {
       expect(clock?.activeTasks).toBe(0);
       await send("provider_request_started");
       await send("tool_completed", { name: "read_file", invocationId: "a" });
+      expect(setup.captureCharFrame()).toContain("Ожидаю ответ модели");
+      await send("provider_thinking_delta", { text: "Причина" });
+      expect(setup.captureCharFrame()).toContain("Думаю");
+      await send("provider_tool_delta");
+      expect(setup.captureCharFrame()).toContain("Модель готовит вызов");
       await send("provider_text_delta", { text: "Ответ" });
       expect(setup.captureCharFrame()).toContain("Отвечаю");
       await act(async () => controller.stopRequestActivity());
@@ -195,7 +200,9 @@ for (const theme of ["obsidian", "paper"] as const) {
 test("every status fits tiny widths and keeps text readable without motion", () => {
   for (const width of [1, 3, 10, 17, 23, 39, 79]) {
     for (const kind of [
+      "waiting",
       "thinking",
+      "model_tool",
       "reading",
       "editing",
       "approval",

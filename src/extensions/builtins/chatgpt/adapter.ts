@@ -204,6 +204,12 @@ export class ChatGptAdapter implements ProviderAdapter {
           typeof event.delta === "string"
         ) {
           yield { type: "thinking_delta", text: event.delta };
+        } else if (
+          event.type === "response.function_call_arguments.delta" &&
+          typeof event.delta === "string" &&
+          event.delta
+        ) {
+          yield { type: "tool_delta" };
         } else if (event.type === "response.failed" || event.type === "error") {
           const failed = z
             .object({

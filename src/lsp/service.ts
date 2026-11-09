@@ -607,7 +607,8 @@ export class LspService {
     if (entry.state === "error")
       throw new RuntimeError(
         "LSP_UNAVAILABLE",
-        "Сервер анализа завершился. Откройте «Анализ кода · LSP» и перезапустите его.",
+        entry.reason ??
+          "Сервер анализа недоступен. Перезапустите его в меню LSP.",
       );
     if (!entry.transport || entry.state !== "ready") {
       entry.pending ??= this.start(entry, selected).finally(() => {
@@ -638,10 +639,12 @@ export class LspService {
     if (entry.stopping) await entry.stopping;
     cancelled(controller.signal);
     entry.state = "starting";
+    entry.reason = undefined;
     this.emitUi();
+    const deadline = AbortSignal.timeout(LSP_LIMITS.preparationMs);
     const preparationSignal = AbortSignal.any([
       this.signal(undefined, entry),
-      AbortSignal.timeout(LSP_LIMITS.preparationMs),
+      deadline,
     ]);
     let launch: LspLaunch;
     try {
@@ -654,9 +657,21 @@ export class LspService {
       cancelled(preparationSignal);
     } catch (error) {
       if (!controller.signal.aborted && entry.controller === controller) {
+        if (
+          deadline.aborted ||
+          (error instanceof RuntimeError && error.code === "WEB_TIMEOUT")
+        ) {
+          // No server was spawned. Allow the next explicit analysis request
+          // to reuse the verified cache and attempt preparation again.
+          entry.state = "stopped";
+          entry.reason =
+            "Истекло время подготовки LSP. Проверьте сеть и повторите анализ.";
+          this.emitUi();
+          throw new RuntimeError("TOOL_TIMEOUT", entry.reason);
+        }
         entry.state = "error";
         entry.reason =
-          "Не удалось подготовить backend. Проверьте настройки/установку и перезапустите LSP.";
+          "Не удалось подготовить LSP. Проверьте настройки или установку и перезапустите LSP.";
         this.emitUi();
       }
       throw error;
@@ -695,7 +710,6 @@ export class LspService {
           if (entry.generation !== generation || entry.transport !== transport)
             return;
           entry.state = "error";
-          this.emitUi();
           entry.reason = "Сервер анализа завершился. Перезапустите его явно.";
           entry.controller.abort();
           this.invalidate(entry);
@@ -704,9 +718,9 @@ export class LspService {
       );
     } catch (error) {
       entry.state = "error";
-      this.emitUi();
       entry.reason =
         "Не удалось запустить language server. Проверьте runtime и process-tree support; затем перезапустите.";
+      this.emitUi();
       entry.controller.abort();
       throw error;
     }

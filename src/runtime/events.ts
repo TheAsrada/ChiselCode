@@ -14,6 +14,7 @@ export type RuntimeEventType =
   | "provider_request_started"
   | "provider_text_delta"
   | "provider_thinking_delta"
+  | "provider_tool_delta"
   | "provider_turn_completed"
   | "provider_failed"
   | "provider_response_recovery"

@@ -154,6 +154,8 @@ export interface ProviderRequest {
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
+  /** Progress only. Partial arguments never leave the driver. */
+  | { type: "tool_delta" }
   | { type: "tool_call"; call: ToolCall }
   | {
       type: "turn_complete";

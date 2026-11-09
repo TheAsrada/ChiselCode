@@ -2,7 +2,7 @@ import { estimateTokens } from "../context/tokenizer.js";
 import type { ToolResultStore } from "../context/tool-result-store.js";
 import { runtimeError } from "../runtime/errors.js";
 import type { ToolExecutionResult } from "../types/domain.js";
-import { clipText, utf8Prefix } from "../utils/text.js";
+import { clipText, failureLine, utf8Prefix } from "../utils/text.js";
 export function failure(error: unknown): ToolExecutionResult {
   const typed = runtimeError(error);
   const rollback =
@@ -30,17 +30,9 @@ export async function normalizeResult(
     return normalized;
   const artifact = await store.put(raw, result.contentTrust);
   // A short failure must remain visible even when its traceback is in the artifact.
-  const lines = result.isError ? raw.split(/\r?\n/) : [];
-  const failureReason = clipText(
-    lines
-      .find((line) =>
-        /\b\w*(?:Error|Exception)\b|\b(?:FAILED|denied)\b|ошибк|отказ/i.test(
-          line,
-        ),
-      )
-      ?.trim() ?? "",
-    400,
-  );
+  const failureReason = result.isError
+    ? clipText(failureLine(raw) ?? "", 400)
+    : "";
   const suffix = `\nOutput offloaded. Full output: ${artifact.uri}\nUse read_tool_result with a line range.`;
   let preview = utf8Prefix(
     result.output,

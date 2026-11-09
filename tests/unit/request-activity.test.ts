@@ -53,7 +53,7 @@ test("parallel tools remain active independently and only running invocations ar
     activity.accept(
       event("tool_failed", { invocationId: "a", name: "read_file" }),
     ).kind,
-  ).toBe("thinking");
+  ).toBe("waiting");
   expect(
     activity.accept(event("provider_text_delta", { text: "Ответ" })).kind,
   ).toBe("answering");
@@ -146,13 +146,17 @@ test("provider failures, compaction, cancellation and a new request have indepen
     moving: false,
   });
   expect(activity.accept(event("provider_request_started")).kind).toBe(
+    "waiting",
+  );
+  expect(activity.accept(event("provider_thinking_delta")).kind).toBe(
     "thinking",
   );
+  expect(activity.accept(event("provider_tool_delta")).kind).toBe("model_tool");
   activity.stop();
   expect(
     activity.accept(event("provider_text_delta", { text: "late" })),
   ).toMatchObject({ kind: "stopping", moving: false });
-  expect(activity.reset().kind).toBe("thinking");
+  expect(activity.reset().kind).toBe("waiting");
   expect(
     activity.accept(event("provider_text_delta", { text: "fresh" })).kind,
   ).toBe("answering");
@@ -173,7 +177,7 @@ test("request projection survives tab switches, resets between requests and neve
     controller.finishRequest("cancelled");
     expect(controller.snapshot.requestActivity).toBeUndefined();
     controller.startRequest();
-    expect(controller.snapshot.requestActivity?.kind).toBe("thinking");
+    expect(controller.snapshot.requestActivity?.kind).toBe("waiting");
     controller.switchSession(undefined, "/other");
     expect(controller.snapshot.requestActivity).toBeUndefined();
     expect(controller.snapshot.transcript).toEqual([]);

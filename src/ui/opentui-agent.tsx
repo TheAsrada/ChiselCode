@@ -1969,7 +1969,7 @@ async function runApplication(
       controller.ownerSignal,
     ]);
     controller.conversation.begin(item.kind === "prompt" ? input : undefined);
-    controller.startRequest(item.kind === "prompt" ? "thinking" : "tool");
+    controller.startRequest(item.kind === "prompt" ? "waiting" : "tool");
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
     if (!quiet) controller.append(`> ${input}`, "user");

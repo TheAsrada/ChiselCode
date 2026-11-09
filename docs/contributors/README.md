@@ -43,6 +43,7 @@
 | Выбор папки `/cwd` | [Одноколоночное окно: настоящие кадры и воспроизведение](../assets/folder-picker/README.md) |
 | Общий дизайн и исследование OpenCode | [Оформление интерфейса](reports/interface-design.md) |
 | Искра и состояния запроса | [Анимация активности](reports/request-activity.md) |
+| Паузы ответа и ошибки запуска HTML LSP | [Разбор сессии и кадр OpenTUI](reports/provider-wait-and-lsp.md) |
 | Команды на главной | [Главная без служебной ленты](reports/home-commands.md) |
 | Главная и автоматическая панель | [Навигация](reports/clean-navigation.md) |
 | Главная без проекта, допуск и контекст агента | [Реализация запуска и проверки](reports/project-startup.md) |

@@ -592,7 +592,7 @@ export class TuiPresentationController implements TuiTranscript {
   }
 
   /** A queued prompt starts counting only when it actually begins execution. */
-  startRequest(initial: "thinking" | "tool" = "thinking"): void {
+  startRequest(initial: "waiting" | "tool" = "waiting"): void {
     this.update({
       busy: true,
       requestStartedAt: this.now(),
