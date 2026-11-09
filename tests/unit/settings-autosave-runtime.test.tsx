@@ -130,6 +130,10 @@ test("native Settings autosaves through disk errors, fast edits, resize, close a
     expect(writes).toBe(0);
     expect(selected).toBe("b");
     await click("settings-row-profile-label");
+    expect(
+      view.renderer.root.findDescendantById("settings-profile-list"),
+    ).toBeDefined();
+    expect(view.captureCharFrame()).toContain("Второй");
     await act(async () => view.mockInput.pressKey("u", { ctrl: true }));
     await frame();
     await paste("без ключа");

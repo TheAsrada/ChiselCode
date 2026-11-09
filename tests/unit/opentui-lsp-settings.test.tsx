@@ -174,3 +174,115 @@ test("LSP card explains Plan and disables explicit launch without asking the run
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("explicit LSP trust waits for the pending autosave acknowledgement", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "chisel-lsp-trust-barrier-"));
+  const configPath = join(directory, "config.json");
+  await saveGlobalConfig(
+    {
+      schemaVersion: 2,
+      profiles: {},
+      lsp: {
+        servers: {
+          fixture: {
+            backend: "generic",
+            command: process.execPath,
+            args: ["--version"],
+            languageIds: ["notes"],
+            extensions: [".notes"],
+            enabled: true,
+            trustedWorkspaces: [],
+          },
+        },
+      },
+    },
+    configPath,
+  );
+  let release: (() => void) | undefined;
+  let saving = false;
+  let trustCalls = 0;
+  const actions = new LspSettingsStore(directory, configPath, {
+    status: async () => ({
+      workspaceRoot: directory,
+      backend: "generic",
+      state: "stopped",
+      generation: 0,
+      trackedDocuments: 0,
+      requiresRestart: false,
+    }),
+    apply: async () => {
+      if (!saving) {
+        saving = true;
+        await new Promise<void>((done) => {
+          release = done;
+        });
+      }
+    },
+    restart: async () => {
+      throw new Error("Trust must not start a server");
+    },
+  });
+  const originalTrust = actions.trust.bind(actions);
+  actions.trust = async (...args) => {
+    trustCalls++;
+    return originalTrust(...args);
+  };
+  const ui = await testRender(
+    <OpenTuiLspSettings
+      actions={actions}
+      palette={THEMES.paper}
+      width={100}
+      height={40}
+      active
+      focused
+      controls={{ current: undefined }}
+      onDirty={() => {}}
+      fieldTarget="node"
+    />,
+    { width: 100, height: 40 },
+  );
+  const frame = async () =>
+    act(async () => {
+      await new Promise((done) => setTimeout(done, 5));
+      await ui.renderOnce();
+    });
+  const until = async (ready: () => boolean) => {
+    const end = Date.now() + 4000;
+    while (!ready()) {
+      if (Date.now() > end) throw new Error(ui.captureCharFrame());
+      await frame();
+    }
+  };
+  const click = async (id: string) => {
+    await until(() => !!ui.renderer.root.findDescendantById(id));
+    const row = ui.renderer.root.findDescendantById(id)!;
+    await act(async () => ui.mockMouse.click(row.x + 1, row.y));
+    await frame();
+  };
+  try {
+    await until(
+      () =>
+        ui.captureCharFrame().includes("Ручная форма") &&
+        !ui.captureCharFrame().includes("Применяется…"),
+    );
+    await click("lsp-row-enabled");
+    await until(() => saving);
+    await click("lsp-row-trust");
+    expect(trustCalls).toBe(0);
+    expect(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.fixture
+        .trustedWorkspaces,
+    ).toEqual([]);
+    await act(async () => release?.());
+    await until(() => ui.captureCharFrame().includes("Разрешён только"));
+    expect(trustCalls).toBe(1);
+    expect(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.servers.fixture
+        .trustedWorkspaces,
+    ).toHaveLength(1);
+  } finally {
+    release?.();
+    act(() => ui.renderer.destroy());
+    await rm(directory, { recursive: true, force: true });
+  }
+});

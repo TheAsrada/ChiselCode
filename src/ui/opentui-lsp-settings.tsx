@@ -485,35 +485,35 @@ export function OpenTuiLspSettings({
     });
   };
   const trust = (id: string) => {
-    if (!state?.workspaceRoot) {
-      setNotice("Для доверия проекту выберите папку.");
-      return;
-    }
-    if (dirty) {
-      setNotice("Сначала сохраните ручную форму; доверие выдаётся отдельно.");
-      return;
-    }
-    run(async (signal) => {
-      const allowed = !state.global.servers[id]?.trustedWorkspaces.includes(
-        state.workspaceRoot ?? "",
-      );
-      const next = await actions.trust(id, allowed);
-      if (!alive.current || signal.aborted) return;
-      apply(next);
-      if (draft?.id === id) {
-        const value = {
-          ...draft,
-          trustedWorkspaces: next.global.servers[id]?.trustedWorkspaces ?? [],
-        };
-        setDraft(value);
-        baselineDraft.current = JSON.stringify(value);
+    void autosave.flush().then((ok) => {
+      if (!ok) return;
+      const current = stateRef.current;
+      if (!current?.workspaceRoot) {
+        setNotice("Для доверия проекту выберите папку.");
+        return;
       }
-      setNotice(
-        next.applicationError ??
-          (allowed
-            ? "Разрешён только этот canonical root. Сервер пока не запущен."
-            : "Доверие отозвано; новые запросы запрещены."),
-      );
+      run(async (signal) => {
+        const allowed = !current.global.servers[id]?.trustedWorkspaces.includes(
+          current.workspaceRoot ?? "",
+        );
+        const next = await actions.trust(id, allowed);
+        if (!alive.current || signal.aborted) return;
+        apply(next);
+        if (draft?.id === id) {
+          const value = {
+            ...draft,
+            trustedWorkspaces: next.global.servers[id]?.trustedWorkspaces ?? [],
+          };
+          setDraft(value);
+          baselineDraft.current = JSON.stringify(value);
+        }
+        setNotice(
+          next.applicationError ??
+            (allowed
+              ? "Разрешён только этот canonical root. Сервер пока не запущен."
+              : "Доверие отозвано; новые запросы запрещены."),
+        );
+      });
     });
   };
   const check = () => {
@@ -636,9 +636,7 @@ export function OpenTuiLspSettings({
           ? "Точный root разрешён"
           : "Отдельное явное разрешение",
         activate() {
-          if (originalId && originalId === draft.id) trust(draft.id);
-          else
-            setNotice("Сначала сохраните сервер, затем явно разрешите проект.");
+          trust(draft.id);
         },
       },
       ...draft.trustedWorkspaces.map((root, index) => ({

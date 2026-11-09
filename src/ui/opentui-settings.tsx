@@ -384,6 +384,7 @@ export function OpenTuiSettings({
     1,
     Math.floor(
       (bodyHeight -
+        (wide && page === "connection" && screen !== "profiles" ? 3 : 0) -
         1 -
         (screen === "providers" ||
         screen === "profiles" ||
@@ -859,6 +860,7 @@ export function OpenTuiSettings({
       const loaded = await actions.load(profileId);
       if (!valid()) return;
       setValues(loaded.values);
+      setAddingProfile(false);
       baseline.current = JSON.stringify(loaded.values);
       acknowledged.current = loaded.values;
       setHasKey(loaded.hasKey);
@@ -1290,6 +1292,20 @@ export function OpenTuiSettings({
       id: "settings-retry",
       label: "Повторить",
       run: saveCurrent,
+    });
+  if (page === "connection" && screen !== "profiles")
+    settingsMenuActions.push({
+      id: "settings-profiles-action",
+      label: "Подключения",
+      run: () => {
+        void connectionAutosave.flush().then((ok) => {
+          if (ok) {
+            setScreen("profiles");
+            setSelected(0);
+            setQuery("");
+          }
+        });
+      },
     });
   const actionNavigation = useMenuNavigation(
     ["actions"],
@@ -1759,6 +1775,33 @@ export function OpenTuiSettings({
           >
             {page === "connection" &&
               loaded &&
+              wide &&
+              screen !== "profiles" && (
+                <TerminalScrollbox
+                  id="settings-profile-list"
+                  height={3}
+                  flexShrink={0}
+                  width="100%"
+                >
+                  {Object.entries(profiles).map(([id, profile]) => (
+                    <DialogAction
+                      key={id}
+                      id={`settings-profile-${id}`}
+                      label={profile.label || id}
+                      active={values.profileId === id}
+                      palette={palette}
+                      onSelect={() => {
+                        void connectionAutosave.flush().then((ok) => {
+                          if (ok) switchProfile(id);
+                        });
+                      }}
+                    />
+                  ))}
+                </TerminalScrollbox>
+              )}
+            {page === "connection" &&
+              loaded &&
+              !wide &&
               (field || screen === "login") && (
                 <box height={tiny ? 1 : 2} flexShrink={0} flexDirection="row">
                   <DialogAction
@@ -2193,7 +2236,10 @@ export function OpenTuiSettings({
                             Math.max(
                               1,
                               Math.floor(
-                                (bodyHeight - 1 - (selector ? 1 : 0)) /
+                                (bodyHeight -
+                                  (wide && screen !== "profiles" ? 3 : 0) -
+                                  1 -
+                                  (selector ? 1 : 0)) /
                                   rowHeight,
                               ),
                             ),
