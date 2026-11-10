@@ -1,4 +1,5 @@
 /** @jsxImportSource @opentui/react */
+
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import { useClipboardActions } from "./opentui-clipboard.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import {
   terminalLine,
   terminalSlice,
@@ -218,7 +220,7 @@ export function OpenTuiBackgroundDetails({
   }, [anchor, viewer.page, section, viewer.follow, controller]);
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== owner) return;
-    if (key.ctrl && key.name === "c") {
+    if (isCtrlC(key)) {
       key.preventDefault();
       key.stopPropagation();
       return;

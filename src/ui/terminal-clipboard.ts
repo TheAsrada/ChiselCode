@@ -13,6 +13,7 @@ import {
   type Selection,
   stripAnsiSequences,
 } from "@opentui/core";
+import { isCtrlC } from "./terminal-keys.js";
 
 /** Paste stays text, even when the terminal forwards Windows line endings. */
 export function clipboardPasteText(bytes: Uint8Array): string {
@@ -127,7 +128,7 @@ export class TerminalClipboardController {
   };
 
   private key = (key: KeyEvent) => {
-    if (key.ctrl && key.name === "c" && !key.shift) {
+    if (isCtrlC(key) && !key.shift) {
       this.cancelReads();
       return;
     }

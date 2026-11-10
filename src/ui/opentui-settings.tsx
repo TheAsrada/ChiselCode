@@ -37,6 +37,7 @@ import {
 import { SettingsNavigation } from "./settings-navigation.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine } from "./terminal-text.js";
 import { useConnectionSettings } from "./use-connection-settings.js";
 
@@ -599,7 +600,7 @@ export function OpenTuiSettings({
       key.stopPropagation();
       return;
     }
-    if (key.ctrl && name === "c") return;
+    if (isCtrlC(key)) return;
     if (key.ctrl && name === "f") {
       key.preventDefault();
       if (page === "tools.lsp" && shellFocus === "content")

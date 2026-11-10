@@ -478,48 +478,52 @@ test("clipboard failures are nonfatal and never display clipboard content in err
   }
 });
 
-test("Ctrl+C cancels a pending clipboard read while preserving request cancellation", async () => {
-  const clipboard = memoryClipboard();
-  let finish!: (value: Awaited<ReturnType<ClipboardService["read"]>>) => void;
-  let signal: AbortSignal | undefined;
-  clipboard.service.read = (options) => {
-    signal = options.signal;
-    return new Promise((resolve) => {
-      finish = resolve;
-    });
-  };
-  let cancelled = 0;
-  const setup = await testRender(
-    <OpenTuiSpike
-      clipboard={clipboard.service}
-      onExit={() => {}}
-      onCancel={() => {
-        cancelled++;
-      }}
-    />,
-    { width: 80, height: 24, exitOnCtrlC: false },
-  );
-  try {
-    await frame(setup);
-    await key(setup, "v", true);
-    await key(setup, "c", true);
-    expect(signal?.aborted).toBe(true);
-    expect(cancelled).toBe(1);
-    await act(async () =>
-      finish({
-        status: "read",
-        representation: {
-          mimeType: "text/plain",
-          bytes: new TextEncoder().encode("late text"),
-        },
-      }),
+for (const sequence of ["\u0003", "\u001b[1089::99;5u"]) {
+  test(`Ctrl+C (${JSON.stringify(sequence)}) cancels a pending clipboard read while preserving request cancellation`, async () => {
+    const clipboard = memoryClipboard();
+    let finish!: (value: Awaited<ReturnType<ClipboardService["read"]>>) => void;
+    let signal: AbortSignal | undefined;
+    clipboard.service.read = (options) => {
+      signal = options.signal;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    };
+    let cancelled = 0;
+    const setup = await testRender(
+      <OpenTuiSpike
+        clipboard={clipboard.service}
+        onExit={() => {}}
+        onCancel={() => {
+          cancelled++;
+        }}
+      />,
+      { width: 80, height: 24, exitOnCtrlC: false },
     );
-    await frame(setup);
-    expect(editor(setup).plainText).toBe("");
-  } finally {
-    destroy(setup);
-  }
-});
+    try {
+      await frame(setup);
+      await key(setup, "v", true);
+      await act(async () => {
+        await setup.mockInput.pressKeys([sequence]);
+      });
+      expect(signal?.aborted).toBe(true);
+      expect(cancelled).toBe(1);
+      await act(async () =>
+        finish({
+          status: "read",
+          representation: {
+            mimeType: "text/plain",
+            bytes: new TextEncoder().encode("late text"),
+          },
+        }),
+      );
+      await frame(setup);
+      expect(editor(setup).plainText).toBe("");
+    } finally {
+      destroy(setup);
+    }
+  });
+}
 
 test("SSH paste uses terminal-provided text and never reads the remote machine's clipboard", async () => {
   const clipboard = memoryClipboard("remote host private text");

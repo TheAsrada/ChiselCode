@@ -115,6 +115,7 @@ import {
 } from "./sidebar-panel.js";
 import { skillCommandDraft, skillEditDraft } from "./skill-draft.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine } from "./terminal-text.js";
 import {
   actionTargets,
@@ -1083,8 +1084,9 @@ function OpenTuiScreen({
     if (
       inputOwner.startsWith("ui-widget:") &&
       !(
+        isCtrlC(key) ||
         (key.ctrl &&
-          ["c", "tab", "w", "g", "b", "t", ",", "comma"].includes(key.name)) ||
+          ["tab", "w", "g", "b", "t", ",", "comma"].includes(key.name)) ||
         (key.ctrl && key.shift && key.name === "n") ||
         ((key.meta || key.option) &&
           ["u", "left", "right", "n"].includes(key.name)) ||
@@ -1093,7 +1095,7 @@ function OpenTuiScreen({
     )
       return;
     if (uiControls) {
-      if (key.ctrl && key.name === "c") {
+      if (isCtrlC(key)) {
         key.preventDefault();
         key.stopPropagation();
       }
@@ -1115,7 +1117,7 @@ function OpenTuiScreen({
       setUiControls(true);
       return;
     }
-    if (key.ctrl && key.name === "c" && !key.shift) {
+    if (isCtrlC(key) && !key.shift) {
       key.preventDefault();
       if (
         uiOverflow ||

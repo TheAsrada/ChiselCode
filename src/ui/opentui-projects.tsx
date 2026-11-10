@@ -1,4 +1,5 @@
 /** @jsxImportSource @opentui/react */
+
 import { basename } from "node:path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WorkspaceAdmissionError } from "../projects/admission.js";
@@ -11,6 +12,7 @@ import {
 } from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine } from "./terminal-text.js";
 
 export interface OpenTuiProjectsActions {
@@ -243,7 +245,7 @@ export function OpenTuiProjects({
   };
   useUiKeyboard((key) => {
     const name = key.name.toLowerCase();
-    if (name === "escape" || (key.ctrl && name === "c")) {
+    if (name === "escape" || isCtrlC(key)) {
       key.preventDefault();
       key.stopPropagation();
       close();

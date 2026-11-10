@@ -1,10 +1,12 @@
 /** @jsxImportSource @opentui/react */
+
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useRef } from "react";
 import type { Palette } from "./appearance.js";
 import { DialogAction, OpenTuiDialog } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalSafeText } from "./terminal-text.js";
 import type { TuiViewState } from "./tui-controller.js";
 
@@ -30,11 +32,7 @@ export function OpenTuiCommandFeedback({
     key.preventDefault();
     key.stopPropagation();
     if (key.repeated || key.eventType === "release") return;
-    if (
-      key.name === "escape" ||
-      key.name === "return" ||
-      (key.ctrl && key.name === "c")
-    )
+    if (key.name === "escape" || key.name === "return" || isCtrlC(key))
       onClose();
     else if (key.name === "up") scroll.current?.scrollBy(-1);
     else if (key.name === "down") scroll.current?.scrollBy(1);

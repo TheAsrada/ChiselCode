@@ -11,6 +11,7 @@ import { FormattedMessage } from "./opentui-message.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { filterSessions } from "./session-filter.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
 export type HistorySummary = SessionSummary & {
@@ -255,14 +256,14 @@ export function OpenTuiSessions({
       return;
     }
     if (readonlySession) {
-      if (name === "escape" || (key.ctrl && name === "c")) {
+      if (name === "escape" || isCtrlC(key)) {
         key.preventDefault();
         key.stopPropagation();
         setReadonlySession(undefined);
       }
       return;
     }
-    if (name === "escape" || (key.ctrl && name === "c")) {
+    if (name === "escape" || isCtrlC(key)) {
       key.preventDefault();
       key.stopPropagation();
       if (life.current.busy) return;

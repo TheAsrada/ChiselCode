@@ -11,6 +11,7 @@ import { FormattedMessage } from "./opentui-message.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { sideStatus } from "./side-query-state.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine } from "./terminal-text.js";
 import type {
   TuiPresentationController as TuiController,
@@ -176,7 +177,7 @@ export function OpenTuiSideQuery({
     if (!controller.isCurrent(origin.current)) return;
     if (capturedInputOwner(key) && capturedInputOwner(key) !== sideOwner)
       return;
-    if (key.ctrl && key.name === "c") return;
+    if (isCtrlC(key)) return;
     if (key.name === "escape" || key.name === "f6") {
       key.preventDefault();
       key.stopPropagation();

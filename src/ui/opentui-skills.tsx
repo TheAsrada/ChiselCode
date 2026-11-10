@@ -10,6 +10,7 @@ import { terminalSafeText } from "./opentui-transcript.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import type { EmbeddedSettingsPanel } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine } from "./terminal-text.js";
 import { SKILL_MARK } from "./theme.js";
 
@@ -196,7 +197,7 @@ export function OpenTuiSkills({
   useUiKeyboard((key) => {
     if (!enabled || !focused) return;
     const name = key.name.toLowerCase();
-    if (key.ctrl && name === "c") return;
+    if (isCtrlC(key)) return;
     if (embedded && ["escape", "tab"].includes(name)) return;
     if (embedded && key.ctrl && ["f", "s"].includes(name)) return;
     if (navigation.handle(key)) return;

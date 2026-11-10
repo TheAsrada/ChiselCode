@@ -173,6 +173,8 @@ jobs:
           tests/unit/opentui-side-query.test.tsx tests/unit/opentui-chat-card.test.tsx
           tests/unit/opentui-web.test.tsx tests/unit/opentui-message.test.tsx
           tests/unit/opentui-clipboard.test.tsx
+          tests/unit/opentui-spike.test.tsx tests/unit/opentui-tab-approvals.test.tsx
+          tests/integration/tui-interrupt.test.ts
           tests/integration/host-clipboard.test.tsx
           tests/integration/graphics-runtime.test.ts
           tests/unit/settings-shell.test.tsx tests/unit/menu-keybindings.test.tsx tests/unit/opentui-mcp.test.tsx

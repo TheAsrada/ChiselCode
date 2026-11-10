@@ -12,6 +12,7 @@ import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 
 const summaries: Record<ApprovalMode, string> = {
   default: "Подтверждать правки и команды",
@@ -57,7 +58,7 @@ export function OpenTuiPermissions({
   );
   useUiKeyboard((key) => {
     if (navigation.handle(key)) return;
-    if (key.ctrl && key.name === "c") return;
+    if (isCtrlC(key)) return;
     if (key.name === "escape") {
       key.preventDefault();
       onClose();

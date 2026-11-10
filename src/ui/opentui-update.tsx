@@ -5,6 +5,7 @@ import type { Palette } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import type { UpdateController, UpdateState } from "./update-controller.js";
 
@@ -78,7 +79,7 @@ export function OpenTuiUpdate({
     else void updater.check(true);
   };
   useUiKeyboard((key) => {
-    if (key.ctrl && key.name === "c") return;
+    if (isCtrlC(key)) return;
     key.preventDefault();
     if (key.name === "escape") return close();
     if (restarting) return;

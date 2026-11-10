@@ -13,6 +13,7 @@ import { useUiKeyboard } from "./overlay-input.js";
 import { useSettingsAutosave } from "./settings-autosave.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 
 export function OpenTuiWebSettings({
   actions,
@@ -160,7 +161,7 @@ export function OpenTuiWebSettings({
     };
   useUiKeyboard((key) => {
     if (!active) return;
-    if ((key.ctrl && key.name === "c") || key.name === "tab") return;
+    if (isCtrlC(key) || key.name === "tab") return;
     if (key.name === "escape") {
       key.preventDefault();
       if (keyInput !== undefined) acceptKey();

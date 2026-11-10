@@ -33,6 +33,7 @@ import { useUiKeyboard } from "./overlay-input.js";
 import { useSettingsAutosave } from "./settings-autosave.js";
 import type { EmbeddedSettingsPanel } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine } from "./terminal-text.js";
 
 export const MCP_STATE_LABELS: Record<McpConnectionState, string> = {
@@ -871,7 +872,7 @@ export function OpenTuiMcp({
     if (embedded && ["escape", "tab"].includes(key.name)) return;
     if (embedded && key.ctrl && ["f", "s"].includes(key.name)) return;
     if (navigation.handle(key)) return;
-    if (key.ctrl && key.name === "c") {
+    if (isCtrlC(key)) {
       lifetime.current.abort?.abort();
       return;
     }

@@ -5,11 +5,12 @@ import { act } from "react";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
 
-for (const [width, height] of [
-  [80, 24],
-  [120, 36],
-]) {
-  test(`tab switching displays only the selected approval and Ctrl+C cancels its owner at ${width}x${height}`, async () => {
+for (const [width, height, encoding] of [
+  [80, 24, "legacy"],
+  [120, 36, "legacy"],
+  [80, 24, "kitty-ru"],
+] as const) {
+  test(`tab switching displays only the selected approval and Ctrl+C cancels its owner at ${width}x${height} (${encoding})`, async () => {
     const workspace = new TuiWorkspace(process.cwd());
     const first = workspace.newTab();
     first.setSessionTitle("First tab");
@@ -67,9 +68,13 @@ for (const [width, height] of [
       );
       await frame();
       expect(setup.captureCharFrame()).toContain("SECOND ONLY");
-      await act(async () => setup.mockInput.pressCtrlC());
-      expect(await secondPending).toBe("unavailable");
+      await act(async () => {
+        if (encoding === "kitty-ru")
+          await setup.mockInput.pressKeys(["\u001b[1089::99;5u"]);
+        else setup.mockInput.pressCtrlC();
+      });
       expect(b.abort.signal.aborted).toBe(true);
+      expect(await secondPending).toBe("unavailable");
       expect(a.abort.signal.aborted).toBe(false);
       await frame();
       expect(

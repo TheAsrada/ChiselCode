@@ -22,6 +22,7 @@ import { cleanSettingsInput } from "./opentui-settings-input.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { useSettingsAutosave } from "./settings-autosave.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 
 interface ServerDraft {
@@ -1028,13 +1029,7 @@ export function OpenTuiLspSettings({
     Math.min(current - displayRows + 1, rows.length - displayRows),
   );
   useUiKeyboard((key) => {
-    if (
-      !active ||
-      !focused ||
-      working.current ||
-      (key.ctrl && key.name === "c")
-    )
-      return;
+    if (!active || !focused || working.current || isCtrlC(key)) return;
     if (
       key.name === "escape" ||
       key.name === "tab" ||

@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
-import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 
+import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { useLayoutEffect, useRef, useState } from "react";
 import { subagentActive } from "../subagents/contracts.js";
 import { subagentStatusTitle } from "../subagents/service.js";
@@ -10,6 +10,7 @@ import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { useSidebarNavigation } from "./sidebar-panel.js";
 import { SubagentElapsed } from "./subagent-elapsed.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine } from "./terminal-text.js";
 import type {
   TuiPresentationController as TuiController,
@@ -96,7 +97,7 @@ export function AgentsSidebar({
       (capturedInputOwner(key) && capturedInputOwner(key) !== owner)
     )
       return;
-    if (key.ctrl && key.name === "c") {
+    if (isCtrlC(key)) {
       key.preventDefault();
       key.stopPropagation();
       return;

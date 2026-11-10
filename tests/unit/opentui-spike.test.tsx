@@ -352,6 +352,36 @@ test("Ctrl+C cancels without exiting while an approval owns keyboard focus", asy
   }
 });
 
+test("Kitty Ctrl+C uses the non-Latin base key without cancelling text, copy or other ASCII shortcuts", async () => {
+  let cancelled = 0;
+  const setup = await testRender(
+    <OpenTuiSpike onExit={() => {}} onCancel={() => cancelled++} />,
+    { width: 80, height: 24, exitOnCtrlC: false },
+  );
+  try {
+    await act(async () => {
+      await setup.renderOnce();
+      // Plain Cyrillic с, another physical key, Dvorak Ctrl+J, and key release.
+      await setup.mockInput.pressKeys([
+        "\u001b[1089::99;1u",
+        "\u001b[1092::97;5u",
+        "\u001b[106::99;5u",
+        "\u001b[1089::99;5:3u",
+      ]);
+      await setup.mockInput.pasteBracketedText("\u001b[1089::99;5u");
+      // Ctrl+Shift+C remains copy, even when Kitty reports the base layout.
+      await setup.mockInput.pressKeys(["\u001b[1089::99;6u"]);
+    });
+    expect(cancelled).toBe(0);
+    await act(async () => {
+      await setup.mockInput.pressKeys(["\u001b[1089::99;5u"]);
+    });
+    expect(cancelled).toBe(1);
+  } finally {
+    act(() => setup.renderer.destroy());
+  }
+});
+
 test("Tab reaches the inline sidebar and Esc restores composer focus", async () => {
   const controller = new TuiController(process.cwd());
   const setup = await testRender(

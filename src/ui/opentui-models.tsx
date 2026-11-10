@@ -13,6 +13,7 @@ import {
   type ModelOption,
   sortModelOptions,
 } from "./settings-values.js";
+import { isCtrlC } from "./terminal-keys.js";
 
 import { terminalLine } from "./terminal-text.js";
 import { WARN_MARK } from "./theme.js";
@@ -281,7 +282,7 @@ export function OpenTuiModels({
   );
   useUiKeyboard((key) => {
     const name = key.name.toLowerCase();
-    if (key.ctrl && name === "c") return;
+    if (isCtrlC(key)) return;
     if (name === "escape") {
       key.preventDefault();
       if (page === "manual") changePage("models");

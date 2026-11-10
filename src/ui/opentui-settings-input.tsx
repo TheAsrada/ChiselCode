@@ -5,6 +5,7 @@ import { usePaste } from "@opentui/react";
 import { useLayoutEffect, useRef } from "react";
 import type { Palette } from "./appearance.js";
 import { useUiKeyboard } from "./overlay-input.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { clipText } from "./terminal-text.js";
 
 export const cleanSettingsInput = (value: string) =>
@@ -83,7 +84,7 @@ export function SettingsSecretInput({
   });
   useUiKeyboard((key) => {
     if (!active) return;
-    if (key.ctrl && key.name === "c") return;
+    if (isCtrlC(key)) return;
     const chars = [...secret.current];
     const cursor = input.current?.cursorOffset ?? chars.length;
     if (key.ctrl && (key.name === "z" || key.name === "y")) {

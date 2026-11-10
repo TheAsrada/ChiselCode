@@ -1,4 +1,5 @@
 /** @jsxImportSource @opentui/react */
+
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -11,6 +12,7 @@ import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { elapsedSeconds } from "./request-timing.js";
 import { useElapsedClock } from "./subagent-elapsed.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { isCtrlC } from "./terminal-keys.js";
 import { terminalLine, terminalTextRows } from "./terminal-text.js";
 import type {
   TuiPresentationController as TuiController,
@@ -159,7 +161,7 @@ export function BackgroundTaskList({
   const owner = `background:${controller.conversationId}:${controller.currentGeneration}`;
   useUiKeyboard((key) => {
     if (!focused || capturedInputOwner(key) !== owner) return;
-    if (key.ctrl && key.name === "c") {
+    if (isCtrlC(key)) {
       key.preventDefault();
       key.stopPropagation();
       return;
