@@ -6,7 +6,7 @@
 
 Скачивайте пакеты из [GitHub Releases](https://github.com/TheAsrada/ChiselCode/releases/latest). Сверяйте скачанные файлы с `SHA256SUMS` из того же выпуска, начиная с 0.6.52. Подставляйте номер выпуска вместо `<версия>`.
 
-Опубликованный выпуск — [CLI 0.6.51](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.51). [Результаты проверок и SHA-256](contributors/reports/release-0.6.51.md#публикация-и-проверка-файлов). Способы для Fedora, Arch и установка через `install.sh` относятся к 0.6.52 и новее.
+Текущий выпуск — [CLI 0.6.52](https://github.com/TheAsrada/ChiselCode/releases/tag/v0.6.52). [Результаты проверок и SHA-256](contributors/reports/release-0.6.52.md#публикация-и-проверка-файлов).
 
 | Система | Файл | Куда устанавливается программа |
 | --- | --- | --- |
@@ -59,9 +59,10 @@ chisel --version
 Установите опубликованный в GitHub архив `chiselcode-<версия>.tgz`. Он содержит CLI и SDK расширений. Для запуска CLI в обоих случаях нужен Bun в PATH.
 
 ```bash
-npm install -g ./chiselcode-VERSION.tgz
+archive=https://github.com/TheAsrada/ChiselCode/releases/download/v0.6.52/chiselcode-0.6.52.tgz
+npm install -g "$archive"
 # или
-bun add -g ./chiselcode-VERSION.tgz
+bun add -g "$archive"
 chisel --version
 ```
 
