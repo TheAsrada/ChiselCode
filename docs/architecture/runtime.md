@@ -169,7 +169,9 @@ Compaction сначала строит кандидат checkpoint и счита
 
 `ToolCatalog` хранит definitions и selection API. `LocalToolProvider` и `SkillsToolProvider` поставляют handlers; новый provider не требует изменения AgentRuntime. Handler принимает schema-validated input, строит plan без mutation, затем выполняет его после policy/approval. Approval interaction находится исключительно в executor / approval resolver.
 
-Invocation проходит `queued → prepared → awaiting_approval/running → succeeded/failed/denied/cancelled`. Pending approval не превращается в provider result и не удаляет assistant message. Уже выполненные calls сохраняются; resume исполняет только незавершённые. Deny становится коротким error tool result, после которого модель может продолжить.
+Invocation проходит `queued → prepared → awaiting_approval/running → succeeded/failed/denied/cancelled`. Pending approval не превращается в provider result и не удаляет assistant message. До паузы `AgentRuntime` собирает все завершённые результаты batch по исходным call ID, включая результаты после ожидающего approval вызова. Resume исполняет только вызовы без tool result; повторное ожидание не добавляет дубли. Deny становится коротким error tool result, после которого модель может продолжить.
+
+Durable transcript сохраняет порядок записи: например, A/C до паузы и B после подтверждения. `assembleMessages` упорядочивает результаты завершённого protocol unit по исходным tool calls для подсчёта контекста и запроса провайдера: A/B/C. Сохранённая история, ID, содержимое и признак ошибки не меняются; незавершённый unit не перестраивается.
 
 Успешный duplicate call ID с тем же canonical input возвращает сохранённый результат. ID с другим input даёт `PROTOCOL_ERROR_DUPLICATE_CALL_ID`. Invocation, сохранённый как running до аварии, не переигрывается автоматически: возвращается `INTERRUPTED_INVOCATION`, поскольку исход mutation мог быть неизвестен.
 

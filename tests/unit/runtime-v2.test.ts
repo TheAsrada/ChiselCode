@@ -15,6 +15,7 @@ import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import type {
   ChatMessage,
   ProviderAdapter,
+  Session,
   StreamEvent,
 } from "../../src/types/domain.js";
 
@@ -347,6 +348,112 @@ test("pending approval retains completed calls and resumes without replaying the
   expect(result.status).toBe("completed");
   expect(await readFile(join(root, "a.txt"), "utf8")).toBe("after");
   expect(resumed.session.undoStack).toHaveLength(1);
+  expect(
+    partitionTranscript(resumed.session.messages).every(
+      (unit) => !unit.pending,
+    ),
+  ).toBe(true);
+});
+test("parallel A/B/C retains A and C before approval and resumes only B in provider order", async () => {
+  const root = await fixture();
+  const executions: string[] = [];
+  const batches: string[][] = [];
+  const cFinished = Promise.withResolvers<void>();
+  const calls = ["A", "B", "C"].map((id) => ({
+    type: "tool_use" as const,
+    id: `call-${id}`,
+    name: `read_${id}`,
+    input: {},
+  }));
+  const results = (messages: ChatMessage[]) =>
+    messages.flatMap((message) =>
+      message.content.filter((item) => item.type === "tool_result"),
+    );
+  const expected = (ids: string[]) =>
+    ids.map((id) => ({
+      type: "tool_result" as const,
+      toolUseId: `call-${id}`,
+      content: `result-${id}`,
+      isError: id === "C",
+    }));
+  const configure = (session?: Session, approve = false) => {
+    const fixture = setup(root, session, approve);
+    for (const id of ["A", "B", "C"])
+      fixture.tools.catalog.register({
+        spec: {
+          name: `read_${id}`,
+          description: "test read",
+          inputSchema: {},
+          effect: id === "B" ? "external_read" : "read",
+          permission: "read",
+          parallelSafe: true,
+        },
+        parse: (input) => input,
+        prepare: async () => {
+          if (id === "B") await cFinished.promise;
+          return { data: {}, preview: `preview-${id}`, resources: [] };
+        },
+        execute: async () => {
+          if (id === "A") await cFinished.promise;
+          executions.push(id);
+          if (id === "C") cFinished.resolve();
+          return { output: `result-${id}`, isError: id === "C" };
+        },
+      });
+    const execute = fixture.tools.scheduler.execute.bind(
+      fixture.tools.scheduler,
+    );
+    fixture.tools.scheduler.execute = (calls, signal) => {
+      batches.push(calls.map((call) => call.id));
+      return execute(calls, signal);
+    };
+    return fixture;
+  };
+  const initial = configure();
+  let saved = "";
+  const paused = await initial
+    .run(adapter([{ role: "assistant", content: calls }]))
+    .run(initial.session, "read", {
+      onCheckpoint: async (session) => {
+        saved = JSON.stringify(session);
+      },
+    });
+  expect(paused.status).toBe("approval_required");
+  expect(paused.pendingApproval).toEqual({
+    tool: "read_B",
+    preview: "preview-B",
+  });
+  expect(results(JSON.parse(saved).messages)).toEqual(expected(["A", "C"]));
+  expect(executions).toEqual(["C", "A"]);
+  expect(initial.session.runtime?.invocations["call-B"]?.state).toBe(
+    "awaiting_approval",
+  );
+
+  const waiting = configure(JSON.parse(saved));
+  expect((await waiting.run(adapter([])).run(waiting.session, "")).status).toBe(
+    "approval_required",
+  );
+  expect(results(waiting.session.messages)).toEqual(expected(["A", "C"]));
+  const resumed = configure(JSON.parse(JSON.stringify(waiting.session)), true);
+  const provider = adapter([
+    { role: "assistant", content: [{ type: "text", text: "done" }] },
+    { role: "assistant", content: [{ type: "text", text: "still done" }] },
+  ]);
+  const stream = provider.streamChat.bind(provider);
+  provider.streamChat = async function* (request) {
+    expect(results(request.messages)).toEqual(expected(["A", "B", "C"]));
+    yield* stream(request);
+  };
+  const runtime = resumed.run(provider);
+  expect((await runtime.run(resumed.session, "")).status).toBe("completed");
+  expect(results(resumed.session.messages)).toEqual(expected(["A", "C", "B"]));
+  expect((await runtime.run(resumed.session, "next")).status).toBe("completed");
+  expect(executions).toEqual(["C", "A", "B"]);
+  expect(batches).toEqual([
+    ["call-A", "call-B", "call-C"],
+    ["call-B"],
+    ["call-B"],
+  ]);
   expect(
     partitionTranscript(resumed.session.messages).every(
       (unit) => !unit.pending,

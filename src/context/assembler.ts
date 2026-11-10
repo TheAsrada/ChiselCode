@@ -1,13 +1,39 @@
 import { RuntimeError } from "../runtime/errors.js";
-import type { Session } from "../types/domain.js";
+import type { ChatMessage, Session } from "../types/domain.js";
 import { partitionTranscript } from "./partition.js";
 import { summaryText } from "./summary.js";
+
+/** Resume can append B after A/C. Order provider results without rewriting history. */
+function orderToolResults(messages: ChatMessage[]): ChatMessage[] {
+  return partitionTranscript(messages).flatMap((unit) => {
+    if (unit.pending) return unit.messages;
+    const content = unit.messages.flatMap((message) => message.content);
+    const results = new Map(
+      content
+        .filter((item) => item.type === "tool_result")
+        .map((item) => [item.toolUseId, item]),
+    );
+    if (results.size < 2) return unit.messages;
+    const ordered = content
+      .filter((item) => item.type === "tool_use")
+      .map((item) => results.get(item.id));
+    let next = 0;
+    return unit.messages.map((message) => ({
+      ...message,
+      content: message.content.map((item) =>
+        item.type === "tool_result" ? (ordered[next++] ?? item) : item,
+      ),
+    }));
+  });
+}
 export function assembleMessages(session: Session) {
   const checkpoint = session.context?.activeCheckpoint;
   const pinnedIndex = checkpoint?.preservedUserMessageIndex;
   const pinned =
     pinnedIndex === undefined ? undefined : session.messages[pinnedIndex];
-  const tail = session.messages.slice(checkpoint?.throughMessageIndex ?? 0);
+  const tail = orderToolResults(
+    session.messages.slice(checkpoint?.throughMessageIndex ?? 0),
+  );
   const hasNewerUserRequest = tail.some(
     (message) =>
       message.role === "user" &&
@@ -50,5 +76,5 @@ export function assembleMessages(session: Session) {
         ...(pinned && !hasNewerUserRequest ? [pinned] : []),
         ...tail,
       ]
-    : session.messages.slice();
+    : tail;
 }

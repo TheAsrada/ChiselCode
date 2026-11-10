@@ -140,25 +140,14 @@ export class AgentRuntime {
       await state("executing_tools");
       const outcomes = await this.tools.execute(calls, options.signal);
       const completed = [] as Session["messages"][number]["content"];
+      let approval: { call: ToolCall; result: ToolExecutionResult } | undefined;
       for (let index = 0; index < calls.length; index++) {
         const call = calls[index];
         const result = outcomes[index];
         if (!call || !result) continue;
         if (result.requiresApproval) {
-          if (completed.length)
-            session.messages.push({ role: "user", content: completed });
-          await state("awaiting_approval");
-          await checkpoint();
-          return {
-            status: "approval_required",
-            text: finalText,
-            session,
-            errorCode: "APPROVAL_UNAVAILABLE",
-            pendingApproval: {
-              tool: call.name,
-              preview: result.preview ?? result.output,
-            },
-          };
+          approval ??= { call, result };
+          continue;
         }
         completed.push({
           type: "tool_result",
@@ -169,6 +158,20 @@ export class AgentRuntime {
       }
       if (completed.length)
         session.messages.push({ role: "user", content: completed });
+      if (approval) {
+        await state("awaiting_approval");
+        await checkpoint();
+        return {
+          status: "approval_required",
+          text: finalText,
+          session,
+          errorCode: "APPROVAL_UNAVAILABLE",
+          pendingApproval: {
+            tool: approval.call.name,
+            preview: approval.result.preview ?? approval.result.output,
+          },
+        };
+      }
       await checkpoint();
       blockedToolRounds =
         outcomes.length === calls.length &&
