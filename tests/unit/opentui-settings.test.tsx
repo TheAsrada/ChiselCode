@@ -5,7 +5,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
 import { matchingCommands, parseSlashCommand } from "../../src/ui/commands.js";
-import { renderLogoRows } from "../../src/ui/logo.js";
+import { renderLogoRows, renderLogoRuns } from "../../src/ui/logo.js";
 import {
   OpenTuiSettings,
   type OpenTuiSettingsActions,
@@ -32,7 +32,11 @@ test("graphics are always enabled and settings preserve the composer across tab 
   );
   try {
     await frame(setup);
-    expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
+    expect(setup.captureCharFrame()).toContain(
+      renderLogoRuns(renderLogoRows()[2] ?? "")
+        .map((run) => run.text)
+        .join(""),
+    );
     await paste(setup, "черновик 😀");
     const editor = setup.renderer.currentFocusedEditor;
     await key(setup, "t", true);
@@ -43,7 +47,11 @@ test("graphics are always enabled and settings preserve the composer across tab 
     await key(setup, "g", true);
     expect(setup.captureCharFrame()).toContain("╭");
     await key(setup, "ESCAPE");
-    expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
+    expect(setup.captureCharFrame()).toContain(
+      renderLogoRuns(renderLogoRows()[2] ?? "")
+        .map((run) => run.text)
+        .join(""),
+    );
     expect(setup.renderer.currentFocusedEditor === editor).toBe(true);
     expect(editor?.plainText).toBe("черновик 😀");
     await act(async () => {
@@ -51,7 +59,11 @@ test("graphics are always enabled and settings preserve the composer across tab 
       workspace.newDraft();
     });
     await frame(setup);
-    expect(setup.captureCharFrame()).toContain(renderLogoRows()[2]);
+    expect(setup.captureCharFrame()).toContain(
+      renderLogoRuns(renderLogoRows()[2] ?? "")
+        .map((run) => run.text)
+        .join(""),
+    );
   } finally {
     destroy(setup);
     workspace.dispose();

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
-import { renderLogoRows } from "../../src/ui/logo.js";
+import { renderLogoRows, renderLogoRuns } from "../../src/ui/logo.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -96,7 +96,11 @@ try {
   });
   await until(() => !!ui.renderer.currentFocusedEditor, "Нет редактора");
   assert.ok(
-    ui.captureCharFrame().includes(renderLogoRows()[2] ?? "Missing logo"),
+    ui.captureCharFrame().includes(
+      renderLogoRuns(renderLogoRows()[2] ?? "Missing logo")
+        .map((run) => run.text)
+        .join(""),
+    ),
     "Старое false не должно отключать Coder Mini",
   );
   await capture("home-120x36");

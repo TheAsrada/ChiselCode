@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
-import { LOGO_WIDTH, renderLogoRows } from "./logo.js";
+import { LOGO_WIDTH, renderLogoRows, renderLogoRuns } from "./logo.js";
 import { UiSurface } from "./opentui-composition.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { ActivityIndicator } from "./opentui-motion.js";
@@ -260,8 +260,20 @@ export function OpenTuiHome({
             >
               {logoRows.map((row) => (
                 <text key={row} height={1} selectable={false}>
-                  <span fg={palette.accent}>{row.slice(0, 15)}</span>
-                  <span fg={palette.text}>{row.slice(15)}</span>
+                  {[
+                    { part: row.slice(0, 15), ink: palette.accent, start: 0 },
+                    { part: row.slice(15), ink: palette.text, start: 15 },
+                  ].flatMap(({ part, ink, start }) =>
+                    renderLogoRuns(part).map(({ text, kind, column }) => (
+                      <span
+                        key={start + column}
+                        fg={kind === "half" ? palette.bg : ink}
+                        bg={kind === "space" ? palette.bg : ink}
+                      >
+                        {text}
+                      </span>
+                    )),
+                  )}
                 </text>
               ))}
             </box>
