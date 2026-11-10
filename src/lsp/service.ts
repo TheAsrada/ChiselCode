@@ -16,154 +16,47 @@ import {
   effectiveLspMode,
   type LspConfiguration,
   type LspLaunch,
-  type LspMode,
   type LspSelection,
   lspServerEnabled,
   resolveLspLaunch,
   selectLspServer,
 } from "./config.js";
+import type {
+  DiagnosticResult,
+  LspDiagnostic,
+  LspManagedInstance,
+  LspState,
+  LspStatus,
+  LspUiStatus,
+} from "./contracts.js";
+import { LspDocumentCache } from "./document-cache.js";
 import {
-  documentEnd,
-  type LspFile,
   type LspReadPort,
   type Position,
   permittedLocation,
   type Range,
   readLspFile,
-  resolveLspUri,
   safeRange,
   validatePosition,
 } from "./documents.js";
 import { LSP_LIMITS } from "./limits.js";
 import { lspProjectRoot } from "./project-root.js";
+import { safeText } from "./safe-text.js";
+import type { Document, Server } from "./server-state.js";
 import { type LspClock, LspTransport } from "./transport.js";
 
-export type DiagnosticFreshness =
-  | "pending"
-  | "current"
-  | "observed"
-  | "stale"
-  | "unavailable";
-export type LspState =
-  | "disabled"
-  | "untrusted"
-  | "unavailable"
-  | "stopped"
-  | "starting"
-  | "ready"
-  | "restarting"
-  | "error"
-  | "disposed";
-export interface LspDiagnostic {
-  path: string;
-  range: Range;
-  severity: number;
-  message: string;
-  code?: string | number;
-  source?: string;
-  relatedInformation?: { path: string; range: Range; message: string }[];
-}
-export interface LspStatus {
-  workspaceRoot: string;
-  serverId?: string;
-  backend: string;
-  state: LspState;
-  generation: number;
-  trackedDocuments: number;
-  requiresRestart: boolean;
-  mode?: LspMode;
-  versions?: { server: string; typescript?: string; runtime: string };
-  servers?: readonly {
-    serverId: string;
-    projectRoot: string;
-    state: LspState;
-    generation: number;
-    trackedDocuments: number;
-    reason?: string;
-  }[];
-  catalog?: readonly {
-    id: string;
-    title: string;
-    languages: readonly string[];
-    version: string;
-    prerequisites?: string;
-    platformAvailable?: boolean;
-  }[];
-  reason?: string;
-  capabilities?: readonly string[];
-}
-export interface LspUiStatus {
-  revision: number;
-  workspaceRoot: string;
-  mode: LspMode | "unknown";
-  state: LspState | "unknown";
-  trackedDocuments: number;
-  checkedDocuments: number;
-  observedDocuments: number;
-  staleDocuments: number;
-  diagnosticCount: number;
-  requiresRestart: boolean;
-  generation: number;
-  diagnostics: readonly LspDiagnostic[];
-}
-interface Document extends LspFile {
-  diagnosticEvidence?: "versioned_push" | "unversioned_push" | "pull_request";
-  version: number;
-  generation: number;
-  freshness: DiagnosticFreshness;
-  diagnostics: LspDiagnostic[];
-  omitted: number;
-  serial: number;
-  notificationSerial?: number;
-  accessed: number;
-}
-interface Server {
-  id: string;
-  projectRoot: string;
-  state: LspState;
-  generation: number;
-  launch?: LspLaunch;
-  transport?: LspTransport;
-  cleanupTransport?: LspTransport;
-  pending?: Promise<void>;
-  controller: AbortController;
-  documents: Map<string, Document>;
-  locks: Map<string, Promise<unknown>>;
-  capabilities: Record<string, unknown>;
-  publications: number;
-  reason?: string;
-  requiresRestart: boolean;
-  stopping?: Promise<void>;
-  restarting?: Promise<void>;
-  revision: number;
-}
-export interface DiagnosticResult {
-  path: string;
-  revision: string;
-  generation: number;
-  freshness: DiagnosticFreshness;
-  provenance: string;
-  diagnostics: LspDiagnostic[];
-  omitted: number;
-}
-export interface LspManagedInstance {
-  serverId: string;
-  projectRoot: string;
-  state: LspState;
-  generation: number;
-  requiresRestart: boolean;
-  reason?: string;
-  version?: string;
-  capabilities: readonly string[];
-  documents: readonly {
-    path: string;
-    freshness: DiagnosticFreshness;
-    diagnostics: readonly LspDiagnostic[];
-  }[];
-}
+export type {
+  DiagnosticFreshness,
+  DiagnosticResult,
+  LspDiagnostic,
+  LspManagedInstance,
+  LspState,
+  LspStatus,
+  LspUiStatus,
+} from "./contracts.js";
+
 const redactor = new SecretRedactor();
-const safeText = (value: unknown, maximum = 2048) =>
-  redactor.text(typeof value === "string" ? value : "").slice(0, maximum);
+
 export const lspServiceToken = createServiceToken<LspService>(
   "builtin.lsp.service",
 );
@@ -171,6 +64,7 @@ export const lspServiceToken = createServiceToken<LspService>(
 /** A trusted workspace analyser, not a filesystem/process/network sandbox. */
 export class LspService {
   private readonly entries = new Map<string, Server>();
+  private readonly documents: LspDocumentCache;
   private readonly lifetime = new AbortController();
   private closed = false;
   private cleanup?: Promise<void>;
@@ -194,6 +88,17 @@ export class LspService {
     private readonly workspaceSignal: AbortSignal,
     private readonly timers?: LspClock,
   ) {
+    this.documents = new LspDocumentCache(
+      workspaceRoot,
+      this.entries,
+      {
+        closed: () => this.closed,
+        signal: (caller, server) => this.signal(caller, server),
+        configuration: () => this.configuration,
+        changed: () => this.emitUi(),
+      },
+      timers,
+    );
     workspaceSignal.addEventListener("abort", this.onAbort, { once: true });
     this.uiCache = this.projectUi();
     this.detachUiRevision = workspaceCoordinator.onChanged(() => {
@@ -413,7 +318,7 @@ export class LspService {
     const stops: Server[] = [];
     // Fence every revoked root before awaiting any process cleanup.
     for (const { entry, selection } of selections) {
-      if (viewChanged) this.invalidate(entry);
+      if (viewChanged) this.documents.invalidate(entry);
       if (selection.state !== "stopped") {
         const changed =
           entry.state !== selection.state ||
@@ -422,7 +327,7 @@ export class LspService {
         entry.state = selection.state;
         entry.reason = selection.reason ?? this.configError;
         entry.controller.abort();
-        if (changed) this.invalidate(entry);
+        if (changed) this.documents.invalidate(entry);
         stops.push(entry);
         continue;
       }
@@ -459,7 +364,7 @@ export class LspService {
         if (!launch || launch.fingerprint !== entry.launch.fingerprint) {
           entry.requiresRestart = true;
           entry.controller.abort();
-          this.invalidate(entry);
+          this.documents.invalidate(entry);
           entry.reason = "Конфигурация изменилась; нужен перезапуск.";
         }
       }
@@ -712,7 +617,7 @@ export class LspService {
           entry.state = "error";
           entry.reason = "Сервер анализа завершился. Перезапустите его явно.";
           entry.controller.abort();
-          this.invalidate(entry);
+          this.documents.invalidate(entry);
         },
         this.timers,
       );
@@ -726,7 +631,7 @@ export class LspService {
     }
     entry.transport = transport;
     transport.onNotification("textDocument/publishDiagnostics", (payload) => {
-      void this.publish(entry, generation, payload).catch(() => {});
+      void this.documents.publish(entry, generation, payload).catch(() => {});
     });
     try {
       const initialized = await transport.request<{
@@ -839,17 +744,6 @@ export class LspService {
       throw error;
     }
   }
-  private invalidate(entry: Server): void {
-    const receipt = ++entry.publications;
-    for (const doc of entry.documents.values()) {
-      doc.freshness = "stale";
-      doc.diagnostics = [];
-      doc.omitted = 0;
-      doc.notificationSerial = receipt;
-      ++doc.serial;
-    }
-    this.emitUi();
-  }
   private async stopEntry(entry: Server): Promise<void> {
     entry.controller.abort();
     const transport = entry.transport ?? entry.cleanupTransport;
@@ -907,7 +801,7 @@ export class LspService {
     const reopen = [...entry.documents.values()].map((doc) => doc.relativePath);
     entry.state = "restarting";
     this.emitUi();
-    this.invalidate(entry);
+    this.documents.invalidate(entry);
     await this.stopEntry(entry);
     entry.documents.clear();
     this.emitUi();
@@ -928,7 +822,7 @@ export class LspService {
     };
     for (const path of reopen) {
       try {
-        await this.syncDocument(
+        await this.documents.syncDocument(
           entry,
           await readLspFile(
             {
@@ -945,352 +839,6 @@ export class LspService {
       }
     }
     void selected;
-  }
-  private async serialize<T>(
-    entry: Server,
-    path: string,
-    signal: AbortSignal,
-    work: () => Promise<T>,
-  ): Promise<T> {
-    const previous = entry.locks.get(path) ?? Promise.resolve();
-    const pending = previous
-      .catch(() => {})
-      .then(() => {
-        cancelled(signal);
-        return work();
-      });
-    entry.locks.set(path, pending);
-    void pending
-      .finally(() => {
-        if (entry.locks.get(path) === pending) entry.locks.delete(path);
-      })
-      .catch(() => {});
-    return abortable(() => pending, signal);
-  }
-  private async syncDocument(entry: Server, file: LspFile): Promise<Document> {
-    const transport = entry.transport;
-    if (!transport || entry.state !== "ready")
-      throw new RuntimeError(
-        "LSP_UNAVAILABLE",
-        "Language server is not ready.",
-      );
-    const previous = entry.documents.get(file.path);
-    if (
-      previous?.hash === file.hash &&
-      previous.generation === entry.generation
-    ) {
-      previous.accessed = Date.now();
-      return previous;
-    }
-    const doc: Document = {
-      ...file,
-      version: (previous?.version ?? 0) + 1,
-      generation: entry.generation,
-      freshness: "pending",
-      diagnostics: [],
-      omitted: 0,
-      serial: (previous?.serial ?? 0) + 1,
-      accessed: Date.now(),
-    };
-    entry.documents.set(file.path, doc);
-    this.emitUi();
-    try {
-      if (!previous || previous.generation !== entry.generation) {
-        await transport.notification("textDocument/didOpen", {
-          textDocument: {
-            uri: file.uri,
-            languageId: file.languageId,
-            version: doc.version,
-            text: file.text,
-          },
-        });
-      } else {
-        this.invalidate(entry);
-        doc.freshness = "pending";
-        const sync = entry.capabilities.textDocumentSync;
-        const kind =
-          typeof sync === "number"
-            ? sync
-            : (sync as { change?: number } | undefined)?.change;
-        if (kind !== 1 && kind !== 2)
-          throw new RuntimeError(
-            "LSP_UNSUPPORTED",
-            "Server does not support document changes.",
-          );
-        await transport.notification("textDocument/didChange", {
-          textDocument: { uri: file.uri, version: doc.version },
-          contentChanges:
-            kind === 2
-              ? [
-                  {
-                    range: {
-                      start: { line: 0, character: 0 },
-                      end: documentEnd(previous.text),
-                    },
-                    text: file.text,
-                  },
-                ]
-              : [{ text: file.text }],
-        });
-        const save =
-          typeof sync === "object" && sync
-            ? (sync as { save?: boolean | { includeText?: boolean } }).save
-            : false;
-        if (save)
-          await transport.notification("textDocument/didSave", {
-            textDocument: { uri: file.uri },
-            ...(typeof save === "object" && save.includeText
-              ? { text: file.text }
-              : {}),
-          });
-      }
-      await this.evict(entry, file.path);
-    } catch (error) {
-      if (entry.documents.get(file.path) === doc)
-        entry.documents.delete(file.path);
-      this.emitUi();
-      await transport
-        .notification("textDocument/didClose", {
-          textDocument: { uri: file.uri },
-        })
-        .catch(() => {});
-      this.invalidate(entry);
-      throw error;
-    }
-    return doc;
-  }
-  private async evict(entry: Server, keep: string): Promise<void> {
-    const all = () =>
-      [...this.entries.values()].flatMap((server) =>
-        [...server.documents.values()].map((doc) => ({ server, doc })),
-      );
-    const bytes = () =>
-      all().reduce(
-        (sum, { doc }) =>
-          sum +
-          doc.bytes.length +
-          2 * doc.text.length +
-          Buffer.byteLength(JSON.stringify(doc.diagnostics)),
-        0,
-      );
-    while (
-      all().length > LSP_LIMITS.documents ||
-      bytes() > LSP_LIMITS.cacheBytes
-    ) {
-      const oldest = all()
-        .filter(
-          ({ server, doc }) =>
-            !(server === entry && doc.path === keep) &&
-            !server.locks.has(doc.path),
-        )
-        .sort((a, b) => a.doc.accessed - b.doc.accessed)[0];
-      if (!oldest)
-        throw new RuntimeError(
-          "LSP_UNAVAILABLE",
-          "LSP workspace document cache is full.",
-        );
-      oldest.server.documents.delete(oldest.doc.path);
-      this.emitUi();
-      await oldest.server.transport?.notification("textDocument/didClose", {
-        textDocument: { uri: oldest.doc.uri },
-      });
-    }
-  }
-
-  private async publish(
-    entry: Server,
-    generation: number,
-    payload: unknown,
-  ): Promise<void> {
-    if (
-      this.closed ||
-      entry.generation !== generation ||
-      entry.state !== "ready" ||
-      entry.requiresRestart ||
-      // A pull-capable server may push syntax-only/provisional subsets too.
-      // Keep request-bound full reports as the sole cache source for it.
-      entry.capabilities.diagnosticProvider ||
-      !payload ||
-      typeof payload !== "object"
-    )
-      return;
-    const notification = {
-      ...(payload as {
-        uri?: unknown;
-        version?: unknown;
-        diagnostics?: unknown;
-      }),
-    };
-    if (
-      notification.version === 0 &&
-      entry.launch?.kind === "auto" &&
-      catalogServer(entry.id)?.zeroVersionUnconfirmed
-    )
-      notification.version = undefined;
-    const receipt = ++entry.publications;
-    const policy = new WorkspacePolicy(
-      this.workspaceRoot,
-      this.configuration?.ignorePatterns ?? [],
-    );
-    const canonicalPath = await resolveLspUri(policy, notification.uri);
-    const doc = canonicalPath ? entry.documents.get(canonicalPath) : undefined;
-    if (
-      this.closed ||
-      entry.generation !== generation ||
-      entry.state !== "ready" ||
-      entry.controller.signal.aborted ||
-      entry.requiresRestart ||
-      !doc ||
-      receipt <= (doc.notificationSerial ?? 0) ||
-      doc.generation !== generation ||
-      !Array.isArray(notification.diagnostics)
-    )
-      return;
-    if (
-      notification.version !== undefined &&
-      notification.version !== doc.version
-    )
-      return;
-    doc.notificationSerial = receipt;
-    await this.recordDiagnostics(
-      entry,
-      generation,
-      doc,
-      notification.diagnostics,
-      policy,
-      notification.version === undefined
-        ? "unversioned_push"
-        : "versioned_push",
-    );
-  }
-  private async recordDiagnostics(
-    entry: Server,
-    generation: number,
-    doc: Document,
-    items: unknown[],
-    policy: WorkspacePolicy,
-    evidence: NonNullable<Document["diagnosticEvidence"]>,
-  ): Promise<void> {
-    const version = doc.version;
-    const serial = ++doc.serial;
-    const diagnostics: LspDiagnostic[] = [];
-    let omitted = Math.max(0, items.length - LSP_LIMITS.diagnostics);
-    for (const raw of items.slice(0, LSP_LIMITS.diagnostics)) {
-      if (!raw || typeof raw !== "object") {
-        ++omitted;
-        continue;
-      }
-      const item = raw as Record<string, unknown>;
-      const range = safeRange(item.range);
-      if (!range || typeof item.message !== "string") {
-        ++omitted;
-        continue;
-      }
-      try {
-        validatePosition(doc.text, range.start);
-        validatePosition(doc.text, range.end);
-      } catch {
-        ++omitted;
-        continue;
-      }
-      const relatedInformation: NonNullable<
-        LspDiagnostic["relatedInformation"]
-      > = [];
-      if (Array.isArray(item.relatedInformation))
-        for (const related of item.relatedInformation.slice(0, 8)) {
-          const location = await permittedLocation(policy, related?.location);
-          if (location)
-            relatedInformation.push({
-              ...location,
-              message: safeText(related.message, 512),
-            });
-          else ++omitted;
-        }
-      diagnostics.push({
-        path: doc.relativePath,
-        range,
-        severity: [1, 2, 3, 4].includes(Number(item.severity))
-          ? Number(item.severity)
-          : 3,
-        message: safeText(item.message),
-        ...(typeof item.code === "string" || typeof item.code === "number"
-          ? {
-              code:
-                typeof item.code === "string"
-                  ? safeText(item.code, 128)
-                  : item.code,
-            }
-          : {}),
-        ...(typeof item.source === "string"
-          ? { source: safeText(item.source, 128) }
-          : {}),
-        ...(relatedInformation.length ? { relatedInformation } : {}),
-      });
-    }
-    if (
-      entry.generation !== generation ||
-      entry.state !== "ready" ||
-      entry.controller.signal.aborted ||
-      entry.documents.get(doc.path) !== doc ||
-      doc.version !== version ||
-      doc.serial !== serial ||
-      entry.requiresRestart ||
-      this.closed
-    )
-      return;
-    doc.diagnostics = diagnostics;
-    doc.omitted = omitted;
-    doc.freshness = evidence === "unversioned_push" ? "observed" : "current";
-    doc.diagnosticEvidence = evidence;
-    this.emitUi();
-    ++doc.serial;
-    try {
-      await this.evict(entry, doc.path);
-    } catch {
-      doc.diagnostics = [];
-      doc.freshness = "unavailable";
-      doc.omitted = items.length;
-    }
-  }
-  private async refreshDocuments(
-    entry: Server,
-    port: LspReadPort,
-    synchronize = true,
-  ): Promise<void> {
-    const revision = workspaceCoordinator.revision([this.workspaceRoot]);
-    if (revision !== entry.revision) {
-      this.invalidate(entry);
-      entry.revision = revision;
-    }
-    for (const doc of [...entry.documents.values()]) {
-      cancelled(port.signal);
-      try {
-        const file = await readLspFile(
-          { ...port, observe: undefined, languageId: doc.languageId },
-          doc.relativePath,
-        );
-        if (file.hash !== doc.hash && !synchronize) {
-          this.invalidate(entry);
-          continue;
-        }
-        if (file.hash !== doc.hash)
-          await this.serialize(
-            entry,
-            file.path,
-            this.signal(port.signal, entry),
-            () => this.syncDocument(entry, file),
-          );
-      } catch (error) {
-        cancelled(port.signal);
-        this.invalidate(entry);
-        entry.documents.delete(doc.path);
-        this.emitUi();
-        await entry.transport?.notification("textDocument/didClose", {
-          textDocument: { uri: doc.uri },
-        });
-        void error;
-      }
-    }
   }
   private async query<T>(
     path: string,
@@ -1345,87 +893,89 @@ export class LspService {
     const policyFingerprint = JSON.stringify(
       this.configuration?.ignorePatterns ?? [],
     );
-    await this.refreshDocuments(entry, readPort);
+    await this.documents.refreshDocuments(entry, readPort);
     const file = await readLspFile(readPort, path);
-    return this.serialize(entry, file.path, signal, async () => {
-      const doc = await this.syncDocument(entry, file);
-      const generation = entry.generation;
-      const revision = workspaceCoordinator.revision([this.workspaceRoot]);
-      const result = await operation(entry, doc, signal, policy);
-      cancelled(port.signal);
-      await this.refreshConfiguration();
-      if (
-        entry.generation !== generation ||
-        entry.state !== "ready" ||
-        entry.requiresRestart ||
-        signal.aborted
-      )
-        throw new RuntimeError(
-          "LSP_UNAVAILABLE",
-          "Language server configuration or generation changed.",
-        );
-      if (
-        JSON.stringify(this.configuration?.ignorePatterns ?? []) !==
-        policyFingerprint
-      ) {
-        this.invalidate(entry);
-        throw new RuntimeError(
-          "PERMISSION_DENIED",
-          "Workspace ignore policy changed during LSP request. Retry with the current policy.",
-        );
-      }
-      const selectedNow = this.configuration
-        ? await selectLspServer(
-            this.workspaceRoot,
-            this.configuration,
-            entry.id,
-            path,
-          )
-        : undefined;
-      if (selectedNow?.state !== "stopped" || selectedNow.id !== entry.id) {
-        this.invalidate(entry);
-        throw new RuntimeError(
-          "LSP_UNAVAILABLE",
-          "Effective project server changed during LSP request.",
-        );
-      }
-      for (const tracked of entry.documents.values()) {
-        const checked = await readLspFile(
-          { ...readPort, observe: undefined, languageId: tracked.languageId },
-          tracked.relativePath,
-        );
-        if (checked.hash !== tracked.hash) {
-          this.invalidate(entry);
+    return this.documents
+      .serialize(entry, file.path, signal, async () => {
+        const doc = await this.documents.syncDocument(entry, file);
+        const generation = entry.generation;
+        const revision = workspaceCoordinator.revision([this.workspaceRoot]);
+        const result = await operation(entry, doc, signal, policy);
+        cancelled(port.signal);
+        await this.refreshConfiguration();
+        if (
+          entry.generation !== generation ||
+          entry.state !== "ready" ||
+          entry.requiresRestart ||
+          signal.aborted
+        )
           throw new RuntimeError(
-            "STALE_FILE_REVISION",
-            "A tracked dependency changed during LSP request.",
+            "LSP_UNAVAILABLE",
+            "Language server configuration or generation changed.",
+          );
+        if (
+          JSON.stringify(this.configuration?.ignorePatterns ?? []) !==
+          policyFingerprint
+        ) {
+          this.documents.invalidate(entry);
+          throw new RuntimeError(
+            "PERMISSION_DENIED",
+            "Workspace ignore policy changed during LSP request. Retry with the current policy.",
           );
         }
-      }
-      const current = await readLspFile(
-        { ...readPort, observe: undefined },
-        path,
-      );
-      if (
-        current.hash !== doc.hash ||
-        revision !== workspaceCoordinator.revision([this.workspaceRoot])
-      ) {
-        this.invalidate(entry);
-        throw new RuntimeError(
-          "STALE_FILE_REVISION",
-          "Document changed while the language server was analysing it. Retry with current bytes.",
+        const selectedNow = this.configuration
+          ? await selectLspServer(
+              this.workspaceRoot,
+              this.configuration,
+              entry.id,
+              path,
+            )
+          : undefined;
+        if (selectedNow?.state !== "stopped" || selectedNow.id !== entry.id) {
+          this.documents.invalidate(entry);
+          throw new RuntimeError(
+            "LSP_UNAVAILABLE",
+            "Effective project server changed during LSP request.",
+          );
+        }
+        for (const tracked of entry.documents.values()) {
+          const checked = await readLspFile(
+            { ...readPort, observe: undefined, languageId: tracked.languageId },
+            tracked.relativePath,
+          );
+          if (checked.hash !== tracked.hash) {
+            this.documents.invalidate(entry);
+            throw new RuntimeError(
+              "STALE_FILE_REVISION",
+              "A tracked dependency changed during LSP request.",
+            );
+          }
+        }
+        const current = await readLspFile(
+          { ...readPort, observe: undefined },
+          path,
         );
-      }
-      return result;
-    }).catch((error) => {
-      cancelled(port.signal);
-      if (signal.aborted)
-        throw new RuntimeError(
-          "LSP_UNAVAILABLE",
-          "LSP generation closed during request.",
-        );
-      throw error;
-    });
+        if (
+          current.hash !== doc.hash ||
+          revision !== workspaceCoordinator.revision([this.workspaceRoot])
+        ) {
+          this.documents.invalidate(entry);
+          throw new RuntimeError(
+            "STALE_FILE_REVISION",
+            "Document changed while the language server was analysing it. Retry with current bytes.",
+          );
+        }
+        return result;
+      })
+      .catch((error) => {
+        cancelled(port.signal);
+        if (signal.aborted)
+          throw new RuntimeError(
+            "LSP_UNAVAILABLE",
+            "LSP generation closed during request.",
+          );
+        throw error;
+      });
   }
   async diagnostics(
     path: string,
@@ -1454,7 +1004,7 @@ export class LspService {
             "LSP_PROTOCOL_ERROR",
             "Language server returned an invalid document diagnostic report.",
           );
-        await this.recordDiagnostics(
+        await this.documents.recordDiagnostics(
           entry,
           entry.generation,
           doc,
@@ -1463,7 +1013,7 @@ export class LspService {
           "pull_request",
         );
       } else if (doc.freshness === "pending" || doc.freshness === "stale") {
-        await this.waitForDiagnostics(doc, signal);
+        await this.documents.waitForDiagnostics(doc, signal);
       }
       const freshness =
         doc.freshness === "pending" || doc.freshness === "stale"
@@ -1488,29 +1038,6 @@ export class LspService {
             : [],
         omitted: doc.omitted,
       };
-    });
-  }
-  private waitForDiagnostics(
-    doc: Document,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const timers = this.timers ?? { setTimeout, clearTimeout };
-    return new Promise((resolve, reject) => {
-      const done = (error?: unknown) => {
-        timers.clearTimeout(timer);
-        clearInterval(poll);
-        signal.removeEventListener("abort", abort);
-        if (error) reject(error);
-        else resolve();
-      };
-      const abort = () =>
-        done(new RuntimeError("CANCELLED", "LSP diagnostics wait cancelled."));
-      const timer = timers.setTimeout(() => done(), LSP_LIMITS.diagnosticsMs);
-      const poll = setInterval(() => {
-        if (doc.freshness === "current" || doc.freshness === "observed") done();
-      }, 20);
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) abort();
     });
   }
   async definition(
@@ -1718,7 +1245,7 @@ export class LspService {
                   )
                 : undefined;
               if (selection?.state !== "stopped") continue;
-              await this.refreshDocuments(
+              await this.documents.refreshDocuments(
                 entry,
                 { policy, signal: bounded },
                 false,
@@ -1798,7 +1325,7 @@ export class LspService {
       for (const entry of this.entries.values()) {
         entry.state = "disposed";
         this.emitUi();
-        this.invalidate(entry);
+        this.documents.invalidate(entry);
         try {
           await this.stopEntry(entry);
           await entry.pending?.catch(() => {});

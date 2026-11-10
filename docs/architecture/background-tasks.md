@@ -83,3 +83,5 @@ Headless batch drain ограничен общим deadline; service остан�
 Existing chat API расширен typed target `background_task` и действиями open/promote/stop/wait. Dispatcher проверяет live owner через core port. Same task card обновляется revision, полный stream в transcript не вставляется. Foreground promotion и busy resource card используют тот же renderer. См. [контракт оформления](extension-chat.md).
 
 Связанные контракты: [Помощники](subagents.md), [Рабочие копии](../worktrees.md), [Разрешения](../permissions.md), [Конфигурация](../configuration.md).
+
+Владельцы внутренних модулей и направление импортов: [границы ответственности](module-boundaries.md#фоновые-задачи).

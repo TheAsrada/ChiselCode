@@ -1,23 +1,9 @@
 /** @jsxImportSource @opentui/react */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BackgroundSettingsActions } from "../background/settings.js";
-import { ProfileIdSchema } from "../config/schema.js";
-import type { ExtensionManagementService } from "../extensions/management.js";
-import type { LspSettingsActions } from "../lsp/settings.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
-import type {
-  ConnectionChallenge,
-  ConnectionStatus,
-  ProviderDefinition,
-  ProviderProfile,
-} from "../providers/contracts.js";
-import { createBuiltinProviderRegistry } from "../providers/runtime.js";
 import type { Skill } from "../skills/skills.js";
-import type { SubagentSettingsActions } from "../subagents/settings.js";
 import { ThemeCatalog } from "../themes/catalog.js";
-import type { ProviderId } from "../types/domain.js";
-import type { WebSettingsActions } from "../web/settings.js";
 import { type Palette, THEMES, type ThemeName } from "./appearance.js";
 import {
   type MenuAction,
@@ -40,109 +26,21 @@ import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { useSettingsAutosave } from "./settings-autosave.js";
+import { SETTINGS_SECTIONS, searchSettings } from "./settings-catalog.js";
 import {
-  SETTINGS_SECTIONS,
-  type SettingsRoute,
-  searchSettings,
-} from "./settings-catalog.js";
+  labels,
+  type OpenTuiSettingsActions,
+  type Page,
+  type Screen,
+  safeNotice,
+} from "./settings-contracts.js";
 import { SettingsNavigation } from "./settings-navigation.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
-import {
-  type ModelListResult,
-  sortModelOptions,
-  type TuiSettingsValues,
-} from "./settings-values.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine } from "./terminal-text.js";
-import { FAIL_MARK } from "./theme.js";
+import { useConnectionSettings } from "./use-connection-settings.js";
 
-export interface OpenTuiSettingsActions {
-  extensions?: ExtensionManagementService;
-  background?: BackgroundSettingsActions;
-  subagents?: SubagentSettingsActions;
-  web?: WebSettingsActions;
-  lsp?: LspSettingsActions;
-  workspaceRoot?: string;
-  catalog?(): Promise<{
-    providers: ProviderDefinition[];
-    profiles: Record<string, ProviderProfile>;
-  }>;
-  load(profileId?: string): Promise<{
-    values: TuiSettingsValues;
-    hasKey: boolean;
-    accountLabel?: string;
-  }>;
-  hasKey(provider: ProviderId, profileId?: string): Promise<boolean>;
-  save(
-    values: TuiSettingsValues,
-    previous?: TuiSettingsValues,
-  ): Promise<"saved" | "setup_required">;
-  activate?(values: TuiSettingsValues): Promise<void>;
-  check(values: TuiSettingsValues): Promise<string>;
-  models(values: TuiSettingsValues): Promise<ModelListResult>;
-  connect?(
-    values: TuiSettingsValues,
-    signal: AbortSignal,
-    challenge: (value: ConnectionChallenge) => void,
-  ): Promise<ConnectionStatus>;
-  disconnect?(values: TuiSettingsValues): Promise<void>;
-  removeProfile?(profileId: string, expected?: ProviderProfile): Promise<void>;
-}
-
-type Screen =
-  | "menu"
-  | "providers"
-  | "profiles"
-  | "model-list"
-  | "model-manual"
-  | "key"
-  | "base-url"
-  | "profile-id"
-  | "profile-label"
-  | "login"
-  | "disconnect"
-  | "delete-profile";
-type Page = SettingsRoute | "web";
-type Work =
-  | "load"
-  | "models"
-  | "check"
-  | "save"
-  | "profile"
-  | "theme"
-  | "permissions"
-  | "login"
-  | "remove";
-const labels: Record<Screen, string> = {
-  menu: "Подключение",
-  providers: "Выберите сервис",
-  profiles: "Выберите профиль",
-  "model-list": "Выберите модель",
-  "model-manual": "Название модели",
-  key: "API-ключ",
-  "base-url": "Адрес API",
-  "profile-id": "Новый профиль",
-  "profile-label": "Название профиля",
-  login: "Вход в аккаунт",
-  disconnect: "Отключить аккаунт",
-  "delete-profile": "Удалить профиль",
-};
-
-function safeNotice(
-  message: unknown,
-  values: TuiSettingsValues,
-  editing: string,
-  secret: boolean,
-) {
-  let text = message instanceof Error ? message.message : String(message);
-  for (const key of [values.apiKey, secret ? editing : undefined]) {
-    if (key) {
-      text = text.split(key).join("[ключ скрыт]");
-      if (key.trim()) text = text.split(key.trim()).join("[ключ скрыт]");
-    }
-  }
-  return terminalSafeText(text, 600);
-}
+export type { OpenTuiSettingsActions } from "./settings-contracts.js";
 
 export function OpenTuiSettings({
   actions,
@@ -195,28 +93,14 @@ export function OpenTuiSettings({
       .change?.(motion.preference === "full" ? "reduced" : "full")
       .catch(
         (error: unknown) =>
-          lifetime.current.mounted &&
+          isMounted() &&
           setMessage(
             `Не удалось сохранить анимации: ${error instanceof Error ? error.message : String(error)}`,
             "error",
           ),
       );
   };
-  const [values, setValues] = useState<TuiSettingsValues>({
-    provider: "",
-    model: "",
-  });
-  const [providers, setProviders] = useState<ProviderDefinition[]>(() =>
-    createBuiltinProviderRegistry().list(),
-  );
-  const [profiles, setProfiles] = useState<Record<string, ProviderProfile>>({});
-  const [hasKey, setHasKeyState] = useState(false);
-  const readiness = useRef(false);
-  const setHasKey = (ready: boolean) => {
-    readiness.current = ready;
-    setHasKeyState(ready);
-  };
-  const [loaded, setLoaded] = useState(!actions);
+
   const [page, setPage] = useState<Page>(
     actions || initialPage === "permissions" ? initialPage : "appearance",
   );
@@ -243,16 +127,7 @@ export function OpenTuiSettings({
   const [skillsVisited, setSkillsVisited] = useState(
     initialPage === "tools.skills",
   );
-  useEffect(() => {
-    if (page === "tools.skills") setSkillsVisited(true);
-    if (page === "tools.mcp" && !mcp && getMcpActions) {
-      try {
-        setMcp(getMcpActions());
-      } catch (cause) {
-        setNotice(String(cause));
-      }
-    }
-  }, [page, mcp, getMcpActions]);
+
   const extensionsControls = useRef<SettingsPanelControl | undefined>(
     undefined,
   );
@@ -263,34 +138,6 @@ export function OpenTuiSettings({
   const webControls = useRef<SettingsPanelControl | undefined>(undefined);
 
   const lspControls = useRef<SettingsPanelControl | undefined>(undefined);
-  const authAbort = useRef<AbortController | undefined>(undefined);
-  const [challenge, setChallenge] = useState<ConnectionChallenge>();
-  const [accountLabel, setAccountLabel] = useState<string>();
-  const [connectionConfirm, setConnectionConfirm] = useState<{
-    type: "delete" | "disconnect";
-    profileId: string;
-  }>();
-  const [connectionChoice, setConnectionChoice] = useState(0);
-  const [addingProfile, setAddingProfile] = useState(false);
-  const [screen, setScreen] = useState<Screen>("menu");
-  const [selected, setSelectedState] = useState(initialSelection);
-  const selectedRef = useRef(initialSelection);
-  const setSelected = (value: number | ((current: number) => number)) => {
-    const next =
-      typeof value === "function" ? value(selectedRef.current) : value;
-    selectedRef.current = next;
-    setSelectedState(next);
-  };
-  const [query, setQuery] = useState("");
-  const [models, setModels] = useState<Array<{ id: string; hint?: string }>>(
-    [],
-  );
-  const [editing, setEditing] = useState("");
-  const [notice, setNotice] = useState("");
-  const [noticeKind, setNoticeKind] = useState<"error" | "success" | "info">(
-    "info",
-  );
-  const [busy, setBusy] = useState<Work>();
   const catalog = useMemo(
     () => themeCatalog ?? new ThemeCatalog(),
     [themeCatalog],
@@ -319,24 +166,89 @@ export function OpenTuiSettings({
   const [chosenTheme, setChosenTheme] = useState(theme);
   const [savedBypass, setSavedBypass] = useState(allowBypassPermissions);
   const [bypassAllowed, setBypassAllowed] = useState(allowBypassPermissions);
-  const lifetime = useRef({
-    mounted: true,
-    operation: 0,
-    busy: undefined as Work | undefined,
-  });
-  const baseline = useRef("");
-  const editorEpoch = useRef(0);
-  const acknowledged = useRef<TuiSettingsValues | undefined>(undefined);
   const restore = useRef({ theme, preview: onThemePreview });
   restore.current.preview = onThemePreview;
-  const valuesRef = useRef(values);
-  valuesRef.current = values;
   const {
     popupHeight,
     innerWidth: surfaceWidth,
     roomy,
     tiny,
   } = dialogLayout(width, height, 30, 104);
+
+  const {
+    values,
+    profiles,
+    hasKey,
+    loaded,
+    challenge,
+    connectionConfirm,
+    setConnectionConfirm,
+    connectionChoice,
+    setConnectionChoice,
+    screen,
+    setScreen,
+    selected,
+    selectedRef,
+    setSelected,
+    query,
+    setQuery,
+    editing,
+    setEditing,
+    notice,
+    setNotice,
+    noticeKind,
+    busy,
+    working,
+    isMounted,
+    reloadBaseline,
+    activate,
+    definition,
+    subscription,
+    rows,
+    menuIndex,
+    choices,
+    choiceIndex,
+    selector,
+    field,
+    dirty,
+    setMessage,
+    cancelWork,
+    connectionAutosave,
+    save,
+    check,
+    login,
+    switchProfile,
+    newProfile,
+    open,
+    back,
+    acceptField,
+    choose,
+    confirmConnection,
+  } = useConnectionSettings({
+    onOpenContent: () => {
+      setCompactDetail(true);
+      setShellFocus("content");
+    },
+    actions,
+    initialSelection,
+  });
+  useEffect(() => {
+    if (page === "tools.skills") setSkillsVisited(true);
+    if (page === "tools.mcp" && !mcp && getMcpActions) {
+      try {
+        setMcp(getMcpActions());
+      } catch (cause) {
+        setNotice(String(cause));
+      }
+    }
+  }, [page, mcp, getMcpActions, setNotice]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Смена actions завершает предпросмотр прежнего окна, как и unmount.
+  useEffect(
+    () => () => {
+      restore.current.preview?.(restore.current.theme);
+    },
+    [actions],
+  );
   const split = width >= 100 && height >= 26;
   const navigationWidth = split ? 26 : surfaceWidth;
   const innerWidth = split
@@ -410,242 +322,8 @@ export function OpenTuiSettings({
       names.length - themeVisibleCount,
     ),
   );
-  const definition = providers.find((p) => p.id === values.provider);
-  const subscription = definition?.auth.type === "subscription";
-  const endpoint =
-    !subscription && definition?.endpoint.normalization !== "none";
-  const rows: Array<{
-    screen: Screen;
-    label: string;
-    value: string;
-    help: string;
-  }> = [
-    {
-      screen: "providers",
-      label: "Сервис",
-      value: definition?.label ?? values.provider,
-      help: "Сервис этого профиля. Для другого сервиса добавьте подключение.",
-    },
-    {
-      screen: "model-list",
-      label: "Модель",
-      value: values.model || "Не выбрана",
-      help: "Выберите доступную модель или введите точный ID.",
-    },
-    {
-      screen: subscription ? "login" : "key",
-      label: subscription ? "Аккаунт" : "API-ключ",
-      value: subscription
-        ? hasKey
-          ? (accountLabel ?? "Подключён")
-          : "Войти по коду"
-        : values.apiKey
-          ? "Новый ключ"
-          : hasKey
-            ? "Сохранён"
-            : definition?.auth.required === false
-              ? "Не требуется"
-              : "Не настроен",
-      help: subscription
-        ? "Войдите через браузер по одноразовому коду."
-        : "Ключ скрыт при вводе. Новый ключ заменит текущий только после сохранения. Пустое поле оставляет сохранённый ключ.",
-    },
-    ...(endpoint
-      ? [
-          {
-            screen: "base-url" as const,
-            label: "Адрес API",
-            value: values.baseUrl || "По умолчанию",
-            help: "Адрес подключения к сервису. Используйте полный URL с http:// или https://.",
-          },
-        ]
-      : []),
-    {
-      screen: "profiles",
-      label: "Профиль",
-      value: values.profileId || "Выберите профиль",
-      help: "Все сохранённые аккаунты и подключения.",
-    },
-    {
-      screen: "profile-id",
-      label: "Добавить подключение",
-      value: "Добавить аккаунт",
-      help: "Выберите сервис и задайте имя нового профиля.",
-    },
-    {
-      screen: "profile-label",
-      label: "Название",
-      value: values.label || values.profileId || "Без названия",
-      help: "Отображаемое название аккаунта. ID профиля сохраняется.",
-    },
-    ...(subscription && hasKey && actions?.disconnect
-      ? [
-          {
-            screen: "disconnect" as const,
-            label: "Отключить аккаунт",
-            value: "Удалить сохранённый вход",
-            help: "Вход будет удалён только из этого профиля.",
-          },
-        ]
-      : []),
-    ...(values.profileId && profiles[values.profileId] && actions?.removeProfile
-      ? [
-          {
-            screen: "delete-profile" as const,
-            label: "Удалить профиль",
-            value: values.label || values.profileId,
-            help: "Профиль и его сохранённый вход будут удалены.",
-          },
-        ]
-      : []),
-  ];
-  const menuIndex = Math.min(selected, rows.length - 1);
-  const filteredProviders = providers.filter((p) =>
-    `${p.id} ${p.label} ${p.description ?? ""}`
-      .toLocaleLowerCase()
-      .includes(query.toLocaleLowerCase()),
-  );
-  const filteredProfiles = Object.entries(profiles).filter(([id, p]) =>
-    `${id} ${p.label ?? ""} ${p.providerId} ${providers.find((provider) => provider.id === p.providerId)?.label ?? ""}`
-      .toLocaleLowerCase()
-      .includes(query.toLocaleLowerCase()),
-  );
-  const filteredModels = useMemo(
-    () =>
-      sortModelOptions(models, values.model).filter((m) =>
-        `${m.id} ${m.hint ?? ""}`
-          .toLocaleLowerCase()
-          .includes(query.toLocaleLowerCase()),
-      ),
-    [models, query, values.model],
-  );
-  const choices =
-    screen === "providers"
-      ? filteredProviders.map((p) => ({
-          id: p.id,
-          label: p.label,
-          hint: p.description ?? p.id,
-        }))
-      : screen === "profiles"
-        ? [
-            ...filteredProfiles.map(([id, p]) => ({
-              id,
-              label: `${id === values.profileId ? "● " : ""}${p.label ?? id}`,
-              hint: `${providers.find((provider) => provider.id === p.providerId)?.label ?? p.providerId} · ${p.defaultModel ?? "модель не выбрана"}`,
-            })),
-            {
-              id: "__new-profile",
-              label: "Добавить подключение",
-              hint: "API или подписка",
-            },
-          ]
-        : screen === "model-list"
-          ? [
-              ...filteredModels.map((m) => ({ ...m, label: m.id })),
-              {
-                id: "__manual",
-                label: "Ввести вручную...",
-                hint: query || "Точное название модели",
-              },
-            ]
-          : [];
-  const choiceIndex = Math.min(selected, Math.max(0, choices.length - 1));
   const currentTheme = names[themeIndex] ?? savedTheme;
   const currentColors = catalog.palette(currentTheme);
-  const selector =
-    screen === "providers" || screen === "profiles" || screen === "model-list";
-  const field =
-    screen === "model-manual" ||
-    screen === "key" ||
-    screen === "base-url" ||
-    screen === "profile-id" ||
-    screen === "profile-label";
-  const fieldDirty =
-    field &&
-    editing !==
-      (screen === "key"
-        ? (values.apiKey ?? "")
-        : screen === "base-url"
-          ? (values.baseUrl ?? "")
-          : screen === "profile-label"
-            ? (values.label ?? "")
-            : screen === "profile-id"
-              ? ""
-              : values.model);
-  const dirty =
-    !!actions &&
-    loaded &&
-    (baseline.current !== JSON.stringify(values) || fieldDirty);
-  const setMessage = (
-    text: string,
-    kind: "error" | "success" | "info" = "info",
-  ) => {
-    setNotice(text);
-    setNoticeKind(kind);
-  };
-  const run = (kind: Work, work: (valid: () => boolean) => Promise<void>) => {
-    if (lifetime.current.busy) return;
-    const operation = ++lifetime.current.operation;
-    lifetime.current.busy = kind;
-    setBusy(kind);
-    setNotice("");
-    const valid = () =>
-      lifetime.current.mounted && operation === lifetime.current.operation;
-    void work(valid)
-      .catch((error) => {
-        if (valid())
-          setMessage(
-            safeNotice(error, valuesRef.current, editing, screen === "key"),
-            "error",
-          );
-      })
-      .finally(() => {
-        if (valid()) {
-          lifetime.current.busy = undefined;
-          setBusy(undefined);
-        }
-      });
-  };
-  const cancelWork = () => {
-    authAbort.current?.abort();
-    authAbort.current = undefined;
-    setChallenge(undefined);
-    ++lifetime.current.operation;
-    lifetime.current.busy = undefined;
-    setBusy(undefined);
-  };
-  const load = () => {
-    if (!actions) return;
-    run("load", async (valid) => {
-      const [draft, catalog] = await Promise.all([
-        actions.load(),
-        actions.catalog?.(),
-      ]);
-      if (!valid()) return;
-      if (catalog) {
-        setProviders(catalog.providers);
-        setProfiles(catalog.profiles);
-      }
-      setValues(draft.values);
-      baseline.current = JSON.stringify(draft.values);
-      acknowledged.current = draft.values;
-      setHasKey(draft.hasKey);
-      setAccountLabel(draft.accountLabel);
-      setLoaded(true);
-      setScreen("profiles");
-    });
-  };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Load once for each actions object; previews must not reload connection drafts.
-  useEffect(() => {
-    lifetime.current.mounted = true;
-    load();
-    return () => {
-      authAbort.current?.abort();
-      lifetime.current.mounted = false;
-      ++lifetime.current.operation;
-      restore.current.preview?.(restore.current.theme);
-    };
-  }, [actions]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Preview follows selection, not the callback identity.
   useEffect(() => {
     if (page === "appearance" && names.length) onThemePreview?.(currentTheme);
@@ -679,13 +357,13 @@ export function OpenTuiSettings({
     void (async () => {
       if (!(await flushPanels())) return;
       if (
-        lifetime.current.busy === "save" ||
-        lifetime.current.busy === "theme" ||
-        lifetime.current.busy === "permissions"
+        working() === "save" ||
+        working() === "theme" ||
+        working() === "permissions"
       )
         return;
       if (next === "connection" && !actions) return;
-      if (lifetime.current.busy !== "load") cancelWork();
+      if (working() !== "load") cancelWork();
       setNavigationIndex(
         SETTINGS_SECTIONS.findIndex(
           (item) => item.id === (next === "web" ? "tools.web" : next),
@@ -697,94 +375,6 @@ export function OpenTuiSettings({
       setFieldTarget(undefined);
       setNotice("");
     })();
-  };
-  const fieldValues = () =>
-    field && screen !== "profile-id"
-      ? {
-          ...values,
-          [screen === "profile-label"
-            ? "label"
-            : screen === "key"
-              ? "apiKey"
-              : screen === "base-url"
-                ? "baseUrl"
-                : "model"]: editing,
-        }
-      : values;
-  const pendingValues = fieldDirty ? fieldValues() : values;
-  const connectionAutosave = useSettingsAutosave(
-    loaded &&
-      values.profileId &&
-      !addingProfile &&
-      baseline.current !== JSON.stringify(pendingValues)
-      ? JSON.stringify(pendingValues)
-      : undefined,
-    async () => {
-      if (!actions) return;
-      const next = {
-        ...pendingValues,
-        model: pendingValues.model.trim(),
-        apiKey: pendingValues.apiKey?.trim() || undefined,
-        baseUrl: pendingValues.baseUrl?.trim() || undefined,
-      };
-      if (!next.model) throw new Error("Введите название модели");
-      if (next.baseUrl) {
-        const url = new URL(next.baseUrl);
-        if (!["http:", "https:"].includes(url.protocol))
-          throw new Error("Адрес API должен начинаться с http:// или https://");
-      }
-      setMessage("Сохранение…");
-      const result = await actions.save(
-        next,
-        next.profileId && profiles[next.profileId]
-          ? acknowledged.current
-          : undefined,
-      );
-      const saved = { ...next, apiKey: undefined };
-      baseline.current = JSON.stringify(saved);
-      acknowledged.current = saved;
-      // A delayed response only acknowledges its snapshot, never newer typing.
-      setValues((current) =>
-        JSON.stringify(current) === JSON.stringify(values) ? saved : current,
-      );
-      setHasKey(result === "saved");
-      const catalog = await actions.catalog?.();
-      if (catalog) setProfiles(catalog.profiles);
-      setMessage(
-        result === "saved"
-          ? "Сохранено · готово к работе"
-          : "Сохранено · требуется настройка / авторизация",
-        result === "saved" ? "success" : "info",
-      );
-    },
-    (error) =>
-      setMessage(
-        safeNotice(error, pendingValues, editing, screen === "key"),
-        "error",
-      ),
-    field ? 350 : 0,
-    loaded && values.profileId && !addingProfile
-      ? JSON.stringify(pendingValues)
-      : undefined,
-  );
-  const save = (_draftValues = values, after?: () => void) => {
-    void connectionAutosave.flush().then((ok) => {
-      if (ok) after?.();
-    });
-  };
-  const check = () => {
-    if (!actions || !loaded) {
-      if (actions) load();
-      return;
-    }
-    run("check", async (valid) => {
-      const result = await actions.check(values);
-      if (valid())
-        setMessage(
-          safeNotice(result, values, editing, screen === "key"),
-          result.startsWith(FAIL_MARK) ? "error" : "success",
-        );
-    });
   };
   const themeAutosave = useSettingsAutosave(
     chosenTheme !== savedTheme ? chosenTheme : undefined,
@@ -823,269 +413,6 @@ export function OpenTuiSettings({
   );
   const toggleBypass = () => {
     if (onBypassAvailabilityChange) setBypassAllowed((value) => !value);
-  };
-  const login = () => {
-    if (!actions?.connect || !values.profileId) {
-      setMessage("Сначала создайте профиль", "error");
-      return;
-    }
-    const abort = new AbortController();
-    authAbort.current?.abort();
-    authAbort.current = abort;
-    setScreen("login");
-    setChallenge(undefined);
-    run("login", async (valid) => {
-      const status = await actions.connect!(values, abort.signal, (next) => {
-        if (valid()) setChallenge(next);
-      });
-      if (!valid()) return;
-      setHasKey(status.connected);
-      setAccountLabel(status.label);
-      setChallenge(undefined);
-      const result = await actions.models(values);
-      if (!valid()) return;
-      setModels(result.ok ? result.models : []);
-      setScreen("model-list");
-      setSelected(0);
-      setQuery("");
-      setMessage(
-        result.ok ? "Аккаунт подключён · выберите модель" : result.error,
-        result.ok ? "success" : "error",
-      );
-    });
-  };
-  const switchProfile = (profileId: string) => {
-    if (!actions) return;
-    run("profile", async (valid) => {
-      const loaded = await actions.load(profileId);
-      if (!valid()) return;
-      setValues(loaded.values);
-      setAddingProfile(false);
-      baseline.current = JSON.stringify(loaded.values);
-      acknowledged.current = loaded.values;
-      setHasKey(loaded.hasKey);
-      setAccountLabel(loaded.accountLabel);
-      setScreen("menu");
-      setSelected(0);
-      setQuery("");
-      setNotice("");
-    });
-  };
-  const newProfile = (discard = false) => {
-    if (lifetime.current.busy || !loaded) return;
-    if (!discard) {
-      void connectionAutosave.flush().then((ok) => {
-        if (ok) newProfile(true);
-      });
-      return;
-    }
-    setAddingProfile(true);
-    setScreen("providers");
-    setQuery("");
-    setSelected(0);
-  };
-  const open = (next: Screen) => {
-    setCompactDetail(true);
-    setShellFocus("content");
-    if (lifetime.current.busy || !loaded || connectionConfirm) return;
-    setNotice("");
-    setQuery("");
-    setSelected(0);
-    if (
-      !values.profileId &&
-      !addingProfile &&
-      next !== "profiles" &&
-      next !== "profile-id"
-    ) {
-      setScreen("profiles");
-      setMessage("Нет подключений · выберите «Добавить подключение»");
-      return;
-    }
-    if (next === "disconnect" || next === "delete-profile") {
-      void connectionAutosave.flush().then((ok) => {
-        if (ok && values.profileId) {
-          setConnectionConfirm({
-            type: next === "disconnect" ? "disconnect" : "delete",
-            profileId: values.profileId,
-          });
-          setConnectionChoice(0);
-        }
-      });
-      return;
-    }
-    if (next === "providers" && !addingProfile) {
-      newProfile();
-      return;
-    }
-    if (next === "login") {
-      login();
-      return;
-    }
-    if (next === "profile-id") {
-      newProfile();
-      return;
-    }
-    ++editorEpoch.current;
-    setScreen(next);
-    if (next === "providers")
-      setSelected(
-        Math.max(
-          0,
-          providers.findIndex((p) => p.id === values.provider),
-        ),
-      );
-    setEditing(
-      next === "key"
-        ? (values.apiKey ?? "")
-        : next === "profile-label"
-          ? (values.label ?? "")
-          : next === "base-url"
-            ? (values.baseUrl ?? "")
-            : "",
-    );
-    if (next === "model-list" && actions) {
-      setModels([]);
-      run("models", async (valid) => {
-        const result = await actions.models(values);
-        if (!valid()) return;
-        if (result.ok) setModels(result.models);
-        else setMessage(result.error, "error");
-      });
-    }
-  };
-  const back = (accepted = false) => {
-    if (field && !accepted) {
-      if (screen === "profile-id") {
-        setScreen("profiles");
-        setAddingProfile(false);
-        if (acknowledged.current) setValues(acknowledged.current);
-        return;
-      }
-      const epoch = editorEpoch.current;
-      void connectionAutosave.flush().then((ok) => {
-        if (ok && epoch === editorEpoch.current) {
-          setValues((current) => ({ ...current, apiKey: undefined }));
-          back(true);
-        }
-      });
-      return;
-    }
-    if (lifetime.current.busy === "save" || lifetime.current.busy === "theme")
-      return;
-    ++editorEpoch.current;
-    cancelWork();
-    setAddingProfile(false);
-    if (field) setEditing("");
-    setScreen("menu");
-    setSelected(
-      Math.max(
-        0,
-        rows.findIndex(
-          (r) =>
-            r.screen === screen ||
-            (screen === "model-manual" && r.screen === "model-list"),
-        ),
-      ),
-    );
-    setNotice("");
-  };
-  const acceptField = () => {
-    if (screen !== "profile-id") {
-      back();
-      return;
-    }
-    let next: TuiSettingsValues;
-    if (screen === "profile-id") {
-      const id = editing.trim();
-      if (!ProfileIdSchema.safeParse(id).success) {
-        setMessage(
-          "Имя: буквы, цифры, точка, дефис или _; до 128 символов",
-          "error",
-        );
-        return;
-      }
-      if (profiles[id]) {
-        setMessage(
-          "Такой профиль уже есть. Выберите его в списке профилей.",
-          "error",
-        );
-        return;
-      }
-      next = { ...values, profileId: id, label: undefined, apiKey: undefined };
-      setAddingProfile(false);
-      setHasKey(false);
-    } else
-      next = {
-        ...values,
-        [screen === "profile-label"
-          ? "label"
-          : screen === "key"
-            ? "apiKey"
-            : screen === "base-url"
-              ? "baseUrl"
-              : "model"]: editing,
-      };
-    setValues(next);
-    back(true);
-    return next;
-  };
-  const choose = (
-    index = Math.min(selectedRef.current, choices.length - 1),
-  ) => {
-    if (!actions) return;
-    const picked = choices[index];
-    if (!picked) return;
-    if (lifetime.current.busy) {
-      if (lifetime.current.busy !== "models" || picked.id !== "__manual")
-        return;
-      cancelWork();
-    }
-    if (screen === "model-list") {
-      if (picked.id === "__manual") {
-        setEditing(query.trim() || values.model);
-        setScreen("model-manual");
-        setNotice("");
-      } else {
-        setValues((v) => ({ ...v, model: picked.id }));
-        back();
-      }
-    } else if (screen === "profiles") {
-      if (picked.id === "__new-profile") {
-        newProfile();
-        return;
-      }
-      if (picked.id === values.profileId) {
-        back();
-        return;
-      }
-      void connectionAutosave.flush().then((ok) => {
-        if (ok) switchProfile(picked.id);
-      });
-    } else {
-      const provider = filteredProviders[index];
-      if (!provider) return;
-      if (addingProfile) {
-        setValues({
-          provider: provider.id,
-          model: provider.defaults.model ?? "",
-          baseUrl:
-            provider.auth.type !== "subscription" &&
-            provider.endpoint.normalization !== "none"
-              ? provider.endpoint.defaultBaseUrl
-              : undefined,
-        });
-        setHasKey(false);
-        setEditing("");
-        setScreen("profile-id");
-        setNotice("");
-        return;
-      }
-      if (provider.id === values.provider) {
-        back();
-        return;
-      }
-      back();
-    }
   };
   const saveCurrent = () => {
     if (page === "appearance") void themeAutosave.flush();
@@ -1131,28 +458,10 @@ export function OpenTuiSettings({
                       {
                         id: "settings-reload-field",
                         label: "Обновить данные",
-                        run: () => {
-                          void actions
-                            ?.load(values.profileId)
-                            .then((draft) => {
-                              acknowledged.current = draft.values;
-                              baseline.current = JSON.stringify(draft.values);
-                              setMessage(
-                                "Данные обновлены; ввод сохранён. Повторите выход из поля.",
-                              );
-                            })
-                            .catch((error) =>
-                              setMessage(
-                                safeNotice(
-                                  error,
-                                  values,
-                                  editing,
-                                  screen === "key",
-                                ),
-                                "error",
-                              ),
-                            );
-                        },
+                        run: () =>
+                          reloadBaseline(
+                            "Данные обновлены; ввод сохранён. Повторите выход из поля.",
+                          ),
                       },
                     ]
                   : []),
@@ -1218,33 +527,10 @@ export function OpenTuiSettings({
                         id: "settings-use-profile",
                         label: "Использовать подключение",
                         disabled: !!busy,
-                        run: () => {
-                          void connectionAutosave.flush().then(async (ok) => {
-                            if (!ok) return;
-                            try {
-                              await actions?.activate?.(values);
-                              if (setup && readiness.current)
-                                completeClose("saved");
-                              else
-                                setMessage(
-                                  readiness.current
-                                    ? "Подключение выбрано"
-                                    : "Подключение выбрано · требуется настройка",
-                                  "success",
-                                );
-                            } catch (error) {
-                              setMessage(
-                                safeNotice(
-                                  error,
-                                  values,
-                                  editing,
-                                  screen === "key",
-                                ),
-                                "error",
-                              );
-                            }
-                          });
-                        },
+                        run: () =>
+                          activate(
+                            setup ? () => completeClose("saved") : undefined,
+                          ),
                       },
                     ]
                   : []),
@@ -1258,28 +544,10 @@ export function OpenTuiSettings({
                       {
                         id: "settings-reload",
                         label: "Обновить данные",
-                        run: () => {
-                          void actions
-                            ?.load(values.profileId)
-                            .then((draft) => {
-                              acknowledged.current = draft.values;
-                              baseline.current = JSON.stringify(draft.values);
-                              setMessage(
-                                "Данные обновлены; введённые значения сохранены. Повторите запись.",
-                              );
-                            })
-                            .catch((error) =>
-                              setMessage(
-                                safeNotice(
-                                  error,
-                                  values,
-                                  editing,
-                                  screen === "key",
-                                ),
-                                "error",
-                              ),
-                            );
-                        },
+                        run: () =>
+                          reloadBaseline(
+                            "Данные обновлены; введённые значения сохранены. Повторите запись.",
+                          ),
                       },
                     ]
                   : []),
@@ -1312,42 +580,6 @@ export function OpenTuiSettings({
     settingsMenuActions,
     "actions",
   );
-  const confirmConnection = (choice: number) => {
-    const pending = connectionConfirm;
-    if (!pending || !choice) {
-      setConnectionConfirm(undefined);
-      return;
-    }
-    setConnectionConfirm(undefined);
-    run("remove", async (valid) => {
-      if (pending.type === "disconnect") await actions?.disconnect?.(values);
-      else
-        await actions?.removeProfile?.(
-          pending.profileId,
-          profiles[pending.profileId],
-        );
-      if (!valid()) return;
-      if (pending.type === "disconnect") {
-        setHasKey(false);
-        setAccountLabel(undefined);
-        setMessage("Аккаунт отключён");
-      } else {
-        const catalog = await actions?.catalog?.();
-        const draft = await actions?.load();
-        if (!valid()) return;
-        if (catalog) setProfiles(catalog.profiles);
-        if (draft) {
-          setValues(draft.values);
-          baseline.current = JSON.stringify(draft.values);
-          acknowledged.current = draft.values;
-          setHasKey(draft.hasKey);
-        }
-        setScreen("profiles");
-        setSelected(0);
-        setMessage("Профиль удалён");
-      }
-    });
-  };
   const selectRoute = (index: number) => {
     const item = catalogue[index];
     if (!item) return;
@@ -1549,8 +781,8 @@ export function OpenTuiSettings({
       }
       return;
     }
-    if (lifetime.current.busy) {
-      if (lifetime.current.busy === "models" && name === "return") choose();
+    if (working()) {
+      if (working() === "models" && name === "return") choose();
       if (name === "return" || name === "tab") key.preventDefault();
       return;
     }

@@ -2,22 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
   mkdir,
-  open,
   readdir,
   readFile,
   realpath,
   rm,
 } from "node:fs/promises";
 import { hostname } from "node:os";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-} from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { loadProjectConfig } from "../config/load.js";
 import type { Disposable } from "../extensions/contracts.js";
 import {
@@ -29,7 +20,6 @@ import {
   gitIdentity,
   gitLine,
   localGitResource,
-  rejectExternalFilters,
 } from "../git/driver.js";
 import { chiselHomeDir } from "../paths/home.js";
 import {
@@ -45,23 +35,39 @@ import {
 import { managedWorkspaceCandidate } from "../projects/paths.js";
 import { recordVerifiedManagedRoot } from "../projects/verified-roots.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
-import {
-  IgnoredPathError,
-  WorkspacePolicy,
-} from "../security/workspace-policy.js";
+import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { withLock } from "../sessions/lock.js";
 import type { PatchPlan } from "../tools/editing/patch-plan.js";
 import { EditingService } from "../tools/editing/service.js";
-import { buildFileDiff } from "../tools/file-diff.js";
 import type { ToolContext, ToolPlan } from "../tools/types.js";
 import type { WorkspaceAccess } from "../tools/workspace-coordinator.js";
 import type { FileDiff, ToolExecutionResult } from "../types/domain.js";
-import { PathSecurityError } from "../utils/paths.js";
 import {
   bindWorktreePlanLifetime,
   onAbandonWorktreePlan,
   ownWorktreePlan,
 } from "./capability.js";
+import {
+  WORKTREE_LIMITS,
+  type WorktreeAction,
+  type WorktreeDescriptor,
+  type WorktreeInput,
+  type WorktreeWorkspacePort,
+} from "./contracts.js";
+import {
+  counts,
+  fail,
+  hash,
+  indexHash,
+  noFilters,
+  nulPaths,
+  parseWorktreePorcelain,
+  readText,
+  safePath,
+  samePath,
+  statuses,
+  within,
+} from "./observations.js";
 import {
   atomicWorktreeJson,
   readWorktreeRegistry,
@@ -69,72 +75,21 @@ import {
   type WorktreeRecord,
   type WorktreeRegistry,
 } from "./registry.js";
+import {
+  type ResultSnapshot,
+  readResultSnapshot,
+  resultHash,
+} from "./result-snapshot.js";
 
-export const WORKTREE_LIMITS = Object.freeze({
-  fileBytes: 512_000,
-  totalBytes: 8 * 1024 * 1024,
-  selectedFiles: 200,
-  metadataPaths: 20_000,
-  records: 1000,
-});
-export type WorktreeAction =
-  | "list"
-  | "status"
-  | "create"
-  | "diff"
-  | "apply"
-  | "remove";
-export interface WorktreeInput {
-  expectedFiles?: Record<string, string>;
-  id?: string;
-  label?: string;
-  ref?: string;
-  paths?: string[];
-}
-export interface WorktreeDescriptor {
-  /** Management ownership, never filesystem permissions. Optional for older clients. */
-  kind?: "origin" | "managed" | "external";
-  id?: string;
-  label: string;
-  path: string;
-  base?: string;
-  head?: string;
-  state: WorktreeRecord["state"] | "external";
-  readOnly: boolean;
-  origin?: string;
-  retainedRef?: string;
-  retainedCommit?: string;
-  activeUsers?: number;
-  staged?: number;
-  unstaged?: number;
-  untracked?: number;
-  ignored?: number;
-  conflicted?: number;
-  reason?: string;
-}
-export interface WorktreeWorkspacePort {
-  openOrigin(): Promise<{
-    readonly descriptor: Readonly<WorktreeDescriptor>;
-    dispose(): void | Promise<void>;
-  }>;
-  ownedBackgroundTarget(
-    id: string,
-    ownerId: string,
-  ): Promise<Readonly<WorktreeDescriptor>>;
-  access(
-    action: WorktreeAction,
-    input: WorktreeInput,
-  ): Promise<readonly WorkspaceAccess[]>;
-  prepare(
-    action: WorktreeAction,
-    input: WorktreeInput,
-    context: ToolContext,
-  ): Promise<ToolPlan>;
-  open(id: string): Promise<{
-    readonly descriptor: Readonly<WorktreeDescriptor>;
-    dispose(): void | Promise<void>;
-  }>;
-}
+export {
+  WORKTREE_LIMITS,
+  type WorktreeAction,
+  type WorktreeDescriptor,
+  type WorktreeInput,
+  type WorktreeWorkspacePort,
+} from "./contracts.js";
+export { parseWorktreePorcelain } from "./observations.js";
+
 interface Repository {
   identity: GitIdentity;
   directory: string;
@@ -142,30 +97,6 @@ interface Repository {
   trees: string;
   users: string;
 }
-interface GitStatus {
-  path: string;
-  status: string;
-}
-interface ResultFile {
-  path: string;
-  before: string | null;
-  after: string | null;
-  unsupported?: string;
-}
-interface ResultSnapshot {
-  files: ResultFile[];
-  head: string;
-  index: string;
-  diffs: FileDiff[];
-  omitted: number;
-  state: ReturnType<typeof counts>;
-}
-const resultHash = (file: ResultFile): string =>
-  createHash("sha256")
-    .update(JSON.stringify([file.before, file.after]))
-    .digest("hex");
-const hash = (value: string | Buffer | null): string | null =>
-  value === null ? null : createHash("sha256").update(value).digest("hex");
 const ownership = (
   record: Pick<
     WorktreeRecord,
@@ -197,211 +128,6 @@ const stamp = async (path: string) => {
   const info = await lstat(path);
   return `${info.dev}:${info.ino}:${info.birthtimeMs}`;
 };
-const samePath = (a: string, b: string) =>
-  process.platform === "win32"
-    ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
-    : a === b;
-const within = (parent: string, child: string) => {
-  const rel = relative(parent, child);
-  return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
-};
-const fail = (
-  code: ConstructorParameters<typeof RuntimeError>[0],
-  message: string,
-): never => {
-  throw new RuntimeError(code, message);
-};
-function safePath(path: string): void {
-  if (
-    !path ||
-    isAbsolute(path) ||
-    path.includes("\\") ||
-    path.includes(":") ||
-    path.includes("\0") ||
-    path
-      .split("/")
-      .some(
-        (part) =>
-          part === ".." ||
-          part === "." ||
-          part.toLowerCase() === ".git" ||
-          part === "",
-      )
-  )
-    fail("WORKTREE_UNSUPPORTED", "Unsafe or unsupported result pathname.");
-  if (
-    process.platform === "win32" &&
-    path
-      .split("/")
-      .some(
-        (part) =>
-          /[<>"|?*]|[. ]$/.test(part) ||
-          [...part].some((char) => char.charCodeAt(0) < 32) ||
-          /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
-      )
-  )
-    fail("WORKTREE_UNSUPPORTED", "This pathname is unsupported on Windows.");
-}
-async function noFilters(root: string, signal?: AbortSignal): Promise<void> {
-  await rejectExternalFilters(root, signal);
-}
-function nulPaths(text: string): string[] {
-  const paths = text.split("\0").filter(Boolean);
-  if (paths.length > WORKTREE_LIMITS.metadataPaths)
-    fail("WORKTREE_UNSUPPORTED", "Too many paths to inspect safely.");
-  return paths;
-}
-export function parseWorktreePorcelain(
-  text: string,
-): { path: string; head?: string; locked: boolean }[] {
-  const result: { path: string; head?: string; locked: boolean }[] = [];
-  let current: (typeof result)[number] | undefined;
-  for (const field of text.split("\0")) {
-    if (field.startsWith("worktree ")) {
-      current = { path: field.slice(9), locked: false };
-      result.push(current);
-    } else if (field.startsWith("HEAD ") && current)
-      current.head = field.slice(5);
-    else if (field.startsWith("locked") && current) current.locked = true;
-  }
-  return result;
-}
-async function statuses(
-  root: string,
-  signal?: AbortSignal,
-): Promise<GitStatus[]> {
-  await noFilters(root, signal);
-  const entries = nulPaths(
-    await gitCommand(
-      root,
-      [
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--ignored=matching",
-      ],
-      signal,
-    ),
-  );
-  const result: GitStatus[] = [];
-  for (let index = 0; index < entries.length; ++index) {
-    const entry = entries[index] as string;
-    result.push({ status: entry.slice(0, 2), path: entry.slice(3) });
-    if (/[RC]/.test(entry.slice(0, 2))) index++;
-  }
-  return result;
-}
-function counts(items: GitStatus[]) {
-  return {
-    staged: items.filter(
-      (item) => ![" ", "?", "!"].includes(item.status[0] ?? " "),
-    ).length,
-    unstaged: items.filter(
-      (item) => ![" ", "?", "!"].includes(item.status[1] ?? " "),
-    ).length,
-    untracked: items.filter((item) => item.status === "??").length,
-    ignored: items.filter((item) => item.status === "!!").length,
-    conflicted: items.filter((item) => /U|AA|DD/.test(item.status)).length,
-  };
-}
-async function indexHash(identity: GitIdentity): Promise<string | null> {
-  try {
-    return hash(await readFile(join(identity.gitDir, "index")));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-function textBytes(bytes: Buffer): string {
-  if (bytes.includes(0))
-    fail("WORKTREE_UNSUPPORTED", "Binary files cannot be transferred as text.");
-  try {
-    const text = new TextDecoder("utf-8", {
-      fatal: true,
-      ignoreBOM: true,
-    }).decode(bytes);
-    if (!Buffer.from(text, "utf8").equals(bytes))
-      fail("WORKTREE_UNSUPPORTED", "File encoding cannot round-trip as UTF-8.");
-    return text;
-  } catch {
-    return fail(
-      "WORKTREE_UNSUPPORTED",
-      "File encoding cannot round-trip as UTF-8.",
-    );
-  }
-}
-async function readText(
-  policy: WorkspacePolicy,
-  path: string,
-  signal?: AbortSignal,
-): Promise<string | null> {
-  safePath(path);
-  const requested = resolve(policy.root, path);
-  for (
-    let candidate = requested;
-    !samePath(candidate, policy.root);
-    candidate = dirname(candidate)
-  ) {
-    const info = await lstat(candidate).catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-        return undefined;
-      },
-    );
-    if (info?.isSymbolicLink())
-      fail(
-        "WORKTREE_UNSUPPORTED",
-        "Symlinks and symlink parents cannot be transferred.",
-      );
-    if (dirname(candidate) === candidate)
-      fail("WORKTREE_UNSUPPORTED", "Path escaped its workspace.");
-  }
-  const resolved = await policy.resolve(path);
-  if (!samePath(requested, resolved))
-    fail("WORKTREE_STALE", "Result path identity changed.");
-  let handle: Awaited<ReturnType<typeof open>>;
-  try {
-    handle = await open(resolved, "r");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-  try {
-    const info = await handle.stat();
-    if (!info.isFile() || info.size > WORKTREE_LIMITS.fileBytes)
-      fail(
-        "WORKTREE_UNSUPPORTED",
-        "Only bounded regular text files are supported (512000 bytes/file).",
-      );
-    if (process.platform !== "win32" && info.mode & 0o111)
-      fail(
-        "WORKTREE_UNSUPPORTED",
-        "Executable or mode changes are unsupported.",
-      );
-    const bytes = Buffer.alloc(WORKTREE_LIMITS.fileBytes + 1);
-    let length = 0;
-    while (length < bytes.length) {
-      cancelled(signal);
-      const read = await handle.read(
-        bytes,
-        length,
-        bytes.length - length,
-        null,
-      );
-      if (!read.bytesRead) break;
-      length += read.bytesRead;
-    }
-    if (length > WORKTREE_LIMITS.fileBytes)
-      fail("WORKTREE_UNSUPPORTED", "File exceeds the transfer limit.");
-    if (!samePath(await policy.resolve(path), resolved))
-      fail("WORKTREE_STALE", "File path changed during reading.");
-    return textBytes(bytes.subarray(0, length));
-  } finally {
-    await handle.close();
-  }
-}
-
 /** Repository bookkeeping and controlled plans. No model, Session store, branch
  * switching or recursive deletion is implemented here. */
 export class WorktreeService {
@@ -1160,200 +886,7 @@ export class WorktreeService {
     signal?: AbortSignal,
   ): Promise<ResultSnapshot> {
     await this.verify(repo, record, signal);
-    await noFilters(record.path, signal);
-    const head = await commitOid(record.path, "HEAD", signal);
-    const index =
-      (await indexHash({ ...repo.identity, gitDir: record.gitDir })) ??
-      "missing";
-    const changed = [
-      ...new Set([
-        ...nulPaths(
-          await gitCommand(
-            record.path,
-            [
-              "diff",
-              "--name-only",
-              "--no-renames",
-              "--no-ext-diff",
-              "--no-textconv",
-              "-z",
-              record.base,
-              "--",
-            ],
-            signal,
-          ),
-        ),
-        ...nulPaths(
-          await gitCommand(
-            record.path,
-            ["ls-files", "--others", "--exclude-standard", "-z"],
-            signal,
-          ),
-        ),
-      ]),
-    ].sort();
-    const paths = selected?.length ? [...new Set(selected)] : changed;
-    if (
-      process.platform === "win32" &&
-      new Set(paths.map((path) => path.toLowerCase())).size !== paths.length
-    )
-      fail(
-        "WORKTREE_UNSUPPORTED",
-        "Selected paths collide under Windows case rules.",
-      );
-    if (paths.length > WORKTREE_LIMITS.selectedFiles)
-      fail(
-        "WORKTREE_UNSUPPORTED",
-        "Select at most 200 changed paths for this result.",
-      );
-    if (paths.some((path) => !changed.includes(path)))
-      fail(
-        "INVALID_TOOL_INPUT",
-        "Select paths from the current result preview.",
-      );
-    const sourcePolicy = new WorkspacePolicy(
-      record.path,
-      (await loadProjectConfig(record.path)).ignorePatterns,
-    );
-    const originPolicy = new WorkspacePolicy(
-      record.origin.root,
-      (await loadProjectConfig(record.origin.root)).ignorePatterns,
-    );
-    const files: ResultFile[] = [];
-    let bytes = 0;
-    let omitted = changed.length - paths.length;
-    for (const path of paths) {
-      cancelled(signal);
-      let before: string | null = null;
-      try {
-        safePath(path);
-        // Reject symlinks before resolving; never read their target as a result.
-        const sourceInfo = await lstat(resolve(record.path, path)).catch(
-          () => undefined,
-        );
-        if (sourceInfo?.isSymbolicLink())
-          fail(
-            "WORKTREE_UNSUPPORTED",
-            "Symlink results cannot be transferred.",
-          );
-        await sourcePolicy.resolve(path);
-        await originPolicy.resolve(path);
-        if (
-          await gitCommand(
-            record.path,
-            ["check-ignore", "--no-index", "--", path],
-            signal,
-            true,
-          )
-        ) {
-          omitted++;
-          files.push({
-            path,
-            before: null,
-            after: null,
-            unsupported: "Ignored by Git policy; content was not read.",
-          });
-          continue;
-        }
-        const entry = nulPaths(
-          await gitCommand(
-            record.path,
-            ["ls-tree", "-z", record.base, "--", path],
-            signal,
-          ),
-        )[0];
-        if (entry) {
-          if (!entry.startsWith("100644 blob "))
-            fail(
-              "WORKTREE_UNSUPPORTED",
-              "Binary modes, executable files, symlinks and gitlinks are unsupported.",
-            );
-          const oid = entry.split(" ")[2]?.split("\t")[0];
-          if (
-            !oid ||
-            Number(
-              await gitCommand(record.path, ["cat-file", "-s", oid], signal),
-            ) > WORKTREE_LIMITS.fileBytes
-          )
-            fail(
-              "WORKTREE_UNSUPPORTED",
-              "Base file exceeds the transfer limit.",
-            );
-          before = textBytes(
-            await gitBytes(
-              record.path,
-              ["cat-file", "blob", oid as string],
-              signal,
-            ),
-          );
-        }
-        const after = await readText(sourcePolicy, path, signal);
-        const indexed = (
-          await gitCommand(
-            record.path,
-            ["ls-files", "--stage", "-z", "--", path],
-            signal,
-          )
-        )
-          .split("\0")
-          .filter(Boolean);
-        if (
-          indexed.some(
-            (item) => !item.startsWith("100644 ") || !/ 0\t/.test(item),
-          )
-        )
-          fail(
-            "WORKTREE_UNSUPPORTED",
-            "Executable, symlink, gitlink or conflicted index entry is unsupported.",
-          );
-        bytes +=
-          Buffer.byteLength(before ?? "") + Buffer.byteLength(after ?? "");
-        if (bytes > WORKTREE_LIMITS.totalBytes)
-          fail(
-            "WORKTREE_UNSUPPORTED",
-            "Selected result exceeds the 8 MiB transfer budget.",
-          );
-        files.push({ path, before, after });
-      } catch (error) {
-        if (error instanceof PathSecurityError)
-          files.push({
-            path,
-            before: null,
-            after: null,
-            unsupported:
-              "Path boundary or symlink escape is unsupported; no content was read.",
-          });
-        else if (error instanceof IgnoredPathError) {
-          omitted++;
-          files.push({
-            path,
-            before: null,
-            after: null,
-            unsupported: "Ignored by workspace policy; content was not read.",
-          });
-        } else if (
-          error instanceof RuntimeError &&
-          error.code === "WORKTREE_UNSUPPORTED"
-        )
-          files.push({
-            path,
-            before: null,
-            after: null,
-            unsupported: error.message,
-          });
-        else throw error;
-      }
-    }
-    return {
-      head,
-      index,
-      state: counts(await statuses(record.path, signal)),
-      files,
-      omitted,
-      diffs: files
-        .filter((file) => !file.unsupported && file.before !== file.after)
-        .map((file) => buildFileDiff(file.path, file.before, file.after)),
-    };
+    return readResultSnapshot(repo.identity, record, selected, signal);
   }
   private async recheckSource(
     repo: Repository,

@@ -8,6 +8,7 @@ const names = [
   "skill-source",
   "auto-compaction",
   "background-owner",
+  "background-journal",
   "compatible-base-url",
   "context-usage",
   "conversation-source",

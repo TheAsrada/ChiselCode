@@ -18,6 +18,7 @@ flowchart LR
 
 | Область | Основной контракт |
 | --- | --- |
+| Владельцы состояния и ресурсов крупных модулей | [Границы терминала и сервисов](architecture/module-boundaries.md) |
 | Цикл запроса, контекст, разрешения и инструменты | [Core runtime](architecture/runtime.md) |
 | Сервисы моделей, профили и драйверы | [Провайдеры](architecture/providers.md) · [Потоковые ответы](architecture/provider-streams.md) |
 | Навигация встроенных меню | [Фокус и именованные действия](architecture/menu-navigation.md) |

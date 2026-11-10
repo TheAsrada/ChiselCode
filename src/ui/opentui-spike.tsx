@@ -20,11 +20,7 @@ import {
   composeCommandProjection,
 } from "../commands/slash.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
-import {
-  type AgentMode,
-  DEFAULT_AGENT_MODE,
-  nextAgentMode,
-} from "../runtime/agent-mode.js";
+import { type AgentMode, nextAgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalRequest } from "../security/approval.js";
 import {
   APPROVAL_MODE_INPUTS,
@@ -50,11 +46,7 @@ import {
   createEditorState,
   navigateEditorHistory,
 } from "./editor.js";
-import {
-  dispatchCoreChat,
-  ExtensionUiBinding,
-  type UiToolSubmit,
-} from "./extension-ui.js";
+import { dispatchCoreChat, type UiToolSubmit } from "./extension-ui.js";
 import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
 import type { MotionPreference } from "./motion.js";
 import { OpenTuiAgentDetails } from "./opentui-agent-details.js";
@@ -64,6 +56,7 @@ import { OpenTuiBackgroundTasks } from "./opentui-background-tasks.js";
 import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
 import { OpenTuiCommandFeedback } from "./opentui-command-feedback.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
+import { OpenTuiComposer } from "./opentui-composer.js";
 import {
   extensionPaneWidth,
   UiCompositionControls,
@@ -83,7 +76,6 @@ import {
   OpenTuiProjects,
   type OpenTuiProjectsActions,
 } from "./opentui-projects.js";
-import { OpenTuiPrompt } from "./opentui-prompt.js";
 import { OpenTuiRequestStatus } from "./opentui-request-status.js";
 import {
   OpenTuiSessions,
@@ -130,12 +122,10 @@ import {
   groupToolActions,
 } from "./tool-actions.js";
 import type { TuiApprovalResolver } from "./tui-contract.js";
-import type {
-  TuiPresentationController as TuiController,
-  TuiViewState,
-} from "./tui-controller.js";
+import type { TuiPresentationController as TuiController } from "./tui-controller.js";
 import type { TuiWorkspace } from "./tui-workspace.js";
 import type { UpdateController } from "./update-controller.js";
+import { useConversationBindings } from "./use-conversation-bindings.js";
 import type { WorkspaceCommandsPort } from "./workspace-commands.js";
 import type { WorktreeManagerActions } from "./worktree-actions.js";
 
@@ -373,18 +363,16 @@ function OpenTuiScreen({
     approvalResolver?.bind(setApproval);
     return () => approvalResolver?.bind(undefined);
   }, [approvalResolver]);
-  const [view, setView] = useState<TuiViewState>(
-    () =>
-      controller?.snapshot ?? {
-        projectPath: process.cwd(),
-        agentMode: DEFAULT_AGENT_MODE,
-        approvalMode: DEFAULT_APPROVAL_MODE,
-        transcript: [],
-        streaming: "",
-        draft: "",
-        focus: "composer",
-      },
-  );
+  const { view, setView, uiBinding } = useConversationBindings({
+    transcript,
+    editor,
+    nativeRenderer,
+    controller,
+    commandActions,
+    onUiTool,
+    uiRedactor,
+  });
+
   const openProjects = () => {
     if (!getProjectActions || approval || projects || otherOverlay) return;
     editor.current?.blur();
@@ -396,124 +384,6 @@ function OpenTuiScreen({
   useEffect(() => {
     if (view.projectPicker) requestProjects();
   }, [view.projectPicker]);
-  const compositionPosition = useRef<
-    | {
-        owner: string;
-        generation: number;
-        editor: TextareaRenderable | null;
-        cursor: number;
-        scroll: ScrollBoxRenderable | null;
-        top: number;
-        pinned: boolean;
-      }
-    | undefined
-  >(undefined);
-  const priorContributions = useRef(view.uiContributions);
-  useEffect(
-    () =>
-      controller?.subscribe((next) => {
-        if (next.uiContributions !== priorContributions.current) {
-          priorContributions.current = next.uiContributions;
-          const scroll = transcript.current;
-          compositionPosition.current ??= {
-            owner: controller.conversationId,
-            generation: controller.currentGeneration,
-            editor: editor.current,
-            cursor: editor.current?.cursorOffset ?? 0,
-            scroll,
-            top: scroll?.scrollTop ?? 0,
-            pinned:
-              !scroll ||
-              scroll.scrollTop >=
-                scroll.scrollHeight - scroll.viewport.height - 1,
-          };
-        }
-        setView(next);
-      }),
-    [controller],
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Restore native position after a composition commit, including structural changes that replace refs.
-  useLayoutEffect(() => {
-    const saved = compositionPosition.current;
-    compositionPosition.current = undefined;
-    if (
-      !saved ||
-      saved.owner !== controller?.conversationId ||
-      saved.generation !== controller.currentGeneration
-    )
-      return;
-    if (editor.current && saved.editor !== editor.current)
-      editor.current.cursorOffset = Math.min(
-        saved.cursor,
-        editor.current.plainText.length,
-      );
-    if (
-      transcript.current &&
-      saved.scroll !== transcript.current &&
-      !saved.pinned
-    ) {
-      const scroll = transcript.current;
-      const restore = () => {
-        if (transcript.current === scroll) scroll.scrollTo(saved.top);
-      };
-      nativeRenderer.once("frame", restore);
-      nativeRenderer.requestRender();
-      return () => {
-        nativeRenderer.off("frame", restore);
-      };
-    }
-  }, [controller, nativeRenderer, view.uiContributions]);
-  const uiBinding = controller?.uiBinding;
-  const bindingGeneration = controller?.currentGeneration;
-  const [uiEpoch, setUiEpoch] = useState(0);
-  useEffect(
-    () => commandActions?.subscribeUi?.(() => setUiEpoch((epoch) => epoch + 1)),
-    [commandActions],
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Session allocation replaces the pre-session binding without creating a session from a view.
-  useEffect(() => {
-    if (!controller || !commandActions?.uiScope) return;
-    let active = true;
-    let binding: ExtensionUiBinding | undefined;
-    const root = controller.snapshot.projectPath;
-    if (!root) return;
-    void (
-      commandActions.uiScopes
-        ? commandActions.uiScopes(root, controller.ownerSignal)
-        : commandActions
-            .uiScope(root, controller.ownerSignal)
-            .then((scope) => (scope ? [scope] : []))
-    ).then(([scope, ...additional]) => {
-      if (
-        !active ||
-        !scope ||
-        controller.ownerSignal.aborted ||
-        controller.currentGeneration !== bindingGeneration
-      )
-        return;
-      binding = new ExtensionUiBinding(
-        controller,
-        scope,
-        onUiTool,
-        uiRedactor,
-        additional,
-      );
-      controller.uiBinding = binding;
-    });
-    return () => {
-      active = false;
-      binding?.dispose();
-      if (controller.uiBinding === binding) controller.uiBinding = undefined;
-    };
-  }, [
-    controller,
-    commandActions,
-    onUiTool,
-    uiRedactor,
-    bindingGeneration,
-    view.sessionId,
-    uiEpoch,
-  ]);
   const [focus, setFocus] = useState<"editor" | "transcript" | "sidebar">(
     "editor",
   );
@@ -2215,172 +2085,97 @@ function OpenTuiScreen({
     (child) => child.status === "awaiting_approval",
   );
   const composer = (
-    <UiSurface name="Composer" preserveNative>
-      <UiSurface name="AbovePrompt" />
-      <UiPaneRegion
-        key={`above:${controller?.conversationId}`}
-        placement="above_prompt"
-        width={width}
-        narrow={!dockExtensionPane}
-      />
-      <box width="100%" flexShrink={0} flexDirection="column">
-        {visibleSuggestions.map((command, index) => (
-          <text
-            key={command.name}
-            height={1}
-            fg={
-              index + suggestionStart === selectedSuggestionIndex
-                ? palette.accent
-                : palette.muted
-            }
-          >
-            {terminalLine(
-              `${index + suggestionStart === selectedSuggestionIndex ? ">" : " "} ${command.name} | ${command.description}${command.source.type === "extension" ? ` [${command.source.extensionId}]` : ""}`,
-              Math.max(8, composerWidth - 3),
-            )}
-          </text>
-        ))}
-        <OpenTuiPrompt
-          compact={!home && height < 10}
-          palette={palette}
-          width={composerWidth}
-          focused={
-            !commandFeedbackActive &&
-            !pickerOpen &&
-            focus === "editor" &&
-            !skillsOpen &&
-            !mcpActions &&
-            !settingsOpen &&
-            !modelsActions &&
-            !permissionsOpen &&
-            !updateOpen &&
-            !approval &&
-            !sideActive &&
-            !agentActive &&
-            !backgroundPanelActive &&
-            !backgroundActiveView &&
-            !uiFocus
-          }
-          hasDraft={!!draft.trim()}
-          busy={view.busy}
-          model={
-            view.modelSelection?.model ??
-            view.usage?.model ??
-            getDefaultModel?.()
-          }
-          agentMode={view.agentMode}
-          runningMode={view.runningMode}
-          approvalMode={view.approvalMode}
-          runningApprovalMode={view.runningApprovalMode}
-          onToggleMode={() => {
-            if (!sideActive && !agentActive && !approval && !otherOverlay)
-              toggleAgentMode();
-          }}
-          onPermissionsSelect={openPermissions}
-          onModelSelect={getModelsActions ? openModels : undefined}
-          onSubmit={() => submit()}
-        >
-          <textarea
-            id="prompt-editor"
-            ref={editor}
-            onMouseDown={() => {
-              if (!approval && !otherOverlay) {
-                setFocus("editor");
-                controller?.setFocus("composer");
-                setUiFocus(undefined);
-              }
-            }}
-            height={editorHeight}
-            focused={
-              !commandFeedbackActive &&
-              !pickerOpen &&
-              focus === "editor" &&
-              !skillsOpen &&
-              !mcpActions &&
-              !settingsOpen &&
-              !modelsActions &&
-              !permissionsOpen &&
-              !updateOpen &&
-              !approval &&
-              !sideActive &&
-              !agentActive &&
-              !backgroundPanelActive &&
-              !backgroundActiveView &&
-              !extensionActive &&
-              !uiOverflow &&
-              !uiControls &&
-              !uiFocus
-            }
-            initialValue={draft}
-            backgroundColor={palette.surface}
-            focusedBackgroundColor={palette.surface}
-            textColor={palette.text}
-            focusedTextColor={palette.text}
-            placeholderColor={palette.muted}
-            placeholder="Опишите задачу..."
-            cursorColor={palette.accent}
-            selectionBg={palette.raised}
-            selectionFg={palette.text}
-            onContentChange={() => {
-              const next = editor.current?.plainText ?? "";
-              if (
-                applyingHistory.current ||
-                (history.current.historyIndex >= 0 &&
-                  next === history.current.value)
-              )
-                return;
-              if (next !== acceptedCompletion.current) {
-                setSuggestionIndex(0);
-                setSuggestionsDismissed(false);
-              }
-              acceptedCompletion.current = undefined;
-              history.current = {
-                ...history.current,
-                value: next,
-                cursor: editor.current?.cursorOffset ?? next.length,
-                historyIndex: -1,
-                historyDraft: "",
-              };
-              setDraft(next);
-              controller?.setDraft(next);
-            }}
-            onSubmit={() => submit()}
-            keyBindings={[
-              { name: "return", action: "submit" },
-              { name: "return", shift: true, action: "newline" },
-            ]}
-          />
-        </OpenTuiPrompt>
-        <UiSurface name="StatusLine">
-          <box height={1} flexDirection="row" flexShrink={0}>
-            <UiSurface name="PromptHints">
-              <text fg={palette.muted} height={1} width={composerWidth}>
-                {terminalLine(
-                  !home && height < 10
-                    ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
-                    : view.busy && onCancel
-                      ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
-                      : composerWidth >= 77
-                        ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
-                        : composerWidth >= 45
-                          ? "Enter отправить | Shift+Tab режим | F4 разрешения"
-                          : composerWidth >= 30
-                            ? "Shift+Tab режим · F4"
-                            : "Enter · F4 доступ",
-                  composerWidth,
-                )}
-              </text>
-            </UiSurface>
-          </box>
-        </UiSurface>
-      </box>
-      <UiSurface name="BelowPrompt" />
-      <UiPaneRegion
-        key={`below:${controller?.conversationId}`}
-        placement="below_prompt"
-        width={width}
-      />
-    </UiSurface>
+    <OpenTuiComposer
+      width={width}
+      dockExtensionPane={dockExtensionPane}
+      visibleSuggestions={visibleSuggestions}
+      suggestionStart={suggestionStart}
+      selectedSuggestionIndex={selectedSuggestionIndex}
+      palette={palette}
+      composerWidth={composerWidth}
+      home={home}
+      height={height}
+      promptFocused={
+        !commandFeedbackActive &&
+        !pickerOpen &&
+        focus === "editor" &&
+        !skillsOpen &&
+        !mcpActions &&
+        !settingsOpen &&
+        !modelsActions &&
+        !permissionsOpen &&
+        !updateOpen &&
+        !approval &&
+        !sideActive &&
+        !agentActive &&
+        !backgroundPanelActive &&
+        !backgroundActiveView &&
+        !uiFocus
+      }
+      editorFocused={
+        !commandFeedbackActive &&
+        !pickerOpen &&
+        focus === "editor" &&
+        !skillsOpen &&
+        !mcpActions &&
+        !settingsOpen &&
+        !modelsActions &&
+        !permissionsOpen &&
+        !updateOpen &&
+        !approval &&
+        !sideActive &&
+        !agentActive &&
+        !backgroundPanelActive &&
+        !backgroundActiveView &&
+        !extensionActive &&
+        !uiOverflow &&
+        !uiControls &&
+        !uiFocus
+      }
+      draft={draft}
+      view={view}
+      onToggleMode={() => {
+        if (!sideActive && !agentActive && !approval && !otherOverlay)
+          toggleAgentMode();
+      }}
+      openPermissions={openPermissions}
+      onModelSelect={getModelsActions ? openModels : undefined}
+      submit={submit}
+      editor={editor}
+      editorHeight={editorHeight}
+      conversationId={controller?.conversationId}
+      onEditorFocus={() => {
+        if (!approval && !otherOverlay) {
+          setFocus("editor");
+          controller?.setFocus("composer");
+          setUiFocus(undefined);
+        }
+      }}
+      onDraftChange={() => {
+        const next = editor.current?.plainText ?? "";
+        if (
+          applyingHistory.current ||
+          (history.current.historyIndex >= 0 && next === history.current.value)
+        )
+          return;
+        if (next !== acceptedCompletion.current) {
+          setSuggestionIndex(0);
+          setSuggestionsDismissed(false);
+        }
+        acceptedCompletion.current = undefined;
+        history.current = {
+          ...history.current,
+          value: next,
+          cursor: editor.current?.cursorOffset ?? next.length,
+          historyIndex: -1,
+          historyDraft: "",
+        };
+        setDraft(next);
+        controller?.setDraft(next);
+      }}
+      defaultModel={getDefaultModel?.()}
+      canCancel={!!onCancel}
+    />
   );
 
   if (

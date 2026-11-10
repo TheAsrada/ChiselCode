@@ -3,16 +3,7 @@ import { hostname } from "node:os";
 import { basename } from "node:path";
 import { loadGlobalConfig, loadProjectConfig } from "../config/load.js";
 import type { Disposable } from "../extensions/contracts.js";
-import {
-  canonicalWorkspaceRoot,
-  type WorkspaceExtensionScope,
-} from "../extensions/host.js";
-import { frozenClone } from "../extensions/lifecycle.js";
-import {
-  commonGitResource,
-  gitIdentity,
-  localGitResource,
-} from "../git/driver.js";
+import { canonicalWorkspaceRoot } from "../extensions/host.js";
 import type { ProcessProofGrant } from "../processes/cleanup-proof.js";
 import {
   currentProcessIdentity,
@@ -22,24 +13,14 @@ import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
 import { shellFailureHint } from "../processes/shell.js";
 import { cancelled, RuntimeError, runtimeError } from "../runtime/errors.js";
 import type { RuntimeEvent } from "../runtime/events.js";
-import { PermissionPolicy } from "../security/permission-policy.js";
 import { SENSITIVE_KEY, SecretRedactor } from "../security/redaction.js";
-import { WorkspacePolicy } from "../security/workspace-policy.js";
-import type { ProjectSessionStore } from "../sessions/project-store.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import type { ToolContext, ToolPlan } from "../tools/types.js";
 import {
-  accessPlansConflict,
   type WorkspaceAccess,
   workspaceCoordinator,
 } from "../tools/workspace-coordinator.js";
-import type {
-  GlobalConfig,
-  ProjectConfig,
-  Session,
-  ToolCall,
-  ToolExecutionResult,
-} from "../types/domain.js";
+import type { ToolCall, ToolExecutionResult } from "../types/domain.js";
 import { terminalSafeText } from "../ui/terminal-text.js";
 import type { WorktreeService } from "../worktrees/service.js";
 import type {
@@ -58,42 +39,28 @@ import {
   effectiveBackgroundConfig,
 } from "./config.js";
 import {
-  type BackgroundEvent,
   type BackgroundOutputPage,
   type BackgroundPort,
   type BackgroundState,
   type BackgroundTask,
   type BackgroundTaskRecord,
-  BackgroundTaskSchema,
   backgroundActive,
 } from "./contracts.js";
 import type { ExecutionResolution } from "./execution.js";
 import { type ShellData, type ShellInput, ShellInputSchema } from "./input.js";
 import { ProcessLog } from "./log.js";
+import type { BackgroundOwnerBinding } from "./owner-binding.js";
+import {
+  recheckShell,
+  redactCommand,
+  resolveShell,
+  shellAccesses,
+} from "./shell-policy.js";
 import { BackgroundTaskStore } from "./storage.js";
+import { BackgroundTaskJournal, taskDescriptor } from "./task-journal.js";
 
-export interface BackgroundOwnerBinding {
-  session: Session;
-  store: ProjectSessionStore;
-  root: string;
-  origin?: string;
-  conversationId: string;
-  generation: number;
-  signal: AbortSignal;
-  assertAvailable(): void;
-  scope: WorkspaceExtensionScope;
-  config: ProjectConfig;
-  global: GlobalConfig;
-  configPath?: string;
-  interactive: boolean;
-  redactor: SecretRedactor;
-  childId?: string;
-  childLabel?: string;
-  childDeadline?: number;
-  worktree?: ShellData["worktree"];
-  currentMode?(): string;
-  onEvent?(event: BackgroundEvent): void;
-}
+export type { BackgroundOwnerBinding } from "./owner-binding.js";
+
 interface Owner {
   binding: BackgroundOwnerBinding;
   records: Map<string, BackgroundTaskRecord>;
@@ -169,7 +136,7 @@ export class BackgroundTaskService {
     }
   >();
   private tickets = new WeakMap<object, Active>();
-  private listeners = new Set<() => void>();
+  private readonly journal = new BackgroundTaskJournal(this.storage);
   private closed = false;
   private clock?: ReturnType<typeof setInterval>;
   private detachCoordinator?: () => void;
@@ -280,14 +247,14 @@ export class BackgroundTaskService {
               : "Сохранённый процесс не подключается и не повторяется. Завершение потомков требует проверки.";
             if (neverStarted) await this.storage.lease(record, true);
             record.finishedAt = new Date().toISOString();
-            await this.persist(owner, record, "terminal");
+            await this.journal.persist(owner, record, "terminal");
           } else if (record.cleanup.confirmed && fenced.has(record.id)) {
             // Crash between terminal checkpoint and lease release is not a clean handoff.
             record.state = "cleanup_unknown";
             record.cleanup = { confirmed: false, recoveryRequired: true };
             record.error =
               "Предыдущее освобождение ресурсов не подтверждено. Сохранённый код выхода не снимает блокировку.";
-            await this.persist(owner, record, "terminal");
+            await this.journal.persist(owner, record, "terminal");
           }
         }
         this.assert(ownerId, binding.generation);
@@ -347,7 +314,7 @@ export class BackgroundTaskService {
           return;
         this.assert(ownerId, binding.generation);
         return binding.scope.chat.render("builtin.background", "task", {
-          task: this.descriptor(record),
+          task: taskDescriptor(record),
           busy: invocationId,
         });
       },
@@ -441,17 +408,6 @@ export class BackgroundTaskService {
       );
     return record;
   }
-  private descriptor(record: BackgroundTaskRecord): BackgroundTask {
-    const {
-      schemaVersion: _schema,
-      operationKey: _key,
-      process: _process,
-      ...dto
-    } = record;
-    // Tool details are JSON data. Optional formatter fields can contain
-    // undefined in memory; they must not break checkpoint validation on resume.
-    return frozenClone(JSON.parse(JSON.stringify(dto)) as BackgroundTask);
-  }
   private ticket(ticket: object): Active {
     const item = this.tickets.get(ticket);
     if (!item || item.finished)
@@ -467,66 +423,6 @@ export class BackgroundTaskService {
       binding.config.backgroundTasks,
     );
   }
-  private async resolve(
-    binding: BackgroundOwnerBinding,
-    context: ToolContext,
-    raw: ShellInput,
-  ): Promise<ShellData> {
-    const input = ShellInputSchema.parse(structuredClone(raw));
-    let root = binding.root;
-    let worktree = binding.worktree;
-    if (input.targetWorktreeId) {
-      if (binding.childId && input.targetWorktreeId !== binding.worktree?.id)
-        throw new RuntimeError(
-          "PERMISSION_DENIED",
-          "Помощник может запускать команды только в собственной копии.",
-        );
-      if (!binding.childId) {
-        const target = await context.worktrees?.ownedBackgroundTarget(
-          input.targetWorktreeId,
-          binding.session.id,
-        );
-        if (
-          !target?.id ||
-          !target.base ||
-          target.readOnly ||
-          target.state !== "ready"
-        )
-          throw new RuntimeError(
-            "WORKTREE_UNAVAILABLE",
-            "Нужна доступная собственная рабочая копия.",
-          );
-        root = target.path;
-        worktree = { id: target.id, label: target.label, base: target.base };
-      }
-    }
-    const workspace = new WorkspacePolicy(root, binding.config.ignorePatterns);
-    const cwd = await workspace.resolve(input.cwd ?? ".");
-    return {
-      ...input,
-      cwd,
-      actualRoot: root,
-      timeout: input.timeout ?? 120000,
-      ...(worktree ? { worktree } : {}),
-    };
-  }
-  private async accesses(root: string): Promise<readonly WorkspaceAccess[]> {
-    const scope = await workspaceCoordinator.scope(root);
-    const plan: WorkspaceAccess[] = scope.map((resource) => ({
-      resource,
-      mode: "write",
-    }));
-    try {
-      const identity = await gitIdentity(root);
-      plan.push(
-        { resource: commonGitResource(identity), mode: "write" },
-        { resource: localGitResource(identity), mode: "write" },
-      );
-    } catch {
-      /* Non-Git projects still have the conservative workspace write fence. */
-    }
-    return plan;
-  }
   private async prepareShell(
     binding: BackgroundOwnerBinding,
     context: ToolContext,
@@ -534,29 +430,12 @@ export class BackgroundTaskService {
   ): Promise<ToolPlan<ShellData>> {
     const data = context.backgroundExecution
       ? structuredClone(this.ticket(context.backgroundExecution).data)
-      : await this.resolve(binding, context, input);
+      : await resolveShell(binding, context, input);
     const preview = `$ ${binding.redactor.text(data.command)}\nПапка: ${data.cwd}\n${data.worktree ? `Копия «${data.worktree.label}», committed base ${data.worktree.base}. Незакоммиченные изменения не перенесены.` : "Пока команда работает, связанные операции с файлами и Git могут быть заняты."}`;
     return ownShellAccess(
       { data, preview, resources: [data.actualRoot], command: data.command },
-      await this.accesses(data.actualRoot),
+      await shellAccesses(data.actualRoot),
     ) as ToolPlan<ShellData>;
-  }
-  private redactCommand(
-    binding: BackgroundOwnerBinding,
-    command: string,
-  ): string {
-    for (const [key, value] of Object.entries(process.env))
-      if (value && SENSITIVE_KEY.test(key)) binding.redactor.add(value);
-    for (const match of command.matchAll(
-      /(?:--?(?:password|token|secret|api[-_]?key)\s+|(?:password|token|secret|api[-_]?key)=)("[^"]*"|'[^']*'|[^\s;]+)/gi,
-    )) {
-      const value = match[1];
-      if (value) binding.redactor.add(value.replace(/^["']|["']$/g, ""));
-    }
-    return terminalSafeText(
-      binding.redactor.text(command),
-      BACKGROUND_LIMITS.commandBytes,
-    );
   }
   private async newRecord(
     owner: Owner,
@@ -573,7 +452,7 @@ export class BackgroundTaskService {
     const operationKey =
       capturedKey ??
       this.submissionKey(owner, binding, context, context.invocationId ?? "");
-    const preview = this.redactCommand(binding, data.command);
+    const preview = redactCommand(binding, data.command);
     const [global, origin, actual] = await Promise.all([
       loadGlobalConfig(binding.configPath),
       loadProjectConfig(binding.origin ?? owner.binding.root),
@@ -675,7 +554,7 @@ export class BackgroundTaskService {
       outputGeneration: randomUUID(),
       truncated: false,
       cleanup: { confirmed: true },
-      resources: [...(await this.accesses(data.actualRoot))],
+      resources: [...(await shellAccesses(data.actualRoot))],
       ...(data.retryOf ? { retryOf: data.retryOf } : {}),
       process: {
         instance: randomUUID(),
@@ -751,7 +630,7 @@ export class BackgroundTaskService {
       record.tail = [];
       record.commandPreview = "История истекла";
       record.replayable = false;
-      await this.persist(owner, record, "changed");
+      await this.journal.persist(owner, record, "changed");
     }
   }
   async completionContext(
@@ -829,7 +708,7 @@ export class BackgroundTaskService {
         "MODE_RESTRICTION",
         "Фоновые команды доступны в Build по обычным разрешениям shell.",
       );
-    const data = await this.resolve(binding, context, input);
+    const data = await resolveShell(binding, context, input);
     const record = await this.newRecord(
       owner,
       binding,
@@ -874,7 +753,7 @@ export class BackgroundTaskService {
         await this.storage.reserve(record);
         await this.storage.save(record);
         owner.records.set(record.id, record);
-        await this.persist(owner, record, "accepted");
+        await this.journal.persist(owner, record, "accepted");
       });
     owner.allocation = allocation.then(
       () => {},
@@ -1068,7 +947,7 @@ export class BackgroundTaskService {
         "Запуск требует core task capability.",
       );
     const item = this.ticket(context.backgroundExecution);
-    await this.recheck(item);
+    await recheckShell(item);
     cancelled(context.signal);
     cancelled(item.abort.signal);
     item.record.cleanup = { confirmed: false };
@@ -1118,7 +997,7 @@ export class BackgroundTaskService {
       await this.worktrees.collectBackgroundUses(record.workspace);
       if (!record.outputExpired) await this.storage.lease(record, true);
       await this.storage.acknowledge(record);
-      return this.descriptor(record);
+      return taskDescriptor(record);
     }
     record.truncated ||=
       backgroundActive(record.state) || !record.cleanup.confirmed;
@@ -1138,11 +1017,11 @@ export class BackgroundTaskService {
         ? "Команда прервана закрытием приложения."
         : undefined;
     record.truncated ||= resolution.ownerGone;
-    await this.persist(owner, record, "terminal");
+    await this.journal.persist(owner, record, "terminal");
     await this.worktrees.collectBackgroundUses(record.workspace);
     if (!record.outputExpired) await this.storage.lease(record, true);
     await this.storage.acknowledge(record);
-    return this.descriptor(record);
+    return taskDescriptor(record);
   }
   private async startProcess(
     item: Active,
@@ -1167,7 +1046,7 @@ export class BackgroundTaskService {
     );
     await item.log.create();
     item.record.cleanup = { confirmed: false };
-    await this.persist(
+    await this.journal.persist(
       item.owner,
       item.record,
       item.record.foreground ? "foreground" : "changed",
@@ -1226,11 +1105,13 @@ export class BackgroundTaskService {
     if (item.writes) return item.writes;
     if (!item.dirty) return;
     item.dirty = false;
-    item.writes = this.persist(
-      item.owner,
-      item.record,
-      item.record.foreground ? "foreground" : "changed",
-    ).then(() => {});
+    item.writes = this.journal
+      .persist(
+        item.owner,
+        item.record,
+        item.record.foreground ? "foreground" : "changed",
+      )
+      .then(() => {});
     try {
       await item.writes;
     } catch {
@@ -1246,68 +1127,11 @@ export class BackgroundTaskService {
     if (item.finished || item.record.state === state) return;
     await item.writes;
     item.record.state = state;
-    await this.persist(
+    await this.journal.persist(
       item.owner,
       item.record,
       item.record.foreground ? "foreground" : "changed",
     );
-  }
-  private async persist(
-    owner: Owner,
-    record: BackgroundTaskRecord,
-    type: BackgroundEvent["type"],
-  ): Promise<number> {
-    record.revision++;
-    if (type === "terminal") record.terminalRevision = record.revision;
-    record.updatedAt = new Date().toISOString();
-    const presentation = owner.binding.scope.chat.render(
-      "builtin.background",
-      "task",
-      { task: this.descriptor(record) },
-    );
-    if (presentation) record.presentation = presentation;
-    // Persist and announce one immutable revision. Output may advance the live
-    // record while disk/checkpoint writes await; it cannot change this receipt.
-    const snapshot = BackgroundTaskSchema.parse(record);
-    if (snapshot.foreground) await this.storage.saveForeground(snapshot);
-    else await this.storage.save(snapshot);
-    if (!snapshot.foreground) {
-      const prior = owner.binding.session.backgroundTasks?.[snapshot.id];
-      const receipt = {
-        id: snapshot.id,
-        revision: snapshot.revision,
-        label: snapshot.label,
-        kind: snapshot.kind,
-        state: snapshot.state,
-        ...(snapshot.childId ? { childId: snapshot.childId } : {}),
-        afterMessage:
-          prior?.afterMessage ?? owner.binding.session.messages.length,
-        ...(presentation ? { presentation } : {}),
-      };
-      const saved = await owner.binding.store.patchBackground(
-        snapshot.rootOwnerId,
-        receipt,
-      );
-      owner.binding.session.backgroundTasks = saved.backgroundTasks;
-    }
-    if (!owner.closed)
-      try {
-        owner.binding.onEvent?.({
-          type,
-          ownerId: snapshot.rootOwnerId,
-          task: this.descriptor(snapshot),
-          ...(presentation ? { presentation } : {}),
-        });
-      } catch {
-        /* Observers own no process resources. */
-      }
-    for (const listener of this.listeners)
-      try {
-        listener();
-      } catch {
-        /* Closed observer. */
-      }
-    return snapshot.revision;
   }
   private async finish(
     item: Active,
@@ -1359,7 +1183,7 @@ export class BackgroundTaskService {
         }
         item.foregroundOutput = pages.join("");
       }
-      await this.persist(item.owner, item.record, "terminal");
+      await this.journal.persist(item.owner, item.record, "terminal");
       if (outcome.cleanup) {
         await item.use?.dispose();
         if (item.record.foreground) {
@@ -1394,32 +1218,29 @@ export class BackgroundTaskService {
           .catch(() => {});
       }
       item.record.error = `Не удалось сохранить результат команды: ${terminalSafeText(item.binding.redactor.text(String(error)), 2000)}`;
-      await this.persist(item.owner, item.record, "terminal").catch(() => {
-        // A second persistence failure must still be visible to the live owner.
-        try {
-          if (!item.owner.closed)
-            item.owner.binding.onEvent?.({
-              type: "terminal",
-              ownerId: item.record.rootOwnerId,
-              task: this.descriptor(item.record),
-              presentation: item.record.presentation,
-            });
-        } catch {
-          /* A closed view cannot change process cleanup. */
-        }
-      });
+      await this.journal
+        .persist(item.owner, item.record, "terminal")
+        .catch(() => {
+          // A second persistence failure must still be visible to the live owner.
+          try {
+            if (!item.owner.closed)
+              item.owner.binding.onEvent?.({
+                type: "terminal",
+                ownerId: item.record.rootOwnerId,
+                task: taskDescriptor(item.record),
+                presentation: item.record.presentation,
+              });
+          } catch {
+            /* A closed view cannot change process cleanup. */
+          }
+        });
     } finally {
       this.active.delete(item.record.id);
       if (item.record.foreground && item.record.cleanup.confirmed)
         item.owner.records.delete(item.record.id);
       item.settleStart();
       item.settleDone();
-      for (const listener of this.listeners)
-        try {
-          listener();
-        } catch {
-          /* Closed observer. */
-        }
+      this.journal.notify();
       void this.retain(item.owner).catch(() => {});
       void this.pump();
     }
@@ -1599,7 +1420,7 @@ export class BackgroundTaskService {
     const promotion = item.promotion;
     const promotionSignal = item.abort.signal;
     await item.promotion.approve(promotionSignal);
-    await this.recheck(item);
+    await recheckShell(item);
     if (item.finished || !record.foreground || !this.active.has(id))
       throw new RuntimeError(
         "BACKGROUND_UNAVAILABLE",
@@ -1656,7 +1477,11 @@ export class BackgroundTaskService {
           record.outputLimit = this.config(item.binding).outputBytes;
           item.log!.narrowLimit(record.outputLimit);
           await this.storage.lease(record);
-          const promotedRevision = await this.persist(owner, record, "changed");
+          const promotedRevision = await this.journal.persist(
+            owner,
+            record,
+            "changed",
+          );
           await this.storage.removePromotedForeground({
             ...record,
             revision: promotedRevision,
@@ -1681,7 +1506,7 @@ export class BackgroundTaskService {
       () => {},
     );
     await allocation;
-    return this.descriptor(record);
+    return taskDescriptor(record);
   }
   private port(
     ownerId: string,
@@ -1702,8 +1527,8 @@ export class BackgroundTaskService {
               (!childId || r.childId === childId),
           )
           .sort((a, b) => a.ordinal - b.ordinal)
-          .map((r) => this.descriptor(r)),
-      status: async (id) => this.descriptor(get(id).record),
+          .map((r) => taskDescriptor(r)),
+      status: async (id) => taskDescriptor(get(id).record),
       readOutput: async (
         id,
         cursor = 0,
@@ -1782,16 +1607,16 @@ export class BackgroundTaskService {
         };
         const abort = () => release();
         const timer = setTimeout(release, timeoutMs);
-        this.listeners.add(listener);
+        const detach = this.journal.subscribe(listener);
         signal?.addEventListener("abort", abort, { once: true });
         try {
           listener();
           await change;
           cancelled(signal);
-          return ids.map((id) => this.descriptor(get(id).record));
+          return ids.map((id) => taskDescriptor(get(id).record));
         } finally {
           clearTimeout(timer);
-          this.listeners.delete(listener);
+          detach();
           signal?.removeEventListener("abort", abort);
         }
       },
@@ -1804,7 +1629,7 @@ export class BackgroundTaskService {
             "BACKGROUND_RECOVERY_REQUIRED",
             "Сохранённый PID не даёт права остановки. Требуется проверка завершения процессов.",
           );
-        return this.descriptor(record);
+        return taskDescriptor(record);
       },
       recover: async (id) => {
         const { owner, record } = get(id);
@@ -1818,7 +1643,7 @@ export class BackgroundTaskService {
           const resolution = await this.storage.recovery(record);
           if (resolution)
             return this.restoreCompletion(owner, record, resolution);
-          if (record.cleanup.confirmed) return this.descriptor(record);
+          if (record.cleanup.confirmed) return taskDescriptor(record);
         }
         if (
           !proof ||
@@ -1835,7 +1660,7 @@ export class BackgroundTaskService {
           record.cleanup = { confirmed: true };
           record.error = proof.error;
           try {
-            await this.persist(owner, record, "terminal");
+            await this.journal.persist(owner, record, "terminal");
             await proof.item.use?.dispose();
             await this.storage.lease(record, true);
             await proof.item.lease?.release();
@@ -1846,7 +1671,7 @@ export class BackgroundTaskService {
                 .map((access) => access.resource),
             );
             this.recoveries.delete(id);
-            return this.descriptor(record);
+            return taskDescriptor(record);
           } catch (error) {
             record.state = "failed";
             record.cleanup = { confirmed: true };
@@ -1854,7 +1679,9 @@ export class BackgroundTaskService {
               owner.binding.redactor.text(String(error)),
               4096,
             );
-            await this.persist(owner, record, "terminal").catch(() => {});
+            await this.journal
+              .persist(owner, record, "terminal")
+              .catch(() => {});
             throw error;
           } finally {
             proof.running = undefined;
@@ -1875,8 +1702,8 @@ export class BackgroundTaskService {
         record.tail = [];
         record.commandPreview = "История удалена";
         record.replayable = false;
-        await this.persist(owner, record, "changed");
-        return this.descriptor(record);
+        await this.journal.persist(owner, record, "changed");
+        return taskDescriptor(record);
       },
     };
   }
@@ -1888,7 +1715,7 @@ export class BackgroundTaskService {
         [...this.assert(ownerId, generation).records.values()]
           .filter((record) => !record.outputExpired)
           .sort((a, b) => a.ordinal - b.ordinal)
-          .map((r) => this.descriptor(r)),
+          .map((r) => taskDescriptor(r)),
       promote: (id) => this.promote(ownerId, generation, id),
       busy: () =>
         [...this.active.values()].some((i) => i.record.rootOwnerId === ownerId),
@@ -1993,110 +1820,7 @@ export class BackgroundTaskService {
         this.bindings.delete(id);
         this.contextCache.delete(id);
       }
-    return records.map((record) => this.descriptor(record));
-  }
-  private async recheck(item: Active): Promise<void> {
-    const { binding } = item;
-    binding.assertAvailable();
-    cancelled(binding.signal);
-    const [global, origin, actual] = await Promise.all([
-      loadGlobalConfig(binding.configPath),
-      loadProjectConfig(binding.origin ?? item.owner.binding.root),
-      loadProjectConfig(item.data.actualRoot),
-    ]);
-    const config = effectiveBackgroundConfig(
-      global.backgroundTasks,
-      origin.backgroundTasks,
-    );
-    if (!config.enabled || actual.backgroundTasks?.enabled === false)
-      throw new RuntimeError(
-        "PERMISSION_DENIED",
-        "Фоновые задачи отключены; команда не запускается.",
-      );
-    const deniedConfig = {
-      ...origin,
-      deniedCommands: [...origin.deniedCommands, ...actual.deniedCommands],
-    };
-    const policy = new PermissionPolicy(deniedConfig, {
-      approvalMode: "default",
-      autoApprove: false,
-      nonInteractive: true,
-      allowedTools: new Set(),
-      allowBypassPermissions: false,
-    });
-    if (
-      policy.decide(
-        { tool: "run_shell", command: item.data.command, preview: "" },
-        "process",
-      ) === "deny"
-    )
-      throw new RuntimeError(
-        "PERMISSION_DENIED",
-        "Команда запрещена текущими правилами проекта.",
-      );
-    const previousPolicy = new PermissionPolicy(binding.config, {
-      approvalMode: "default",
-      autoApprove: false,
-      nonInteractive: true,
-      allowedTools: new Set(),
-      allowBypassPermissions: false,
-    });
-    const request = {
-      tool: "run_shell",
-      command: item.data.command,
-      preview: "",
-    };
-    if (
-      previousPolicy.decide(request, "process") === "allow" &&
-      policy.decide(request, "process") !== "allow"
-    )
-      throw new RuntimeError(
-        "PERMISSION_DENIED",
-        "Правило разрешённой команды сужено; требуется новое разрешение.",
-      );
-    if (
-      item.context.approvalMode === "bypassPermissions" &&
-      !global.permissions?.allowBypassPermissions
-    )
-      throw new RuntimeError(
-        "PERMISSION_DENIED",
-        "Bypass отключён; фоновая команда останавливается.",
-      );
-    binding.global = global;
-    binding.config = {
-      ...origin,
-      backgroundTasks: effectiveBackgroundConfig(
-        effectiveBackgroundConfig(
-          global.backgroundTasks,
-          origin.backgroundTasks,
-        ),
-        actual.backgroundTasks,
-      ),
-    };
-    const outputCeiling = Math.min(
-      config.outputBytes,
-      actual.backgroundTasks?.outputBytes ?? config.outputBytes,
-    );
-    if (!item.record.foreground && outputCeiling < item.record.outputLimit) {
-      if (item.record.outputBytes > outputCeiling)
-        throw new RuntimeError("BACKGROUND_LIMIT", "Лимит вывода сужен.");
-      item.record.outputLimit = outputCeiling;
-      item.log?.narrowLimit(outputCeiling);
-    }
-    const duration =
-      item.record.kind === "service"
-        ? config.serviceDeadlineMs
-        : config.batchDeadlineMs;
-    if (
-      !item.record.foreground &&
-      Date.now() >= Date.parse(item.record.acceptedAt) + duration
-    )
-      throw new RuntimeError(
-        "TOOL_TIMEOUT",
-        "Текущий лимит времени задачи истёк.",
-      );
-    if (Date.now() >= Date.parse(item.record.deadline))
-      throw new RuntimeError("TOOL_TIMEOUT", "Срок задачи истёк до запуска.");
+    return records.map((record) => taskDescriptor(record));
   }
   private async refreshPolicies(): Promise<void> {
     if (this.refreshing || this.closed || Date.now() - this.policyAt < 1000)
@@ -2107,7 +1831,7 @@ export class BackgroundTaskService {
       for (const item of [...this.active.values()]) {
         if (item.record.foreground) continue;
         try {
-          await this.recheck(item);
+          await recheckShell(item);
         } catch (error) {
           const failure = runtimeError(error);
           item.record.error = terminalSafeText(
@@ -2134,6 +1858,6 @@ export class BackgroundTaskService {
     this.closed = true;
     if (this.clock) clearInterval(this.clock);
     this.detachCoordinator?.();
-    this.listeners.clear();
+    this.journal.dispose();
   }
 }
