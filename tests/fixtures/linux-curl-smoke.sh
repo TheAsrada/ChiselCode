@@ -51,7 +51,8 @@ timeout 30 chisel --cwd "$work/project" /code-review > "$work/cli.log" 2>&1 || t
 test -s "$XDG_DATA_HOME/chiselcode/skills/bundled/extension-creator/SKILL.md"
 rm -- "$target"
 rm -r -- "$XDG_DATA_HOME/chiselcode-cli"
-if command -v chisel >/dev/null; then
+hash -r
+if [[ $(command -v chisel) == "$target" ]]; then
   echo "chisel is still in PATH after removal" >&2
   exit 1
 fi

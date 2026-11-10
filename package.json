@@ -59,7 +59,6 @@
     "acorn": "8.19.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "chiselcode": "/home/asrada/ChiselCode/dist/release-local/npm-smoke/chiselcode-0.6.52.tgz",
     "commander": "15.0.0",
     "diff": "9.0.0",
     "execa": "10.0.1",

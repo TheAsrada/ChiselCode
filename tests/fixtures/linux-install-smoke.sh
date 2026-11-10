@@ -22,8 +22,8 @@ if [[ ${1:-} == distro ]]; then
     rpm)
       oldfile="/packages/old/ChiselCode-Setup-$old-linux-x86_64.rpm"
       newfile="/packages/new/ChiselCode-Setup-$new-linux-x86_64.rpm"
-      install_package() { dnf -y --setopt=install_weak_deps=False install "$1"; }
-      remove_package() { dnf -y remove chiselcode; }
+      install_package() { dnf -y --disablerepo="*" install "$1"; }
+      remove_package() { dnf -y --disablerepo="*" remove chiselcode; }
       ;;
     deb)
       apt-get update
@@ -39,22 +39,26 @@ if [[ ${1:-} == distro ]]; then
   install_package "$oldfile"
   test "$(command -v chisel)" = /usr/bin/chisel
   test "$(chisel --version)" = "$old"
-  # Normal CLI slash-command dispatch loads and materializes packaged skills.
-  timeout 30 chisel --cwd "$home/project" /code-review > "$home/cli.log" 2>&1 || test "$?" = 1
-  test -s "$state/skills/bundled/code-review/SKILL.md"
+  if [[ $channel == deb ]]; then
+    # The previous official DEB used the layout beside the executable.
+    timeout 30 chisel --cwd "$home/project" /code-review > "$home/cli.log" 2>&1 || test "$?" = 1
+    test -s "$state/skills/bundled/code-review/SKILL.md"
+    rm -r -- "$state/skills/bundled"
+  fi
   mkdir -p "$state/sessions" "$state/skills/user/fixture" "$XDG_CONFIG_HOME/chiselcode"
   printf 'fixture-session\n' > "$state/sessions/keep"
   printf 'fixture-skill\n' > "$state/skills/user/fixture/SKILL.md"
   printf 'fixture-setting\n' > "$XDG_CONFIG_HOME/chiselcode/keep"
-  rm -r -- "$state/skills/bundled"
   install_package "$newfile"
   test "$(chisel --version)" = "$new"
   echo "$sha  /usr/bin/chisel" | sha256sum -c
   timeout 30 chisel --cwd "$home/project" /code-review > "$home/cli.log" 2>&1 || test "$?" = 1
   for skill in skill-creator code-review extension-creator; do
-    cmp "/usr/share/chiselcode/skills/bundled/$skill/SKILL.md" "$state/skills/bundled/$skill/SKILL.md"
+    test "$(sha256sum < "/usr/share/chiselcode/skills/bundled/$skill/SKILL.md")" = \
+      "$(sha256sum < "$state/skills/bundled/$skill/SKILL.md")"
   done
   remove_package
+  hash -r
   if command -v chisel >/dev/null; then
     echo "chisel is still in PATH after removal" >&2
     exit 1
