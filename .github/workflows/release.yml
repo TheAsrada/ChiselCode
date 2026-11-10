@@ -42,8 +42,9 @@ jobs:
       - name: Verify tag version
         shell: bash
         run: |
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG"
+          bun -e 'import { VERSION } from "./src/version.ts"; const lock = require("./package-lock.json"); if (process.env.RELEASE_TAG !== `v${VERSION}` || lock.version !== VERSION || lock.packages[""].version !== VERSION) process.exit(1)'
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             test "$GITHUB_REF" = refs/heads/main
           fi
@@ -174,34 +175,19 @@ jobs:
           bun-version: "1.4.2"
       - name: Install dependencies
         run: npm ci
-      - name: Build .deb package
+      - name: Build Linux x64 glibc payload and packages
         shell: bash
         run: |
-          ver=$(node -p "require('./package.json').version")
-          root="pkg/chiselcode_${ver}_amd64"
-          mkdir -p "$root/DEBIAN" "$root/usr/bin"
-          bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile="$root/usr/bin/chisel"
-          chmod 0755 "$root/usr/bin/chisel"
-          test "$("$root/usr/bin/chisel" --version)" = "$ver"
-          mkdir -p "$root/usr/bin/skills"
-          cp -R skills/bundled "$root/usr/bin/skills/"
-          cat > "$root/DEBIAN/control" <<EOF
-          Package: chiselcode
-          Version: $ver
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Maintainer: ChiselCode <https://github.com/TheAsrada/ChiselCode>
-          Description: Secure multi-provider coding agent CLI
-           ChiselCode reads and explains projects, finds bugs and edits files
-           with confirmation.
-          EOF
-          dpkg-deb --build "$root" "ChiselCode-Setup-${ver}-linux-amd64.deb"
-      - name: Stage Linux installer
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm
+          mkdir -p dist/release
+          bun build ./src/cli.ts --compile --target=bun-linux-x64-baseline --outfile=dist/chisel
+          scripts/package-linux.sh "$(bun -p 'require("./package.json").version')" dist/chisel dist/release
+      - name: Stage Linux distribution
         uses: actions/upload-artifact@v4
         with:
           name: installer-linux
-          path: ChiselCode-Setup-*-linux-amd64.deb
+          path: dist/release/*
           if-no-files-found: error
           retention-days: 7
 
@@ -261,13 +247,8 @@ jobs:
           set -euo pipefail
           ver=$(node -p "require('./package.json').version")
           test "v$ver" = "$RELEASE_TAG"
-          files=(dist/release-artifacts/ChiselCode-Setup-* dist/release-artifacts/chiselcode-*.tgz)
-          test "${#files[@]}" -eq 5
-          test -f "dist/release-artifacts/chiselcode-$ver.tgz"
-          test -f "dist/release-artifacts/ChiselCode-Setup-$ver.exe"
-          test -f "dist/release-artifacts/ChiselCode-Setup-$ver-macos-arm64.pkg"
-          test -f "dist/release-artifacts/ChiselCode-Setup-$ver-macos-x64.pkg"
-          test -f "dist/release-artifacts/ChiselCode-Setup-$ver-linux-amd64.deb"
+          bun scripts/verify-release-assets.ts seal dist/release-artifacts "$ver"
+          files=(dist/release-artifacts/*)
           awk -v ver="$ver" '
             $0 == "## [" ver "]" || $0 ~ "^## \\[" ver "\\] " {flag=1; next}
             /^## \[/ {if (flag) exit; next}
@@ -294,8 +275,12 @@ jobs:
               sleep 5
             done
           done
-          count=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')
-          test "$count" -eq 5
+          release_id=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\" and .draft == true) | .id")
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          bun scripts/verify-release-assets.ts verify dist/release-artifacts "$ver" \
+            "repos/${{ github.repository }}/releases/$release_id/assets?per_page=100"
           test "$(gh api "repos/${{ github.repository }}/commits/$RELEASE_TAG" --jq .sha)" = "$VERIFIED_SOURCE"
           bun scripts/verify-release-ci.ts
-          gh release edit "$RELEASE_TAG" --draft=false
+          gh release edit "$RELEASE_TAG" --draft=false --latest

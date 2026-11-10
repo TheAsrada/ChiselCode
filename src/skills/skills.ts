@@ -90,8 +90,15 @@ export function isReservedSkillName(name: string): boolean {
 }
 
 function bundledSourceDir(): string {
-  if (isInstalledBinary())
-    return join(dirname(process.execPath), "skills", "bundled");
+  if (isInstalledBinary()) {
+    const executableDir = dirname(process.execPath);
+    const adjacent = join(executableDir, "skills", "bundled");
+    if (process.platform === "linux" && executableDir === "/usr/bin") {
+      const system = "/usr/share/chiselcode/skills/bundled";
+      if (existsSync(system)) return system;
+    }
+    return adjacent;
+  }
   try {
     const here = dirname(fileURLToPath(import.meta.url));
     // Bundled JS lives in package/dist; source modules live in src/skills.

@@ -16,9 +16,11 @@ import {
 } from "./commands/run.js";
 import {
   checkForUpdates,
-  installerAssetHint,
+  manualInstallCommand,
+  planSelfUpdate,
   RELEASES_PAGE_URL,
 } from "./commands/update.js";
+import { updateChannelLabels } from "./commands/update-channel.js";
 import { registerWebCommands } from "./commands/web.js";
 import { loadGlobalConfig } from "./config/load.js";
 import { ensureChiselHomeLayout, providersRootDir } from "./paths/home.js";
@@ -292,9 +294,30 @@ program
       process.stdout.write(
         `${paint("[i] ChiselCode", "cyan", color)}: доступна новая версия ${paint(`v${result.latest}`, "green", color)} (у вас v${result.current})\n`,
       );
+      const plan = planSelfUpdate(result, VERSION);
       process.stdout.write(
-        `Скачайте ${installerAssetHint(result.latest ?? result.current)} со страницы:\n  ${result.latestUrl}\n`,
+        `Канал установки: ${updateChannelLabels[plan.channel ?? "source"]}\n`,
       );
+      if (plan.error) process.stdout.write(`${plan.error}\n`);
+      else if (plan.assetReady === false)
+        process.stdout.write("Файл для этого канала отсутствует в релизе.\n");
+      else {
+        if (plan.guidance) process.stdout.write(`${plan.guidance}\n`);
+        if (plan.asset) process.stdout.write(`${plan.asset}: ${plan.url}\n`);
+        if (plan.manualCommand) {
+          const command = manualInstallCommand(
+            `./${plan.asset}`,
+            plan.platform,
+            plan.channel,
+          );
+          process.stdout.write(`После загрузки выполните ${command}\n`);
+        } else if (plan.channel === "portable") {
+          process.stdout.write(
+            "Распакуйте архив в новый каталог и запустите chisel из него.\n",
+          );
+        }
+      }
+      process.stdout.write(`Релиз: ${result.latestUrl ?? RELEASES_PAGE_URL}\n`);
     } else {
       process.stdout.write(
         `${paint(`+ У вас последняя версия ChiselCode v${result.current}`, "green", color)}\n`,

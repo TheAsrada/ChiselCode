@@ -1,6 +1,8 @@
 /** @jsxImportSource @opentui/react */
 
-import { useEffect, useState } from "react";
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { useEffect, useRef, useState } from "react";
+import { updateChannelLabels } from "../commands/update-channel.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { useUiKeyboard } from "./overlay-input.js";
@@ -38,6 +40,7 @@ export function OpenTuiUpdate({
 }) {
   const [state, setState] = useState(updater.snapshot);
   const [selection, setSelection] = useState(0);
+  const content = useRef<ScrollBoxRenderable>(null);
   useEffect(() => updater.subscribe(setState), [updater]);
   const layout = dialogLayout(width, height, 23, 80);
   const { plan, downloaded, phase } = state;
@@ -49,6 +52,7 @@ export function OpenTuiUpdate({
     !!plan?.installedBinary &&
     plan.updateAvailable &&
     !plan.error &&
+    !plan.guidance &&
     plan.assetReady === true;
   const restartBlocked = ready && !!plan?.autoInstall && !updater.canRestart;
   const primaryLabel = busy
@@ -83,6 +87,8 @@ export function OpenTuiUpdate({
     key.preventDefault();
     if (key.name === "escape") return close();
     if (restarting) return;
+    if (key.name === "up" || key.name === "down")
+      content.current?.scrollBy(key.name === "up" ? -1 : 1);
     if (["tab", "left", "right"].includes(key.name))
       setSelection((value) => 1 - value);
     if (key.name === "return") {
@@ -163,6 +169,7 @@ export function OpenTuiUpdate({
       )}
       <TerminalScrollbox
         id="update-content"
+        ref={content}
         flexGrow={1}
         minHeight={0}
         width="100%"
@@ -231,7 +238,7 @@ export function OpenTuiUpdate({
             </text>
           </box>
         )}
-        {layout.roomy && (
+        {layout.roomy && (!ready || plan?.autoInstall) && (
           <box flexDirection="row" gap={2} flexShrink={0}>
             {steps.map(([number, label, done, active]) => (
               <text
@@ -252,6 +259,11 @@ export function OpenTuiUpdate({
         {phase === "checking" && (
           <text fg={palette.muted}>Проверяю последний стабильный релиз.</text>
         )}
+        {plan?.updateAvailable && plan.channel && (
+          <text fg={palette.muted}>
+            Канал установки · {updateChannelLabels[plan.channel]}
+          </text>
+        )}
         {canDownload && !ready && !downloading && (
           <text fg={palette.muted}>
             Установщик {megabytes(plan?.assetSize ?? 0)} МБ. После загрузки
@@ -267,10 +279,12 @@ export function OpenTuiUpdate({
         {ready && !plan?.autoInstall && (
           <box flexDirection="column" gap={1} flexShrink={0}>
             <text fg={palette.muted}>
-              Установите пакет, затем перезапустите ChiselCode:
+              {plan?.channel === "portable"
+                ? "Распакуйте архив в новый каталог и запустите chisel из него."
+                : "Выполните команду в терминале и перезапустите ChiselCode."}
             </text>
             <box backgroundColor={palette.raised} width="100%">
-              <text fg={palette.text}>
+              <text fg={palette.text} wrapMode="char">
                 {terminalSafeText(
                   plan?.manualCommand ?? downloaded?.path ?? "",
                 )}
@@ -278,15 +292,12 @@ export function OpenTuiUpdate({
             </box>
           </box>
         )}
-        {plan?.updateAvailable && !plan.installedBinary && (
-          <text fg={palette.muted}>
-            Запущено из исходников или через Bun. Обновите исходники либо
-            установите готовый пакет со страницы релиза.
-          </text>
+        {phase === "available" && plan?.guidance && (
+          <text fg={palette.text}>{terminalSafeText(plan.guidance)}</text>
         )}
         {phase === "unavailable" && (
           <text fg={palette.muted}>
-            Релиз опубликован, файлы ещё собираются. Проверьте чуть позже.
+            В релизе пока нет файла для этого канала.
           </text>
         )}
         {(state.error || state.previousFailure || restartBlocked) && (
@@ -306,10 +317,12 @@ export function OpenTuiUpdate({
         )}
         {(phase === "unavailable" ||
           phase === "error" ||
-          (plan?.updateAvailable && !plan.installedBinary)) && (
+          (phase === "available" && plan?.guidance)) && (
           <text fg={palette.accent}>
             {terminalSafeText(
-              plan?.latestUrl ??
+              (phase === "available" && plan?.asset
+                ? plan.url
+                : plan?.latestUrl) ??
                 "https://github.com/TheAsrada/ChiselCode/releases",
             )}
           </text>

@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { registerApplicationPrivatePath } from "../projects/paths.js";
+import { detectUpdateChannel, type UpdateChannel } from "./update-channel.js";
 
 export const RELEASES_LATEST_URL =
   "https://api.github.com/repos/TheAsrada/ChiselCode/releases/latest";
@@ -173,20 +174,32 @@ export async function checkForUpdates(
   }
 }
 
-/** Имя установщика под текущую платформу — как в release.yml. */
-export function installerAssetHint(version: string): string {
-  const asset = installerAssetName(version);
-  if (process.platform === "darwin")
-    return `${asset} (или соберите из исходников)`;
-  return asset;
-}
-
-/** Точное имя файла установщика в релизе под платформу/архитектуру. */
+/** Точное имя файла установщика в релизе. */
 export function installerAssetName(
   version: string,
   platform: NodeJS.Platform = process.platform,
   arch: NodeJS.Architecture = process.arch,
+  channel?: UpdateChannel,
 ): string {
+  switch (channel) {
+    case "curl":
+      return "install.sh";
+    case "rpm":
+      return `ChiselCode-Setup-${version}-linux-x86_64.rpm`;
+    case "arch":
+      return `ChiselCode-Setup-${version}-linux-x86_64.pkg.tar.zst`;
+    case "portable":
+      return `ChiselCode-${version}-linux-x64.tar.gz`;
+    case "npm":
+    case "bun":
+      return `chiselcode-${version}.tgz`;
+    case "brew":
+      return "chiselcode.rb";
+    case "aur":
+      return `chiselcode-${version}-aur.tar.gz`;
+    case "source":
+      return "";
+  }
   if (platform === "win32") return `ChiselCode-Setup-${version}.exe`;
   if (platform === "darwin")
     return `ChiselCode-Setup-${version}-macos-${arch === "arm64" ? "arm64" : "x64"}.pkg`;
@@ -247,6 +260,8 @@ export function isInstalledBinary(execPath = process.execPath): boolean {
 export interface SelfUpdatePlan {
   current: string;
   platform?: NodeJS.Platform;
+  channel?: UpdateChannel;
+  guidance?: string;
   latest?: string;
   latestUrl?: string;
   updateAvailable: boolean;
@@ -273,51 +288,111 @@ export function planSelfUpdate(
   platform: NodeJS.Platform = process.platform,
   arch: NodeJS.Architecture = process.arch,
   execPath = process.execPath,
+  channel = detectUpdateChannel(
+    platform,
+    execPath,
+    isInstalledBinary(execPath),
+  ),
 ): SelfUpdatePlan {
   const latest = normalizeVersion(check.latest ?? current);
-  const asset = installerAssetName(latest, platform, arch);
+  const installedBinary = isInstalledBinary(execPath);
+  const autoInstall = installedBinary && channel === "windows";
+  const asset = installerAssetName(latest, platform, arch, channel);
   const publishedAsset = check.assets?.find((item) => item.name === asset);
-  const digestError =
-    check.updateAvailable && publishedAsset && !publishedAsset.sha256
-      ? "GitHub не сообщил SHA-256 установщика. Автоматическое обновление остановлено."
-      : undefined;
+  const url =
+    publishedAsset?.url ??
+    (asset ? releaseDownloadUrl(latest, asset) : RELEASES_PAGE_URL);
+  const managed =
+    channel === "npm" ||
+    channel === "bun" ||
+    channel === "brew" ||
+    channel === "aur";
+  const guidance = channelGuidance(
+    channel,
+    asset ? releaseDownloadUrl(latest, asset) : url,
+  );
   const supported =
+    managed ||
     ((platform === "win32" || platform === "linux") && arch === "x64") ||
     (platform === "darwin" && (arch === "x64" || arch === "arm64"));
+  const digestError =
+    !guidance &&
+    check.updateAvailable &&
+    publishedAsset &&
+    !publishedAsset.sha256
+      ? "GitHub не сообщил SHA-256 установщика. Автоматическое обновление остановлено."
+      : undefined;
   const platformError =
     check.updateAvailable && !supported
       ? `Для ${platform}/${arch} готовый установщик не опубликован.`
       : undefined;
-  const installedBinary = isInstalledBinary(execPath);
-  const autoInstall = installedBinary && platform === "win32";
   return {
     current,
     platform,
+    channel,
+    guidance,
     latest: check.latest === undefined ? undefined : latest,
     latestUrl: check.latestUrl,
     updateAvailable: check.updateAvailable ?? false,
     error: check.error ?? platformError ?? digestError,
     asset,
-    url: publishedAsset?.url ?? releaseDownloadUrl(latest, asset),
-    assetReady: check.assets ? Boolean(publishedAsset) : undefined,
+    url,
+    assetReady: !asset
+      ? true
+      : check.assets
+        ? Boolean(publishedAsset)
+        : undefined,
     assetSize: publishedAsset?.size,
     sha256: publishedAsset?.sha256,
     installedBinary,
     autoInstall,
-    manualCommand: autoInstall
-      ? undefined
-      : manualInstallCommand(join(tmpdir(), asset), platform),
+    manualCommand:
+      autoInstall || guidance
+        ? undefined
+        : manualInstallCommand(join(tmpdir(), asset), platform, channel),
   };
 }
 
-/** Команда ручной установки скачанного файла для macOS/Linux. */
+function channelGuidance(
+  channel: UpdateChannel,
+  url: string,
+): string | undefined {
+  switch (channel) {
+    case "npm":
+      return `Для глобальной установки выполните npm install -g "${url}". Для установки в проекте опустите -g.`;
+    case "bun":
+      return `bun add -g "${url}"`;
+    case "brew":
+      return "Обновите формулу в своём tap по формуле из релиза, затем выполните brew upgrade.";
+    case "aur":
+      return "Обновите PKGBUILD по рецепту из релиза и выполните makepkg -si в каталоге рецепта.";
+    case "source":
+      return "Обновите локальные исходники и установите зависимости по руководству проекта.";
+    default:
+      return undefined;
+  }
+}
+
+/** Команда для фактического пути скачанного файла. */
 export function manualInstallCommand(
   assetPath: string,
   platform: NodeJS.Platform = process.platform,
+  channel?: UpdateChannel,
 ): string | undefined {
-  if (platform === "darwin")
-    return `sudo installer -pkg "${assetPath}" -target /`;
-  if (platform === "linux") return `sudo apt install "${assetPath}"`;
+  if (platform === "win32") return undefined;
+  const quoted = `"${assetPath.replace(/[\\"$`]/g, "\\$&")}"`;
+  switch (channel) {
+    case "rpm":
+      return `sudo dnf install ${quoted}`;
+    case "arch":
+      return `sudo pacman -U ${quoted}`;
+    case "curl":
+      return `bash ${quoted}`;
+    case "portable":
+      return undefined;
+  }
+  if (platform === "darwin") return `sudo installer -pkg ${quoted} -target /`;
+  if (platform === "linux") return `sudo apt install ${quoted}`;
   return undefined;
 }
 

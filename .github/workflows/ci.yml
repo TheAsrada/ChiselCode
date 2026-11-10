@@ -233,7 +233,9 @@ jobs:
         run: |
           binary=dist/chisel
           if [ "$RUNNER_OS" = Windows ]; then binary+=.exe; fi
-          bun build src/cli.ts --compile --outfile="$binary"
+          target=()
+          if [ "$RUNNER_OS" = Linux ]; then target+=(--target=bun-linux-x64-baseline); fi
+          bun build src/cli.ts --compile "${target[@]}" --outfile="$binary"
           "$binary" --version
           bun tests/fixtures/web-download-cli.ts "$binary"
           bun tests/fixtures/skill-install-cli.ts "$binary"
@@ -243,6 +245,13 @@ jobs:
           bun tests/fixtures/background-cli.ts "$binary"
           bun tests/fixtures/external-extensions-cli.ts "$binary"
           bun tests/fixtures/extension-packages-cli.ts "$binary"
+      - name: Linux packages and curl installation lifecycle
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm
+          tests/fixtures/linux-install-smoke.sh "$(bun -p 'require("./package.json").version')" dist/chisel
       - name: Native OpenTUI library loads and renders
         shell: bash
         run: |

@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
 import {
+  assertReleaseAssets,
+  releaseAssetNames,
+} from "../../scripts/verify-release-assets.js";
+import {
   assertVerifiedSourceCI,
   requiredCIJobs,
   requiredCISteps,
@@ -215,4 +219,30 @@ test("quick CI without native checks, skipped checks, duplicate jobs and mismatc
       { name: "extra", status: "completed", conclusion: "failure" },
     ]),
   ).toThrow();
+});
+
+test("draft publication requires the exact asset names, sizes and GitHub digests", () => {
+  const assets = [...releaseAssetNames("0.6.52"), "SHA256SUMS"].map((name) => ({
+    name,
+    size: 1,
+    state: "uploaded",
+    digest: `sha256:${"a".repeat(64)}`,
+  }));
+  expect(assets).toHaveLength(12);
+  expect(() =>
+    assertReleaseAssets(assets, [...assets].reverse()),
+  ).not.toThrow();
+  expect(() => assertReleaseAssets(assets, assets.slice(1))).toThrow();
+  const [first, ...remaining] = assets;
+  if (!first) throw new Error("Missing fixture asset");
+  for (const changed of [
+    { name: "wrong.rpm" },
+    { state: "starter" },
+    { size: 2 },
+    { digest: "sha256:wrong" },
+  ]) {
+    expect(() =>
+      assertReleaseAssets(assets, [...remaining, { ...first, ...changed }]),
+    ).toThrow();
+  }
 });

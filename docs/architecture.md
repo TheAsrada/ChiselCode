@@ -35,7 +35,7 @@ flowchart LR
 | Анализ кода | [LSP](architecture/lsp.md) · [Меню и наследование](architecture/lsp-menu.md) |
 | Рабочие копии | [Менеджер](architecture/worktree-manager.md) |
 | Помощники и процессы | [Помощники](architecture/subagents.md) · [Фоновые задачи](architecture/background-tasks.md) |
-| Обновление CLI | [Завершение, замена и перезапуск](architecture/self-update.md) |
+| Обновление CLI | [Выбор канала, замена и перезапуск](architecture/self-update.md) |
 | Экспериментальный Desktop | [Граница app-server](architecture/desktop.md) |
 
 ## Основные контракты

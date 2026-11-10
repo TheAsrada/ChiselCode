@@ -172,6 +172,7 @@ export class UpdateController {
       !plan?.updateAvailable ||
       plan.error ||
       !plan.installedBinary ||
+      plan.guidance ||
       plan.assetReady !== true ||
       !plan.sha256 ||
       !plan.assetSize
@@ -220,7 +221,11 @@ export class UpdateController {
             ...plan,
             manualCommand: plan.autoInstall
               ? undefined
-              : manualInstallCommand(downloaded.path, plan.platform),
+              : manualInstallCommand(
+                  downloaded.path,
+                  plan.platform,
+                  plan.channel,
+                ),
           },
           downloaded,
           bytes: downloaded.bytes,

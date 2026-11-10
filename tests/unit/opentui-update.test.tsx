@@ -1,5 +1,7 @@
 /** @jsxImportSource @opentui/react */
 import { expect, test } from "bun:test";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import {
@@ -277,5 +279,68 @@ test("the previous installer failure is visible and a download can be retried", 
     api.updater.cancel();
     act(() => setup.renderer.destroy());
     await api.updater.dispose();
+  }
+});
+
+test("the Fedora update displays the command for the verified RPM", async () => {
+  const version = "0.6.53";
+  const name = `ChiselCode-Setup-${version}-linux-x86_64.rpm`;
+  const url = `https://github.com/TheAsrada/ChiselCode/releases/download/v${version}/${name}`;
+  const updater = new UpdateController("0.6.52", {
+    check: async () => ({
+      current: "0.6.52",
+      latest: version,
+      updateAvailable: true,
+      assets: [{ name, url, size: 34 * 1024 * 1024, sha256: "f".repeat(64) }],
+    }),
+    plan: (check, current) =>
+      planSelfUpdate(check, current, "linux", "x64", "/usr/bin/chisel", "rpm"),
+    download: async (assetUrl, assetName, options) => {
+      expect(assetUrl).toBe(url);
+      expect(assetName).toBe(name);
+      expect(options.expectedSha256).toBe("f".repeat(64));
+      return { path: `/tmp/update/${name}`, bytes: 34 * 1024 * 1024 };
+    },
+  });
+  await updater.check();
+  const setup = await testRender(
+    <OpenTuiUpdate
+      updater={updater}
+      width={100}
+      height={28}
+      palette={themePalette("obsidian")}
+      onClose={() => {}}
+    />,
+    { width: 100, height: 28 },
+  );
+  try {
+    await frame(setup);
+    expect(setup.captureCharFrame()).toContain("Канал установки · RPM");
+    await key(setup, "RETURN");
+    const ready = setup.captureCharFrame();
+    expect(ready).toContain("sudo dnf install");
+    expect(ready).toContain(name);
+    const directory = process.env.CHISEL_LINUX_UPDATE_CAPTURES;
+    if (directory) {
+      await mkdir(directory, { recursive: true });
+      const spans = setup.captureSpans();
+      await Bun.write(join(directory, "fedora-update.txt"), ready);
+      await Bun.write(
+        join(directory, "fedora-update.json"),
+        JSON.stringify({
+          ...spans,
+          lines: spans.lines.map((line) => ({
+            spans: line.spans.map((span) => ({
+              ...span,
+              fg: span.fg.toInts(),
+              bg: span.bg.toInts(),
+            })),
+          })),
+        }),
+      );
+    }
+  } finally {
+    setup.renderer.destroy();
+    await updater.dispose();
   }
 });

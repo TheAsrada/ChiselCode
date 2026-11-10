@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,6 +20,7 @@ import {
   releaseDownloadUrl,
   windowsUpdateArguments,
 } from "../../src/commands/update.js";
+import { detectUpdateChannel } from "../../src/commands/update-channel.js";
 
 describe("self update helpers", () => {
   test("restart without a project is launcher intent and cannot carry a session", () => {
@@ -48,7 +49,13 @@ describe("self update helpers", () => {
         }),
       )) as unknown as typeof fetch;
     const check = await checkForUpdates("0.5.35", { fetchImpl });
-    const plan = planSelfUpdate(check, "0.5.35", "win32", "x64");
+    const plan = planSelfUpdate(
+      check,
+      "0.5.35",
+      "win32",
+      "x64",
+      "C:/app/chisel.exe",
+    );
     expect(plan.assetReady).toBe(true);
     expect(plan.url).toBe("https://example.test/real-installer.exe");
     expect(plan.assetSize).toBe(payload.byteLength);
@@ -68,6 +75,7 @@ describe("self update helpers", () => {
       "0.5.35",
       "win32",
       "x64",
+      "C:/app/chisel.exe",
     );
     expect(plan.updateAvailable).toBe(true);
     expect(plan.assetReady).toBe(false);
@@ -90,6 +98,7 @@ describe("self update helpers", () => {
       "0.5.35",
       "win32",
       "x64",
+      "C:/app/chisel.exe",
     );
     expect(plan.error).toContain("SHA-256");
   });
@@ -147,6 +156,7 @@ describe("self update helpers", () => {
       "0.2.21",
       "win32",
       "x64",
+      "C:/app/chisel.exe",
     );
     expect(plan.updateAvailable).toBe(false);
     expect(plan.error).toBeUndefined();
@@ -163,6 +173,7 @@ describe("self update helpers", () => {
       "0.2.21",
       "win32",
       "x64",
+      "C:/app/chisel.exe",
     );
     expect(plan.updateAvailable).toBe(true);
     expect(plan.asset).toBe("ChiselCode-Setup-0.2.22.exe");
@@ -179,6 +190,7 @@ describe("self update helpers", () => {
       "0.2.21",
       "win32",
       "x64",
+      "C:/app/chisel.exe",
     );
     expect(plan.latest).toBe("0.2.22");
     expect(plan.asset).toBe("ChiselCode-Setup-0.2.22.exe");
@@ -192,6 +204,7 @@ describe("self update helpers", () => {
       "0.2.21",
       "win32",
       "x64",
+      "C:/app/chisel.exe",
     );
     expect(plan.updateAvailable).toBe(false);
     expect(plan.error).toBe("Нет соединения");
@@ -211,6 +224,74 @@ describe("self update helpers", () => {
       "apt install",
     );
     expect(manualInstallCommand("C:\\Temp\\x.exe", "win32")).toBeUndefined();
+  });
+
+  test("keeps each Linux update in its installation channel", () => {
+    const check = {
+      current: "0.6.51",
+      latest: "0.6.52",
+      updateAvailable: true,
+    };
+    for (const [channel, suffix, command] of [
+      ["deb", "linux-amd64.deb", "apt install"],
+      ["rpm", "linux-x86_64.rpm", "dnf install"],
+      ["arch", "linux-x86_64.pkg.tar.zst", "pacman -U"],
+      ["curl", "install.sh", "bash"],
+    ] as const) {
+      const plan = planSelfUpdate(
+        check,
+        check.current,
+        "linux",
+        "x64",
+        "/usr/bin/chisel",
+        channel,
+      );
+      expect(plan.asset).toEndWith(suffix);
+      expect(plan.manualCommand).toContain(command);
+      expect(plan.autoInstall).toBe(false);
+    }
+    const portable = planSelfUpdate(
+      check,
+      check.current,
+      "linux",
+      "x64",
+      "/opt/chisel/chisel",
+    );
+    expect(portable.asset).toBe("ChiselCode-0.6.52-linux-x64.tar.gz");
+    expect(portable.manualCommand).toBeUndefined();
+    const npm = planSelfUpdate(
+      check,
+      check.current,
+      "linux",
+      "arm64",
+      "/usr/bin/bun",
+      "npm",
+    );
+    expect(npm.guidance).toContain("/download/v0.6.52/chiselcode-0.6.52.tgz");
+    expect(npm.error).toBeUndefined();
+    expect(manualInstallCommand('/tmp/$a "b".rpm', "linux", "rpm")).toBe(
+      String.raw`sudo dnf install "/tmp/\$a \"b\".rpm"`,
+    );
+  });
+
+  test("detects a curl installation and a packaged JS entry by their real paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chisel-channel-"));
+    try {
+      const binary = join(root, "chisel");
+      await writeFile(binary, "");
+      expect(detectUpdateChannel("linux", binary, true)).toBe("portable");
+      await writeFile(join(root, ".chisel-install-channel"), "curl\n");
+      expect(detectUpdateChannel("linux", binary, true)).toBe("curl");
+      const dist = join(root, "node_modules", "chiselcode", "dist");
+      await mkdir(dist, { recursive: true });
+      const entry = join(dist, "cli.js");
+      await writeFile(entry, "");
+      expect(
+        detectUpdateChannel(process.platform, process.execPath, false, entry),
+      ).toBe("npm");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("downloads a release asset with an injected fetch", async () => {

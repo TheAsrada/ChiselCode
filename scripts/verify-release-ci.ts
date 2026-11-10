@@ -55,7 +55,7 @@ export function requiredCISteps(job: string): readonly string[] {
       "Compiled worktree manager with real Git, approvals and isolated edits",
       "Compiled design, motion preferences, stable editor and menu search",
       ...(job.includes("ubuntu-latest")
-        ? []
+        ? ["Linux packages and curl installation lifecycle"]
         : ["Platform paths, atomic storage, shell and process ownership"]),
       ...(job.includes("windows-latest")
         ? [

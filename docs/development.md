@@ -57,7 +57,7 @@ bun run compile
 bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.exe
 ```
 
-Другие targets, используемые релизами: `bun-darwin-arm64`, `bun-darwin-x64`, `bun-linux-x64`. Отдельная компиляция не создаёт установщик, ярлыки или PATH. Встроенные навыки также нужно учитывать при упаковке: workflow копирует `skills/bundled` рядом с установленным приложением.
+Другие targets, используемые релизами: `bun-darwin-arm64`, `bun-darwin-x64`, `bun-linux-x64-baseline`. Отдельная компиляция не создаёт установщик, ярлыки или PATH. Встроенные навыки также нужно учитывать при упаковке: системные пакеты Linux размещают их в `/usr/share/chiselcode/skills/bundled`, архив и остальные установщики сохраняют их рядом с бинарником.
 
 ## Внутренние linked extensions
 
@@ -81,15 +81,17 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 ## Релизы
 
-Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Дождитесь шести успешных jobs автоматического Native validation на этом точном коммите: Full source, трёх Native smoke и двух LSP lifecycle, по [порядку проверок](contributors/testing.md). Для source только с документацией нужен ручной run с `platform=all`. Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
+Перед созданием тега обновите версию в `package.json`, `package-lock.json` и `src/version.ts`, подготовьте секцию `CHANGELOG.md` и отправьте release source commit в `main`. Дождитесь успешного Quick CI и шести успешных jobs автоматического Native validation на этом точном коммите: Full source, трёх Native smoke и двух LSP lifecycle, по [порядку проверок](contributors/testing.md). Для source только с документацией нужен ручной run с `platform=all`. Затем создайте свободный тег `v<версия>` на проверенном source; опубликованные теги и файлы выпусков не заменяются.
 
 [Release workflow](../.github/workflows/release.yml) запускается по push тега `v*` или вручную из `main` с параметром `tag`:
 
-1. Сверяет тег с версией `package.json` и требует успешную native CI-матрицу со всеми обязательными steps на точном SHA checkout тега через GitHub API. Повторный полный source-набор не запускается.
+1. Сверяет стабильную версию тега с `package.json`, `package-lock.json` и `src/version.ts` и требует успешную native CI-матрицу со всеми обязательными steps на точном SHA checkout тега через GitHub API. Повторный полный source-набор не запускается.
 2. Закрепляет все сборочные jobs на проверенном SHA, устанавливает зависимости через `npm ci`; проверяет запуск и версию собранных бинарников на ОС runner и наличие SDK declarations.
-3. Отдельными заданиями собирает EXE, два PKG, DEB и npm-пакет CLI с SDK расширений.
-4. Создаёт черновик GitHub Release и загружает четыре установщика и `chiselcode-<версия>.tgz`. Заметки берёт из секции версии в `CHANGELOG.md`, а при её отсутствии генерирует автоматически.
-5. Проверяет наличие всех пяти файлов, неизменность source тега и повторно успешность обязательных CI-проверок перед публикацией. Отдельные engine binaries и служебные архивы концепта Desktop не собираются и не загружаются этим workflow.
+3. Отдельными заданиями собирает EXE, два PKG, Linux-поставку и npm-пакет CLI с SDK расширений. Один Linux x64 glibc payload используется для DEB, RPM, пакета pacman и переносимого архива. Из SHA-256 этого архива формируются `install.sh`, формула Homebrew и рецепт AUR.
+4. Создаёт черновик GitHub Release и загружает 12 файлов по списку в `scripts/verify-release-assets.ts`, включая `SHA256SUMS`. Заметки берёт из секции версии в `CHANGELOG.md`, а при её отсутствии генерирует автоматически.
+5. Проверяет точный список, размеры и SHA-256 загруженных файлов, неизменность source тега и повторно успешность обязательных CI-проверок перед публикацией. Отдельные engine binaries и служебные архивы концепта Desktop не собираются и не загружаются этим workflow.
+
+После публикации проверьте скачанные файлы и запишите результат по [порядку проверок выпуска](contributors/testing.md#выпуск).
 
 Изменение только документации не требует нового тега или публикации новой версии приложения.
 

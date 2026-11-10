@@ -41,6 +41,10 @@ ChiselCode читает проект, ищет причины ошибок, пр
 | macOS Apple Silicon | `ChiselCode-Setup-<версия>-macos-arm64.pkg` |
 | macOS Intel | `ChiselCode-Setup-<версия>-macos-x64.pkg` |
 | Debian / Ubuntu x64 | `ChiselCode-Setup-<версия>-linux-amd64.deb` |
+| Fedora x64, с 0.6.52 | `ChiselCode-Setup-<версия>-linux-x86_64.rpm` |
+| Arch Linux x64, с 0.6.52 | `ChiselCode-Setup-<версия>-linux-x86_64.pkg.tar.zst` |
+
+В руководстве по установке также описаны `curl`, переносимый архив, npm и Bun.
 
 [Установка и обновление](docs/installation.md) · [Первая задача](docs/getting-started.md) · [Подключение провайдера](docs/providers.md).
 

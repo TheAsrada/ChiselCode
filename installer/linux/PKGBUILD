@@ -1,0 +1,20 @@
+# Maintainer: ChiselCode <https://github.com/TheAsrada/ChiselCode>
+pkgname=@PACKAGE@
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='ChiselCode CLI'
+arch=('x86_64')
+url='https://github.com/TheAsrada/ChiselCode'
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'ca-certificates')
+options=('!strip' '!debug')
+@AUR_METADATA@
+source=("ChiselCode-$pkgver-linux-x64.tar.gz::@SOURCE@")
+sha256sums=('@ARCHIVE_SHA256@')
+
+package() {
+  install -Dm755 chisel "$pkgdir/usr/bin/chisel"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -d "$pkgdir/usr/share/chiselcode/skills"
+  cp -R skills/bundled "$pkgdir/usr/share/chiselcode/skills/"
+}
