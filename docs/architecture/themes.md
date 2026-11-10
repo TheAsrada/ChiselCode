@@ -16,7 +16,7 @@ Immutable registry не зависит от текущей беседы. При�
 
 `ui.theme` принимает прежние builtin names либо namespaced extension identity, без версии config migration. Пользовательский `ui.accent` применяется последним. Catalog subscriptions принадлежат верхнему TUI mount; core выбирает Palette и light/dark dialog shadow. Смена палитры не меняет keys компонентов, root/session identity, editor/scroll refs или process ownership.
 
-`OpenTuiSettings` использует общий каталог: поиск только по bounded immutable data; оконный список, selection, source/variant, preview и явное apply/cancel. Предпросмотр меняет Palette текущего UI, не рисует отдельный renderer расширения. Применение вызывает narrow `updateGlobalConfig`, сохраняя другие формы и пользовательские поля. Отмена и unmount восстанавливают последнюю сохранённую палитру.
+`OpenTuiSettings` использует общий каталог: поиск только по bounded immutable data; оконный список, selection, source/variant и preview. Стрелки меняют только предпросмотр Palette текущего UI, не рисуя отдельный renderer расширения. Enter в списке или щелчок по теме передаёт выбор в очередь автосохранения и вызывает narrow `updateGlobalConfig`, сохраняя пользовательские поля. Отдельных apply/cancel действий нет; unmount восстанавливает последнюю сохранённую палитру. Закрытие Settings сначала завершает записи остальных форм через общий `flush`.
 
 После штатного открытия начального workspace startup проверяет сохранённую identity. Если она недоступна, выбирает Obsidian для этого запуска и сообщает об этом; сохранённая identity не стирается автоматически. Code/trust/enabled изменения применяются после restart по существующему loader contract. Нельзя объявить imported arbitrary JS выгруженным из процесса при выключении.
 

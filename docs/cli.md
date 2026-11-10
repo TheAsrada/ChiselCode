@@ -115,7 +115,7 @@ chisel --provider openai --model gpt-5 "Объясни проект"
 chisel --profile openai-work --resume <session-id> "Продолжи"
 ```
 
-`--profile` выбирает точный profile. Старый `--provider` остаётся compatibility interface: один profile — выбрать его; ни одного — controlled not configured; несколько — требуется --profile. Вместе flags должны указывать на один provider. Model precedence: --model → profile.defaultModel → definition.defaults.model → controlled selection error. Resume без overrides сохраняет профиль и модель сессии; explicit profile/provider может их заменить. setup --profile создаёт/редактирует точный profile; «Профиль» и «Новый профиль» доступны в settings. doctor проверяет локальные metadata/key references, не вызывает API.
+`--profile` выбирает точный профиль. Старый `--provider` выбирает единственный настроенный профиль сервиса; при отсутствии профиля сообщает, что подключение не настроено, при нескольких требует `--profile`. Вместе флаги должны указывать на один сервис. Приоритет модели: `--model` → `profile.defaultModel` → `definition.defaults.model`; если модель не задана, требуется её выбрать. Продолжение сессии без переопределений сохраняет её профиль и модель; явные `--profile`/`--provider` могут их заменить. `setup --profile` создаёт или редактирует точный профиль. В `/settings` → «Подключения» создание выполняется через «Добавить подключение», параметры сохраняются автоматически, а «Использовать подключение» отдельно выбирает профиль для беседы. [Управление подключениями](providers.md#управление-подключениями). `doctor` проверяет локальные метаданные и ссылки на ключи, не вызывает API.
 
 ## Web: статус, настройка и проверка
 
