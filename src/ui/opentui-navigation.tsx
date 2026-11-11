@@ -1,14 +1,9 @@
 /** @jsxImportSource @opentui/react */
-import type { ReactNode } from "react";
+import type { ImageRenderable } from "@opentui/core";
+import { type ReactNode, useCallback } from "react";
 import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
-import {
-  LOGO_TERM_ROWS,
-  LOGO_WIDTH,
-  LOGO_WORD_START,
-  renderLogoRows,
-  renderLogoRuns,
-} from "./logo.js";
+import { createLogoImage, LOGO_TERM_ROWS, LOGO_WIDTH } from "./logo.js";
 import { UiSurface } from "./opentui-composition.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { ActivityIndicator } from "./opentui-motion.js";
@@ -229,7 +224,19 @@ export function OpenTuiHome({
   onProjects?: () => void;
 }) {
   const logoWidth = LOGO_WIDTH;
-  const logoRows = renderLogoRows();
+  const { accent, text, bg } = palette;
+  const setLogo = useCallback(
+    (logo: ImageRenderable | null) => {
+      if (!logo) return;
+      const source = createLogoImage(accent, text, bg);
+      try {
+        logo.source = source;
+      } finally {
+        source.dispose();
+      }
+    },
+    [accent, text, bg],
+  );
   const fullLogo = width >= logoWidth + 4 && height >= 18;
   const contentWidth = Math.max(1, Math.min(86, width - (width >= 40 ? 4 : 0)));
   const version = `ChiselCode ${VERSION}`;
@@ -257,32 +264,14 @@ export function OpenTuiHome({
       >
         <UiSurface name="HomeLogo">
           {fullLogo ? (
-            <box
+            <image
               id="welcome-logo"
+              ref={setLogo}
               width={logoWidth}
               height={LOGO_TERM_ROWS}
               flexShrink={0}
-              flexDirection="column"
-              backgroundColor={palette.bg}
-            >
-              {logoRows.map((row) => (
-                <box key={row} height={1} flexShrink={0}>
-                  {renderLogoRuns(row).map(({ column, width }) => (
-                    <box
-                      key={column}
-                      position="absolute"
-                      top={0}
-                      left={column}
-                      width={width}
-                      height={1}
-                      backgroundColor={
-                        column < LOGO_WORD_START ? palette.accent : palette.text
-                      }
-                    />
-                  ))}
-                </box>
-              ))}
-            </box>
+              fit="fill"
+            />
           ) : (
             <text
               id="welcome-logo"

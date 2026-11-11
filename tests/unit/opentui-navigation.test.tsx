@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 import { expect, test } from "bun:test";
-import { RGBA } from "@opentui/core";
+import { ImageRenderable, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { createSession } from "../../src/sessions/store.js";
@@ -9,7 +9,6 @@ import { THEMES } from "../../src/ui/appearance.js";
 import {
   LOGO_TERM_ROWS,
   LOGO_WIDTH,
-  LOGO_WORD_START,
   renderLogoRows,
 } from "../../src/ui/logo.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
@@ -787,27 +786,27 @@ for (const [theme, palette] of Object.entries(THEMES)) {
     try {
       await frame(setup);
       const logo = setup.renderer.root.findDescendantById("welcome-logo");
-      if (!logo) throw new Error("Missing home logo");
+      if (!(logo instanceof ImageRenderable) || !logo.image)
+        throw new Error("Missing home logo image");
       expect(logo.width).toBe(LOGO_WIDTH);
       expect(logo.height).toBe(LOGO_TERM_ROWS);
       expect(logo.x).toBe(Math.floor((100 - LOGO_WIDTH) / 2));
-      const paper = RGBA.fromHex(palette.bg).toInts();
+      const { data, stride, width, height } = logo.image.raw();
+      expect(width).toBe(LOGO_WIDTH);
+      expect(height).toBe(LOGO_TERM_ROWS * 2);
       const accent = RGBA.fromHex(palette.accent).toInts();
       const ink = RGBA.fromHex(palette.text).toInts();
-      const lines = setup.captureSpans().lines;
+      const paper = RGBA.fromHex(palette.bg).toInts();
       for (const [y, row] of renderLogoRows().entries()) {
-        const cells = lines[logo.y + y]?.spans.flatMap((span) =>
-          [...span.text].map((char) => ({
-            char,
-            bg: span.bg.toInts(),
-          })),
-        );
         for (let x = 0; x < LOGO_WIDTH; x++) {
-          const cell = cells?.[logo.x + x];
-          if (!cell) throw new Error(`Missing logo cell ${x},${y}`);
-          expect(cell.char).toBe(" ");
-          const fill = x < LOGO_WORD_START ? accent : ink;
-          expect(cell.bg).toEqual(row[x] === "#" ? fill : paper);
+          const color = x < 15 ? accent : ink;
+          const offset = y * 2 * stride + x * 4;
+          expect([...data.subarray(offset, offset + 4)]).toEqual(
+            row[x] === "█" || row[x] === "▀" ? color : paper,
+          );
+          expect([
+            ...data.subarray(offset + stride, offset + stride + 4),
+          ]).toEqual(row[x] === "█" || row[x] === "▄" ? color : paper);
         }
       }
       expect(setup.renderer.currentFocusedEditor?.plainText).toBe("");

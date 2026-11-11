@@ -108,7 +108,7 @@ try {
   const editor = ui.renderer.currentFocusedEditor;
   await key("t", true);
   await until(
-    () => ui.captureCharFrame().includes("Пиксельный логотип"),
+    () => ui.captureCharFrame().includes("Coder Mini"),
     "Нет оформления",
   );
   assert.equal(
