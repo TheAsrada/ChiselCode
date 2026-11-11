@@ -1,5 +1,10 @@
-import { ManagedProcess } from "../processes/managed.js";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ProcessLog } from "../background/log.js";
+import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
 import { RuntimeError } from "../runtime/errors.js";
+import { SENSITIVE_KEY, SecretRedactor } from "./redaction.js";
 export interface PreparedCommand {
   command: string;
   cwd: string;
@@ -8,7 +13,9 @@ export interface PreparedCommand {
 }
 export interface ProcessResult {
   output: string;
-  exitCode: number;
+  exitCode: number | null;
+  outcome?: ManagedOutcome;
+  captureComplete?: boolean;
   sandboxed: boolean;
 }
 export interface SandboxExecutor {
@@ -19,47 +26,57 @@ export class HostSandboxExecutor implements SandboxExecutor {
   async execute(command: PreparedCommand): Promise<ProcessResult> {
     if (command.signal?.aborted)
       throw new RuntimeError("CANCELLED", "Команда отменена.");
-    const chunks: Buffer[] = [];
-    let bytes = 0;
+    const directory = await realpath(
+      await mkdtemp(join(tmpdir(), "chisel-shell-")),
+    );
+    const redactor = new SecretRedactor();
+    for (const [key, value] of Object.entries(process.env))
+      if (value && SENSITIVE_KEY.test(key)) redactor.add(value);
     let handle!: ManagedProcess;
-    handle = new ManagedProcess({
-      ...command,
-      deadline: Date.now() + command.timeout,
-      capture: {
-        async write(_stream, data) {
-          bytes += data.byteLength;
-          if (bytes > 32 * 1024 * 1024) {
-            void handle.stop("output_limit");
-            return;
-          }
-          chunks.push(Buffer.from(data));
-        },
-        async close() {},
+    const log = new ProcessLog(
+      join(directory, "output"),
+      32 * 1024 * 1024,
+      redactor,
+      () => {},
+      () => {
+        void handle.stop("output_limit");
       },
-    });
-    await handle.ready;
-    const outcome = await handle.done;
-    if (!outcome.cleanup)
-      throw new RuntimeError(
-        "BACKGROUND_RECOVERY_REQUIRED",
-        "Завершение процессов не подтверждено.",
-      );
-    if (outcome.reason === "cancelled")
-      throw new RuntimeError("CANCELLED", "Команда отменена.");
-    if (outcome.reason === "timed_out")
-      throw new RuntimeError("TOOL_TIMEOUT", "Время команды истекло.", {
-        cleanupPhase: handle.cleanupPhase,
-        cleanupDetail: handle.cleanupDetail,
+    );
+    try {
+      await log.create();
+      handle = new ManagedProcess({
+        ...command,
+        deadline: Date.now() + command.timeout,
+        capture: log,
       });
-    if (outcome.reason === "output_limit")
-      throw new RuntimeError(
-        "TOOL_EXECUTION_FAILURE",
-        "Лимит вывода команды превышен.",
-      );
-    return {
-      output: `Command exited ${outcome.exitCode ?? 1}.\n${Buffer.concat(chunks).toString("utf8")}`,
-      exitCode: outcome.exitCode ?? 1,
-      sandboxed: false,
-    };
+      await handle.ready.catch(() => {});
+      const outcome = await handle.done;
+      const pages: string[] = [];
+      let cursor = 0;
+      let captureComplete = !log.truncated && !outcome.captureFailed;
+      try {
+        while (cursor < log.size) {
+          const page = await log.read(cursor, 64 * 1024);
+          if (page.next <= cursor) {
+            captureComplete = false;
+            break;
+          }
+          pages.push(page.text);
+          cursor = page.next;
+        }
+      } catch {
+        captureComplete = false;
+      }
+      return {
+        output: pages.join(""),
+        exitCode: outcome.exitCode,
+        outcome,
+        captureComplete,
+        sandboxed: false,
+      };
+    } finally {
+      await log.close().catch(() => {});
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 }

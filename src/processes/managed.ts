@@ -14,6 +14,8 @@ export interface ManagedOutcome {
   signal: string | null;
   cleanup: boolean;
   escaped: boolean;
+  captureFailed?: boolean;
+  timing?: { waitMs: number; cleanupMs: number };
   reason?: "cancelled" | "timed_out" | "output_limit" | "capture_failed";
 }
 export interface ProcessCapture {
@@ -34,6 +36,9 @@ export class ManagedProcess {
   cleanupDetail = "";
   private readonly child;
   private outcome?: ManagedOutcome;
+  private readonly started = performance.now();
+  private cleanupStarted?: number;
+  private captureFailed = false;
   private reason?: ManagedOutcome["reason"];
   private closed = false;
   private escaped = false;
@@ -119,9 +124,11 @@ export class ManagedProcess {
             this.pid = message.pid;
             this.readyResolve();
           } else if (message.type === "exit") {
+            this.cleanupStarted ??= performance.now();
             this.leaderCode = message.exitCode ?? null;
             this.leaderSignal = message.signal ?? null;
           } else if (message.type === "cleanup_phase") {
+            this.cleanupStarted ??= performance.now();
             this.cleanupPhase = String(message.phase);
             if (message.detail)
               this.cleanupDetail = String(message.detail).slice(0, 1000);
@@ -149,7 +156,11 @@ export class ManagedProcess {
       } catch {
         /* Cleanup remains unconfirmed. */
       }
-      await output;
+      const streams = await output;
+      if (streams.some((result) => result.status === "rejected")) {
+        this.captureFailed = true;
+        this.reason ??= "capture_failed";
+      }
       this.closed = true;
       clearTimeout(deadlineTimer);
       this.foregroundSignal?.removeEventListener("abort", this.aborted);
@@ -159,6 +170,7 @@ export class ManagedProcess {
       try {
         await input.capture.close();
       } catch {
+        this.captureFailed = true;
         this.reason ??= "capture_failed";
       }
       let cleanup = this.outcome?.cleanup ?? false;
@@ -183,6 +195,8 @@ export class ManagedProcess {
         }),
         cleanup,
         ...(this.reason ? { reason: this.reason } : {}),
+        captureFailed: this.captureFailed,
+        timing: this.timing(),
       };
     })();
     // Callers always await ready; keep a rejection during stop/start races observed.
@@ -202,9 +216,24 @@ export class ManagedProcess {
   stop(
     reason: NonNullable<ManagedOutcome["reason"]> = "cancelled",
   ): Promise<ManagedOutcome> {
+    if (reason === "capture_failed") this.captureFailed = true;
+    if (reason === "capture_failed" || reason === "output_limit")
+      this.reason ??= reason;
+    // A late abort must not rewrite a confirmed exit while capture is closing.
+    if (this.closed || (this.outcome && reason !== "capture_failed"))
+      return this.done;
+    this.cleanupStarted ??= performance.now();
     this.reason ??= reason;
     this.stopPromise ??= this.terminate();
     return this.stopPromise;
+  }
+  private timing() {
+    const end = performance.now();
+    const cleanup = this.cleanupStarted ?? end;
+    return {
+      waitMs: Math.round(cleanup - this.started),
+      cleanupMs: Math.round(end - cleanup),
+    };
   }
   private async terminate(): Promise<ManagedOutcome> {
     if (this.closed) return this.done;
@@ -249,11 +278,13 @@ export class ManagedProcess {
         this.child.stderr?.destroy();
         (this.child.stdio[3] as Readable)?.destroy();
         resolve({
-          exitCode: this.outcome?.exitCode ?? null,
-          signal: this.outcome?.signal ?? null,
+          exitCode: this.outcome?.exitCode ?? this.leaderCode,
+          signal: this.outcome?.signal ?? this.leaderSignal,
           cleanup: false,
           escaped: this.outcome?.escaped ?? false,
           reason: this.reason,
+          captureFailed: this.captureFailed,
+          timing: this.timing(),
         });
       }, 10000);
     });

@@ -408,3 +408,28 @@ test.skipIf(process.platform !== "linux")(
   },
   15000,
 );
+
+test("a late abort during capture close cannot rewrite a confirmed process exit", async () => {
+  const { root, command } = await fixture(
+    "console.log('завершено');process.exitCode=7",
+  );
+  const abort = new AbortController();
+  const handle = new ManagedProcess({
+    command,
+    cwd: root,
+    deadline: Date.now() + 10000,
+    signal: abort.signal,
+    capture: {
+      async write() {},
+      async close() {
+        abort.abort();
+      },
+    },
+  });
+  await handle.ready;
+  const outcome = await handle.done;
+  expect(outcome.exitCode).toBe(7);
+  expect(outcome.reason).toBeUndefined();
+  expect(outcome.cleanup).toBe(true);
+  expect(await handle.stop("cancelled")).toEqual(outcome);
+}, 15000);

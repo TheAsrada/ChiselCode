@@ -24,6 +24,7 @@ import { changesWorkspace } from "./effects.js";
 import { parseToolInput } from "./input.js";
 import { canonicalInput, type ToolInvocationRecord } from "./invocation.js";
 import { failure, normalizeResult } from "./result.js";
+import { shellSummary } from "./shell-result.js";
 import type { ToolContext, ToolPlan, ToolSource } from "./types.js";
 import { workspaceCoordinator } from "./workspace-coordinator.js";
 
@@ -196,7 +197,12 @@ export class ToolExecutor {
           outputLimit,
         );
         record.result = result;
-        record.state = result.isError ? "failed" : "succeeded";
+        record.state =
+          result.errorCode === "CANCELLED"
+            ? "cancelled"
+            : result.isError
+              ? "failed"
+              : "succeeded";
         record.updatedAt = new Date().toISOString();
         await context.checkpoint();
         await context.events.emit({
@@ -282,7 +288,12 @@ export class ToolExecutor {
           this.maxInlineTokens,
         );
         record.result = result;
-        record.state = result.isError ? "failed" : "succeeded";
+        record.state =
+          result.errorCode === "CANCELLED"
+            ? "cancelled"
+            : result.isError
+              ? "failed"
+              : "succeeded";
         await context.checkpoint();
         await context.events.emit({
           type: result.isError ? "tool_failed" : "tool_completed",
@@ -704,7 +715,10 @@ export class ToolExecutor {
         await lease?.finish();
         clearTimeout(timer);
       }
-      if (timeout.signal.aborted)
+      if (
+        timeout.signal.aborted &&
+        !(isNativeShell(handler) && shellSummary(result))
+      )
         throw new RuntimeError("TOOL_TIMEOUT", "Tool execution timed out.");
       if (!result.isError && this.hooks?.has("tool.result")) {
         const original =
@@ -735,6 +749,20 @@ export class ToolExecutor {
             ...original,
             ...changed.result,
             requiresApproval: original.requiresApproval,
+            // Formatting hooks cannot rewrite the observed process outcome/log.
+            ...(isNativeShell(handler) && shellSummary(original)
+              ? {
+                  isError: original.isError,
+                  errorCode: original.errorCode,
+                  rawOutput: original.rawOutput,
+                  details: {
+                    ...original.details,
+                    ...changed.result.details,
+                    exitCode: original.details?.exitCode,
+                    shell: original.details?.shell,
+                  },
+                }
+              : {}),
           };
         } catch (error) {
           result = original;
@@ -756,7 +784,12 @@ export class ToolExecutor {
         handler.spec.outputPolicy?.maxInlineTokens ?? this.maxInlineTokens,
       );
       record.result = result;
-      record.state = result.isError ? "failed" : "succeeded";
+      record.state =
+        result.errorCode === "CANCELLED"
+          ? "cancelled"
+          : result.isError
+            ? "failed"
+            : "succeeded";
       if (writesWorkspace && !result.isError) {
         runtime.workspaceVersion = (runtime.workspaceVersion ?? 0) + 1;
         await context.events.emit({

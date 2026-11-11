@@ -1,8 +1,9 @@
 import { attestNativeShell } from "../../background/capability.js";
 import { type ShellData, ShellInputSchema } from "../../background/input.js";
-import { shellFailureHint, shellGuidance } from "../../processes/shell.js";
+import { shellGuidance } from "../../processes/shell.js";
 import { RuntimeError } from "../../runtime/errors.js";
 import { defineTool } from "../handler.js";
+import { shellResult } from "../shell-result.js";
 export function shellHandler() {
   return attestNativeShell(
     defineTool(
@@ -48,18 +49,19 @@ export function shellHandler() {
           ...plan.data,
           signal: context.signal,
         });
-        const hint =
-          result.exitCode !== 0
-            ? shellFailureHint(plan.data.command, result.output)
-            : undefined;
         return {
-          // Keep traceback context; the shared result store bounds large output.
-          output: `${result.output}${hint ? `\n${hint}` : ""}`,
-          rawOutput: result.output,
-          isError: result.exitCode !== 0,
-          errorCode:
-            result.exitCode !== 0 ? "TOOL_EXECUTION_FAILURE" : undefined,
-          details: { exitCode: result.exitCode },
+          ...shellResult({
+            outcome: result.outcome ?? {
+              exitCode: result.exitCode,
+              signal: null,
+              cleanup: true,
+              escaped: false,
+            },
+            output: result.output,
+            command: plan.data.command,
+            timeoutMs: plan.data.timeout,
+            captureComplete: result.captureComplete ?? true,
+          }),
           sandboxed: result.sandboxed,
         };
       },

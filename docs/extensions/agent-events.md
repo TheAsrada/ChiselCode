@@ -36,7 +36,7 @@ Handler получает `{type,data,workspaceRoot,sessionId,turnId?,signal}`. `
 | `tool.call` | `{callId,name,input}` | `{call: data}` или `{result:{output,...}}` без выполнения инструмента. `callId` неизменяем. |
 | `tool.result` | `{callId,name,result}` | `{result}`. Работает после успешного выполнения и сохранения исходного результата, до сохранения изменённого ответа; исходные ошибки и отказы через него не проходят. |
 
-Ответ инструмента из hook принимает только `output`, `rawOutput?`, `preview?`, `isError?`, `errorCode?`, `details?`. Нельзя создать diff, artifact authority или approval receipt через middleware. Синтетический результат явно помечается в выводе как ответ расширения без выполнения. Реальные diff, ownership и результаты сохраняет core.
+Ответ инструмента из hook принимает только `output`, `rawOutput?`, `preview?`, `isError?`, `errorCode?`, `details?`. Нельзя создать diff, artifact authority или approval receipt через middleware. Синтетический результат явно помечается в выводе как ответ расширения без выполнения. Реальные diff, ownership и результаты сохраняет core. Для выполненного `run_shell` core также сохраняет наблюдавшийся исход и очищенный лог: hook не заменяет `isError`, `errorCode`, `details.exitCode` и необязательный `details.shell`. Его сводка остаётся в тексте результата для модели. Старые результаты без `details.shell` и публичный SDK не требуют миграции.
 
 Для временной остановки handler может ожидать собственный Promise; локальная кнопка панели, зарегистрированная через `ctx.ui.on`, завершает ожидание. Учитывайте `event.signal`: Ctrl+C и закрытие владельца прекращают ожидание. Обычное подтверждение инструмента после продолжения сохраняется. Прямой доступ к approval arbiter не предоставляется.
 

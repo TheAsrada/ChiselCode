@@ -177,6 +177,11 @@ Durable transcript сохраняет порядок записи: наприм�
 
 Полностью read-only batch исполняется максимум четырьмя workers. Mixed batch идёт последовательно в provider order; результаты сохраняют исходный порядок при любом порядке завершения. AbortSignal проходит до handlers и shell. Cancelled calls получают явное состояние и result. Host executor завершает дерево процессов и сообщает `sandboxed=false`; permission policy не является OS sandbox.
 
+Оба пути обычного `run_shell` — `BackgroundTaskService.foreground` и `HostSandboxExecutor` — получают `ManagedOutcome` и проходят общее преобразование `tools/shell-result.ts`. Процессный слой хранит наблюдавшиеся `exitCode: number | null`, `signal`, причину остановки, подтверждение cleanup и монотонные измерения `waitMs`/`cleanupMs`. Он не вычисляет shell-код `128 + N`. Очищенный поток формируется существующим `ProcessLog`; сводка не подмешивается в лог.
+
+Публичный `ToolExecutionResult` не меняется. Необязательный `details.shell` содержит `reason`, `stopReason?`, `exitCode`, `signal`, `timeoutMs`, `waitMs?`, `cleanupMs?`, `cleanupConfirmed`, `captureComplete`, `captureFailed`, `summary` и при переносе лога `outputOffloaded`. Верхний `details.exitCode` сохраняется, неизвестное значение — `null`. `normalizeResult` оставляет сводку в `output` для сообщения `tool_result` модели и переносит уже очищенный лог в artifact; неполный захват обозначается явно. Старые результаты без `details.shell` читаются прежним путём. Hook может форматировать успешный ответ, но не менять наблюдавшийся исход, сводку и очищенный лог. Поздний AbortSignal не переписывает подтверждённый исход; отменённое выполнение сохраняется как `cancelled`.
+
+
 После трёх одинаковых failures без runtime workspace change следующий вызов получает `REPEATED_CALL_DETECTED`. Это сигнал сменить стратегию, а не автоматическая остановка всего агента. Grep использует rg, а при его отсутствии — встроенный поиск; traversal исключает ignored/symlink paths и ограничивает объём.
 
 ## Editing

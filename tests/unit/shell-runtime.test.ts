@@ -3,12 +3,18 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_PROJECT_CONFIG } from "../../src/config/load.js";
+import { ContextManager } from "../../src/context/context-manager.js";
+import { AgentEventPipeline } from "../../src/extensions/agent-events.js";
 import { hostShell, shellFailureHint } from "../../src/processes/shell.js";
+import { AgentRuntime } from "../../src/runtime/agent-runtime.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { HostSandboxExecutor } from "../../src/security/sandbox.js";
+import { SessionV3Schema } from "../../src/sessions/schema.js";
 import { createSession } from "../../src/sessions/store.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
+import type { ProviderAdapter } from "../../src/types/domain.js";
 import { quoteShellArg } from "../helpers/shell.js";
+import { verifyShellDiagnostics } from "../helpers/shell-diagnostics.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -125,9 +131,8 @@ console.log('following-${index}');
     expect(first.output).not.toContain(`stderr-${1 - index}`);
     expect(batch[1]?.details?.exitCode).toBe(0);
     expect(batch[1]?.isError).not.toBe(true);
-    expect(batch[1]?.output.trim()).toBe(
-      `Command exited 0.\nfollowing-${index}`,
-    );
+    expect(batch[1]?.output.trim()).toEndWith(`following-${index}`);
+    expect(batch[1]?.output).toContain("Exit code: 0");
   }
 }, 15000);
 
@@ -264,3 +269,205 @@ test("fallback run_shell preserves failing test file, line, assertion and real e
   expect(result.details?.exitCode).toBe(1);
   expect(result.output).toContain(traceback);
 }, 15000);
+
+test("fallback managed shell retains observed outcomes and partial sanitized logs", async () => {
+  const cwd = await root();
+  const session = createSession(cwd, "fixture", "model");
+  const runtime = createLocalToolRuntime(
+    cwd,
+    [],
+    new ApprovalGate(
+      DEFAULT_PROJECT_CONFIG,
+      {
+        autoApprove: false,
+        nonInteractive: true,
+        allowedTools: new Set(["run_shell"]),
+      },
+      { requestApproval: async () => "unavailable" },
+    ),
+    session,
+    [],
+    {
+      mode: "build",
+      artifactDirectory: join(cwd, "artifacts"),
+      maxInlineTokens: 1000,
+    },
+  );
+  await verifyShellDiagnostics(
+    cwd,
+    async (call, signal) => {
+      const [result] = await runtime.scheduler.execute([call], signal);
+      if (!result) throw new Error("Missing result");
+      if (result.errorCode === "CANCELLED")
+        expect(session.runtime?.invocations[call.id]?.state).toBe("cancelled");
+      return result;
+    },
+    (uri) => runtime.context.artifacts.read(uri),
+  );
+}, 60000);
+
+test("foreground managed shell uses the same diagnostics through the application runtime", async () => {
+  const child = Bun.spawn(
+    [process.execPath, "tests/fixtures/shell-diagnostics.ts"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [code, output, error] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  expect(code, error).toBe(0);
+  expect(output).toContain("Foreground shell diagnostics: passed");
+}, 60000);
+
+test("model receives shell failure after offload and saved sessions accept optional diagnostics", async () => {
+  const cwd = await root();
+  const session = createSession(cwd, "anthropic", "fixture");
+  session.mode = "build";
+  const runtime = createLocalToolRuntime(
+    cwd,
+    [],
+    new ApprovalGate(
+      DEFAULT_PROJECT_CONFIG,
+      {
+        autoApprove: false,
+        nonInteractive: true,
+        allowedTools: new Set(["run_shell"]),
+      },
+      { requestApproval: async () => "unavailable" },
+    ),
+    session,
+    [],
+    {
+      mode: "build",
+      artifactDirectory: join(cwd, "artifacts"),
+      maxInlineTokens: 1000,
+    },
+  );
+  const script = join(cwd, "model.cjs");
+  await writeFile(
+    script,
+    "console.log('я€🙂'.repeat(40000));process.exitCode=7",
+  );
+  let requests = 0;
+  const provider: ProviderAdapter = {
+    providerId: "anthropic",
+    async *streamChat(request) {
+      requests++;
+      if (requests === 2) {
+        const block = request.messages
+          .flatMap((message) => message.content)
+          .find((block) => block.type === "tool_result");
+        expect(block?.type).toBe("tool_result");
+        if (block?.type !== "tool_result")
+          throw new Error("Missing model tool result");
+        expect(block.isError).toBe(true);
+        expect(block.content).toContain("Ненулевой выход");
+        expect(block.content).toContain("Exit code: 7");
+        expect(block.content).toContain("tool-result://");
+        expect(block.content).not.toContain("�");
+      }
+      yield {
+        type: "turn_complete",
+        stopReason: requests === 1 ? "tool_use" : "end_turn",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        message: {
+          role: "assistant",
+          content:
+            requests === 1
+              ? [
+                  {
+                    type: "tool_use",
+                    id: "model-shell",
+                    name: "run_shell",
+                    input: {
+                      command: `${quoteShellArg(process.execPath)} ${quoteShellArg(script)}`,
+                    },
+                  },
+                ]
+              : [{ type: "text", text: "готово" }],
+        },
+      };
+    },
+  };
+  const agent = new AgentRuntime(
+    provider,
+    new ContextManager({}, runtime.context.events),
+    {
+      selectForTurn: () => runtime.catalog.selectForTurn(),
+      execute: (calls, signal) => runtime.scheduler.execute(calls, signal),
+    },
+    "system",
+    runtime.context.events,
+  );
+  const answer = await agent.run(session, "проверь", { mode: "build" });
+  expect(answer.status, answer.error).toBe("completed");
+  expect(requests).toBe(2);
+  const persisted = SessionV3Schema.parse(
+    JSON.parse(JSON.stringify({ ...session, schemaVersion: 3 })),
+  );
+  const savedResult = Object.values(persisted.runtime?.invocations ?? {}).find(
+    (record) => record.name === "run_shell",
+  )?.result;
+  expect(savedResult?.details?.shell).toBeDefined();
+  const legacy = structuredClone(persisted);
+  for (const record of Object.values(legacy.runtime?.invocations ?? {}))
+    if (record.result?.details) delete record.result.details.shell;
+  expect(SessionV3Schema.safeParse(legacy).success).toBe(true);
+}, 15000);
+
+test.each([false, true])(
+  "tool.result hooks preserve confirmed shell status (abort=%s)",
+  async (cancelHook) => {
+    const cwd = await root();
+    const abort = new AbortController();
+    const hooks = new AgentEventPipeline(cwd, new AbortController().signal);
+    hooks.on("fixture", "tool.result", async ({ data: { result } }) => {
+      expect(result.details?.shell).toBeDefined();
+      if (cancelHook) abort.abort();
+      return {
+        result: {
+          ...result,
+          output: "formatted",
+          rawOutput: "invented",
+          isError: true,
+          errorCode: "CANCELLED",
+          details: { shell: { exitCode: 99 } },
+        },
+      };
+    });
+    const runtime = createLocalToolRuntime(
+      cwd,
+      [],
+      new ApprovalGate(
+        DEFAULT_PROJECT_CONFIG,
+        {
+          autoApprove: false,
+          nonInteractive: true,
+          allowedTools: new Set(["run_shell"]),
+        },
+        { requestApproval: async () => "unavailable" },
+      ),
+      createSession(cwd, "fixture", "model"),
+      [],
+      {
+        mode: "build",
+        artifactDirectory: join(cwd, "artifacts"),
+        signal: abort.signal,
+        agentEvents: hooks,
+      },
+    );
+    const result = await runtime.executor.execute({
+      id: "hook-shell",
+      name: "run_shell",
+      input: { command: "echo confirmed" },
+    });
+    expect(result.isError).toBe(false);
+    expect(result.details?.exitCode).toBe(0);
+    expect(result.output).toContain("Exit code: 0");
+    expect(
+      (result.details?.shell as { reason: string } | undefined)?.reason,
+    ).toBe("exited");
+  },
+  15000,
+);

@@ -10,11 +10,11 @@ import {
   identityState,
 } from "../processes/identity.js";
 import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
-import { shellFailureHint } from "../processes/shell.js";
 import { cancelled, RuntimeError, runtimeError } from "../runtime/errors.js";
 import type { RuntimeEvent } from "../runtime/events.js";
 import { SENSITIVE_KEY, SecretRedactor } from "../security/redaction.js";
 import { projectSessionStore } from "../sessions/project-store.js";
+import { shellResult } from "../tools/shell-result.js";
 import type { ToolContext, ToolPlan } from "../tools/types.js";
 import {
   type WorkspaceAccess,
@@ -103,6 +103,8 @@ interface Active {
   promotionAdmitted?: boolean;
   plan?: ToolPlan<ShellData>;
   foregroundOutput?: string;
+  outcome?: ManagedOutcome;
+  foregroundCaptureComplete?: boolean;
   launching?: Promise<void>;
   spawnAttempted?: boolean;
   stopReason?: ManagedOutcome["reason"];
@@ -1140,6 +1142,7 @@ export class BackgroundTaskService {
   ): Promise<void> {
     if (item.finished) return;
     item.finished = true;
+    item.outcome = outcome;
     clearTimeout(item.timer);
     item.record.exitCode = outcome.exitCode;
     item.record.signal = outcome.signal;
@@ -1150,7 +1153,9 @@ export class BackgroundTaskService {
       confirmed: outcome.cleanup,
       ...(!outcome.cleanup ? { recoveryRequired: true } : {}),
     };
-    const reason = item.stopReason ?? outcome.reason;
+    const reason = item.process
+      ? outcome.reason
+      : (item.stopReason ?? outcome.reason);
     if (reason === "capture_failed") {
       item.record.truncated = true;
       item.record.error ??=
@@ -1172,7 +1177,7 @@ export class BackgroundTaskService {
                   : "failed"));
     try {
       await item.writes;
-      if (item.record.foreground && outcome.cleanup && item.log) {
+      if (item.record.foreground && item.log) {
         const pages: string[] = [];
         let cursor = 0;
         while (cursor < item.record.outputBytes) {
@@ -1182,6 +1187,8 @@ export class BackgroundTaskService {
           cursor = page.next;
         }
         item.foregroundOutput = pages.join("");
+        item.foregroundCaptureComplete =
+          cursor >= item.log.size && !item.record.truncated;
       }
       await this.journal.persist(item.owner, item.record, "terminal");
       if (outcome.cleanup) {
@@ -1217,6 +1224,7 @@ export class BackgroundTaskService {
           .then(() => item.lease?.release())
           .catch(() => {});
       }
+      item.foregroundCaptureComplete = false;
       item.record.error = `Не удалось сохранить результат команды: ${terminalSafeText(item.binding.redactor.text(String(error)), 2000)}`;
       await this.journal
         .persist(item.owner, item.record, "terminal")
@@ -1329,39 +1337,19 @@ export class BackgroundTaskService {
               label: record.label,
               state: "cleanup_unknown",
             });
-          throw new RuntimeError(
-            "BACKGROUND_RECOVERY_REQUIRED",
-            "Завершение процессов не подтверждено; workspace остаётся занят.",
-            { taskId: record.id },
-          );
         }
-        if (record.state === "cancelled")
-          throw new RuntimeError("CANCELLED", "Команда остановлена.");
-        if (record.state === "timed_out")
-          throw new RuntimeError("TOOL_TIMEOUT", "Время команды истекло.");
-        const rawOutput = `Command exited ${record.exitCode ?? 1}.\n${item.foregroundOutput ?? record.tail.join("\n")}`;
-        const hint =
-          record.exitCode !== 0
-            ? shellFailureHint(
-                plan.data.command,
-                rawOutput,
-                item.process!.shell,
-              )
-            : undefined;
-        const output = `${rawOutput}${hint ? `\n${hint}` : ""}`;
+        const result = shellResult({
+          outcome: item.outcome!,
+          output: item.foregroundOutput ?? record.tail.join("\n"),
+          command: plan.data.command,
+          timeoutMs: plan.data.timeout,
+          captureComplete: item.foregroundCaptureComplete ?? false,
+          infrastructureError: !!record.error,
+        });
         return {
-          output,
-          rawOutput,
-          isError: record.state !== "completed",
-          ...(record.state !== "completed"
-            ? { errorCode: "TOOL_EXECUTION_FAILURE" }
-            : {}),
-          details: {
-            exitCode: record.exitCode ?? 1,
-            foregroundTaskId: record.id,
-          },
+          ...result,
+          details: { ...result.details, foregroundTaskId: record.id },
           ...(record.presentation ? { presentation: record.presentation } : {}),
-          sandboxed: false,
         };
       });
       return await Promise.race([completion, item.promotion.promise]);
