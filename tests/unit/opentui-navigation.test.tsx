@@ -7,9 +7,10 @@ import { createSession } from "../../src/sessions/store.js";
 import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { THEMES } from "../../src/ui/appearance.js";
 import {
+  LOGO_TERM_ROWS,
   LOGO_WIDTH,
+  LOGO_WORD_START,
   renderLogoRows,
-  renderLogoRuns,
 } from "../../src/ui/logo.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { createTuiApprovalResolver } from "../../src/ui/tui-contract.js";
@@ -491,11 +492,7 @@ for (const [width, height] of [
       const prompt = setup.renderer.root.findDescendantById("prompt");
       expect(prompt?.y).toBe((logo?.y ?? 0) + (logo?.height ?? 0) + 1);
       if (width >= LOGO_WIDTH + 4 && height >= 18)
-        expect(setup.captureCharFrame()).toContain(
-          renderLogoRuns(renderLogoRows()[2] ?? "")
-            .map((run) => run.text)
-            .join(""),
-        );
+        expect(logo?.height).toBe(LOGO_TERM_ROWS);
       else expect(setup.captureCharFrame()).toContain("<i> ChiselCode");
       await act(async () => {
         await setup.mockInput.pasteBracketedText("Первая задача");
@@ -789,58 +786,28 @@ for (const [theme, palette] of Object.entries(THEMES)) {
     );
     try {
       await frame(setup);
-      expect(setup.captureCharFrame()).toContain(
-        renderLogoRuns(renderLogoRows()[2] ?? "")
-          .map((run) => run.text)
-          .join(""),
-      );
-      const accent = RGBA.fromHex(palette.accent).toInts();
-      expect(
-        setup
-          .captureSpans()
-          .lines.flatMap((line) => line.spans)
-          .some(
-            (span) =>
-              JSON.stringify(span.fg.toInts()) === JSON.stringify(accent),
-          ),
-      ).toBe(true);
       const logo = setup.renderer.root.findDescendantById("welcome-logo");
       if (!logo) throw new Error("Missing home logo");
       expect(logo.width).toBe(LOGO_WIDTH);
-      expect(logo.height).toBe(5);
+      expect(logo.height).toBe(LOGO_TERM_ROWS);
       expect(logo.x).toBe(Math.floor((100 - LOGO_WIDTH) / 2));
       const paper = RGBA.fromHex(palette.bg).toInts();
+      const accent = RGBA.fromHex(palette.accent).toInts();
+      const ink = RGBA.fromHex(palette.text).toInts();
       const lines = setup.captureSpans().lines;
       for (const [y, row] of renderLogoRows().entries()) {
         const cells = lines[logo.y + y]?.spans.flatMap((span) =>
           [...span.text].map((char) => ({
             char,
-            fg: span.fg.toInts(),
             bg: span.bg.toInts(),
           })),
         );
         for (let x = 0; x < LOGO_WIDTH; x++) {
           const cell = cells?.[logo.x + x];
           if (!cell) throw new Error(`Missing logo cell ${x},${y}`);
-          const ink = RGBA.fromHex(
-            x < 15 ? palette.accent : palette.text,
-          ).toInts();
-          const source = row[x] ?? " ";
-          // Compare the visible top/bottom halves, not just glyph strings:
-          // cutouts swap glyph and colors but must preserve every art pixel.
-          const top =
-            cell.char === "█" || cell.char === "▀" ? cell.fg : cell.bg;
-          const bottom =
-            cell.char === "█" || cell.char === "▄" ? cell.fg : cell.bg;
-          expect(top).toEqual(source === "█" || source === "▀" ? ink : paper);
-          expect(bottom).toEqual(
-            source === "█" || source === "▄" ? ink : paper,
-          );
-          if (source === "█") expect(cell.bg).toEqual(ink);
-          if (source === "▀" || source === "▄") {
-            expect(cell.bg).toEqual(ink);
-            expect(cell.fg).toEqual(paper);
-          }
+          expect(cell.char).toBe(" ");
+          const fill = x < LOGO_WORD_START ? accent : ink;
+          expect(cell.bg).toEqual(row[x] === "#" ? fill : paper);
         }
       }
       expect(setup.renderer.currentFocusedEditor?.plainText).toBe("");
@@ -871,7 +838,7 @@ test("home logo switches at its width and height boundaries without losing the d
       await frame(setup);
       const logo = setup.renderer.root.findDescendantById("welcome-logo");
       if (!logo) throw new Error("Missing home logo");
-      expect(logo.height).toBe(full ? 5 : 1);
+      expect(logo.height).toBe(full ? LOGO_TERM_ROWS : 1);
       expect(logo.x).toBe(Math.floor((width - logo.width) / 2));
       expect(setup.captureCharFrame().includes("<i> ChiselCode")).toBe(!full);
       expect(setup.renderer.currentFocusedEditor?.plainText).toBe("черновик");

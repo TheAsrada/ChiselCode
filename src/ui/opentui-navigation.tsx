@@ -2,7 +2,13 @@
 import type { ReactNode } from "react";
 import { VERSION } from "../version.js";
 import type { Palette } from "./appearance.js";
-import { LOGO_WIDTH, renderLogoRows, renderLogoRuns } from "./logo.js";
+import {
+  LOGO_TERM_ROWS,
+  LOGO_WIDTH,
+  LOGO_WORD_START,
+  renderLogoRows,
+  renderLogoRuns,
+} from "./logo.js";
 import { UiSurface } from "./opentui-composition.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { ActivityIndicator } from "./opentui-motion.js";
@@ -254,27 +260,27 @@ export function OpenTuiHome({
             <box
               id="welcome-logo"
               width={logoWidth}
-              height={5}
+              height={LOGO_TERM_ROWS}
               flexShrink={0}
               flexDirection="column"
+              backgroundColor={palette.bg}
             >
               {logoRows.map((row) => (
-                <text key={row} height={1} selectable={false}>
-                  {[
-                    { part: row.slice(0, 15), ink: palette.accent, start: 0 },
-                    { part: row.slice(15), ink: palette.text, start: 15 },
-                  ].flatMap(({ part, ink, start }) =>
-                    renderLogoRuns(part).map(({ text, kind, column }) => (
-                      <span
-                        key={start + column}
-                        fg={kind === "half" ? palette.bg : ink}
-                        bg={kind === "space" ? palette.bg : ink}
-                      >
-                        {text}
-                      </span>
-                    )),
-                  )}
-                </text>
+                <box key={row} height={1} flexShrink={0}>
+                  {renderLogoRuns(row).map(({ column, width }) => (
+                    <box
+                      key={column}
+                      position="absolute"
+                      top={0}
+                      left={column}
+                      width={width}
+                      height={1}
+                      backgroundColor={
+                        column < LOGO_WORD_START ? palette.accent : palette.text
+                      }
+                    />
+                  ))}
+                </box>
               ))}
             </box>
           ) : (

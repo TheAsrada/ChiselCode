@@ -47,7 +47,7 @@ import {
   navigateEditorHistory,
 } from "./editor.js";
 import { dispatchCoreChat, type UiToolSubmit } from "./extension-ui.js";
-import { COMPACT_LOGO, LOGO_WIDTH } from "./logo.js";
+import { COMPACT_LOGO, LOGO_TERM_ROWS, LOGO_WIDTH } from "./logo.js";
 import type { MotionPreference } from "./motion.js";
 import { OpenTuiAgentDetails } from "./opentui-agent-details.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
@@ -736,7 +736,7 @@ function OpenTuiScreen({
   const notice = homeHeight >= 12 ? updateNotice(update) : undefined;
   const homeFixedRows =
     (notice ? 1 : 0) +
-    (fullHomeLogo ? 5 : 1) +
+    (fullHomeLogo ? LOGO_TERM_ROWS : 1) +
     (homeCompact ? 1 : 2) +
     (homeHeight >= 10 ? 1 : 0) +
     (homeHeight >= 18 ? 1 : 0) +

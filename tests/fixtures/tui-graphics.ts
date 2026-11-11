@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
-import { renderLogoRows, renderLogoRuns } from "../../src/ui/logo.js";
+import { LOGO_TERM_ROWS } from "../../src/ui/logo.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -95,13 +95,10 @@ try {
     );
   });
   await until(() => !!ui.renderer.currentFocusedEditor, "Нет редактора");
-  assert.ok(
-    ui.captureCharFrame().includes(
-      renderLogoRuns(renderLogoRows()[2] ?? "Missing logo")
-        .map((run) => run.text)
-        .join(""),
-    ),
-    "Старое false не должно отключать Coder Mini",
+  assert.equal(
+    ui.renderer.root.findDescendantById("welcome-logo")?.height,
+    LOGO_TERM_ROWS,
+    "Старое false не должно отключать крупный логотип",
   );
   await capture("home-120x36");
   await act(async () => {
@@ -111,7 +108,7 @@ try {
   const editor = ui.renderer.currentFocusedEditor;
   await key("t", true);
   await until(
-    () => ui.captureCharFrame().includes("Coder Mini"),
+    () => ui.captureCharFrame().includes("Пиксельный логотип"),
     "Нет оформления",
   );
   assert.equal(
