@@ -1142,7 +1142,6 @@ export class BackgroundTaskService {
   ): Promise<void> {
     if (item.finished) return;
     item.finished = true;
-    item.outcome = outcome;
     clearTimeout(item.timer);
     item.record.exitCode = outcome.exitCode;
     item.record.signal = outcome.signal;
@@ -1153,9 +1152,16 @@ export class BackgroundTaskService {
       confirmed: outcome.cleanup,
       ...(!outcome.cleanup ? { recoveryRequired: true } : {}),
     };
-    const reason = item.process
-      ? outcome.reason
-      : (item.stopReason ?? outcome.reason);
+    // Durable capture failures/limits still apply when the command exits while
+    // their checkpoint is being written. A late cancellation cannot replace exit.
+    const reason =
+      outcome.reason ??
+      (!item.process ||
+      item.stopReason === "capture_failed" ||
+      item.stopReason === "output_limit"
+        ? item.stopReason
+        : undefined);
+    item.outcome = { ...outcome, ...(reason ? { reason } : {}) };
     if (reason === "capture_failed") {
       item.record.truncated = true;
       item.record.error ??=

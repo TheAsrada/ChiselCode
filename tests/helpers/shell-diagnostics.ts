@@ -115,9 +115,7 @@ export async function verifyShellDiagnostics(
     await create.call(this);
   };
   try {
-    const overflow = await run(
-      "console.log('я'.repeat(50000));setTimeout(()=>{},60000)",
-    );
+    const overflow = await run("console.log('я'.repeat(50000))");
     assert.equal(overflow.isError, true);
     assert.equal(shell(overflow).reason, "output_limit");
     assert.equal(shell(overflow).captureComplete, false);
