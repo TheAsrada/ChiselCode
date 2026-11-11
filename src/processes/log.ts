@@ -1,9 +1,9 @@
 import { constants } from "node:fs";
 import { type FileHandle, lstat, open, realpath } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
-import type { ProcessCapture, ProcessStream } from "../processes/managed.js";
 import { RuntimeError } from "../runtime/errors.js";
 import { SecretRedactor } from "../security/redaction.js";
+import type { ProcessCapture, ProcessStream } from "./managed.js";
 
 /** Terminal escapes are framed across writes; no OSC payload ever reaches disk. */
 class TerminalFramer {

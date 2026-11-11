@@ -4,6 +4,7 @@ import {
   gitIdentity,
   localGitResource,
 } from "../git/driver.js";
+import type { ProcessLog } from "../processes/log.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import { PermissionPolicy } from "../security/permission-policy.js";
 import { SENSITIVE_KEY } from "../security/redaction.js";
@@ -17,7 +18,6 @@ import { terminalSafeText } from "../ui/terminal-text.js";
 import { BACKGROUND_LIMITS, effectiveBackgroundConfig } from "./config.js";
 import type { BackgroundTaskRecord } from "./contracts.js";
 import { type ShellData, type ShellInput, ShellInputSchema } from "./input.js";
-import type { ProcessLog } from "./log.js";
 import type { BackgroundOwnerBinding } from "./owner-binding.js";
 
 export interface ShellPolicyTarget {

@@ -9,6 +9,7 @@ import {
   currentProcessIdentity,
   identityState,
 } from "../processes/identity.js";
+import { ProcessLog } from "../processes/log.js";
 import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
 import { cancelled, RuntimeError, runtimeError } from "../runtime/errors.js";
 import type { RuntimeEvent } from "../runtime/events.js";
@@ -48,7 +49,6 @@ import {
 } from "./contracts.js";
 import type { ExecutionResolution } from "./execution.js";
 import { type ShellData, type ShellInput, ShellInputSchema } from "./input.js";
-import { ProcessLog } from "./log.js";
 import type { BackgroundOwnerBinding } from "./owner-binding.js";
 import {
   recheckShell,

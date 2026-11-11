@@ -52,7 +52,7 @@ Promotion не вызывает spawn: core заново адресует обы
 
 ## Вывод и хранение
 
-`ProcessLog` декодирует UTF-8 по частям, удаляет ANSI/OSC/control и нормализует CR. `SecretRedactor` с holdback применяется до файлов, UI/events/tail. Два bounded stream buffers и backpressure сохраняют append sequence; порядок разных pipes не объявляется идеальным wall-clock порядком. Длинное поле/строка не накапливаются до бесконечного newline. Disk errors и output limit вызывают controlled stop, без raw fallback.
+Общий [`ProcessLog`](../../src/processes/log.ts) принадлежит процессному слою и используется также HostSandboxExecutor. Он декодирует UTF-8 по частям, удаляет ANSI/OSC/control и нормализует CR. `SecretRedactor` с holdback применяется до файлов, UI/events/tail. Два bounded stream buffers и backpressure сохраняют append sequence; порядок разных pipes не объявляется идеальным wall-clock порядком. Длинное поле/строка не накапливаются до бесконечного newline. Disk errors и output limit вызывают controlled stop, без raw fallback.
 
 Чтение использует absolute byte cursor + output generation, проверяет canonical regular file/no symlink и owner до доступа. UTF-8 границы не разрезаются; page содержит oldest/cursor/next/end/truncated/eof/expired. Максимум 32 KiB за вызов. UI читает только страницы, отображает до 512 rows; поиск retained logs явный, bounded, локальный, без shell grep или arbitrary path.
 

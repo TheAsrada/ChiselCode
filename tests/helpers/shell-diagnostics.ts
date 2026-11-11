@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ProcessLog } from "../../src/background/log.js";
+import { ProcessLog } from "../../src/processes/log.js";
 import type { ToolCall, ToolExecutionResult } from "../../src/types/domain.js";
 import { quoteShellArg } from "./shell.js";
 

@@ -1,7 +1,7 @@
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ProcessLog } from "../background/log.js";
+import { ProcessLog } from "../processes/log.js";
 import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
 import { RuntimeError } from "../runtime/errors.js";
 import { SENSITIVE_KEY, SecretRedactor } from "./redaction.js";
