@@ -26,7 +26,7 @@ if [[ ${1:-} == distro ]]; then
       remove_package() { dnf -y --disablerepo="*" remove chiselcode; }
       ;;
     deb)
-      apt-get update
+      apt-get -o APT::Update::Error-Mode=any update
       apt-get install -y --no-install-recommends ca-certificates libstdc++6
       oldfile="/packages/old.deb"
       newfile="/packages/new/ChiselCode-Setup-$new-linux-amd64.deb"
@@ -100,7 +100,10 @@ sha=$(sha256sum "$binary" | cut -d' ' -f1)
 
 for pair in 'arch archlinux:base-devel' 'rpm fedora:43' 'deb ubuntu:24.04'; do
   read -r channel image <<< "$pair"
-  docker run --rm -v "$work:/packages:ro" \
+  network=()
+  # APT needs the runner's DNS. The other distro checks use only local packages.
+  if [[ $channel == deb ]]; then network=(--network host); fi
+  docker run --rm "${network[@]}" -v "$work:/packages:ro" \
     -v "$repo/tests/fixtures/linux-install-smoke.sh:/smoke.sh:ro" \
     "$image" bash /smoke.sh distro "$channel" "$old" "$version" "$sha"
 done
