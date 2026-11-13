@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { CapturedModelConfiguration } from "../app/model-runtime.js";
+import type { ModelConfiguration } from "../app/model-runtime.js";
 import { contextBudget } from "../context/budget.js";
 import { DEFAULT_CONTEXT_OPTIONS } from "../context/types.js";
 import {
@@ -69,7 +69,7 @@ export interface ModelInvocationDependencies {
   acceptedAt: number;
   signal: AbortSignal;
   capture: ConversationCapture;
-  model: CapturedModelConfiguration;
+  model: ModelConfiguration;
   redactor: SecretRedactor;
   resolveAdapter(): Promise<ProviderAdapter>;
   resolveInstructions?(): Promise<string>;

@@ -24,6 +24,8 @@ Prepare получает новый readonly объект с `workspaceRoot/sess
 
 Прямых WorktreeService/SubagentService/BackgroundTaskService нет. Foreign external tools и произвольные cwd/PID/session не доступны. Обычные tools calls считаются, проходят live policy и child ceilings. Readonly child не получает process от доверия расширению.
 
+Для `ext:builtin.subagents:submit_readonly` и `ext:builtin.subagents:submit_coding` используйте тип `SubagentSubmitInput` из `chiselcode/extension-sdk`. Опциональный `model` принимает точный ID модели для подключения беседы. Если пакет зависит от этого поля, добавьте `"subagents.modelOverride"` в `requires` manifest. Без поля помощник наследует модель владельца.
+
 `side_query` получает только model port и readonly invocation. Верните **результат собственного** `model.request(input,observer)`; реконструированный DTO не выдаёт authority. Model/owner/credentials задаёт host. Отдельные accounting, cancellation, сохранение, streaming и конечные limits остаются такими же, как у [/btw](../side-questions.md). Activation, UI provider и autocomplete не получают model port.
 
 Native/network capabilities используются штатными tools и действующей политикой; `web_search/web_fetch` проходят действующие network guards. API v1 не предоставляет свободный fetch, sandbox executor или произвольный service lookup. Доверенный JS может обращаться к ОС напрямую — это отдельное свойство модели доверия, а не SDK capability.

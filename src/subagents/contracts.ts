@@ -1,3 +1,4 @@
+import type { SubagentSubmitInput } from "../extension-sdk/index.js";
 import type {
   ModelContextProvenance,
   ModelSpend,
@@ -24,11 +25,8 @@ export const SUBAGENT_STATES = [
 ] as const;
 export type SubagentStatus = (typeof SUBAGENT_STATES)[number];
 export type SubagentMode = "readonly" | "coding";
-export interface SubagentInput {
-  task: string;
-  label: string;
+export interface SubagentInput extends SubagentSubmitInput {
   mode: SubagentMode;
-  context?: "conversation" | "none";
 }
 export interface SubagentAttempt {
   id: string;
@@ -153,6 +151,7 @@ export interface SubagentToolInput extends JsonObject {
   task?: string;
   label?: string;
   context?: "conversation" | "none";
+  model?: string;
 }
 export function subagentActive(status: SubagentStatus): boolean {
   return [

@@ -20,11 +20,9 @@ import {
   ExtensionHost,
   type WorkspaceExtensionScope,
 } from "../extensions/host.js";
-import { frozenClone } from "../extensions/lifecycle.js";
 import { recomputeSessionSpend } from "../models/accounting.js";
 import { utf8Prefix } from "../models/context.js";
 import { sessionsRootDir } from "../paths/home.js";
-import { createDriverRegistry } from "../providers/drivers/index.js";
 import { AgentRuntime } from "../runtime/agent-runtime.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import { RuntimeEventBus } from "../runtime/events.js";
@@ -220,7 +218,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
   const redactor = new SecretRedactor();
   for (const value of owner.redactor.knownValues()) redactor.add(value);
   const safe = (text: string) => redactor.text(text);
-  const captured = frozenClone(owner.capturedModel);
+  const captured = owner.capturedModel;
   if (!captured.definition.capabilities.toolCalling) {
     record.cleanup = { quiescent: true };
     throw new RuntimeError(
@@ -310,7 +308,6 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
     await input.checkpoint();
     const { adapter, definition } = await resolveCapturedModelRuntime(
       captured,
-      createDriverRegistry(),
       redactor,
     );
     cancelled(signal);

@@ -286,18 +286,16 @@ export async function listProviderModels(
   input: ConnectionCheckInput,
   options?: { configPath?: string },
 ): Promise<ModelListOutcome> {
-  let adapter: ProviderAdapter;
-  let baseUrl: string | undefined;
+  let runtime: Awaited<ReturnType<typeof resolveConnectionRuntime>>;
   try {
-    const runtime = await resolveConnectionRuntime(input, options?.configPath);
-    adapter = runtime.adapter;
-    baseUrl = runtime.profile.baseUrl;
+    runtime = await resolveConnectionRuntime(input, options?.configPath);
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     };
   }
+  const { adapter, definition, profile } = runtime;
   try {
     const models = await withTimeout(
       adapter.listModels
@@ -310,7 +308,14 @@ export async function listProviderModels(
     );
     return { ok: true, models };
   } catch (error) {
-    return { ok: false, error: formatConnectionError(error, baseUrl) };
+    return {
+      ok: false,
+      error: formatConnectionError(
+        error,
+        profile.baseUrl,
+        definition.auth.type === "subscription",
+      ),
+    };
   }
 }
 
@@ -370,8 +375,13 @@ async function withTimeout<T>(
   }
 }
 
-function formatConnectionError(error: unknown, baseUrl?: string): string {
+function formatConnectionError(
+  error: unknown,
+  baseUrl?: string,
+  subscription = false,
+): string {
   const message = error instanceof Error ? error.message : String(error);
+  if (subscription) return message;
   const status = (error as { status?: number } | null)?.status;
   if (
     status === 401 ||
@@ -478,7 +488,7 @@ async function runPromptInWorkspace(
   const sessionStore = await projectSessionStore(projectRoot);
   const config = await loadProjectConfig(projectRoot);
   const global = await loadGlobalConfig(options.configPath);
-  const { registry, drivers } = await getProviderCatalog();
+  const { registry } = await getProviderCatalog();
   const previous = options.resume
     ? await sessionStore.load((await sessionStore.resolve(options.resume)).id)
     : undefined;
@@ -550,7 +560,6 @@ async function runPromptInWorkspace(
   const modelRedactor = new SecretRedactor();
   const { adapter: provider, definition } = await resolveCapturedModelRuntime(
     capturedModel,
-    drivers,
     modelRedactor,
   );
   const renderer = new OneShotRenderer({ json: Boolean(options.json) });

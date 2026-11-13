@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { CapturedModelConfiguration } from "../app/model-runtime.js";
+import {
+  type CapturedModelConfiguration,
+  withCapturedModelId,
+} from "../app/model-runtime.js";
 import type { RunOptions } from "../app/run-prompt.js";
 import { ToolResultStore } from "../context/tool-result-store.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
@@ -51,6 +54,7 @@ import {
   subagentActive,
 } from "./contracts.js";
 import { subagentOutput } from "./output.js";
+import { subagentSubmitSchema } from "./schema.js";
 import { processIdentity, SubagentRecordStore } from "./storage.js";
 
 /** Core composition only. This object is never supplied to a linked extension. */
@@ -127,14 +131,9 @@ interface Active {
   done: Promise<void>;
   finish(): void;
 }
-const submission = z
-  .object({
-    task: z.string().trim().min(1),
-    label: z.string().trim().min(1).max(120),
-    mode: z.enum(["readonly", "coding"]),
-    context: z.enum(["conversation", "none"]).default("conversation"),
-  })
-  .strict();
+const submission = subagentSubmitSchema.extend({
+  mode: z.enum(["readonly", "coding"]),
+});
 const titles: Record<SubagentStatus, string> = {
   queued: "В очереди",
   preparing: "Подготовка",
@@ -272,6 +271,12 @@ export class SubagentService {
             "SUBAGENT_OWNER_CLOSED",
             "Порт принадлежит другому разговору или проекту.",
           );
+        const task = action.startsWith("submit_")
+          ? submission.parse({
+              ...values,
+              mode: action === "submit_coding" ? "coding" : "readonly",
+            })
+          : undefined;
         // Capture before any allocation/approval/provider wait; no mutable Session escapes.
         const capture = captureConversation(input.session, undefined, {
           bounded: false,
@@ -279,21 +284,16 @@ export class SubagentService {
         const capturedBinding = {
           ...input,
           instructions: input.instructions,
-          capturedModel: frozenClone(
-            action.startsWith("submit_")
-              ? (input.captureModel?.() ?? input.capturedModel)
-              : input.capturedModel,
-          ),
+          capturedModel: task
+            ? withCapturedModelId(
+                input.captureModel?.() ?? input.capturedModel,
+                task.model,
+              )
+            : input.capturedModel,
           config: frozenClone(input.config),
           global: frozenClone(input.global),
         };
         const port = this.control(bound, generation);
-        const task = action.startsWith("submit_")
-          ? submission.parse({
-              ...values,
-              mode: action === "submit_coding" ? "coding" : "readonly",
-            })
-          : undefined;
         if (
           task?.mode === "coding" &&
           (context.mode ?? input.session.mode) === "plan"

@@ -2,6 +2,10 @@ import { z } from "zod";
 import { RuntimeError } from "../../runtime/errors.js";
 import { executeSubagentPlan } from "../../subagents/capability.js";
 import { subagentOutput } from "../../subagents/output.js";
+import {
+  subagentModelSchema,
+  subagentSubmitSchema,
+} from "../../subagents/schema.js";
 import type { SubagentService } from "../../subagents/service.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ChiselExtension } from "../contracts.js";
@@ -18,13 +22,6 @@ import {
 export const subagentServiceToken = createServiceToken<SubagentService>(
   "builtin.subagents.service",
 );
-const submit = z
-  .object({
-    task: z.string().trim().min(1),
-    label: z.string().trim().min(1).max(120),
-    context: z.enum(["conversation", "none"]).default("conversation"),
-  })
-  .strict();
 export interface SubagentCommandInput {
   action:
     | "list"
@@ -38,6 +35,7 @@ export interface SubagentCommandInput {
   ids?: string[];
   task?: string;
   label?: string;
+  model?: string;
 }
 export function parseSubagentCommand(text: string): SubagentCommandInput {
   const match = /^(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
@@ -46,11 +44,19 @@ export function parseSubagentCommand(text: string): SubagentCommandInput {
   const rest = match[2]?.trim() ?? "";
   if (action === "list" && !rest) return { action };
   if (action === "readonly" || action === "coding") {
-    const task = z.string().trim().min(1).parse(rest);
+    const override = /^--model\s+(\S+)\s+([\s\S]+)$/.exec(rest);
+    if (!override && /^--model(?:\s|$)/.test(rest))
+      throw new Error("Укажите ID модели и поручение.");
+    const task = z
+      .string()
+      .trim()
+      .min(1)
+      .parse(override?.[2] ?? rest);
     return {
       action: action === "coding" ? "submit_coding" : "submit_readonly",
       task,
       label: [...task].slice(0, 60).join(""),
+      ...(override && { model: subagentModelSchema.parse(override[1]) }),
     };
   }
   if (["status", "result", "stop"].includes(action ?? ""))
@@ -116,7 +122,7 @@ export function createSubagentExtension(
           render: (value) => subagentToolView(action, value),
         });
         const schema = action.startsWith("submit_")
-          ? submit
+          ? subagentSubmitSchema
           : action === "list"
             ? z.object({}).strict()
             : action === "wait"
@@ -169,7 +175,7 @@ export function createSubagentExtension(
         description:
           "Помощники: чтение или работа в отдельной копии, список, результат и остановка",
         usage:
-          "/agent [list | readonly задача | coding задача | status ID | result ID | wait ID… | stop ID]",
+          "/agent [list | readonly [--model ID] задача | coding [--model ID] задача | status ID | result ID | wait ID… | stop ID]",
         parse: parseSubagentCommand,
         controlActions: ["list", "status", "result", "cancel", "wait"],
         executeControl: async (context, input) => {

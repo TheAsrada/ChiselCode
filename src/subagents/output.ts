@@ -12,6 +12,7 @@ export function subagentOutput(action: string, value: unknown): string {
       id: record.id,
       label: record.label,
       mode: record.mode,
+      model: record.model,
       status: record.status,
       revision: record.revision,
       step: record.step,

@@ -28,6 +28,14 @@ export type Json =
   | Json[]
   | { [key: string]: Json };
 export type JsonObject = { [key: string]: Json };
+/** Arguments for ext:builtin.subagents:submit_readonly and submit_coding. */
+export type SubagentSubmitInput = {
+  task: string;
+  label: string;
+  context?: "conversation" | "none";
+  /** Exact model ID for the active profile. */
+  model?: string;
+};
 export interface Disposable {
   dispose(): void | Promise<void>;
 }

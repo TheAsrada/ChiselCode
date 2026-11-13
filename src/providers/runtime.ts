@@ -8,6 +8,7 @@ import { type CredentialsReader, resolveCredential } from "./auth.js";
 import { getProviderCatalog } from "./catalog.js";
 import type {
   ProviderDefinition,
+  ProviderDriver,
   ProviderHealthResult,
   ProviderProfile,
 } from "./contracts.js";
@@ -40,20 +41,23 @@ export async function resolveProviderRuntime(input: {
   profileId?: string;
   registry?: ProviderRegistry;
   drivers?: DriverRegistry;
+  /** Driver captured from the same catalog as the definition. */
+  driver?: ProviderDriver;
   credentials?: CredentialsReader;
   apiKey?: string;
   baseUrl?: string;
   environment?: Record<string, string | undefined>;
 }) {
   const catalog =
-    input.registry || (input.definition && input.drivers)
+    input.registry || (input.definition && (input.driver || input.drivers))
       ? undefined
       : await getProviderCatalog();
-  const drivers = input.drivers ?? catalog?.drivers ?? createDriverRegistry();
   const registry =
     input.registry ??
     catalog?.registry ??
-    (input.definition ? undefined : createBuiltinProviderRegistry(drivers));
+    (input.definition
+      ? undefined
+      : createBuiltinProviderRegistry(input.drivers));
   const definition =
     input.definition ?? registry?.get(input.profile.providerId);
   if (!definition)
@@ -82,9 +86,10 @@ export async function resolveProviderRuntime(input: {
     input.baseUrl ?? input.profile.baseUrl,
   );
   const driver =
+    input.driver ??
     input.drivers?.require(definition.driverId) ??
     registry?.driver(definition.driverId) ??
-    drivers.require(definition.driverId);
+    createDriverRegistry().require(definition.driverId);
   return {
     profile: input.profile,
     profileId: input.profileId,

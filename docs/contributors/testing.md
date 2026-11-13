@@ -45,6 +45,8 @@ bun run build
 
 `subagents-context.ts` ожидает большой сценарий до 40 с внутри общего test deadline 45 с. Один вызов production `control.wait` ограничен 30 с и может вернуть ещё работающего помощника: fixture продолжает опрос до terminal state или остатка собственного deadline. Это не отмена помощника и не ограничение времени его работы. Сценарий сохраняет 104 настоящих чтения, 27 генераций, model compaction и проверки полного artifact. `subagents-runtime.ts` записывает terminal state, exit code, cleanup и хвост вывода фоновых команд для диагностики Windows.
 
+`bun test tests/integration/chatgpt-runtime.test.ts` проверяет дочерний runtime подписки, результат и расход в хранилище, отсутствие входа, отмену при закрытии владельца и выбор модели в настоящем OpenTUI. HTTPS и SSE обслуживает локальный fixture с тестовым профилем. `bun tests/fixtures/chatgpt-subagent-cli.ts <бинарник>` запускает короткий compiled smoke, который проверяет драйвер подписки, `--model` и сохранённый результат `read_file`. Для проверки установленного npm-пакета передайте `bun <путь-к-установленному-dist/cli.js>` вместо бинарника.
+
 ## Полный прогон
 
 ```bash

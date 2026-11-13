@@ -17,7 +17,6 @@ import type {
   ModelRequestService,
 } from "../models/service.js";
 import { estimateProviderCost } from "../providers/cost.js";
-import { createDriverRegistry } from "../providers/drivers/index.js";
 import { SecretRedactor } from "../security/redaction.js";
 import {
   type ProjectSessionStore,
@@ -87,13 +86,7 @@ export function commandModelInvocation(input: {
     },
     resolveInstructions: () => loadProjectInstructions(scope.workspaceRoot),
     resolveAdapter: async () =>
-      (
-        await resolveCapturedModelRuntime(
-          captured.model,
-          createDriverRegistry(),
-          redactor,
-        )
-      ).adapter,
+      (await resolveCapturedModelRuntime(captured.model, redactor)).adapter,
     checkpoint: async (record) => {
       records.set(record.operationId, structuredClone(record));
       await store.patchSideQuery(session.id, record);

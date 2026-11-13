@@ -19,6 +19,7 @@ export async function listen(server: Server): Promise<number> {
 /** Deliberately maps a validated public IP to test loopback behind an explicit test proxy. */
 export async function startNetworkProxy(options: {
   destinationPort: number;
+  target?: string;
   secure?: boolean;
   requireClientCertificate?: boolean;
   auth?: string;
@@ -125,6 +126,10 @@ export async function startNetworkProxy(options: {
       downstream.end(
         "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n",
       );
+      return;
+    }
+    if (options.target && request.url !== options.target) {
+      downstream.end("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
       return;
     }
     const upstream = connect(options.destinationPort, "127.0.0.1");

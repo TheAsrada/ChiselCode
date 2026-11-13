@@ -16,7 +16,6 @@ import type {
   ProviderRequest,
   StreamEvent,
 } from "../../../types/domain.js";
-import { VERSION } from "../../../version.js";
 import {
   type ChatGptTransport,
   readChatGptJson,
@@ -52,6 +51,13 @@ const Completed = z.object({
     })
     .nullish(),
 });
+const Catalog = z.object({ models: z.array(z.unknown()) });
+const CatalogEntry = z
+  .object({ slug: z.string().trim().min(1), visibility: z.unknown() })
+  .passthrough();
+// The subscription backend gates its catalog by Codex client version.
+// Use the verified protocol baseline, independent of ChiselCode's release number.
+const CODEX_CATALOG_VERSION = "0.166.0";
 export function responsesInput(
   request: ProviderRequest,
   names: ProviderToolNames,
@@ -113,30 +119,30 @@ export class ChatGptAdapter implements ProviderAdapter {
   private async loadModels() {
     const response = await this.transport.request(
       this.profileId,
-      `/codex/models?client_version=${encodeURIComponent(VERSION)}`,
+      `/codex/models?client_version=${CODEX_CATALOG_VERSION}`,
       { signal: AbortSignal.timeout(20_000) },
     );
-    const catalog = z
-      .object({
-        models: z.array(
-          z
-            .object({
-              slug: z.string().min(1),
-              display_name: z.string().optional(),
-              visibility: z.string().optional(),
-              supported_in_api: z.boolean().optional(),
-              context_window: z.number().positive().optional(),
-            })
-            .passthrough(),
-        ),
-      })
-      .parse(await readChatGptJson(response));
-    return catalog.models
-      .filter((entry) => entry.visibility !== "hide")
-      .flatMap((entry) => {
-        const model = modelInfo({ ...entry, id: entry.slug }, this.providerId);
-        return model ? [model] : [];
-      });
+    const catalog = Catalog.safeParse(await readChatGptJson(response));
+    if (!catalog.success)
+      throw new ProviderError(
+        "transport",
+        "Некорректный каталог моделей ChatGPT.",
+      );
+    const models: ModelInfo[] = [];
+    for (const raw of catalog.data.models) {
+      const entry = CatalogEntry.safeParse(raw);
+      if (!entry.success) continue;
+      const { slug, visibility } = entry.data;
+      if (visibility != null && visibility !== "list") continue;
+      const model = modelInfo({ ...entry.data, id: slug }, this.providerId);
+      if (model) models.push(model);
+    }
+    if (!models.length)
+      throw new ProviderError(
+        "unavailable",
+        "ChatGPT не вернул доступные модели для этого профиля.",
+      );
+    return models;
   }
   async getCapabilities(model: string) {
     let info: ModelInfo | undefined;

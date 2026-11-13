@@ -24,7 +24,9 @@ Refresh начинается перед запросом, если до исте
 
 ## Поток ответов
 
-Адаптер запрашивает каталог `/codex/models`, затем отправляет `/codex/responses` с `stream: true` и `store: false`. История преобразуется в сообщения, `function_call` и `function_call_output`; `call_id` и namespaced aliases инструментов сохраняются. Все вызовы проверяются до публикации исполняемых `tool_call`.
+Адаптер запрашивает каталог `/codex/models` с `client_version` протокола Codex. Сейчас зафиксирована версия `0.166.0` независимо от номера выпуска ChiselCode. Каталог привязан к аккаунту и пропускает скрытые или повреждённые записи. Отсутствие доступных записей возвращает диагностику. [Запрос каталога в Codex](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/codex-api/src/endpoint/models.rs).
+
+Запрос `/codex/responses` отправляется с `stream: true` и `store: false`. История преобразуется в сообщения, `function_call` и `function_call_output`. `call_id` и namespaced aliases инструментов сохраняются. Все вызовы проверяются до публикации исполняемых `tool_call`.
 
 `response.completed` / `response.done` завершают ход только с подтверждённым `status: completed`. Обрыв, incomplete response, неверные аргументы и отказ остаются ошибками. Входные токены включают cache ровно один раз. Тариф API не применяется к расходу подписки.
 

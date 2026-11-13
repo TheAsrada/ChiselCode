@@ -176,3 +176,18 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+test("ChatGPT launches the production child runtime and populates the OpenTUI model picker from the profile catalog", async () => {
+  const child = Bun.spawn(
+    [process.execPath, "tests/fixtures/chatgpt-subagent-cli.ts"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [output, error, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(code, error).toBe(0);
+  expect(output).toContain("ChatGPT subagent CLI: Responses");
+  expect(output).toContain("ChatGPT OpenTUI: full profile catalog");
+}, 45000);

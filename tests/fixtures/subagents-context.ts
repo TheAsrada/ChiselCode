@@ -19,6 +19,7 @@ import { createSubagentExtension } from "../../src/extensions/builtins/subagents
 import { ExtensionHost } from "../../src/extensions/host.js";
 import { attachExtensionTools } from "../../src/extensions/tools.js";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
+import { createDriverRegistry } from "../../src/providers/drivers/index.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
@@ -182,6 +183,7 @@ try {
     redactor: new SecretRedactor(),
     capturedModel: {
       definition,
+      driver: createDriverRegistry().require(definition.driverId),
       profileId: "fixture",
       profile: {
         providerId: "openai",

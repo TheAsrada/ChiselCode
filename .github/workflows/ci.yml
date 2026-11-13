@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 15
     env:
       CHISEL_CAPTURE_DIR: ${{ github.workspace }}/dist/subagent-captures
+      CHISEL_CHATGPT_CAPTURES: dist/chatgpt-model-captures
       CHISEL_THEME_CAPTURES: dist/theme-captures
       CHISEL_WORKTREE_CAPTURE_DIR: ${{ github.workspace }}/dist/worktree-manager-captures
       CHISEL_DESIGN_CAPTURES: ${{ github.workspace }}/dist/ui-design-captures
@@ -241,6 +242,7 @@ jobs:
           bun tests/fixtures/skill-install-cli.ts "$binary"
           bun tests/fixtures/lsp-cli.ts "$binary"
           bun tests/fixtures/subagents-cli.ts "$binary"
+          bun tests/fixtures/chatgpt-subagent-cli.ts "$binary"
           bun tests/fixtures/worktree-cli.ts "$binary"
           bun tests/fixtures/background-cli.ts "$binary"
           bun tests/fixtures/external-extensions-cli.ts "$binary"

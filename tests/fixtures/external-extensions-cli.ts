@@ -100,12 +100,13 @@ export async function smokeExternalCli(
       authored.replace(
         "export default factory;",
         `
+      import type { SubagentSubmitInput } from "chiselcode/extension-sdk";
       const checkedFactory: ExtensionFactory = input => {
         const definition = factory(input);
         if (definition instanceof Promise) throw Error('Example factory must be synchronous');
         return { ...definition, activate(context) {
           definition.activate(context);
-          if (!input.sdk.capabilities.includes('agent.events')) throw Error('Missing event capability');
+          if (!input.sdk.capabilities.includes('agent.events') || !input.sdk.capabilities.includes('subagents.modelOverride')) throw Error('Missing SDK capability');
           let observedStart = false;
           context.events.observe(event => { if (event.type === 'tool_started') observedStart = true; });
           context.events.on('tool.call', (event, next) => next(event.data.name.endsWith(':read_note') && event.data.input.path === 'hook-alias.txt' ? { ...event.data, input: { path: 'note.txt' } } : { ...event.data }));
@@ -120,7 +121,13 @@ export async function smokeExternalCli(
           });
           context.commands.register({ name: 'sdk-native', description: 'Проверить штатные операции проекта через SDK',
             parse(args) { return JSON.parse(args) as {tool:string;input:JsonObject}; },
-            execute(invocation, request) { return invocation.tools.execute(request.tool, request.input); }
+            execute(invocation, request) {
+              if (request.tool === 'ext:builtin.subagents:submit_coding') {
+                const input: SubagentSubmitInput = { task: String(request.input.task), label: String(request.input.label), context: 'none', model: 'fixture-child-model' };
+                return invocation.tools.execute(request.tool, input);
+              }
+              return invocation.tools.execute(request.tool, request.input);
+            }
           });
         } };
       };
@@ -316,6 +323,11 @@ export async function smokeExternalCli(
                 context_window: 131072,
                 max_output_tokens: 4096,
               },
+              {
+                id: "fixture-child-model",
+                context_window: 131072,
+                max_output_tokens: 4096,
+              },
             ],
           });
         }
@@ -327,7 +339,10 @@ export async function smokeExternalCli(
           max_completion_tokens?: number;
           messages?: { role: string }[];
         };
-        assert.equal(body.model, "fixture-model");
+        assert.equal(
+          body.model,
+          scenario === "child" ? "fixture-child-model" : "fixture-model",
+        );
         assert.ok(
           JSON.stringify(body.messages).includes("SDK middleware context"),
         );
@@ -508,6 +523,7 @@ export async function smokeExternalCli(
     const child = delegated.details?.children?.[0];
     assert.ok(child, delegated.output);
     assert.equal(child.status, "completed");
+    assert.equal(child.model, "fixture-child-model");
     assert.equal(child.cleanup.quiescent, true);
     assert.equal(
       await readFile(join(child.root, "child-proof.txt"), "utf8"),

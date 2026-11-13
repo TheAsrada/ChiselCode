@@ -2,9 +2,9 @@ import { frozenClone } from "../extensions/lifecycle.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import type {
   ProviderDefinition,
+  ProviderDriver,
   ProviderProfile,
 } from "../providers/contracts.js";
-import type { DriverRegistry } from "../providers/drivers/index.js";
 import { resolveEndpoint } from "../providers/endpoint.js";
 import { catalogModelLimits } from "../providers/model-metadata.js";
 import { resolveProfileModel, selectProfile } from "../providers/profiles.js";
@@ -16,13 +16,42 @@ import type { GlobalConfig, Session } from "../types/domain.js";
 import type { RunOptions } from "./run-prompt.js";
 
 /** Core-only captured configuration. Never included in the extension invocation/DTO. */
-export interface CapturedModelConfiguration {
+export interface ModelConfiguration {
   profileId: string;
   profile: ProviderProfile;
   definition: ProviderDefinition;
   model: string;
   baseUrl?: string;
   capabilities: ModelCapabilities;
+}
+
+export interface CapturedModelConfiguration extends ModelConfiguration {
+  readonly driver: ProviderDriver;
+}
+
+function modelCapabilities(
+  definition: ProviderDefinition,
+  model: string,
+): ModelCapabilities {
+  return {
+    tokenCounting:
+      definition.capabilities.tokenCounting === "native"
+        ? "provider"
+        : "local_estimate",
+    ...catalogModelLimits(definition.id, model),
+  };
+}
+
+export function withCapturedModelId(
+  capture: CapturedModelConfiguration,
+  model?: string,
+): CapturedModelConfiguration {
+  if (model === undefined || model === capture.model) return capture;
+  return Object.freeze({
+    ...capture,
+    model,
+    capabilities: Object.freeze(modelCapabilities(capture.definition, model)),
+  });
 }
 
 export function captureModelConfiguration(
@@ -49,7 +78,7 @@ export function captureModelConfiguration(
     previous && !options.model && !options.provider && !options.profile
       ? previous.model
       : resolveProfileModel(selected.profile, registry, options.model);
-  return frozenClone({
+  const configuration = frozenClone({
     ...selected,
     definition,
     model,
@@ -57,19 +86,16 @@ export function captureModelConfiguration(
       definition,
       options.baseUrl ?? selected.profile.baseUrl,
     ),
-    capabilities: capabilities ?? {
-      tokenCounting:
-        definition.capabilities.tokenCounting === "native"
-          ? "provider"
-          : "local_estimate",
-      ...catalogModelLimits(definition.id, model),
-    },
+    capabilities: capabilities ?? modelCapabilities(definition, model),
+  });
+  return Object.freeze({
+    ...configuration,
+    driver: registry.driver(definition.driverId),
   });
 }
 
 export async function resolveCapturedModelRuntime(
   capture: CapturedModelConfiguration,
-  drivers: DriverRegistry,
   redactor: SecretRedactor,
 ) {
   const credentials = new CredentialStore();
@@ -81,7 +107,7 @@ export async function resolveCapturedModelRuntime(
     profile: capture.profile,
     profileId: capture.profileId,
     definition: capture.definition,
-    drivers,
+    driver: capture.driver,
     baseUrl: capture.baseUrl,
     credentials: {
       get: async (ref) => {
@@ -100,7 +126,7 @@ export function captureUnavailableModel(
 ): CapturedModelConfiguration {
   const source = registry.get(session.providerId) ?? registry.list()[0];
   if (!source) throw new Error("Нет описания сервиса модели.");
-  return frozenClone({
+  const configuration = frozenClone<ModelConfiguration>({
     profileId: session.profileId,
     profile: { providerId: source.id },
     definition: {
@@ -109,5 +135,9 @@ export function captureUnavailableModel(
     },
     model: session.model,
     capabilities: { tokenCounting: "local_estimate" },
+  });
+  return Object.freeze({
+    ...configuration,
+    driver: registry.driver(source.driverId),
   });
 }

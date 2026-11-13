@@ -3,6 +3,32 @@ import { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
 import { OwnedChatPresentationSchema } from "../types/chat-presentation.js";
 import { SUBAGENT_STATES } from "./contracts.js";
 
+export const subagentModelSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .regex(/^\S+$/u, "Укажите точный ID модели без пробелов.")
+  .refine(
+    (model) =>
+      [...model].every(
+        (character) =>
+          character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127,
+      ),
+    "ID модели содержит управляющие символы.",
+  )
+  .describe(
+    "Точный ID модели для выбранного подключения. По умолчанию используется модель владельца.",
+  )
+  .optional();
+export const subagentSubmitSchema = z
+  .object({
+    task: z.string().trim().min(1),
+    label: z.string().trim().min(1).max(120),
+    context: z.enum(["conversation", "none"]).default("conversation"),
+    model: subagentModelSchema,
+  })
+  .strict();
+
 const text = (bytes: number) =>
   z.string().refine((value) => Buffer.byteLength(value, "utf8") <= bytes);
 export const SubagentDescriptorSchema = z.object({

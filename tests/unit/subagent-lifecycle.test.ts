@@ -10,6 +10,7 @@ import { createSubagentExtension } from "../../src/extensions/builtins/subagents
 import { ExtensionHost } from "../../src/extensions/host.js";
 import { attachExtensionTools } from "../../src/extensions/tools.js";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
+import { createDriverRegistry } from "../../src/providers/drivers/index.js";
 import { RuntimeError } from "../../src/runtime/errors.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
@@ -86,6 +87,7 @@ test("core lifecycle: unbounded admission, queued/running cancel, duplicate oper
       scope,
       capturedModel: {
         definition,
+        driver: createDriverRegistry().require(definition.driverId),
         profileId: "fixture",
         profile: { providerId: definition.id },
         model: "fixture-model",
@@ -140,20 +142,32 @@ test("core lifecycle: unbounded admission, queued/running cancel, duplicate oper
       { subagentTools: port },
     );
     const detach = await attachExtensionTools(scope, tools.catalog);
-    const submit = (id: string, label: string) =>
+    const submit = (id: string, label: string, model?: string) =>
       tools.executor.execute({
         id,
         name: "ext:builtin.subagents:submit_readonly",
-        input: { task: "Изучи файл", label, context: "none" },
+        input: {
+          task: "Изучи файл",
+          label,
+          context: "none",
+          ...(model && { model }),
+        },
       });
     const a = JSON.parse((await submit("first", "Первая")).output);
     await waitForStarts(1);
     expect(starts).toHaveLength(1);
-    const b = JSON.parse((await submit("second", "Вторая")).output);
+    const b = JSON.parse(
+      (await submit("second", "Вторая", "override-at-submit")).output,
+    );
     const c = JSON.parse((await submit("third", "Третья")).output);
     selectedModel = "changed-after-submit";
     const control = service.controlFor(session.id, session.id, 0);
     await waitForStarts(3);
+    expect(
+      starts.find((input) => input.record.id === b.id)?.owner.capturedModel
+        .model,
+    ).toBe("override-at-submit");
+    expect((await control.status(b.id)).model).toBe("override-at-submit");
     expect((await control.status(b.id)).status).not.toBe("queued");
     await control.cancel(b.id);
     expect((await control.wait([b.id], 30000))[0]?.status).toBe("cancelled");
@@ -165,6 +179,16 @@ test("core lifecycle: unbounded admission, queued/running cancel, duplicate oper
     expect(starts.some((input) => input.record.id === queued.id)).toBe(false);
     const duplicate = JSON.parse((await submit("first", "Первая")).output);
     expect(duplicate.id).toBe(a.id);
+    expect(duplicate.model).toBe("selected-at-submit");
+    const changedDuplicate = await submit(
+      "first",
+      "Первая",
+      "duplicate-override",
+    );
+    expect(changedDuplicate.isError).toBe(true);
+    expect(changedDuplicate.output).toContain(
+      "PROTOCOL_ERROR_DUPLICATE_CALL_ID",
+    );
     expect(await control.list()).toHaveLength(4);
     const waiting = new AbortController();
     const wait = control.wait([a.id], 30000, waiting.signal);

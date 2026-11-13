@@ -14,7 +14,9 @@ Core binding фиксирует Session/conversation/root/generation, профи
 
 ## Принятие и scheduler
 
-Подготовка синхронно захватывает immutable task/model/config/reference projection до allocation и approvals. Stable operation key — parent Session, turn и invocation ID. Повтор возвращает прежнюю принятую задачу. Durable allocation и parent receipt предшествуют scheduler/model/create. Ошибка сохранения не запускает child.
+Подготовка синхронно захватывает immutable task/model/config/reference projection до allocation и approvals. Снимок модели включает factory драйвера из каталога провайдеров. Дочерний runtime использует его вместе с захваченным определением, профилем и endpoint. Опциональный `model` меняет ID и исходные лимиты модели в этом снимке. Исполняемый драйвер и credentials остаются внутри runtime.
+
+Stable operation key — parent Session, turn и invocation ID. Повтор возвращает прежнюю принятую задачу. Durable allocation и parent receipt предшествуют scheduler/model/create. Ошибка сохранения не запускает child.
 
 Каждая принятая задача запускается после durable allocation, без квот на число задач, очередь или параллельность. Start отложен за пределы parent executor lease; wait/network/approval не держат filesystem, common Git или registry locks. Обязательная сериализация операций с одним ресурсом и общий ApprovalArbiter сохраняются.
 
