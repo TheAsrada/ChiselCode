@@ -201,6 +201,13 @@ test("an adopted lifetime lease atomically fails conflicting waiters and remains
   await expect(
     coordinator.acquire(["/fixture/isolated"], "write"),
   ).rejects.toMatchObject({ code: "BACKGROUND_RESOURCE_BUSY" });
+  await transferred.requireRecovery();
+  await expect(
+    coordinator.acquire(["/fixture/isolated"], "read"),
+  ).rejects.toMatchObject({
+    code: "BACKGROUND_RECOVERY_REQUIRED",
+    details: { taskId: "owned-task", state: "cleanup_unknown" },
+  });
   const origin = await coordinator.acquire(["/fixture/origin/file"], "write");
   origin();
   transferred.release();

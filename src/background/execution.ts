@@ -22,6 +22,7 @@ import { withLock } from "../sessions/lock.js";
 import {
   accessPlansConflict,
   type BackgroundResourceOwner,
+  backgroundResourceError,
   type WorkspaceAccess,
 } from "../tools/workspace-coordinator.js";
 import { atomicWorktreeJson } from "../worktrees/registry.js";
@@ -318,14 +319,19 @@ export class BackgroundExecutionStore {
   ): Promise<BackgroundResourceOwner | undefined> {
     if (!entry.process && !entry.background) return;
     const live = await this.state(entry);
-    if (entry.task?.foreground && live === "live") return;
-    if (!entry.task && !entry.background && live === "live") return;
+    const needsRecovery =
+      live !== "live" || entry.background?.state === "cleanup_unknown";
+    if (
+      !needsRecovery &&
+      (entry.task?.foreground || (!entry.task && !entry.background))
+    )
+      return;
     const task = entry.task ?? entry.background;
     return {
       taskId: task?.taskId ?? entry.token,
       ownerId: entry.ownerId,
       label: task?.label ?? "Предыдущая команда",
-      state: live === "live" ? "running" : "cleanup_unknown",
+      state: needsRecovery ? "cleanup_unknown" : "running",
     };
   }
   async assertAccess(
@@ -342,20 +348,9 @@ export class BackgroundExecutionStore {
         )
           continue;
         const blocker = await this.blocker(entry);
-        if (blocker) this.busy(blocker);
+        if (blocker) throw backgroundResourceError(blocker);
       }
     });
-  }
-  private busy(blocker: BackgroundResourceOwner): never {
-    throw new RuntimeError(
-      blocker.state === "running"
-        ? "BACKGROUND_RESOURCE_BUSY"
-        : "BACKGROUND_RECOVERY_REQUIRED",
-      blocker.state === "running"
-        ? `Ресурс занят фоновой задачей «${blocker.label}».`
-        : `Завершение команды «${blocker.label}» требует проверки.`,
-      { ...blocker },
-    );
   }
   async fencedTaskIds(ownerId: string): Promise<ReadonlySet<string>> {
     return this.locked(
@@ -466,7 +461,7 @@ export class BackgroundExecutionStore {
             continue;
           }
           const blocker = await this.blocker(other);
-          if (blocker) this.busy(blocker);
+          if (blocker) throw backgroundResourceError(blocker);
           blocked = true;
         }
         if (blocked) return false;
@@ -529,7 +524,12 @@ export class BackgroundExecutionStore {
       adopt: (background: BackgroundResourceOwner) =>
         edit((current) => {
           current.background = background;
-          if (current.task) current.task.foreground = false;
+          if (current.task && background.state === "running")
+            current.task.foreground = false;
+        }),
+      requireRecovery: () =>
+        edit((current) => {
+          if (current.background) current.background.state = "cleanup_unknown";
         }),
       release: async () => {
         if (released) return;

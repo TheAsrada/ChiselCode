@@ -2,7 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WorkspaceCoordinator } from "../../src/tools/workspace-coordinator.js";
+import {
+  accessPlansConflict,
+  WorkspaceCoordinator,
+} from "../../src/tools/workspace-coordinator.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -15,6 +18,17 @@ async function fixture() {
   roots.push(root);
   return root;
 }
+
+test("a writer at the filesystem root conflicts with reads in separate projects on that volume", () => {
+  const prefix = process.platform === "win32" ? "C:/" : "/";
+  const writer = [{ resource: prefix, mode: "write" as const }];
+  for (const project of ["first/project", "second/project"])
+    expect(
+      accessPlansConflict(writer, [
+        { resource: `${prefix}${project}`, mode: "read" },
+      ]),
+    ).toBe(true);
+});
 
 test("readers share access, writers are fair and another workspace is never blocked", async () => {
   const coordinator = new WorkspaceCoordinator();

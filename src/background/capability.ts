@@ -6,6 +6,7 @@ import { RuntimeError } from "../runtime/errors.js";
 import type { ToolContext, ToolHandler, ToolPlan } from "../tools/types.js";
 import type {
   BackgroundResourceOwner,
+  BackgroundWorkspaceLease,
   WorkspaceAccess,
   WorkspaceLease,
 } from "../tools/workspace-coordinator.js";
@@ -63,7 +64,7 @@ export async function transferShellLease(
   context: ToolContext,
   plan: ToolPlan,
   owner: BackgroundResourceOwner,
-): Promise<{ release(): void | Promise<void> }> {
+): Promise<BackgroundWorkspaceLease> {
   const token = context.shellLeaseAuthorization;
   const grant = token ? grants.get(token) : undefined;
   if (

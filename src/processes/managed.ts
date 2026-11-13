@@ -175,7 +175,13 @@ export class ManagedProcess {
       }
       let cleanup = this.outcome?.cleanup ?? false;
       if (!cleanup && this.reason && !this.escaped && !this.outcome?.escaped) {
-        if (process.platform !== "win32" && this.groupKilled)
+        // Linux commands can own several groups. An empty leader group is
+        // insufficient without a positive census from the Linux supervisor.
+        if (
+          process.platform !== "linux" &&
+          process.platform !== "win32" &&
+          this.groupKilled
+        )
           try {
             this.cleanupPhase = "tree";
             cleanup = await waitForOwnedGroupExit(

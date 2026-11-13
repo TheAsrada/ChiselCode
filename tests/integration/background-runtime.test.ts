@@ -1,5 +1,23 @@
 import { expect, test } from "bun:test";
 
+test.skipIf(process.platform !== "linux")(
+  "GNU timeout releases a foreground workspace, while an escaped process keeps the recovery fence across sessions",
+  async () => {
+    const child = Bun.spawn(
+      [process.execPath, "tests/fixtures/background-foreground-cleanup.ts"],
+      { env: { PATH: process.env.PATH }, stdout: "pipe", stderr: "pipe" },
+    );
+    const [code, output, error] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code, error).toBe(0);
+    expect(output).toContain("Foreground process cleanup: passed");
+  },
+  35000,
+);
+
 test("a restored OpenTUI conversation continues with a path alias without replaying its background history", async () => {
   const child = Bun.spawn(
     [process.execPath, "tests/fixtures/tui-background-owner.ts"],

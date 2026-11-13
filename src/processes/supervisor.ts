@@ -16,9 +16,10 @@ export async function processSupervisor(
   const { randomUUID } = await import("node:crypto");
   const { createInterface } = await import("node:readline");
   // Linux adopts orphaned descendants, including a fast double fork. Census
-  // can then detect a changed process group and keep a recovery fence.
-  let orphanTracking = process.platform !== "linux";
-  if (process.platform === "linux") {
+  // can then detect descendants that have left the command's session.
+  const linux = process.platform === "linux";
+  let orphanTracking = !linux;
+  if (linux) {
     try {
       const { dlopen, FFIType } = await import("bun:ffi");
       const libc = dlopen("libc.so.6", {
@@ -56,6 +57,7 @@ export async function processSupervisor(
   let stopping = false;
   let stoppedAt = 0;
   let killedGroup = false;
+  const signalledGroups = new Set<number>();
   let sampling = false;
   let finished = false;
   let escaped = !orphanTracking;
@@ -124,6 +126,7 @@ export async function processSupervisor(
     pid: number;
     parent: number;
     group: number;
+    session?: number;
     zombie: boolean;
     start: string;
     name?: string;
@@ -139,7 +142,7 @@ export async function processSupervisor(
           "-Command",
           "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate,Name,ExecutablePath | ConvertTo-Json -Compress",
         ]
-      : ["-axo", "pid=,ppid=,pgid=,stat=,lstart="];
+      : ["-axo", `pid=,ppid=,pgid=,stat=,${linux ? "sid=," : ""}lstart=`];
     let probe: ReturnType<typeof execFile>;
     const output = await new Promise<string>((resolve, reject) => {
       probe = execFile(
@@ -181,6 +184,7 @@ export async function processSupervisor(
               pid: Number(pid),
               parent: Number(parent),
               group: Number(group),
+              session: linux ? Number(start.shift()) : undefined,
               zombie: state?.startsWith("Z") ?? false,
               start: start.join(" "),
             };
@@ -257,14 +261,18 @@ export async function processSupervisor(
     }
     sampling = true;
     try {
-      const commandEndedBeforeCensus = exited && commandEof;
+      const commandEndedBeforeCensus =
+        exited &&
+        (runtime.kind === "cmd" ? commandEof : stdoutDone && stderrDone);
       const rows = await census();
+      const belongsToShell = (row: Row) =>
+        process.platform !== "win32" &&
+        (linux ? row.session : row.group) === shell?.pid;
       const leader = rows.find((row) => row.pid === shell!.pid);
       if (
         leader &&
         !descendants.has(leader.pid) &&
-        (leader.parent === process.pid ||
-          (process.platform !== "win32" && leader.group === shell?.pid))
+        (leader.parent === process.pid || belongsToShell(leader))
       )
         descendants.set(leader.pid, leader.start);
       for (const [pid, start] of descendants)
@@ -277,7 +285,7 @@ export async function processSupervisor(
             (descendants.has(row.parent) ||
               row.parent === commandPid ||
               row.parent === process.pid ||
-              (process.platform !== "win32" && row.group === shell?.pid)) &&
+              belongsToShell(row)) &&
             !descendants.has(row.pid)
           ) {
             if (descendants.size >= 4096 || !row.start) {
@@ -299,7 +307,7 @@ export async function processSupervisor(
               commandEof &&
               row.pid === shell?.pid
             )) ||
-          (process.platform !== "win32" && row.group === shell?.pid),
+          belongsToShell(row),
       );
       if (exited)
         send({
@@ -312,7 +320,7 @@ export async function processSupervisor(
         });
       if (
         process.platform !== "win32" &&
-        live.some((row) => row.group !== shell?.pid) &&
+        live.some((row) => !belongsToShell(row)) &&
         !escaped
       ) {
         escaped = true;
@@ -327,19 +335,15 @@ export async function processSupervisor(
         finishWindowsTransport();
       } else if (
         runtime.kind !== "cmd" &&
-        exited &&
-        stdoutDone &&
-        stderrDone &&
+        commandEndedBeforeCensus &&
         !live.length
       )
         finish(!escaped);
       else if (
         process.platform !== "win32" &&
-        exited &&
-        stdoutDone &&
-        stderrDone &&
+        commandEndedBeforeCensus &&
         escaped &&
-        live.every((row) => row.group !== shell?.pid)
+        live.every((row) => !belongsToShell(row))
       )
         finish(false);
       else if (
@@ -366,6 +370,23 @@ export async function processSupervisor(
               () => resolve(),
             );
           });
+      }
+      if (linux && stopping && !finished) {
+        // A tool such as GNU timeout can lead another group in this session.
+        // Only signal groups still observed in the shell's own session.
+        const force = Date.now() - stoppedAt >= 2000;
+        for (const group of new Set(
+          live.filter(belongsToShell).map((row) => row.group),
+        )) {
+          if (group === shell.pid || group <= 1) continue;
+          if (!force && signalledGroups.has(group)) continue;
+          signalledGroups.add(group);
+          try {
+            process.kill(-group, force ? "SIGKILL" : "SIGTERM");
+          } catch {
+            /* A later census proves exit. */
+          }
+        }
       }
     } catch (error) {
       // A failed census is not evidence that writers disappeared. Retry until

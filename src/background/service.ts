@@ -18,6 +18,7 @@ import { projectSessionStore } from "../sessions/project-store.js";
 import { shellResult } from "../tools/shell-result.js";
 import type { ToolContext, ToolPlan } from "../tools/types.js";
 import {
+  type BackgroundWorkspaceLease,
   type WorkspaceAccess,
   workspaceCoordinator,
 } from "../tools/workspace-coordinator.js";
@@ -82,7 +83,7 @@ interface Active {
   proof?: ProcessProofGrant;
   log?: ProcessLog;
   use?: Disposable;
-  lease?: { release(): void | Promise<void> };
+  lease?: BackgroundWorkspaceLease;
   started: Promise<void>;
   settleStart(): void;
   done: Promise<void>;
@@ -364,6 +365,10 @@ export class BackgroundTaskService {
                 release: async () => {
                   await durable.release();
                   await owned.release();
+                },
+                requireRecovery: async () => {
+                  await owned.requireRecovery();
+                  await durable.requireRecovery();
                 },
               };
             },
@@ -845,7 +850,11 @@ export class BackgroundTaskService {
         try {
           await this.assertAccess(item.record.resources, item.ticket);
         } catch (error) {
-          if (runtimeError(error).code === "BACKGROUND_RESOURCE_BUSY") {
+          const { code } = runtimeError(error);
+          if (
+            code === "BACKGROUND_RESOURCE_BUSY" ||
+            code === "BACKGROUND_RECOVERY_REQUIRED"
+          ) {
             if (item.record.state !== "waiting_resources")
               await this.transition(item, "waiting_resources");
             continue;
@@ -869,7 +878,11 @@ export class BackgroundTaskService {
         item.abort.signal,
       );
       if (!item.process) {
-        if (result.errorCode === "BACKGROUND_RESOURCE_BUSY") {
+        if (
+          result.errorCode === "BACKGROUND_RESOURCE_BUSY" ||
+          (result.errorCode === "BACKGROUND_RECOVERY_REQUIRED" &&
+            result.details?.state === "cleanup_unknown")
+        ) {
           await this.transition(item, "waiting_resources");
           return;
         }
@@ -1128,6 +1141,7 @@ export class BackgroundTaskService {
   ): Promise<void> {
     if (item.finished || item.record.state === state) return;
     await item.writes;
+    if (item.finished) return;
     item.record.state = state;
     await this.journal.persist(
       item.owner,
@@ -1182,6 +1196,7 @@ export class BackgroundTaskService {
                   ? "completed"
                   : "failed"));
     try {
+      if (!outcome.cleanup) await item.lease?.requireRecovery();
       await item.writes;
       if (item.record.foreground && item.log) {
         const pages: string[] = [];
@@ -1336,6 +1351,8 @@ export class BackgroundTaskService {
       await this.transition(item, "running");
       const completion = item.done.then(async () => {
         if (!record.cleanup.confirmed) {
+          // An admitted promotion may already own the one-shot transfer.
+          if (item.promotionAdmitted) await item.promoting?.catch(() => {});
           if (!item.lease)
             item.lease = await transferShellLease(context, plan, {
               taskId: record.id,
@@ -1463,6 +1480,7 @@ export class BackgroundTaskService {
           await item.writes;
           if (item.finished) {
             if (record.cleanup.confirmed) await item.lease.release();
+            else await item.lease.requireRecovery();
             return;
           }
           process.detachForeground();

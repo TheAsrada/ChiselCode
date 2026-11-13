@@ -26,6 +26,10 @@ export interface BackgroundResourceOwner {
   label: string;
   state: string;
 }
+export interface BackgroundWorkspaceLease {
+  release(): void | Promise<void>;
+  requireRecovery(): void | Promise<void>;
+}
 export interface WorkspaceLease {
   readonly accesses: readonly WorkspaceAccess[];
   registerProcess?(
@@ -34,9 +38,28 @@ export interface WorkspaceLease {
   finish(): void | Promise<void>;
   transfer(
     owner: BackgroundResourceOwner,
-  ):
-    | { release(): void | Promise<void> }
-    | Promise<{ release(): void | Promise<void> }>;
+  ): BackgroundWorkspaceLease | Promise<BackgroundWorkspaceLease>;
+}
+
+export function backgroundResourceError(
+  owner: BackgroundResourceOwner & { resource?: string },
+): RuntimeError {
+  if (owner.state === "cleanup_unknown")
+    return new RuntimeError(
+      "BACKGROUND_RECOVERY_REQUIRED",
+      `Завершение команды «${owner.label}» требует проверки в исходном разговоре.`,
+      { ...owner },
+    );
+  return new RuntimeError(
+    "BACKGROUND_RESOURCE_BUSY",
+    `Ресурс занят фоновой задачей «${owner.label}».${owner.resource ? " Остановите её, дождитесь завершения или выберите другую копию." : ""}`,
+    {
+      ...owner,
+      ...(owner.resource
+        ? { choices: ["Остановить", "Дождаться", "Выбрать другую копию"] }
+        : {}),
+    },
+  );
 }
 
 /** Process-wide, fair access to overlapping workspaces and tool resources. */
@@ -231,9 +254,15 @@ export class WorkspaceCoordinator {
                   "Доступ уже передан или закрыт.",
                 );
               transferred = true;
-              lease.background = { ...owner };
+              const background = { ...owner };
+              lease.background = background;
               this.drain();
-              return { release };
+              return {
+                release,
+                requireRecovery() {
+                  background.state = "cleanup_unknown";
+                },
+              };
             },
           });
         },
@@ -253,16 +282,7 @@ export class WorkspaceCoordinator {
     for (const waiter of this.waiting) {
       const background = this.backgroundBlocker(waiter.accesses);
       if (background) {
-        waiter.reject(
-          new RuntimeError(
-            "BACKGROUND_RESOURCE_BUSY",
-            `Ресурс занят фоновой задачей «${background.label}». Остановите её, дождитесь завершения или выберите другую копию.`,
-            {
-              ...background,
-              choices: ["Остановить", "Дождаться", "Выбрать другую копию"],
-            },
-          ),
-        );
+        waiter.reject(backgroundResourceError(background));
         continue;
       }
       if (
