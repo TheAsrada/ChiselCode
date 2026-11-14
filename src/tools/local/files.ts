@@ -1,9 +1,11 @@
+import type { Dirent } from "node:fs";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
 import { cancelled, RuntimeError } from "../../runtime/errors.js";
-import { matchesPattern } from "../../utils/paths.js";
+import { IgnoredPathError } from "../../security/workspace-policy.js";
+import { matchesPattern, PathSecurityError } from "../../utils/paths.js";
 import { defineTool } from "../handler.js";
 import type { ToolContext, ToolHandler } from "../types.js";
 export const MAX_FILE_READ_BYTES = 512000;
@@ -24,13 +26,31 @@ async function walk(
     cancelled(context.signal);
     const current = queue.shift();
     if (!current) break;
-    for (const entry of await readdir(current, { withFileTypes: true })) {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch (error) {
+      // A discovered subdirectory can disappear between listing and descent.
+      if (
+        current !== root &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      )
+        continue;
+      throw error;
+    }
+    for (const entry of entries) {
       if (entry.isSymbolicLink()) continue;
       const path = join(current, entry.name);
       try {
         await context.workspace.resolve(path);
-      } catch {
-        continue;
+      } catch (error) {
+        if (
+          error instanceof IgnoredPathError ||
+          error instanceof PathSecurityError ||
+          (error as NodeJS.ErrnoException).code === "ENOENT"
+        )
+          continue;
+        throw error;
       }
       if (entry.isDirectory()) {
         if (recursive) queue.push(path);
@@ -48,10 +68,13 @@ export function fileHandlers(): ToolHandler[] {
         ...readSpec,
         name: "read_file",
         description:
-          "Read a text file by zero-based line range; records its revision for safe editing.",
+          "Read a text file at the required workspace path, using optional zero-based line offset and limit. Records its revision for safe editing.",
       },
       z.object({
-        path: z.string().min(1),
+        path: z
+          .string()
+          .min(1)
+          .describe("Path to the text file in the workspace."),
         offset: z.number().int().min(0).optional(),
         limit: z.number().int().min(1).max(5000).optional(),
       }),

@@ -32,21 +32,25 @@ These instructions are in English; generated extensions need not be.
 5. Check that the code actually handles the request, includes cleanup, preserves
    native input, and has a useful empty/error state. Do not create placeholders.
    `Composer` keeps the native editor and its input behavior. Use
-   `{type:"native",props:{title,placeholder,borderStyle,borderColor,padding,fg,bg}}`
-   to restyle the existing frame and editor, rather than stacking another border.
-   `PromptHints`/`PromptControls` are separate sites. Native props never replace
-   input callbacks, the draft or permission prompts. For forms and independent
-   panels, use the interactive elements described below.
+   the complete render patch below to style the existing frame and editor.
+   `native` belongs only in `replace`. For `before` or `after`, supply the
+   added content alone. Use `replace` with one `native` to style
+   `PromptHints` or to wrap `PromptControls`. Native props preserve the host's
+   input callbacks, draft and permission prompts.
 6. Call `create_extension` with a `files` object containing the complete
    `chisel-extension.json`, `index.mjs`, and optional README/assets/modules.
+   Each `files` value is a string. Serialize the manifest as JSON text.
    This passively parses JavaScript and validates paths/import closure, then uses the
    atomic managed installer. It does **not** execute the factory, enable code,
    or grant trust. Bundle any macros before delivery; the tool rejects macro
    imports and never invokes a compiler on unapproved source. Do not write directly to the registry, approval receipts or
    managed store. Do not execute an unapproved package to "test" it.
 7. Report the installed extension name and Settings → Extensions → Trust and
-   enable. The user's enable review is the remaining step. Do not run approve,
-   enable, change project policy, or claim the package is already running.
+   enable. Ask the user to open a conversation and check the requested UI after
+   approval. Installation verifies the package; ChiselCode validates snapshot
+   data when its source runs after activation. If a fallback notice appears,
+   use its contribution ID, surface and SDK field to locate the patch. Do not
+   run approve, enable, change project policy, or claim the package is already running.
    If validation fails, fix the source and retry. Existing IDs are not silently
    overwritten: use the Settings update review for an installed package.
 
@@ -123,6 +127,29 @@ replaces it; `hide` removes it and has no content. A replace tree may contain
 `{type:"native"}` **once** to wrap previous layers, including other extensions.
 Ordering is `order` (0–100, default 50), extension ID, contribution ID. Do not
 rebuild another extension's content. Keep trees small and stable across updates.
+
+For a `Composer` contribution with `scope:"conversation"`, declare
+`"requires":["ui.style","ui.nativeProps"]`. Return this `render` patch
+from a ready snapshot:
+
+```js
+{
+  mode: "replace",
+  content: {
+    type: "native",
+    props: {
+      border: true, borderStyle: "rounded", borderColor: "accent",
+      padding: 1, bg: "raised", fg: "text"
+    }
+  }
+}
+```
+
+In `style` and native `props`, `padding` is an integer from 0 to 8.
+`border` is a boolean, with separate `borderStyle` and `borderColor`.
+The shorthand `box.padding` accepts integers from 0 to 2. Use these SDK
+fields when adapting OpenTUI examples. Per-side padding objects and nested
+border objects fail snapshot validation.
 
 Nodes:
 

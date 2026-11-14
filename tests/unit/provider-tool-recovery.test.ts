@@ -496,6 +496,7 @@ test("the model can correct a blocked call and continue with durable changes", a
 
 for (const call of [
   { name: "run_shell", input: {} },
+  { name: "read_file", input: { file_path: "fixture.txt" } },
   { name: "search_files", input: { pattern: "TODO" } },
   {
     name: "run_shell",

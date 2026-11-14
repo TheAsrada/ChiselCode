@@ -66,7 +66,11 @@ ctx.add({dispose() {values.clear(); listeners.clear();}});
 
 Все узлы принимают `style`: `fg/bg`, `width` в ячейках или процентах, `height`, `minWidth/maxWidth`, `padding`, `gap`, `grow/shrink`, `border`, `borderColor`, `borderStyle`, `align/justify`, `bold/italic/dim`, `wrap`. Цвет — токен активной палитры (`text`, `surface`, `accent` и остальные theme tokens) или `#RRGGBB`. Изменение локально и не меняет общую тему.
 
+В `style` и native `props` задавайте `padding` одним целым числом от 0 до 8, `border` булевым значением. Вид и цвет рамки задаются соседними полями `borderStyle` и `borderColor`. Короткое поле `box.padding` принимает число от 0 до 2. Объекты с отступами по сторонам или вложенным оформлением рамки отклоняются.
+
 `{type:"native", props:{...}}` сохраняет предыдущий слой. `props` поддерживает оформление, `title` и `placeholder`. Например, `Composer` позволяет изменить рамку, цвет, заголовок, отступы и подсказку штатного ввода. Логика редактирования, черновик, курсор, отправка и подтверждения принадлежат host. Произвольные обработчики, ссылки на renderer и изменение значения редактора через native props не принимаются. Разрешения, доверие и настройки остаются за пределами композиции.
+
+Для оформления `Composer` верните `render: {mode: "replace", content: {type: "native", props: {border: true, borderStyle: "rounded", borderColor: "accent", padding: 1}}}`. Для цвета штатного текста `PromptHints` примените такой же `replace` с `props: {fg: "green"}`. Режимы `before` и `after` принимают только добавляемые элементы. Готовые manifest и ESM смотрите в [Refined Composer](../../examples/extensions/refined-composer/README.md).
 
 ## Панели и фокус
 

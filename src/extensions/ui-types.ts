@@ -520,4 +520,6 @@ export interface OwnedUiContribution {
   readonly extensionId: string;
   readonly descriptor: Readonly<Omit<UiContribution, "source" | "actions">>;
   readonly snapshot: Readonly<UiSnapshot>;
+  /** Host-generated diagnostic. Never populated with source errors or payload values. */
+  readonly snapshotIssue?: string;
 }

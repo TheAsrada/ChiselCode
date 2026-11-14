@@ -270,6 +270,7 @@ jobs:
           cp -R skills/bundled dist/skills/
           bun build tests/fixtures/tui-extension-creator.ts --compile --outfile="$binary"
           "$binary"
+          "$binary" composer
       - name: Compiled application startup and Settings
         shell: bash
         run: |

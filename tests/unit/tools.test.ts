@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -14,6 +16,7 @@ import { collectDynamicContext } from "../../src/app/run-prompt.js";
 import { userSkillsDir } from "../../src/paths/home.js";
 import type { ApprovalRequest } from "../../src/security/approval.js";
 import { ApprovalGate } from "../../src/security/approval.js";
+import { withLock } from "../../src/sessions/lock.js";
 import { loadSkills, type Skill } from "../../src/skills/skills.js";
 import { buildFileDiff } from "../../src/tools/file-diff.js";
 import { ToolRegistry } from "../../src/tools/registry.js";
@@ -74,6 +77,72 @@ afterEach(async () => {
 });
 
 describe("ToolRegistry", () => {
+  test("grep skips a released lock found during traversal and reports an explicitly missing directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "chisel-grep-"));
+    paths.push(root);
+    await writeFile(join(root, "visible.txt"), "grep marker");
+    const resources = join(root, "resources");
+    const lock = join(await realpath(root), "resources.lock");
+    const tools = registry(root);
+    const policy = tools.runtime.context.workspace;
+    const resolve = policy.resolve.bind(policy);
+    const { promise: held, resolve: acquired } = Promise.withResolvers<void>();
+    const { promise: wait, resolve: release } = Promise.withResolvers<void>();
+    const owner = withLock(resources, async () => {
+      acquired();
+      await wait;
+    });
+    try {
+      await Promise.race([held, owner]);
+      let discovered = false;
+      policy.resolve = async (path) => {
+        const resolved = await resolve(path);
+        if (resolved === lock) {
+          discovered = true;
+          release();
+          await owner;
+        }
+        return resolved;
+      };
+      const searched = await tools.execute("grep", { pattern: "grep marker" });
+      expect(discovered).toBe(true);
+      expect(searched.isError).not.toBe(true);
+      expect(searched.output).toContain("1:grep marker");
+      expect(
+        await tools.execute("grep", { pattern: "marker", path: lock }),
+      ).toMatchObject({
+        isError: true,
+        errorCode: "TOOL_EXECUTION_FAILURE",
+        output: expect.stringContaining("ENOENT"),
+      });
+    } finally {
+      release();
+      await owner;
+    }
+  });
+
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "grep reports permission errors in descendants",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "chisel-grep-permissions-"));
+      paths.push(root);
+      const restricted = join(root, "restricted");
+      await mkdir(restricted);
+      await chmod(restricted, 0o000);
+      try {
+        expect(
+          await registry(root).execute("grep", { pattern: "marker" }),
+        ).toMatchObject({
+          isError: true,
+          errorCode: "TOOL_EXECUTION_FAILURE",
+          output: expect.stringContaining("EACCES"),
+        });
+      } finally {
+        await chmod(restricted, 0o700);
+      }
+    },
+  );
+
   test("the shipped skill-creator loads automatically without weakening manual-only skill restrictions", async () => {
     const root = await mkdtemp(join(tmpdir(), "chiselcode-creator-tool-"));
     paths.push(root);

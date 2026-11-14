@@ -8,6 +8,7 @@ import type {
 } from "../extensions/ui-types.js";
 import { uiNodeInfo } from "../extensions/ui-types.js";
 import {
+  type Composition,
   UiCompositionContext as Context,
   type Values,
 } from "./extension-composition-context.js";
@@ -23,6 +24,7 @@ import { DialogAction, OpenTuiDialog } from "./opentui-dialog.js";
 import { UiElement as Element } from "./opentui-extension-elements.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
+import { terminalLine } from "./terminal-text.js";
 
 /** Compose validated snapshots only; extension JavaScript never runs in React's paint path. */
 export function UiSurface({
@@ -114,23 +116,45 @@ export function UiSurface({
 }
 
 /** Kept outside customizable surfaces, so a failed provider cannot hide its fallback. */
-export function UiCompositionNotices() {
-  const { items, palette } = useContext(Context);
+export function uiCompositionNotices(
+  items: Composition["items"],
+  height: number,
+) {
   const failed = items.filter(
     (item) =>
       (item.descriptor.slot === "render" || item.descriptor.slot === "pane") &&
       ["error", "unavailable"].includes(item.snapshot.state),
   );
-  return failed.length ? (
-    <text fg={palette.yellow} height={1} flexShrink={0}>
-      {failed
-        .map(
-          (item) =>
-            `${item.extensionId}: интерфейс недоступен, сохранён стандартный вид`,
-        )
-        .join(" · ")}
+  const visible = failed.slice(0, height < 24 ? 1 : 3);
+  const remaining = failed.length - visible.length;
+  return visible.map((item, index) => {
+    const location =
+      item.descriptor.surfaces?.join(",") ?? item.descriptor.placement;
+    const source = `${item.key}${location ? ` · ${location}` : ""}`;
+    const reason = item.snapshotIssue ?? "интерфейс недоступен";
+    return {
+      key: item.key,
+      message: `${source} · ${reason} · сохранён стандартный вид`,
+      suffix:
+        remaining && index === visible.length - 1 ? ` (+${remaining})` : "",
+    };
+  });
+}
+
+export function UiCompositionNotices({
+  notices,
+  width,
+}: {
+  notices: ReturnType<typeof uiCompositionNotices>;
+  width: number;
+}) {
+  const { palette } = useContext(Context);
+  return notices.map(({ key, message, suffix }) => (
+    <text key={key} fg={palette.yellow} height={1} flexShrink={0}>
+      {terminalLine(message, width - suffix.length)}
+      {suffix}
     </text>
-  ) : null;
+  ));
 }
 
 /** Independent panes remain available even when the built-in sidebar is closed. */

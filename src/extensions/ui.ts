@@ -91,18 +91,43 @@ type View = {
   subscribe?: UiDetailsView["subscribe"];
 };
 
+function snapshotSchemaIssue(error: z.ZodError, redactor: SecretRedactor) {
+  // Opaque action arguments may have arbitrary keys. Report only the SDK path.
+  const fields = new Set(
+    error.issues.slice(0, 3).map(({ path }) =>
+      redactor.text(
+        path
+          .map(String)
+          .join(".")
+          .replace(/\.args\..*$/s, ".args")
+          .replace(/^render\.content\./, "")
+          .slice(0, 80),
+      ),
+    ),
+  );
+  const paths = [...fields].filter(Boolean).join(", ");
+  return paths ? `SDK: ${paths}` : "Проверьте схему SDK";
+}
+
 /** Bounded plain DTOs, sanitized before publication or caching. */
 export function sanitizeUi<T>(
   schema: z.ZodType<T>,
   input: unknown,
   redactor = new SecretRedactor(),
   budget = 65536,
+  onInvalid?: (error: z.ZodError) => void,
 ): T {
+  const parse = (value: unknown) => {
+    const result = schema.safeParse(value);
+    if (result.success) return result.data;
+    onInvalid?.(result.error);
+    throw result.error;
+  };
   // Reject before recursively cloning a caller's arbitrarily large tree.
   const serialized = JSON.stringify(input);
   if (!serialized || Buffer.byteLength(serialized) > budget)
     throw new Error("UI data limit exceeded.");
-  schema.parse(input);
+  parse(input);
   const clean = (value: unknown): unknown => {
     if (typeof value === "string")
       return stripVTControlCharacters(
@@ -122,7 +147,7 @@ export function sanitizeUi<T>(
     return value;
   };
   // `key` is a renderer identity, not a credential. Apply sensitive-field masking only to opaque arguments.
-  const result = schema.parse(clean(JSON.parse(serialized)));
+  const result = parse(clean(JSON.parse(serialized)));
   if (Buffer.byteLength(JSON.stringify(result)) > budget)
     throw new Error("Sanitized UI data limit exceeded.");
   return frozenClone(result);
@@ -504,13 +529,14 @@ export class UiSubscription implements Disposable {
   private publish(): void {
     if (this.isLive()) this.changed(Object.freeze(this.items));
   }
-  private unavailable(key: string): void {
+  private unavailable(key: string, snapshotIssue?: string): void {
     const current = this.cache.get(key);
     if (current)
       this.cache.set(
         key,
         frozenClone({
           ...current,
+          snapshotIssue,
           snapshot: {
             revision: current.snapshot.revision,
             state: "unavailable",
@@ -548,6 +574,7 @@ export class UiSubscription implements Disposable {
     this.reading.add(key);
     const serial = (this.requestSerial.get(key) ?? 0) + 1;
     this.requestSerial.set(key, serial);
+    let snapshotIssue: string | undefined;
     try {
       const entry = this.registry.entry(key);
       if (!entry) return;
@@ -564,7 +591,15 @@ export class UiSubscription implements Disposable {
           binding.signal,
         );
         uiNodeInfo(raw.render?.content);
-        snapshot = sanitizeUi(UiSnapshotSchema, raw, this.redactor);
+        snapshot = sanitizeUi(
+          UiSnapshotSchema,
+          raw,
+          this.redactor,
+          undefined,
+          (error) => {
+            snapshotIssue = snapshotSchemaIssue(error, this.redactor);
+          },
+        );
         if (
           snapshot.render &&
           entry.descriptor.slot !== "render" &&
@@ -575,8 +610,11 @@ export class UiSubscription implements Disposable {
           snapshot.render &&
           snapshot.render.mode !== "replace" &&
           uiNodeInfo(snapshot.render.content).native
-        )
-          throw new Error("Only replace can embed native content.");
+        ) {
+          if (this.isLive())
+            this.unavailable(key, "native требует mode: replace");
+          return;
+        }
         if (
           entry.descriptor.slot === "pane" &&
           uiNodeInfo(snapshot.render?.content).native
@@ -623,7 +661,7 @@ export class UiSubscription implements Disposable {
       );
       this.publish();
     } catch {
-      if (this.isLive()) this.unavailable(key);
+      if (this.isLive()) this.unavailable(key, snapshotIssue);
     } finally {
       this.reading.delete(key);
       if (this.dirty.delete(key)) this.refresh(key);

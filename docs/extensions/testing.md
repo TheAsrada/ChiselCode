@@ -24,6 +24,8 @@
 
 Standalone `chisel extensions status` пассивен и не сообщает active за другой процесс. Cached workspace metadata доступна core для дальнейшего управления; Settings → Extensions доступен с CLI 0.6.30. UI-пакеты начиная с 0.6.33 включаются live; [новый контракт и ограничения](ui-composition.md) доступны начиная с 0.6.33.
 
+После доверия и включения откройте беседу с нужным участком. Даже статус «Работает» означает успешную загрузку пакета, а проверка данных `source.snapshot` происходит при отображении. Если вид стандартный и внизу появилось уведомление, найдите регистрацию по `extensionId/contributionId` и имени участка. В текущих исходниках сообщение `SDK: style.padding` указывает на поле в `render.content`. Проверьте тип поля и [правила режимов](ui-composition.md#зарегистрировать-оформление), затем проверьте исправленные файлы через обновление пакета.
+
 Import/factory/activation waits cooperative и bounded 10 секундами; synchronous endless callback или `process.exit` может остановить весь процесс. Не тестируйте такой код в основном test runner. Используйте отдельный процесс с конечным timeout и recovery flag. Нет CPU/RAM/OS isolation для недоверенного JS.
 
 Проектные proofs и native capture paths записываются в [отчёте](../contributors/reports/external-extension-loader.md). Они относятся к указанному source/CI, не автоматически к каждому следующему commit.

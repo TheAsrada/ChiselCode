@@ -103,6 +103,8 @@ Linux выбран базовой средой ради скорости и ра
 
 При изменении OpenTUI bundling/SDK отдельно запустите `bun tests/fixtures/command-packaging.ts` на затронутых ОС. Он сохраняет installed/compiled UI assertions для commands, LSP, side queries, worktrees, subagents, background tasks, UI contributions и themes. При изменении публичного engine protocol используйте `bun tests/fixtures/desktop-server.ts` с compiled engine. Эти расширенные harness не входят в каждый обычный CI или несвязанный релиз. Это проверки публичной границы ядра, без работы над приложением Desktop.
 
+`bun test tests/integration/extension-creator-runtime.test.ts` проверяет создание UI-пакетов через настоящий `create_extension`, запуск только после доверия в Settings и отключение в том же OpenTUI. Сценарий `composer` дополнительно проверяет скруглённую рамку и подсказку, узкий терминал, редактирование Unicode у курсора, отправку текста и сохранение черновика после отключения. Для кадров задайте `CHISEL_CAPTURE_DIR` при запуске `bun tests/fixtures/tui-extension-creator.ts composer`. Native validation запускает тот же сценарий в compiled harness на трёх ОС.
+
 ## Что убрано и что сохранено
 
 - Нет повторных Windows runtime-fixtures перед теми же source tests и нет полного source-набора в Release.

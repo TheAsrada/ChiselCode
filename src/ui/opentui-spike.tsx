@@ -65,6 +65,7 @@ import {
   UiCompositionProvider,
   UiPaneRegion,
   UiSurface,
+  uiCompositionNotices,
 } from "./opentui-composition.js";
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
@@ -696,14 +697,8 @@ function OpenTuiScreen({
   const showSidebar = layout.placement !== "hidden";
   const contextOnly = layout.placement === "fullscreen";
   const sidebarDrawer = layout.placement === "overlay";
-  const uiFaultRows = (view.uiContributions ?? []).some(
-    (item) =>
-      (item.descriptor.slot === "render" || item.descriptor.slot === "pane") &&
-      ["error", "unavailable"].includes(item.snapshot.state),
-  )
-    ? 1
-    : 0;
-  const panelHeight = Math.max(1, height - tabRows - uiFaultRows);
+  const notices = uiCompositionNotices(view.uiContributions ?? [], height);
+  const panelHeight = Math.max(1, height - tabRows - notices.length);
   const panelWidth = layout.sidebarWidth;
   const chrome = sidebarChrome(panelHeight);
   const panelBodyHeight = Math.max(
@@ -2616,7 +2611,7 @@ function OpenTuiScreen({
             </box>
           </UiSurface>
         </UiSurface>
-        <UiCompositionNotices />
+        <UiCompositionNotices notices={notices} width={width} />
         {pickerOpen && sessionPicker && !approval && (
           <OpenTuiSessions
             actions={sessionPicker}

@@ -18,7 +18,7 @@ export function createExtensionHandler() {
     {
       name: "create_extension",
       description:
-        "Validate and install a new self-contained ChiselCode extension, disabled and untrusted. Supply chisel-extension.json and ESM files. Does not execute the module or grant trust. Load extension-creator for the UI SDK and examples.",
+        "Passively check and install a self-contained ChiselCode extension, disabled and untrusted. Every files value must be text, including the serialized chisel-extension.json. UI snapshots are checked after activation. Load extension-creator for the UI SDK and examples.",
       effect: "library_write",
       permission: "extensions",
       parallelSafe: false,
@@ -96,7 +96,11 @@ export function createExtensionHandler() {
           signal: context.signal,
         });
         return {
-          output: `Расширение «${data.manifest.displayName}» установлено выключенным. Откройте Настройки → Расширения → ${data.manifest.id} → Доверить и включить.\nDigest: ${candidate.preview.digest}\nКод не выполнялся; доверие не выдано.`,
+          output: `Расширение «${data.manifest.displayName}» установлено выключенным. Откройте Настройки → Расширения → ${data.manifest.id} → Доверить и включить.\nDigest: ${candidate.preview.digest}\nКод не выполнялся; доверие не выдано.${
+            data.manifest.kind === "ui"
+              ? "\nПроверьте оформление в беседе после включения. Деревья интерфейса проверяются при отображении."
+              : ""
+          }`,
           details: {
             extension: {
               id: result.id,

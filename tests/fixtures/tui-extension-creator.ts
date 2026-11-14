@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ScrollBoxRenderable } from "@opentui/core";
+import { ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import { extensionRecords } from "../../src/extensions/external/registry.js";
@@ -21,35 +21,48 @@ process.env.OPENAI_API_KEY = "ui-creator-fixture";
 process.env.CHISEL_UI_IMPORTS = join(directory, "imports.txt");
 const root = join(directory, "workspace");
 await mkdir(root);
+const composer = process.argv[2] === "composer";
+const originalPackage = composer
+  ? process.env.CHISEL_ORIGINAL_COMPOSER
+  : undefined;
+const example = composer ? "refined-composer" : "workbench";
+const archivedFiles = originalPackage
+  ? ((await Bun.file(originalPackage).json()) as Record<string, string>)
+  : undefined;
 const manifest = JSON.parse(
-  await readFile(
-    resolve("examples/extensions/workbench/chisel-extension.json"),
-    "utf8",
-  ),
+  archivedFiles?.["chisel-extension.json"] ??
+    (await readFile(
+      resolve("examples/extensions", example, "chisel-extension.json"),
+      "utf8",
+    )),
 );
-const module = (
-  await readFile(resolve("examples/extensions/workbench/index.mjs"), "utf8")
-)
-  .replace(
-    "// Self-contained",
-    'import { appendFileSync } from "node:fs"; appendFileSync(process.env.CHISEL_UI_IMPORTS, "import\\n");\n// Self-contained',
-  )
-  .replace(
-    "const settings = await sdk.settings.read();",
-    "const settings = await sdk.settings.read(); if (!settings.compact) ctx.ui.register({id:'fault',slot:'render',surfaces:['SidebarMenu'],scope:'workspace',title:'Сбой виджета',source:{snapshot(){throw Error('private fixture source failure')}}});",
-  )
-  .replace(
-    "const actions = [",
-    'ctx.tools.register(sdk.defineTool({ name: "save_note", description: "Сохранить заметку", effect: "workspace_write", inputSchema: {type:"object",properties:{},additionalProperties:false}, prepare(invocation) { return invocation.plan.writeText("mod-note.txt", "Заметка через UI расширения\\n"); }, execute(invocation) { return invocation.effects.run(); } }));\n    const actions = [{ id: "save", label: "Сохранить заметку", type: "tool", tool: "save_note" }, ',
-  )
-  .replace(
-    '{ type: "button", label: "Сведения", action: { id: "details" } },',
-    '{ type: "button", label: "Сведения", action: { id: "details" } }, { type: "button", label: "Сохранить заметку", action: { id: "save" } },',
-  );
-const files = {
+const moduleSource =
+  archivedFiles?.["index.mjs"] ??
+  (await readFile(
+    resolve("examples/extensions", example, "index.mjs"),
+    "utf8",
+  ));
+const instrumented = `import { appendFileSync } from "node:fs"; appendFileSync(process.env.CHISEL_UI_IMPORTS, "import\\n");\n${moduleSource}`;
+const module = composer
+  ? instrumented
+  : instrumented
+      .replace(
+        "const settings = await sdk.settings.read();",
+        "const settings = await sdk.settings.read(); if (!settings.compact) ctx.ui.register({id:'fault',slot:'render',surfaces:['SidebarMenu'],scope:'workspace',title:'Сбой виджета',source:{snapshot(){throw Error('private fixture source failure')}}});",
+      )
+      .replace(
+        "const actions = [",
+        'ctx.tools.register(sdk.defineTool({ name: "save_note", description: "Сохранить заметку", effect: "workspace_write", inputSchema: {type:"object",properties:{},additionalProperties:false}, prepare(invocation) { return invocation.plan.writeText("mod-note.txt", "Заметка через UI расширения\\n"); }, execute(invocation) { return invocation.effects.run(); } }));\n    const actions = [{ id: "save", label: "Сохранить заметку", type: "tool", tool: "save_note" }, ',
+      )
+      .replace(
+        '{ type: "button", label: "Сведения", action: { id: "details" } },',
+        '{ type: "button", label: "Сведения", action: { id: "details" } }, { type: "button", label: "Сохранить заметку", action: { id: "save" } },',
+      );
+const files = archivedFiles ?? {
   "chisel-extension.json": JSON.stringify(manifest),
   "index.mjs": module,
 };
+const composerDraft = "Привет, Composer!";
 let calls = 0,
   failure: unknown;
 const tool = (id: string, name: string, input: object) => ({
@@ -95,8 +108,7 @@ const server = Bun.serve({
         delta = {
           tool_calls: [tool("create-extension", "create_extension", { files })],
         };
-      } else {
-        assert.equal(step, 3, "UI actions must not call a model");
+      } else if (step === 3) {
         assert.ok(
           body.messages
             .filter((message) => message.role === "tool")
@@ -104,11 +116,15 @@ const server = Bun.serve({
             ?.content?.includes("установлено выключенным"),
         );
         delta = {
-          content: "Расширение готово: включите Мой рабочий стол в настройках.",
+          content: "Расширение готово. Откройте Настройки → Расширения.",
         };
+      } else {
+        assert.ok(composer && !originalPackage && step === 4);
+        assert.equal(body.messages.at(-1)?.content, composerDraft);
+        delta = { content: "Проверочный текст получен." };
       }
       return new Response(
-        `data: ${JSON.stringify({ id: "creator", choices: [{ index: 0, delta, finish_reason: step === 3 ? "stop" : "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
+        `data: ${JSON.stringify({ id: "creator", choices: [{ index: 0, delta, finish_reason: step >= 3 ? "stop" : "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
         { headers: { "Content-Type": "text/event-stream" } },
       );
     } catch (error) {
@@ -235,7 +251,7 @@ async function capture(name: string) {
 async function settings() {
   await key("t", { ctrl: true });
   await click("settings-route-extensions");
-  await click("extensions-item-example.workbench");
+  await click(`extensions-item-${manifest.id}`);
 }
 async function closeSettings() {
   for (
@@ -268,52 +284,7 @@ async function action(index: number) {
   for (let i = 0; i < index; i++) await key("ARROW_DOWN");
   await key("RETURN");
 }
-try {
-  await act(async () => {
-    application = runOpenTuiAgent(
-      { cwd: root, configPath, allow: "create_extension" },
-      undefined,
-      false,
-      false,
-      undefined,
-      async () => ui.renderer,
-    );
-    void application.catch((error) => {
-      failure = error;
-    });
-  });
-  await send(
-    "Создай расширение: панель над вводом, мой логотип и компактные ответы, с кнопкой сохранения заметки.",
-  );
-  await until(
-    () =>
-      calls === 3 &&
-      ui.captureCharFrame().includes("Расширение готово") &&
-      !ui.renderer.root.findDescendantById("request-status"),
-    "Creation did not finish",
-  );
-  const record = (await extensionRecords()).find(
-    (record) => record.id === manifest.id,
-  );
-  assert.ok(record);
-  assert.equal(record.enabled, false);
-  assert.equal(record.approvedAt, undefined);
-  assert.equal(await Bun.file(process.env.CHISEL_UI_IMPORTS!).exists(), false);
-  await settings();
-  await capture("created-disabled");
-  await click("extensions-action-trust");
-  await click("extensions-trust");
-  await click("extensions-commit");
-  await until(
-    () => ui.captureCharFrame().includes("Работает"),
-    "Live enable did not activate",
-  );
-  assert.equal(
-    await readFile(process.env.CHISEL_UI_IMPORTS!, "utf8"),
-    "import\n",
-  );
-  await capture("enabled-settings");
-  await closeSettings();
+async function verifyWorkbench() {
   await until(
     () =>
       ui.captureCharFrame().includes("Фон: 0") &&
@@ -421,15 +392,155 @@ try {
     "Disable did not restore native UI",
   );
   await capture("disabled-restored");
+  assert.equal(calls, 3);
+}
+async function verifyComposer() {
+  const editor = () =>
+    ui.renderer.root.findDescendantById("prompt-editor") as
+      | TextareaRenderable
+      | undefined;
+  const focused = () =>
+    !!editor() && ui.renderer.currentFocusedEditor === editor();
+  if (originalPackage) {
+    await until(
+      () =>
+        ui.captureCharFrame().includes("composer-wrapper · Composer · SDK:") &&
+        focused(),
+      "Original package did not fall back to the standard composer",
+    );
+    assert.ok(ui.captureCharFrame().includes("style.padding"));
+    assert.ok(ui.captureCharFrame().includes("style.border"));
+    assert.ok(
+      ui.captureCharFrame().includes("PromptHints · SDK: style.padding"),
+    );
+    assert.ok(ui.captureCharFrame().includes("Опишите задачу..."));
+    await capture("original-fallback");
+    return;
+  }
+  await until(
+    () =>
+      ui.captureCharFrame().includes("Refined Composer") &&
+      ui.captureCharFrame().includes("С чем помочь?") &&
+      focused(),
+    "Native Composer styling or focus did not apply",
+  );
+  assert.match(ui.captureCharFrame(), /╭[^\n]*Refined Composer/);
+  assert.ok(!ui.captureCharFrame().includes("сохранён стандартный вид"));
+  await capture("composer-enabled");
+  await act(async () => ui.renderer.resize(46, 25));
+  await until(
+    () => ui.captureCharFrame().includes("С чем помочь?") && focused(),
+    "Composer styling or focus disappeared on a narrow terminal",
+  );
+  await capture("composer-narrow");
+  await act(async () => ui.renderer.resize(130, 44));
+  await act(async () => {
+    ui.mockInput.typeText("Привет, Compose!");
+    ui.mockInput.pressArrow("left");
+    ui.mockInput.typeText("r");
+  });
+  await until(
+    () => editor()?.plainText === composerDraft,
+    "Native cursor edit failed",
+  );
+  await key("RETURN");
+  await until(
+    () =>
+      calls === 4 &&
+      ui.captureCharFrame().includes("Проверочный текст получен.") &&
+      focused(),
+    "Native Composer failed to send the exact text",
+  );
+  await act(async () => {
+    ui.mockInput.typeText("Черновик");
+    ui.mockInput.pressArrow("left");
+  });
+  await until(() => editor()?.plainText === "Черновик", "No draft to preserve");
+  const cursor = editor()!.cursorOffset;
+  await settings();
+  await click("extensions-action-disable");
+  await closeSettings();
+  await until(
+    () =>
+      /┌[^\n]*Черновик/.test(ui.captureCharFrame()) &&
+      !ui.captureCharFrame().includes("Refined Composer") &&
+      focused(),
+    "Disable did not restore the native view and focus",
+  );
+  assert.equal(editor()!.plainText, "Черновик");
+  assert.equal(editor()!.cursorOffset, cursor);
+  await capture("composer-disabled");
+  await act(async () => ui.mockInput.typeText("!"));
+  await until(
+    () => editor()?.plainText === "Чернови!к",
+    "Native editing after disable failed",
+  );
+}
+try {
+  await act(async () => {
+    application = runOpenTuiAgent(
+      { cwd: root, configPath, allow: "create_extension" },
+      undefined,
+      false,
+      false,
+      undefined,
+      async () => ui.renderer,
+    );
+    void application.catch((error) => {
+      failure = error;
+    });
+  });
+  await send(
+    composer
+      ? "Оформи строку ввода и сохрани её штатное поведение."
+      : "Создай расширение: панель над вводом, мой логотип и компактные ответы, с кнопкой сохранения заметки.",
+  );
+  await until(
+    () =>
+      calls === 3 &&
+      ui.captureCharFrame().includes("Расширение готово") &&
+      !ui.renderer.root.findDescendantById("request-status"),
+    "Creation did not finish",
+  );
+  const record = (await extensionRecords()).find(
+    (record) => record.id === manifest.id,
+  );
+  assert.ok(record);
+  assert.equal(record.enabled, false);
+  assert.equal(record.approvedAt, undefined);
+  assert.equal(await Bun.file(process.env.CHISEL_UI_IMPORTS!).exists(), false);
+  await settings();
+  await capture("created-disabled");
+  await click("extensions-action-trust");
+  await click("extensions-trust");
+  await click("extensions-commit");
+  await until(
+    () => ui.captureCharFrame().includes("Работает"),
+    "Live enable did not activate",
+  );
+  if (!originalPackage)
+    assert.equal(
+      await readFile(process.env.CHISEL_UI_IMPORTS!, "utf8"),
+      "import\n",
+    );
+  await capture("enabled-settings");
+  await closeSettings();
+  if (composer) await verifyComposer();
+  else await verifyWorkbench();
   const saved = await projectSessionStore(root);
   const session = await saved.load((await saved.list())[0]!.id);
   assert.equal(
     session.runtime?.invocations["create-extension"]?.state,
     "succeeded",
   );
-  assert.equal(calls, 3);
   console.log(
-    "Extension creator OpenTUI: agent install disabled, exact trust/live enable, view/keyboard, approved and denied UI writes, settings, narrow layout, live disable, checkpoints verified",
+    `Extension creator OpenTUI: ${
+      originalPackage
+        ? "original Composer fallback verified"
+        : composer
+          ? "Composer live style, native input, submit and disable verified"
+          : "workbench settings, approved and denied UI writes, narrow layout and disable verified"
+    }`,
   );
 } finally {
   if (application)

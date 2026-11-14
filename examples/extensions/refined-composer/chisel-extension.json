@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "personal.refined-composer",
+  "version": "1.0.1",
+  "apiVersion": 1,
+  "kind": "ui",
+  "requires": ["ui.style", "ui.nativeProps"],
+  "entry": "index.mjs",
+  "displayName": "Refined Composer",
+  "description": "Скруглённая рамка и цвета строки ввода"
+}

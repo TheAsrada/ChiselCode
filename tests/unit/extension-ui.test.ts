@@ -280,6 +280,83 @@ test("sanitized DTO limits and twenty bind/dispose cycles keep data and subscrip
   }
 });
 
+test("invalid render patches identify SDK paths without exposing values and recover on refresh", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chisel-ui-render-fault-"));
+  let repaired = false;
+  const host = new ExtensionHost([
+    {
+      id: "fixture",
+      activate(ctx) {
+        const patches = {
+          composer: {
+            mode: "replace",
+            content: {
+              type: "box",
+              style: {
+                padding: { left: 2 },
+                border: { color: "private-value" },
+              },
+              children: [{ type: "native", props: { padding: { left: 2 } } }],
+            },
+          },
+          hints: { mode: "before", content: { type: "native" } },
+        };
+        for (const [id, patch] of Object.entries(patches)) {
+          ctx.ui.register({
+            id,
+            slot: "render",
+            surfaces: [id === "composer" ? "Composer" : "PromptHints"],
+            scope: "conversation",
+            title: id,
+            source: {
+              snapshot: () => ({
+                revision: repaired ? 2 : 1,
+                state: "ready",
+                render: repaired
+                  ? {
+                      mode: "replace",
+                      content: {
+                        type: "native",
+                        props: { padding: 1, border: true },
+                      },
+                    }
+                  : (patch as never),
+              }),
+            },
+          });
+        }
+      },
+    },
+  ]);
+  try {
+    const scope = await host.open(root);
+    const subscription = scope.ui.bind(owner("one"), () => {});
+    await until(() =>
+      subscription.items.every((item) => item.snapshot.state === "unavailable"),
+    );
+    const issue = (id: string) =>
+      subscription.items.find((item) => item.descriptor.id === id)
+        ?.snapshotIssue;
+    expect(issue("composer")).toBe(
+      "SDK: style.padding, style.border, children.0.props.padding",
+    );
+    expect(issue("hints")).toBe("native требует mode: replace");
+    expect(JSON.stringify(subscription.items)).not.toContain("private-value");
+    repaired = true;
+    subscription.refresh();
+    await until(() =>
+      subscription.items.every((item) => item.snapshot.state === "ready"),
+    );
+    expect(subscription.items.map((item) => item.snapshotIssue)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  } finally {
+    await host.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("malformed, oversize and timed-out providers fail independently; scope abort cancels pending cache waits", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-ui-fault-"));
   let aborted = false;
