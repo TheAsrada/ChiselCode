@@ -105,7 +105,7 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 ## Agent evaluation
 
-Системный промпт общий для всех моделей: A/B сравнивает прежнюю и новую общие версии без индивидуальных поправок. [Архитектура промпта и проверяемые контракты](architecture/system-prompt.md). Для воспроизводимости запускайте зафиксированные source commits на одной матрице точных model IDs, fixtures и настроек.
+Системный промпт общий для всех моделей: A/B сравнивает прежнюю и новую общие версии без индивидуальных поправок. [Архитектура промпта и проверяемые контракты](architecture/system-prompt.md). [Результаты частичного live A/B](contributors/reports/system-prompt-live.md) отделяют успешные задачи от прерываний квотой шлюза. Для воспроизводимости запускайте зафиксированные source commits на одной матрице точных model IDs, fixtures и настроек.
 
 ```bash
 bun run eval --category all

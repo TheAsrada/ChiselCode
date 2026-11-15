@@ -83,6 +83,8 @@
 
 ## Диагностика и исследования
 
+- [Live A/B общего системного промпта: результаты и ограничения квоты](reports/system-prompt-live.md).
+
 - [Устойчивость цикла инструментов: аргументы, повторы и завершение](reports/tool-cycle-reliability.md).
 - [Отказы провайдера и клиентские ошибки](reports/provider-client-diagnostics.md).
 - [Сессия с рабочими копиями](reports/worktree-session-review.md).
