@@ -144,7 +144,12 @@ const server = Bun.serve({
           /submit_|git_commit|worktree|create_skill/.test(tool.function.name),
         ),
       );
-      const cwd = /Working directory: ([^\n]+)/.exec(system)?.[1];
+      const snapshot =
+        /<environment_snapshot>(.*?)<\/environment_snapshot>/s.exec(
+          system,
+        )?.[1];
+      assert.ok(snapshot);
+      const cwd = JSON.parse(snapshot).cwd as string;
       assert.ok(cwd);
       const task = String(
         body.messages.find(

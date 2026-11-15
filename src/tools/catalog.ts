@@ -4,6 +4,7 @@ import {
   DEFAULT_AGENT_MODE,
 } from "../runtime/agent-mode.js";
 import { RuntimeError } from "../runtime/errors.js";
+import { nativeSkillGuidance } from "../skills/capability.js";
 import type { ToolDefinition } from "../types/domain.js";
 import { isReadEffect } from "./effects.js";
 import type { ToolHandler, ToolProvider, ToolSource } from "./types.js";
@@ -119,14 +120,20 @@ export class ToolCatalog {
   }
   instructionsForTurn(tools: readonly ToolDefinition[]): string {
     const guidance = tools.flatMap(({ name }) => {
-      const spec = this.handlers.get(name)?.spec;
-      // Server and skill content cannot become trusted system instructions.
-      return spec?.guidance &&
+      const handler = this.handlers.get(name);
+      if (!handler || !this.permitted(handler) || this.unavailable?.(handler))
+        return [];
+      const { spec } = handler;
+      // Skill bodies, server text and extension guidance cannot gain system authority.
+      const text =
+        spec.source?.type === "skill"
+          ? nativeSkillGuidance(handler)
+          : spec.guidance;
+      return text &&
         spec.source?.type !== "mcp" &&
-        spec.source?.type !== "skill" &&
         spec.source?.type !== "extension" &&
         allowsToolInMode(this.getMode(), spec.effect)
-        ? [spec.guidance]
+        ? [text]
         : [];
     });
     return guidance.length

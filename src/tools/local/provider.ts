@@ -1,3 +1,4 @@
+import { attestNativeSkillTool } from "../../skills/capability.js";
 import { RemoteSkills } from "../../skills/remote.js";
 import { SafeWebHttpClient } from "../../web/http-client.js";
 import { WebLimitsSchema } from "../../web/schema.js";
@@ -36,8 +37,10 @@ export class SkillsToolProvider implements ToolProvider {
       ...skillHandlers(typeof skills === "function" ? skills : [...skills]),
       ...skillSourceHandlers(remote),
     ];
-    for (const handler of this.handlers)
+    for (const handler of this.handlers) {
       handler.spec.source = { type: "skill" };
+      attestNativeSkillTool(handler);
+    }
   }
   async listTools() {
     return this.handlers.map((handler) => handler.spec);

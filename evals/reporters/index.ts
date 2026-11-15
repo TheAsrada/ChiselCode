@@ -23,6 +23,10 @@ export function compare(baseline: TrialReport[], candidate: TrialReport[]) {
       JSON.stringify(old.environment.model_parameters) ===
         JSON.stringify(trial.environment.model_parameters) &&
       old.environment.timeout === trial.environment.timeout &&
+      (old.environment.agent_mode ?? "build") ===
+        (trial.environment.agent_mode ?? "build") &&
+      old.environment.platform === trial.environment.platform &&
+      old.environment.network === trial.environment.network &&
       old.environment.bun === trial.environment.bun;
     return {
       task: trial.task,
@@ -30,6 +34,8 @@ export function compare(baseline: TrialReport[], candidate: TrialReport[]) {
       comparable,
       baseline: old?.status,
       candidate: trial.status,
+      baseline_base_prompt_sha256: old?.environment.base_prompt_sha256,
+      candidate_base_prompt_sha256: trial.environment.base_prompt_sha256,
       regression: comparable && old?.task_success && !trial.task_success,
       token_delta: comparable
         ? trial.metrics.input_tokens - old.metrics.input_tokens

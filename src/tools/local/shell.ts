@@ -9,6 +9,8 @@ export function shellHandler() {
     defineTool(
       {
         name: "run_shell",
+        guidance:
+          "Use run_shell in the current project without targetWorktreeId or retryOf for an ordinary command. A managed worktree is not a prerequisite; use IDs only from successful corresponding tool results. Follow the advertised host shell syntax, not assumptions based on the OS name. A background task ID confirms launch only: inspect its status and result before claiming success. Check the actual exit code, signal, timeout and capture completeness. Never bypass a policy denial with another command or tool.",
         description: `Выполнить noninteractive команду с разрешением shell. background возвращает ID фоновой задачи; это не результат команды. Host execution не является OS sandbox. ${shellGuidance()}`,
         effect: "process",
         permission: "shell",

@@ -20,6 +20,7 @@ flowchart LR
 | --- | --- |
 | Владельцы состояния и ресурсов крупных модулей | [Границы терминала и сервисов](architecture/module-boundaries.md) |
 | Цикл запроса, контекст, разрешения и инструменты | [Core runtime](architecture/runtime.md) |
+| Общие инструкции для всех моделей | [Системный промпт и границы доверия](architecture/system-prompt.md) |
 | Сервисы моделей, профили и драйверы | [Провайдеры](architecture/providers.md) · [Потоковые ответы](architecture/provider-streams.md) |
 | Навигация встроенных меню | [Фокус и именованные действия](architecture/menu-navigation.md) |
 | Выбор модели в интерфейсе | [Состояние и сохранение](architecture/model-selection.md) |

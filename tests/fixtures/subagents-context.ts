@@ -41,6 +41,12 @@ for (const name of [
 process.env.OPENAI_API_KEY = "fixture-context-key";
 const root = join(directory, "project");
 await mkdir(root);
+const skillRoot = join(root, ".chisel", "skills", "context-audit");
+await mkdir(skillRoot, { recursive: true });
+await writeFile(
+  join(skillRoot, "SKILL.md"),
+  "---\nname: context-audit\ndescription: Inspect child context\n---\nSKILL_BODY_NOT_PRELOADED\n",
+);
 await writeFile(join(root, "evidence.txt"), "ACTUAL_FILE_EVIDENCE\n");
 const systemRules =
   "Сохраняй проверенные результаты и ограничения пользователя. ".repeat(1200);
@@ -95,6 +101,11 @@ const server = Bun.serve({
         }),
       );
     }
+    assert.ok(system.includes("<name>context-audit</name>"));
+    assert.ok(!system.includes("SKILL_BODY_NOT_PRELOADED"));
+    assert.ok(system.includes("Use load_skill"));
+    assert.ok(!system.includes("use install_skill"));
+    assert.ok(!system.includes("Use run_shell"));
     generations++;
     observedInputs.push(Buffer.byteLength(JSON.stringify(body)) / 3);
     assert.equal(body.max_completion_tokens ?? body.max_tokens, 65536);

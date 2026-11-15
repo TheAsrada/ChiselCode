@@ -282,10 +282,33 @@ test("readonly ceiling is enforced by the real executor for direct handlers; liv
         { requestApproval: async () => "approved" },
       ),
       session,
-      [],
+      [
+        {
+          name: "audit",
+          description: "Read-only audit",
+          instructions: "SKILL_REFERENCE_ONLY",
+          source: "user",
+          dir: root,
+        },
+      ],
       { mode: "build", executionConstraint: policy },
     );
     policy.seal(runtime.catalog.handlersSnapshot());
+    const reader = runtime.catalog.get("load_skill");
+    const forged = { ...reader, spec: { ...reader.spec } };
+    policy.seal([forged]);
+    expect(policy.allows(forged)).toBe(false);
+    expect(policy.allows(reader)).toBe(true);
+    const skill = await runtime.executor.execute({
+      id: "skill",
+      name: "load_skill",
+      input: { name: "audit" },
+    });
+    expect(skill.isError).not.toBe(true);
+    expect(skill.output).toBe("SKILL_REFERENCE_ONLY");
+    expect(
+      runtime.catalog.instructionsForTurn(runtime.catalog.selectForTurn()),
+    ).not.toContain("SKILL_REFERENCE_ONLY");
     for (const name of ["install_skill", "inspect_skills"]) {
       const denied = await runtime.executor.execute({
         id: `global-${name}`,
@@ -319,7 +342,7 @@ test("readonly ceiling is enforced by the real executor for direct handlers; liv
     expect(await readFile(join(root, "source.txt"), "utf8")).toBe(
       "real bytes\n",
     );
-    expect(tools).toBe(1);
+    expect(tools).toBe(2);
     const mutable = new ChildToolPolicy(
       "coding",
       root,

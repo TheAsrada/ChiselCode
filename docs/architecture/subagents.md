@@ -4,6 +4,8 @@
 
 ## Composition и полномочия
 
+Общая основа системного промпта одинакова для основной и дочерней модели. Помощник получает собственный каталог навыков и допуск к штатному `load_skill`; установка и запись навыков остаются запрещены. [Сборка и границы доверия](system-prompt.md#помощники).
+
 `SubagentService` — core-owned repository/application service. `defaultExtensions` связывает его с настоящим `runChildAgent`, общим WorktreeService и `builtin.subagents`. Пустой ExtensionHost остаётся пустым. Activation, lookup и command listing не запускают модели или копии.
 
 Core binding фиксирует Session/conversation/root/generation, профиль, модель, endpoint, политику и снимок разговора. DTO не содержит ключей, SDK, renderer или mutable Session. Linked foreground command получает узкий `subagents` port с submit/list/status/wait/result/cancel; submit проходит те же production tools и executor. Начатые calls отслеживаются до освобождения invocation; принятая задача живёт до закрытия owner, а не окончания callback. Сохранённый invocation port после завершения отклоняется. `/btw` не получает этот порт.

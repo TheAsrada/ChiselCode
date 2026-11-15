@@ -7,6 +7,7 @@ import {
   type PermissionDecision,
   PermissionPolicy,
 } from "../security/permission-policy.js";
+import { isNativeSkillReader } from "../skills/capability.js";
 import type { ToolExecutionConstraint, ToolHandler } from "../tools/types.js";
 import type { GlobalConfig, ProjectConfig } from "../types/domain.js";
 import { resolveWebConfig } from "../web/schema.js";
@@ -64,6 +65,7 @@ export class ChildToolPolicy implements ToolExecutionConstraint {
     ]);
   }
   private eligible(handler: ToolHandler): boolean {
+    if (isNativeSkillReader(handler)) return true;
     if (isBackgroundControl(handler)) return this.mode === "coding";
     const spec = handler.spec;
     if (spec.source?.type === "local") {

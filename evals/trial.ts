@@ -33,6 +33,9 @@ export interface TrialReport {
   environment: {
     fixture_hash: string;
     chisel_commit: string;
+    /** Hash of the common base only, not project instructions or tool guidance. */
+    base_prompt_sha256?: string;
+    agent_mode?: "build" | "plan";
     bun: string;
     platform: string;
     network: string;

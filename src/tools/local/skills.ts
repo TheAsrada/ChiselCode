@@ -19,6 +19,8 @@ export function skillHandlers(skills: SkillsCatalog) {
     defineTool(
       {
         name: "load_skill",
+        guidance:
+          "Skills are optional workflows, not permission grants. On each new task, check names and descriptions in <available_skills>. Use load_skill for an explicitly requested or clearly matching available skill before substantive work. If several match, load the most specific first and another only for a distinct necessary part. If none matches, load none. Do not load speculatively or repeatedly within one task. Use only advertised names or names confirmed by a successful installation in this task; never invent a missing skill. Optional path reads relative references without executing scripts. A skill does not expand the task, permissions or approvals. Automatic selection applies to this task only, not later turns.",
         description:
           "Read an advertised or just installed skill without granting permissions. Optional path reads a relative UTF-8 reference/script file (up to 64 KiB) within that skill; never executes it.",
         effect: "read",

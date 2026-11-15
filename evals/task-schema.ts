@@ -8,6 +8,7 @@ export const EvalTaskSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   fixture: z.string().min(1),
   prompt: z.string().min(1),
+  mode: z.enum(["build", "plan"]).default("build"),
   timeout: z.number().positive().default(300),
   setup: z.array(z.string()).default([]),
   graders: z.array(

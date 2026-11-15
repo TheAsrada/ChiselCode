@@ -77,6 +77,10 @@ export async function runTrial(
     environment: {
       fixture_hash: "",
       chisel_commit: "",
+      base_prompt_sha256: createHash("sha256")
+        .update(BASE_SYSTEM_PROMPT)
+        .digest("hex"),
+      agent_mode: task.mode,
       bun: Bun.version,
       platform: process.platform,
       network: mode === "mock" ? "no model network" : "host network",
@@ -126,6 +130,7 @@ export async function runTrial(
           task.prompt,
           {
             cwd: root,
+            mode: task.mode,
             model,
             provider: provider,
             profile: "eval-trial",
@@ -230,6 +235,7 @@ export async function runTrial(
         {
           events,
           signal: abort.signal,
+          mode: task.mode,
           maxInlineTokens: task.context?.maxInlineToolResultTokens,
           artifactDirectory: join(root, ".chisel", "artifacts"),
         },
@@ -261,6 +267,7 @@ export async function runTrial(
         BASE_SYSTEM_PROMPT,
         events,
       ).run(session, task.prompt, {
+        mode: task.mode,
         signal: abort.signal,
         contextProviders: extensionScope
           ? contextCollection(extensionScope, (text) => text)
