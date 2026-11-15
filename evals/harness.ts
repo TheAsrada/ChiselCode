@@ -136,6 +136,9 @@ export async function runTrial(
             profile: "eval-trial",
             configPath,
             yes: true,
+            // Live evals explicitly authorize shell inside disposable fixtures,
+            // just as mock trials do. Accept edits alone cannot run verification.
+            allow: "run_shell",
           },
           { requestApproval: async () => "approved" },
           {
@@ -302,6 +305,7 @@ export async function runTrial(
         ? "success"
         : "failure";
     if (
+      result.status === "approval_required" ||
       [
         "authentication",
         "model_not_found",
@@ -348,7 +352,11 @@ export async function runTrial(
     )
       report.status = "infra_error";
     report.task_success = report.status === "success";
-    report.error = result.error;
+    report.error =
+      result.error ??
+      (result.status === "approval_required"
+        ? "Live evaluation paused for tool approval."
+        : undefined);
   } catch (error) {
     report.error = String(error);
   } finally {
