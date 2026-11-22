@@ -19,6 +19,7 @@ import type { BackgroundControls } from "../../src/background/binding.js";
 import { loadGlobalConfig, loadProjectConfig } from "../../src/config/load.js";
 import { defaultExtensions } from "../../src/extensions/composition.js";
 import { ExtensionHost } from "../../src/extensions/host.js";
+import { RuntimeError } from "../../src/runtime/errors.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
 import {
   SCRATCH_LIMITS,
@@ -110,6 +111,25 @@ function ok(result: { isError?: boolean; output: string }) {
 }
 const missing = (error: unknown) =>
   (error as NodeJS.ErrnoException).code === "ENOENT";
+
+async function removeFixture(directory: string) {
+  const deadline = Date.now() + 12000;
+  for (;;) {
+    try {
+      await rm(directory, { recursive: true, force: true });
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (
+        process.platform !== "win32" ||
+        !["EBUSY", "ENOTEMPTY", "EPERM"].includes(code) ||
+        Date.now() >= deadline
+      )
+        throw error;
+      await Bun.sleep(100);
+    }
+  }
+}
 
 if (childRoot && sessionId) {
   const store = await projectSessionStore(childRoot);
@@ -370,16 +390,28 @@ try {
   assert.equal(child.exitCode, null);
   child.kill("SIGKILL");
   await child.exited;
+  // Wait on the actual resource fence. Polling an agent tool would consume
+  // its repeated-failure budget while the supervisor finishes crash cleanup.
+  await until(async () => {
+    try {
+      return await workspace.withLease(
+        AbortSignal.timeout(500),
+        async () => true,
+      );
+    } catch (error) {
+      if (
+        error instanceof RuntimeError &&
+        ["BACKGROUND_RECOVERY_REQUIRED", "CANCELLED"].includes(error.code)
+      )
+        return;
+      throw error;
+    }
+  }, Date.now() + 15000);
   const restored = await runtime(
     project,
     await owner.store.load(owner.session.id),
   );
-  const recovered = await until(async () => {
-    const result = await restored.call({ action: "list" });
-    if (result.errorCode === "BACKGROUND_RECOVERY_REQUIRED") return;
-    return ok(result);
-  }, Date.now() + 12000);
-  assert.match(recovered, /check.cjs/);
+  assert.match(ok(await restored.call({ action: "list" })), /check.cjs/);
   assert.equal(
     await readFile(join(workspace.path, "ready.txt"), "utf8"),
     "run\n",
@@ -412,9 +444,13 @@ try {
   await assert.rejects(readdir(expired.path), missing);
   await other.tools.dispose();
   console.log("Scratch Workspace: passed");
+} catch (error) {
+  // Preserve the failing assertion even when Windows still holds the cwd.
+  console.error(error);
+  throw error;
 } finally {
   if (child?.exitCode === null) child.kill("SIGKILL");
   await child?.exited;
   await host.dispose();
-  await rm(directory, { recursive: true, force: true, maxRetries: 3 });
+  await removeFixture(directory);
 }
