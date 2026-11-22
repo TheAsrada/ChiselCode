@@ -15,6 +15,12 @@ export const ShellInputSchema = z
       .describe(
         "Рабочая папка внутри выбранного проекта или рабочей копии; обычно опускайте поле. При targetWorktreeId путь отсчитывается от выбранной копии: опустите cwd или укажите относительный путь внутри неё, не абсолютный путь исходного проекта.",
       ),
+    scratch: z
+      .boolean()
+      .optional()
+      .describe(
+        "Выполнить команду в Scratch Workspace текущей сессии. Используйте относительное имя скрипта и опустите cwd и фоновые параметры.",
+      ),
     timeout: z.number().int().min(1000).max(600000).optional(),
     background: z.boolean().optional(),
     taskKind: z.enum(["batch", "service"]).optional(),
@@ -53,7 +59,24 @@ export const ShellInputSchema = z
         "Только реальный ID ранее запущенной фоновой задачи при её повторе. Для новой команды опустите поле; не подставляйте нулевой UUID или выдуманный ID.",
       ),
   })
-  .strict();
+  .strict()
+  .refine(
+    (input) =>
+      !input.scratch ||
+      (!input.background &&
+        !input.targetWorktreeId &&
+        !input.retryOf &&
+        (input.cwd === undefined || input.cwd === ".") &&
+        !input.taskKind &&
+        !input.deadlineMs &&
+        !input.readySignal &&
+        !input.outputBytes),
+    {
+      path: ["scratch"],
+      message:
+        "Для Scratch Workspace укажите scratch: true, command и при необходимости timeout или label. Запускайте команду в foreground.",
+    },
+  );
 export type ShellInput = z.infer<typeof ShellInputSchema>;
 export interface ShellData extends ShellInput {
   cwd: string;

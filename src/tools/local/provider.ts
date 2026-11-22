@@ -7,6 +7,7 @@ import type { ToolProvider } from "../types.js";
 import { createExtensionHandler } from "./extensions.js";
 import { fileHandlers } from "./files.js";
 import { gitHandlers } from "./git.js";
+import { scratchHandler } from "./scratch.js";
 import { shellHandler } from "./shell.js";
 import { skillSourceHandlers } from "./skill-sources.js";
 import { type SkillsCatalog, skillHandlers } from "./skills.js";
@@ -15,6 +16,7 @@ export class LocalToolProvider implements ToolProvider {
     ...fileHandlers(),
     ...editingHandlers(),
     shellHandler(),
+    scratchHandler(),
     ...gitHandlers(),
     createExtensionHandler(),
   ];

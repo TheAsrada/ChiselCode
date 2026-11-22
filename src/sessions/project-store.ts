@@ -26,6 +26,7 @@ import {
 } from "../models/contracts.js";
 import { sessionProjectsDir, sessionsRootDir } from "../paths/home.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
+import { ScratchWorkspace } from "../scratch/workspace.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { ChildReceipt } from "../subagents/contracts.js";
 import { ChildReceiptSchema } from "../subagents/schema.js";
@@ -694,6 +695,11 @@ export class ProjectSessionStore {
       index.sessions = index.sessions.filter((entry) => entry.id !== id);
       await atomicJson(this.indexPath, index, assertOwned);
     });
+    // Session commits must not wait for a live or unconfirmed shell process.
+    // The retention sweep retries scratch cleanup if the scope is still busy.
+    await ScratchWorkspace.removeSession(this.project.canonicalPath, id).catch(
+      () => {},
+    );
   }
   async resolve(ref: string): Promise<SessionSummary> {
     const value = ref.trim().toLowerCase();

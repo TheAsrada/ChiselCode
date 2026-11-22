@@ -438,10 +438,17 @@ export class BackgroundTaskService {
     const data = context.backgroundExecution
       ? structuredClone(this.ticket(context.backgroundExecution).data)
       : await resolveShell(binding, context, input);
-    const preview = `$ ${binding.redactor.text(data.command)}\nПапка: ${data.cwd}\n${data.worktree ? `Копия «${data.worktree.label}», committed base ${data.worktree.base}. Незакоммиченные изменения не перенесены.` : "Пока команда работает, связанные операции с файлами и Git могут быть заняты."}`;
+    const preview = `$ ${binding.redactor.text(data.command)}\nПапка: ${data.cwd}\n${data.scratch ? "Scratch Workspace текущей сессии." : data.worktree ? `Копия «${data.worktree.label}», committed base ${data.worktree.base}. Незакоммиченные изменения не перенесены.` : "Пока команда работает, связанные операции с файлами и Git могут быть заняты."}`;
     return ownShellAccess(
-      { data, preview, resources: [data.actualRoot], command: data.command },
-      await shellAccesses(data.actualRoot),
+      {
+        data,
+        preview,
+        resources: data.scratch
+          ? [data.actualRoot, data.cwd]
+          : [data.actualRoot],
+        command: data.command,
+      },
+      await shellAccesses(data.actualRoot, data.scratch ? data.cwd : undefined),
     ) as ToolPlan<ShellData>;
   }
   private async newRecord(
@@ -535,7 +542,7 @@ export class BackgroundTaskService {
         120,
       ),
       commandPreview: preview,
-      replayable: preview === data.command,
+      replayable: !data.scratch && preview === data.command,
       kind,
       foreground,
       state: foreground ? "starting" : "queued",
@@ -561,7 +568,12 @@ export class BackgroundTaskService {
       outputGeneration: randomUUID(),
       truncated: false,
       cleanup: { confirmed: true },
-      resources: [...(await shellAccesses(data.actualRoot))],
+      resources: [
+        ...(await shellAccesses(
+          data.actualRoot,
+          data.scratch ? data.cwd : undefined,
+        )),
+      ],
       ...(data.retryOf ? { retryOf: data.retryOf } : {}),
       process: {
         instance: randomUUID(),

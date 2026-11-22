@@ -6,6 +6,7 @@ import {
 } from "../git/driver.js";
 import type { ProcessLog } from "../processes/log.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
+import { ScratchWorkspace } from "../scratch/workspace.js";
 import { PermissionPolicy } from "../security/permission-policy.js";
 import { SENSITIVE_KEY } from "../security/redaction.js";
 import { WorkspacePolicy } from "../security/workspace-policy.js";
@@ -62,7 +63,9 @@ export async function resolveShell(
     }
   }
   const workspace = new WorkspacePolicy(root, binding.config.ignorePatterns);
-  const cwd = await workspace.resolve(input.cwd ?? ".");
+  const cwd = input.scratch
+    ? (await ScratchWorkspace.forSession(root, context.session.id)).path
+    : await workspace.resolve(input.cwd ?? ".");
   return {
     ...input,
     cwd,
@@ -73,12 +76,19 @@ export async function resolveShell(
 }
 export async function shellAccesses(
   root: string,
+  scratchPath?: string,
 ): Promise<readonly WorkspaceAccess[]> {
   const scope = await workspaceCoordinator.scope(root);
   const plan: WorkspaceAccess[] = scope.map((resource) => ({
     resource,
     mode: "write",
   }));
+  if (scratchPath) {
+    const resources = await workspaceCoordinator.resources([scratchPath]);
+    plan.push(
+      ...resources.map((resource) => ({ resource, mode: "write" as const })),
+    );
+  }
   try {
     const identity = await gitIdentity(root);
     plan.push(

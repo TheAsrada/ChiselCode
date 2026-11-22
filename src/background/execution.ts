@@ -291,28 +291,33 @@ export class BackgroundExecutionStore {
   }
   private async locked<T>(
     work: (value: Registry, save: () => Promise<void>) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
     const directory = await this.directory();
-    return withLock(join(directory, "resources"), async (assertOwned) => {
-      const value = await this.registry(directory);
-      const before = JSON.stringify(value);
-      await this.reconcile(value);
-      const save = () =>
-        atomicWorktreeJson(
-          join(directory, "executions.json"),
-          value,
-          assertOwned,
-        );
-      // Commit migration/reconciliation even when the requested operation conflicts.
-      const raw = await this.json(join(directory, "executions.json"));
-      if (
-        !raw ||
-        (raw as { schemaVersion: number }).schemaVersion !== 2 ||
-        before !== JSON.stringify(value)
-      )
-        await save();
-      return work(value, save);
-    });
+    return withLock(
+      join(directory, "resources"),
+      async (assertOwned) => {
+        const value = await this.registry(directory);
+        const before = JSON.stringify(value);
+        await this.reconcile(value);
+        const save = () =>
+          atomicWorktreeJson(
+            join(directory, "executions.json"),
+            value,
+            assertOwned,
+          );
+        // Commit migration/reconciliation even when the requested operation conflicts.
+        const raw = await this.json(join(directory, "executions.json"));
+        if (
+          !raw ||
+          (raw as { schemaVersion: number }).schemaVersion !== 2 ||
+          before !== JSON.stringify(value)
+        )
+          await save();
+        return work(value, save);
+      },
+      signal,
+    );
   }
   private async blocker(
     entry: Entry,
@@ -452,6 +457,7 @@ export class BackgroundExecutionStore {
     for (;;) {
       cancelled(signal);
       const granted = await this.locked(async (value, save) => {
+        cancelled(signal);
         let blocked = false;
         for (const [key, other] of Object.entries(value.executions)) {
           if (!accessPlansConflict(accesses, other.accesses)) continue;
@@ -468,7 +474,7 @@ export class BackgroundExecutionStore {
         value.executions[id] = entry;
         await save();
         return true;
-      });
+      }, signal);
       if (granted) break;
       await new Promise<void>((resolve) => {
         const done = () => {

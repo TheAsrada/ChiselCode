@@ -8,6 +8,7 @@ import { McpRuntimeBinding } from "../mcp/runtime.js";
 import { McpConfigStore } from "../mcp/storage.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
+import { scheduleScratchSweep } from "../scratch/workspace.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import { SecretRedactor } from "../security/redaction.js";
@@ -235,6 +236,7 @@ export async function createSessionToolRuntime(input: {
     extensionBinding = await attachExtensionTools(scope, tools.catalog);
     if (input.uiTool) tools.catalog.register(input.uiTool);
     input.childPolicy?.seal(tools.catalog.handlersSnapshot());
+    scheduleScratchSweep();
     return {
       ...tools,
       backgrounds,

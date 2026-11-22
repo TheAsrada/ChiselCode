@@ -10,6 +10,7 @@ const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "edit_file",
   "delete_file",
   "run_shell",
+  "scratch_workspace",
   "git_commit",
   "create_skill",
   "install_skill",
