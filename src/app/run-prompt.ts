@@ -18,7 +18,11 @@ import { ExtensionLifecycleError } from "../extensions/lifecycle.js";
 import { shellGuidance } from "../processes/shell.js";
 import { admitWorkspace } from "../projects/admission.js";
 import { resolveCredential } from "../providers/auth.js";
-import type { ModelCapabilities } from "../providers/capabilities.js";
+import {
+  type ModelCapabilities,
+  reasoningEffortKey,
+  unknownReasoningEffort,
+} from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import type { ProviderProfile } from "../providers/contracts.js";
 import { resolveEndpoint } from "../providers/endpoint.js";
@@ -30,8 +34,10 @@ import {
 import { SecretRedactor } from "../security/redaction.js";
 import type { GlobalConfig } from "../types/domain.js";
 import {
+  type CapturedModelConfiguration,
   captureModelConfiguration,
   resolveCapturedModelRuntime,
+  withModelCapabilities,
 } from "./model-runtime.js";
 import { subagentControls } from "./subagent-inspection.js";
 
@@ -106,6 +112,9 @@ export interface RunEventHandlers {
 export interface RunOptions {
   /** Internal foreground action; does not submit a user message or request an answer. */
   compactOnly?: boolean;
+  /** Core submit snapshot, including an explicit Auto. */
+  capturedModel?: CapturedModelConfiguration;
+  reasoningEffort?: string;
   uiSnapshot?: import("../runtime/environment.js").UiSnapshotPort;
   /** Recovery bootstrap: disables all external imports while retaining builtins. */
   externalExtensions?: boolean;
@@ -194,14 +203,22 @@ export async function getModelCapabilities(
   const fallback: ModelCapabilities = {
     tokenCounting: "local_estimate",
     ...catalogModelLimits(input.provider, input.model ?? ""),
+    reasoningEffort: unknownReasoningEffort,
   };
   try {
     const runtime = await resolveConnectionRuntime(input, options?.configPath);
-    return (
-      (await runtime.adapter.getCapabilities?.(input.model ?? "")) ?? fallback
-    );
+    return {
+      ...fallback,
+      ...(await runtime.adapter.getCapabilities?.(input.model ?? "")),
+    };
   } catch {
-    return fallback;
+    return {
+      ...fallback,
+      reasoningEffort: {
+        reason:
+          "Не удалось проверить возможности подключения. Проверьте профиль и доступ к API.",
+      },
+    };
   }
 }
 
@@ -504,12 +521,9 @@ async function runPromptInWorkspace(
     );
   if (previous && !options.provider && !options.profile)
     registry.require(previous.providerId);
-  const capturedModel = captureModelConfiguration(
-    global,
-    registry,
-    options,
-    previous,
-  );
+  const capturedModel =
+    options.capturedModel ??
+    captureModelConfiguration(global, registry, options, previous);
   const selected = {
     profile: capturedModel.profile,
     profileId: capturedModel.profileId,
@@ -751,7 +765,23 @@ async function runPromptInWorkspace(
         eventBus,
       );
 
+      const capabilities = {
+        ...capturedModel.capabilities,
+        ...(await provider.getCapabilities?.(model)),
+      };
+      const turnModel =
+        options.capturedModel ??
+        withModelCapabilities(
+          capturedModel,
+          capabilities,
+          options.reasoningEffort ??
+            session.reasoningEfforts?.[
+              reasoningEffortKey(selected.profileId, model)
+            ],
+        );
       result = await runtime.run(session, sanitize(prompt), {
+        capabilities,
+        reasoningEffort: turnModel.reasoningEffort,
         workspaceRoot: projectRoot,
         client: options.interactive ? "opentui" : "cli",
         uiSnapshot: options.uiSnapshot,

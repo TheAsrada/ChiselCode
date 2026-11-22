@@ -1,5 +1,10 @@
 import { frozenClone } from "../extensions/lifecycle.js";
-import type { ModelCapabilities } from "../providers/capabilities.js";
+import {
+  type ModelCapabilities,
+  reasoningEffortKey,
+  resolveReasoningEffort,
+  unknownReasoningEffort,
+} from "../providers/capabilities.js";
 import type {
   ProviderDefinition,
   ProviderDriver,
@@ -23,6 +28,7 @@ export interface ModelConfiguration {
   model: string;
   baseUrl?: string;
   capabilities: ModelCapabilities;
+  reasoningEffort?: string;
 }
 
 export interface CapturedModelConfiguration extends ModelConfiguration {
@@ -39,6 +45,7 @@ function modelCapabilities(
         ? "provider"
         : "local_estimate",
     ...catalogModelLimits(definition.id, model),
+    reasoningEffort: unknownReasoningEffort,
   };
 }
 
@@ -50,6 +57,7 @@ export function withCapturedModelId(
   return Object.freeze({
     ...capture,
     model,
+    reasoningEffort: undefined,
     capabilities: Object.freeze(modelCapabilities(capture.definition, model)),
   });
 }
@@ -58,7 +66,10 @@ export function captureModelConfiguration(
   global: GlobalConfig,
   registry: ProviderRegistry,
   options: RunOptions,
-  previous?: Pick<Session, "profileId" | "providerId" | "model">,
+  previous?: Pick<
+    Session,
+    "profileId" | "providerId" | "model" | "reasoningEfforts"
+  >,
   capabilities?: ModelCapabilities,
 ): CapturedModelConfiguration {
   const selected = selectProfile(
@@ -88,9 +99,28 @@ export function captureModelConfiguration(
     ),
     capabilities: capabilities ?? modelCapabilities(definition, model),
   });
+  return withModelCapabilities(
+    { ...configuration, driver: registry.driver(definition.driverId) },
+    configuration.capabilities,
+    options.reasoningEffort ??
+      previous?.reasoningEfforts?.[
+        reasoningEffortKey(selected.profileId, model)
+      ],
+  );
+}
+
+export function withModelCapabilities(
+  captured: CapturedModelConfiguration,
+  capabilities: ModelCapabilities,
+  selection?: string,
+): CapturedModelConfiguration {
   return Object.freeze({
-    ...configuration,
-    driver: registry.driver(definition.driverId),
+    ...captured,
+    capabilities: frozenClone(capabilities),
+    reasoningEffort: resolveReasoningEffort(
+      capabilities.reasoningEffort,
+      selection,
+    ),
   });
 }
 

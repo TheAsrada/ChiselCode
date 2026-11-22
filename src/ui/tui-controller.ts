@@ -140,6 +140,7 @@ export interface TuiViewState {
   runningApprovalMode?: ApprovalMode;
   modelSelection?: ModelSelection;
   modelCapabilities?: ModelCapabilities;
+  reasoningEfforts?: Session["reasoningEfforts"];
   contextSnapshot?: ContextSnapshot;
   sessionId?: string;
   sessionTitle?: string;
@@ -784,6 +785,10 @@ export class TuiPresentationController implements TuiTranscript {
     });
   }
 
+  setReasoningEfforts(reasoningEfforts: Session["reasoningEfforts"]): void {
+    this.update({ reasoningEfforts });
+  }
+
   setModelCapabilities(
     selection: ModelSelection,
     capabilities: ModelCapabilities,
@@ -819,7 +824,12 @@ export class TuiPresentationController implements TuiTranscript {
   /** Invalidates responses from the previous project or session immediately. */
   switchSession(
     session?: Pick<Session, "id" | "projectPath"> &
-      Partial<Pick<Session, "title" | "mode" | "approvalMode" | "worktree">>,
+      Partial<
+        Pick<
+          Session,
+          "title" | "mode" | "approvalMode" | "worktree" | "reasoningEfforts"
+        >
+      >,
     projectPath = session?.projectPath ?? this.state.projectPath,
   ): void {
     this.lifetime.abort();
@@ -855,6 +865,7 @@ export class TuiPresentationController implements TuiTranscript {
         ? (session.approvalMode ?? DEFAULT_APPROVAL_MODE)
         : this.state.approvalMode,
       modelSelection: session ? undefined : this.state.modelSelection,
+      reasoningEfforts: session?.reasoningEfforts,
       projectPath,
       sessionId: session?.id,
       sessionTitle: session?.title,

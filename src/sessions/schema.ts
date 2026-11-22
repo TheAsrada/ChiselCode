@@ -302,6 +302,7 @@ export const SessionV3Schema = z.looseObject({
   providerId: z.string().min(1),
   profileId: z.string().min(1),
   model: z.string(),
+  reasoningEfforts: z.record(z.string(), z.string()).optional(),
   gitBranch: z.string().optional(),
   messages: z.array(
     z.object({

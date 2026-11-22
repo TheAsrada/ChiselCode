@@ -12,6 +12,7 @@ import {
   ChatGptUsage,
   usageUi,
 } from "../../src/extensions/builtins/chatgpt/usage.js";
+import { resolveReasoningEffort } from "../../src/providers/capabilities.js";
 import { ProviderRegistry } from "../../src/providers/registry.js";
 import { resolveProviderRuntime } from "../../src/providers/runtime.js";
 import type { ProviderRequest, StreamEvent } from "../../src/types/domain.js";
@@ -228,6 +229,24 @@ test("extension registers a real runtime provider; subscription credentials cann
 test("Responses normalizes text, namespaced tools, usage and terminal events", async () => {
   let body: Record<string, unknown> = {};
   const f = await fixture(async (url, init) => {
+    if (String(url).includes("/codex/models")) {
+      return json({
+        models: [
+          {
+            slug: request.model,
+            visibility: "list",
+            supported_reasoning_levels: [
+              { effort: "low" },
+              { effort: "high" },
+              { effort: "low" },
+              { effort: 7 },
+            ],
+            default_reasoning_level: "low",
+          },
+          { slug: "no-effort", visibility: "list" },
+        ],
+      });
+    }
     if (String(url).includes("/codex/responses")) {
       body = JSON.parse(String(init?.body));
       expect(new Headers(init?.headers).get("chatgpt-account-id")).toBe(
@@ -278,7 +297,16 @@ test("Responses normalizes text, namespaced tools, usage and terminal events", a
     profile: { providerId: "chatgpt" },
     profileId: "personal",
   });
-  const events = await Array.fromAsync(adapter.streamChat(request));
+  const capability = (await adapter.getCapabilities?.(request.model))
+    ?.reasoningEffort;
+  expect(capability).toEqual({ levels: ["low", "high"], defaultLevel: "low" });
+  const events = await Array.fromAsync(
+    adapter.streamChat({
+      ...request,
+      reasoningEffort: resolveReasoningEffort(capability, "high"),
+    }),
+  );
+  expect(body.reasoning).toEqual({ effort: "high" });
   expect(body.store).toBe(false);
   expect(body.max_output_tokens).toBeUndefined();
   expect(events.find((event) => event.type === "tool_call")).toMatchObject({
@@ -298,6 +326,17 @@ test("Responses normalizes text, namespaced tools, usage and terminal events", a
       cacheReadTokens: 12,
     },
   });
+  const unsupported = (await adapter.getCapabilities?.("no-effort"))
+    ?.reasoningEffort;
+  expect(unsupported?.reason).toContain("Каталог ChatGPT");
+  await Array.fromAsync(
+    adapter.streamChat({
+      ...request,
+      model: "no-effort",
+      reasoningEffort: resolveReasoningEffort(unsupported, "high"),
+    }),
+  );
+  expect(body).not.toHaveProperty("reasoning");
 });
 
 for (const scenario of [

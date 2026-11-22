@@ -13,6 +13,7 @@ import {
 import {
   captureModelConfiguration,
   captureUnavailableModel,
+  withModelCapabilities,
 } from "../app/model-runtime.js";
 import { runExtensionCommand } from "../app/run-command.js";
 import { subagentControls } from "../app/subagent-inspection.js";
@@ -40,7 +41,7 @@ import {
   withOwnedExtensionHost,
 } from "../extensions/composition.js";
 import type { ChiselExtension } from "../extensions/contracts.js";
-import { type ExtensionHost } from "../extensions/host.js";
+import type { ExtensionHost } from "../extensions/host.js";
 import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
 import { ExtensionManagementService } from "../extensions/management.js";
 import { UiExtensionRuntime } from "../extensions/ui-runtime.js";
@@ -60,6 +61,11 @@ import {
   ProjectOpenService,
 } from "../projects/opening.js";
 import { applicationPaths } from "../projects/paths.js";
+import {
+  reasoningEffortKey,
+  resolveReasoningEffort,
+  unknownReasoningEffort,
+} from "../providers/capabilities.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import {
   AGENT_MODE_LABELS,
@@ -96,6 +102,7 @@ import type { InteractiveExitReason } from "./interactive-exit.js";
 import { ModelCatalogController } from "./model-catalog-controller.js";
 import { rememberedModelOptions } from "./model-preference.js";
 import { createModelSelectionActions } from "./model-selection-actions.js";
+import type { OpenTuiEffortActions } from "./opentui-effort.js";
 import { attachTranscriptScrollback } from "./opentui-scrollback.js";
 import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
@@ -321,6 +328,10 @@ async function runApplication(
           profile: selected.profileId,
           model: selected.model,
           baseUrl: selected.baseUrl,
+          reasoningEffort:
+            controller.snapshot.reasoningEfforts?.[
+              reasoningEffortKey(selected.profileId, selected.model)
+            ] ?? "auto",
         }
       : preferences.activeOptions;
   };
@@ -460,12 +471,14 @@ async function runApplication(
           approvalMode,
           busy,
           modelSelection,
+          reasoningEfforts,
         } = controller.snapshot;
         if (!sessionId || busy || !projectPath) return;
         const store = await projectSessionStore(projectPath);
         await store.setPreferences(sessionId, {
           mode: agentMode,
           approvalMode,
+          ...(reasoningEfforts ? { reasoningEfforts } : {}),
           ...(modelSelection
             ? {
                 providerId: modelSelection.provider,
@@ -481,6 +494,62 @@ async function runApplication(
           "error",
         ),
       );
+  };
+  const getEffortActions = (): OpenTuiEffortActions => {
+    const controller = currentController();
+    const generation = controller.currentGeneration;
+    const selection = controller.snapshot.modelSelection;
+    const assertOwner = () => {
+      if (
+        !controller.isCurrent(generation) ||
+        currentController() !== controller ||
+        controller.snapshot.modelSelection !== selection ||
+        abort.signal.aborted
+      )
+        throw new Error("Активная модель изменилась. Откройте /effort снова.");
+    };
+    const key =
+      selection && reasoningEffortKey(selection.profileId, selection.model);
+    const load = async () => {
+      const capabilities =
+        selection && (await modelCatalog.capabilities(selection));
+      assertOwner();
+      if (selection && capabilities)
+        controller.setModelCapabilities(selection, capabilities);
+      return {
+        model:
+          (capabilities && capabilities.displayName) ||
+          selection?.model ||
+          "Модель не выбрана",
+        capability:
+          (capabilities && capabilities.reasoningEffort) ??
+          unknownReasoningEffort,
+        current: key ? controller.snapshot.reasoningEfforts?.[key] : undefined,
+      };
+    };
+    return {
+      model: selection?.model ?? "Модель не выбрана",
+      load,
+      select: async (selection) => {
+        const level = selection.toLowerCase();
+        if (!key) throw new Error("Сначала выберите модель в /model.");
+        if (level !== "auto") {
+          const { capability } = await load();
+          if (!resolveReasoningEffort(capability, level))
+            throw new Error(
+              capability.reason ??
+                `Доступные уровни: ${capability.levels.join(", ")}. Сброс: /effort auto.`,
+            );
+        }
+        assertOwner();
+        const preferences = { ...controller.snapshot.reasoningEfforts };
+        if (level === "auto") delete preferences[key];
+        else preferences[key] = level;
+        controller.setReasoningEfforts(preferences);
+        persistExecutionModes(controller);
+        return level === "auto" ? "Auto" : level;
+      },
+    };
   };
   if (
     initialSession &&
@@ -822,6 +891,23 @@ async function runApplication(
       } catch {
         /* Only a model consumer reports missing configuration. */
       }
+      const submittedSelection = target.snapshot.modelSelection;
+      const submittedModel = capturedModel;
+      const promptModel =
+        submittedModel &&
+        submittedSelection &&
+        turnModelOptions.reasoningEffort &&
+        turnModelOptions.reasoningEffort !== "auto"
+          ? modelCatalog
+              .capabilities(submittedSelection)
+              .then((capabilities) =>
+                withModelCapabilities(
+                  submittedModel,
+                  capabilities,
+                  turnModelOptions.reasoningEffort,
+                ),
+              )
+          : Promise.resolve(submittedModel);
       input = input.trim();
       const parsed = splitSlashCommand(input);
       if (abort.signal.aborted) return;
@@ -990,6 +1076,7 @@ async function runApplication(
           root: originRoot,
           controller,
         };
+        controller.setReasoningEfforts(target.snapshot.reasoningEfforts);
         if (!prepared) warmModelCapabilities(controller);
         controller.presentation.history = inputHistory;
         skillNames.set(controller, {
@@ -1223,6 +1310,7 @@ async function runApplication(
             }
           : {
               kind: "prompt",
+              capturedModel: promptModel,
               input,
               root: originRoot,
               mode: turnMode,
@@ -1678,6 +1766,7 @@ async function runApplication(
               ? options
               : preferences.activeOptions),
             ...turnModelOptions,
+            capturedModel: await item.capturedModel,
             cwd: controller.snapshot.projectPath,
             resume: controller.snapshot.sessionId,
             mode: turnMode,
@@ -1933,6 +2022,7 @@ async function runApplication(
         getSettingsActions,
         updater,
         getModelsActions,
+        getEffortActions,
         getDefaultModel: () => preferences.defaultModel,
         onAgentModeChange: () => persistExecutionModes(currentController()),
         onApprovalModeChange: () => persistExecutionModes(currentController()),

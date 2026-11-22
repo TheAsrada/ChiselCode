@@ -21,11 +21,13 @@ export class HomeDraftController extends TuiPresentationController {
   selectProject(ref: WorkspaceRef): void {
     const draft = this.snapshot.draft;
     const model = this.snapshot.modelSelection,
-      capabilities = this.snapshot.modelCapabilities;
+      capabilities = this.snapshot.modelCapabilities,
+      reasoningEfforts = this.snapshot.reasoningEfforts;
     const history = this.presentation.history;
     this.switchSession(undefined, ref.root);
     this.selection = ref;
     this.setDraft(draft);
+    this.setReasoningEfforts(reasoningEfforts);
     if (model && capabilities) this.setModelCapabilities(model, capabilities);
     Object.assign(this.presentation.history, history);
   }

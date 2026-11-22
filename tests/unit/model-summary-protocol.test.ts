@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { modelSummarizer } from "../../src/context/model-summary.js";
 import { emptySummary } from "../../src/context/summary.js";
+import { resolveReasoningEffort } from "../../src/providers/capabilities.js";
 import { AnthropicProtocolAdapter } from "../../src/providers/drivers/anthropic-messages.js";
 import { OpenAIProtocolAdapter } from "../../src/providers/drivers/openai-chat.js";
 import type { ProviderAdapter, TokenUsage } from "../../src/types/domain.js";
@@ -157,3 +158,56 @@ for (const anthropic of [false, true]) {
     });
   }
 }
+
+test("Anthropic Messages uses model metadata and only sends a validated explicit effort", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const adapter = new AnthropicProtocolAdapter({
+    apiKey: "mock",
+    baseUrl: "https://api.anthropic.com",
+    adaptiveThinking: true,
+    fetch: async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.startsWith("/v1/models/")) {
+        const supported = path.endsWith("/claude-opus-5");
+        return Response.json({
+          id: path.split("/").at(-1),
+          capabilities: {
+            effort: { supported, low: { supported }, high: { supported } },
+            thinking: { types: { adaptive: { supported } } },
+          },
+        });
+      }
+      bodies.push(await new Request(url, init).json());
+      return response(true, "end_turn");
+    },
+  });
+  for (const [model, value] of [
+    ["claude-opus-5", "high"],
+    ["claude-opus-5", "auto"],
+    ["claude-haiku-4-5", "high"],
+  ] as const) {
+    const capabilities = await adapter.getCapabilities(model);
+    expect(capabilities.reasoningEffort?.levels).toEqual(
+      model === "claude-opus-5" ? ["low", "high"] : undefined,
+    );
+    const events = await Array.fromAsync(
+      adapter.streamChat({
+        model,
+        system: "test",
+        messages: [],
+        tools: [],
+        maxTokens: 100,
+        reasoningEffort: resolveReasoningEffort(
+          capabilities.reasoningEffort,
+          value,
+        ),
+      }),
+    );
+    expect(events.at(-1)?.type).toBe("turn_complete");
+  }
+  expect(bodies[0]?.output_config).toEqual({ effort: "high" });
+  expect(bodies[0]?.thinking).toEqual({ type: "adaptive" });
+  expect(bodies[1]).not.toHaveProperty("output_config");
+  expect(bodies[2]).not.toHaveProperty("output_config");
+  expect(bodies[2]).not.toHaveProperty("thinking");
+});

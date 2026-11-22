@@ -18,6 +18,7 @@ import { backgroundActive } from "../background/contracts.js";
 import {
   type CommandProjection,
   composeCommandProjection,
+  splitSlashCommand,
 } from "../commands/slash.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
 import { type AgentMode, nextAgentMode } from "../runtime/agent-mode.js";
@@ -67,6 +68,7 @@ import {
   UiSurface,
   uiCompositionNotices,
 } from "./opentui-composition.js";
+import { OpenTuiEffort, type OpenTuiEffortActions } from "./opentui-effort.js";
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
@@ -234,6 +236,7 @@ function OpenTuiScreen({
   onSettingsVisibility,
   updater,
   getModelsActions,
+  getEffortActions,
   getDefaultModel,
   onAgentModeChange,
   onApprovalModeChange,
@@ -272,6 +275,7 @@ function OpenTuiScreen({
   onSettingsVisibility?: (open: boolean) => void;
   updater?: UpdateController;
   getModelsActions?: () => OpenTuiModelsActions;
+  getEffortActions?: () => OpenTuiEffortActions;
   getDefaultModel?: () => string;
   onAgentModeChange?: (mode: AgentMode) => void;
   onApprovalModeChange?: (mode: ApprovalMode) => void;
@@ -329,6 +333,11 @@ function OpenTuiScreen({
   }, [controller, worktrees]);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [mcpActions, setMcpActions] = useState<OpenTuiMcpActions>();
+  const [effortDialog, setEffortDialog] = useState<{
+    actions: OpenTuiEffortActions;
+    owner: string;
+    clear?: () => void;
+  }>();
   const [modelsActions, setModelsActions] = useState<OpenTuiModelsActions>();
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -403,11 +412,14 @@ function OpenTuiScreen({
     instance?: string;
   }>();
   const focusBinding = `${controller?.conversationId}/${controller?.currentGeneration}`;
+  const effortActions =
+    effortDialog?.owner === focusBinding ? effortDialog.actions : undefined;
   const focusOwner = useRef(focusBinding);
   useEffect(() => {
     if (focusOwner.current !== focusBinding) {
       focusOwner.current = focusBinding;
       setUiFocus(undefined);
+      setEffortDialog(undefined);
     }
   }, [focusBinding]);
   const extensionActive = !!view.extensionView && !approval;
@@ -418,6 +430,7 @@ function OpenTuiScreen({
     settingsOpen ||
     skillsOpen ||
     mcpActions ||
+    effortActions ||
     modelsActions ||
     permissionsOpen ||
     updateOpen ||
@@ -895,6 +908,7 @@ function OpenTuiScreen({
       !settingsOpen &&
       !skillsOpen &&
       !mcpActions &&
+      !effortActions &&
       !modelsActions &&
       !permissionsOpen &&
       !updateOpen &&
@@ -918,6 +932,7 @@ function OpenTuiScreen({
     skillsOpen,
     mcpActions,
     modelsActions,
+    effortActions,
     permissionsOpen,
     updateOpen,
     backgroundActiveView,
@@ -975,6 +990,7 @@ function OpenTuiScreen({
       settingsOpen ||
       skillsOpen ||
       mcpActions ||
+      effortActions ||
       modelsActions ||
       updateOpen
     )
@@ -1014,6 +1030,7 @@ function OpenTuiScreen({
       settingsOpen ||
       skillsOpen ||
       mcpActions ||
+      effortActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen
@@ -1033,6 +1050,7 @@ function OpenTuiScreen({
       settingsOpen ||
       skillsOpen ||
       mcpActions ||
+      effortActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen
@@ -1063,6 +1081,7 @@ function OpenTuiScreen({
       settingsOpen ||
       skillsOpen ||
       mcpActions ||
+      effortActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen
@@ -1076,6 +1095,7 @@ function OpenTuiScreen({
 
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== inputOwner || commandFeedbackActive) return;
+    if (effortActions && !approval && !isCtrlC(key)) return;
     if (
       inputOwner.startsWith("ui-widget:") &&
       !(
@@ -1230,6 +1250,7 @@ function OpenTuiScreen({
         settingsOpen ||
         skillsOpen ||
         mcpActions ||
+        effortActions ||
         modelsActions ||
         permissionsOpen ||
         updateOpen)
@@ -1290,6 +1311,7 @@ function OpenTuiScreen({
       settingsOpen ||
       skillsOpen ||
       mcpActions ||
+      effortActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen ||
@@ -1514,6 +1536,7 @@ function OpenTuiScreen({
       pickerOpen ||
       projects ||
       worktrees ||
+      effortActions ||
       modelsActions ||
       permissionsOpen ||
       updateOpen ||
@@ -1548,7 +1571,7 @@ function OpenTuiScreen({
     if (
       !view.projectPath &&
       getProjectActions &&
-      !/^\/(settings|model|skills|update|resume|clear|cwd|permissions|plan|build|mcp|compact)(\s|$)/.test(
+      !/^\/(settings|model|effort|skills|update|resume|clear|cwd|permissions|plan|build|mcp|compact)(\s|$)/.test(
         value,
       )
     ) {
@@ -1631,6 +1654,25 @@ function OpenTuiScreen({
         registeredNavigation.snapshot.action,
         registeredNavigation.snapshot.revision,
       );
+      return;
+    }
+    const slash = splitSlashCommand(value);
+    if (getEffortActions && slash?.name === "/effort") {
+      const actions = getEffortActions();
+      if (slash.args) {
+        clearInput();
+        void actions
+          .select(slash.args)
+          .then((level) =>
+            controller?.appendNotice(`Глубина рассуждений: ${level}`, "info"),
+          )
+          .catch((error) => controller?.appendNotice(String(error), "warn"));
+      } else {
+        editor.current?.blur();
+        setEffortDialog({ actions, owner: focusBinding, clear: clearInput });
+        controller?.setOverlay("effort");
+        controller?.setFocus("modal");
+      }
       return;
     }
     if (getModelsActions && value === "/model") {
@@ -2099,6 +2141,7 @@ function OpenTuiScreen({
         !skillsOpen &&
         !mcpActions &&
         !settingsOpen &&
+        !effortActions &&
         !modelsActions &&
         !permissionsOpen &&
         !updateOpen &&
@@ -2116,6 +2159,7 @@ function OpenTuiScreen({
         !skillsOpen &&
         !mcpActions &&
         !settingsOpen &&
+        !effortActions &&
         !modelsActions &&
         !permissionsOpen &&
         !updateOpen &&
@@ -2804,6 +2848,20 @@ function OpenTuiScreen({
             onSettings={() => {
               setPermissionsOpen(false);
               openSettings("permissions");
+            }}
+          />
+        )}
+        {effortActions && !approval && (
+          <OpenTuiEffort
+            actions={effortActions}
+            width={width}
+            height={height}
+            palette={palette}
+            onClose={(applied) => {
+              if (applied) effortDialog?.clear?.();
+              setEffortDialog(undefined);
+              controller?.setOverlay();
+              controller?.setFocus(focus === "editor" ? "composer" : focus);
             }}
           />
         )}

@@ -12,30 +12,32 @@ export class ModelCatalogController {
   private modelCacheGeneration = 0;
   private readonly capabilityRequests = new Map<
     string,
-    ReturnType<typeof getModelCapabilities>
+    { expires: number; request: ReturnType<typeof getModelCapabilities> }
   >();
   warm(controller: TuiController) {
     const selection = controller.snapshot.modelSelection;
     if (!selection) return;
     const generation = controller.currentGeneration;
-    const key = JSON.stringify(selection);
-    let request = this.capabilityRequests.get(key);
-    if (!request) {
-      request = getModelCapabilities(
-        {
-          provider: selection.provider,
-          profileId: selection.profileId,
-          model: selection.model,
-          baseUrl: selection.baseUrl,
-        },
-        { configPath: this.configPath },
-      );
-      this.capabilityRequests.set(key, request);
-    }
-    void request.then((capabilities) => {
-      if (controller.isCurrent(generation))
+    const catalogGeneration = this.modelCacheGeneration;
+    void this.capabilities(selection).then((capabilities) => {
+      if (
+        catalogGeneration === this.modelCacheGeneration &&
+        controller.isCurrent(generation)
+      )
         controller.setModelCapabilities(selection, capabilities);
     });
+  }
+  capabilities(
+    selection: Parameters<TuiController["setModelCapabilities"]>[0],
+  ) {
+    const key = JSON.stringify(selection);
+    const cached = this.capabilityRequests.get(key);
+    if (cached && cached.expires > Date.now()) return cached.request;
+    const request = getModelCapabilities(selection, {
+      configPath: this.configPath,
+    });
+    this.capabilityRequests.set(key, { expires: Date.now() + 60_000, request });
+    return request;
   }
   private readonly modelRequests = new Map<string, number>();
   async models(

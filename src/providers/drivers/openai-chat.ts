@@ -12,6 +12,10 @@ import type {
   ToolDefinition,
 } from "../../types/domain.js";
 import { ToolNameSchema } from "../../types/domain.js";
+import type {
+  ModelCapabilities,
+  ReasoningEffortCapability,
+} from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
@@ -22,6 +26,63 @@ import {
 } from "../stream-validation.js";
 import { parseToolArguments } from "../tool-arguments.js";
 import { ProviderToolNames } from "../tool-names.js";
+import { reasoningEffortOptions } from "./reasoning-effort.js";
+
+const effortLevels = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+type Effort = (typeof effortLevels)[number];
+const standardEffort = {
+  levels: ["low", "medium", "high"],
+  defaultLevel: "medium",
+};
+const gpt5Effort = {
+  ...standardEffort,
+  levels: ["minimal", ...standardEffort.levels],
+};
+const gpt51Effort = {
+  levels: ["none", ...standardEffort.levels],
+  defaultLevel: "none",
+};
+const gpt52Effort = {
+  ...gpt51Effort,
+  levels: [...gpt51Effort.levels, "xhigh"],
+};
+const gpt55Effort = { ...gpt52Effort, defaultLevel: "medium" };
+const gpt56Effort = { ...gpt55Effort, levels: [...gpt55Effort.levels, "max"] };
+// Exact Chat Completions IDs with documented effort and tool calling.
+// https://developers.openai.com/api/docs/models
+const nativeEffort = new Map<string, ReasoningEffortCapability>([
+  ...["o1", "o3", "o3-mini", "o4-mini"].map(
+    (id) => [id, standardEffort] as const,
+  ),
+  ...[
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-2025-08-07",
+    "gpt-5-mini-2025-08-07",
+    "gpt-5-nano-2025-08-07",
+  ].map((id) => [id, gpt5Effort] as const),
+  ["gpt-5.1", gpt51Effort],
+  ["gpt-5.1-2025-11-13", gpt51Effort],
+  ...[
+    "gpt-5.2",
+    "gpt-5.2-2025-12-11",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+  ].map((id) => [id, gpt52Effort] as const),
+  ["gpt-5.5", gpt55Effort],
+  ["gpt-5.6", gpt56Effort],
+  ["gpt-5.6-sol", gpt56Effort],
+]);
 
 export interface OpenAIAdapterOptions {
   maxRetries?: number;
@@ -33,6 +94,7 @@ export interface OpenAIAdapterOptions {
   includeUsage?: boolean;
   tokenLimitFallback?: boolean;
   allowModelMetadata?: boolean;
+  reasoningEffort?: Record<string, { levels: Effort[]; defaultLevel?: Effort }>;
 }
 
 /** prompt_tokens already contains cached tokens in OpenAI completions. */
@@ -86,6 +148,9 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
     const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
       {
         model: request.model,
+        ...(request.reasoningEffort !== undefined
+          ? { reasoning_effort: request.reasoningEffort as Effort }
+          : {}),
         stream: true,
         messages: toOpenAIMessages(request.system, request.messages),
         ...(request.tools.length
@@ -293,7 +358,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
     }
   }
 
-  async getCapabilities(model: string) {
+  async getCapabilities(model: string): Promise<ModelCapabilities> {
     let limits = catalogModelLimits(this.providerId, model);
     if (this.options.allowModelMetadata !== false) {
       this.metadata ??= this.client.models
@@ -308,7 +373,28 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       const known = (await this.metadata).find((info) => info.id === model);
       if (known) limits = { ...limits, ...known };
     }
-    return { ...limits, tokenCounting: "local_estimate" as const };
+    const native =
+      this.providerId === "openai" &&
+      (
+        this.options.baseUrl ??
+        process.env.OPENAI_BASE_URL ??
+        "https://api.openai.com/v1"
+      ).replace(/\/$/, "") === "https://api.openai.com/v1";
+    return {
+      ...limits,
+      tokenCounting: "local_estimate" as const,
+      reasoningEffort: Object.hasOwn(this.options.reasoningEffort ?? {}, model)
+        ? this.options.reasoningEffort?.[model]
+        : native
+          ? (nativeEffort.get(model) ?? {
+              reason:
+                "Для этой модели OpenAI Chat Completions нет подтверждённых уровней.",
+            })
+          : {
+              reason:
+                "Для этой модели на шлюзе уровни не объявлены в provider.json.",
+            },
+    };
   }
   async countTokens(): Promise<undefined> {
     return undefined;
@@ -437,6 +523,7 @@ function formatOpenAIError(error: unknown): string {
 
 const optionsSchema = z
   .object({
+    reasoningEffort: reasoningEffortOptions(effortLevels),
     includeUsage: z.boolean().optional(),
     tokenLimitFallback: z.boolean().default(true),
   })
@@ -452,7 +539,7 @@ export const openaiChatDriver: ProviderDriver = {
             code: "invalid_driver_options",
             providerId: definition.id,
             message:
-              "Invalid openai-chat driverOptions; expected includeUsage/tokenLimitFallback booleans.",
+              "Invalid openai-chat driverOptions; check includeUsage, tokenLimitFallback and reasoningEffort.",
           },
         ];
   },

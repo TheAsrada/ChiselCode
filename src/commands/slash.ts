@@ -16,6 +16,10 @@ export const SLASH_COMMANDS = [
     description: "подключение, оформление и разрешения",
   },
   { name: "/model", description: "сменить модель" },
+  {
+    name: "/effort",
+    description: "выбрать глубину рассуждений: [уровень|auto]",
+  },
   { name: "/skills", description: "скиллы: выбрать и задействовать" },
   {
     name: "/resume",

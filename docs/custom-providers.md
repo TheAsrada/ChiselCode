@@ -145,6 +145,24 @@ chisel --profile example-work "Объясни проект"
 
 Другие настройки, включая `fetch`, произвольные `headers` и пути JavaScript, не принимаются. OpenAI Responses API не поддерживается. [Технический контракт драйверов](architecture/providers.md).
 
+### Глубина рассуждений на шлюзе
+
+Оба драйвера принимают `driverOptions.reasoningEffort`. В этом объекте каждому точному ID модели соответствует список `levels` и, если он известен, `defaultLevel`. Добавьте фрагмент ниже в `provider.json` для шлюза из примера и замените уровни на те, которые он принимает:
+
+```json
+{
+  "driverOptions": {
+    "reasoningEffort": {
+      "example-coder": { "levels": ["low", "medium", "high"], "defaultLevel": "medium" }
+    }
+  }
+}
+```
+
+В `openai-chat` допустимы `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Драйвер отправляет выбранное значение в `reasoning_effort`. В `anthropic-messages` допустимы `low`, `medium`, `high`, `xhigh`, `max`, а поле называется `output_config.effort`. Для совместимого Anthropic-сервера добавьте `"adaptiveThinking": true` в тот же `driverOptions` только если он поддерживает `thinking.type: "adaptive"` для объявленной модели. Сохраните остальные параметры драйвера, например `authMode`.
+
+Список уровней должен быть непустым и без повторов. `defaultLevel` должен входить в список. Это подсказка для окна: **Auto** оставляет параметр глубины вне тела запроса. Для модели без объявления окно покажет причину, а запрос уйдёт без effort. После изменения файла проверьте манифест командой `chisel providers validate` и откройте [`/effort`](model-picker.md#глубина-рассуждений) в нужном профиле.
+
 <a id="diagnostics"></a>
 <a id="duplicate-ids"></a>
 <a id="безопасность"></a>

@@ -48,6 +48,8 @@ export interface RuntimeTools {
   ): Promise<ToolExecutionResult[]>;
 }
 export interface RuntimeOptions {
+  capabilities?: import("../providers/capabilities.js").ModelCapabilities;
+  reasoningEffort?: string;
   workspaceRoot?: string;
   client?: RuntimeIdentity["client"];
   uiSnapshot?: UiSnapshotPort;
@@ -227,9 +229,11 @@ export class AgentRuntime {
           content: [{ type: "text", text }],
         });
       await checkpoint();
-      const capabilities = (await this.provider.getCapabilities?.(
-        session.model,
-      )) ?? { tokenCounting: "local_estimate" as const };
+      const capabilities = options.capabilities ??
+        (await this.provider.getCapabilities?.(session.model)) ?? {
+          tokenCounting: "local_estimate" as const,
+        };
+      const reasoningEffort = options.reasoningEffort;
       const runner = new TurnRunner(
         this.provider,
         this.events,
@@ -299,6 +303,7 @@ export class AgentRuntime {
           response = await runner.run(
             {
               model: identity.model,
+              ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
               system: frame.system,
               messages: frame.messages,
               tools: frame.tools,

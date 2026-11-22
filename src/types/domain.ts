@@ -134,6 +134,7 @@ export interface ContextSnapshot {
 
 export interface ProviderRequest {
   model: string;
+  reasoningEffort?: string;
   system: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];
@@ -277,6 +278,8 @@ export interface Session {
   runtime?: SessionRuntimeState;
   context?: SessionContextState;
   model: string;
+  /** Explicit levels keyed by the serialized [profileId, model] pair. */
+  reasoningEfforts?: Record<string, string>;
   /** Selected workflow for subsequent requests; old sessions default to Build. */
   mode?: AgentMode;
   /** Selected permission interaction; omitted in legacy records. */

@@ -24,6 +24,11 @@ import {
 } from "../stream-validation.js";
 import { parseToolArguments } from "../tool-arguments.js";
 import { ProviderToolNames } from "../tool-names.js";
+import { reasoningEffortOptions } from "./reasoning-effort.js";
+
+const effortLevels = ["low", "medium", "high", "xhigh", "max"] as const;
+type Effort = (typeof effortLevels)[number];
+type AnthropicCapabilities = ModelCapabilities & { adaptiveThinking?: boolean };
 
 export interface AnthropicAdapterOptions {
   apiKey?: string | null;
@@ -31,6 +36,7 @@ export interface AnthropicAdapterOptions {
   baseUrl?: string;
   providerId?: string;
   adaptiveThinking?: boolean;
+  reasoningEffort?: Record<string, { levels: Effort[]; defaultLevel?: Effort }>;
   nativeTokenCounting?: boolean;
   allowModelMetadata?: boolean;
   maxRetries?: number;
@@ -43,7 +49,7 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
   readonly providerId: string;
   private readonly options: AnthropicAdapterOptions;
   private readonly client: Anthropic;
-  private readonly metadata = new Map<string, Promise<ModelCapabilities>>();
+  private readonly metadata = new Map<string, Promise<AnthropicCapabilities>>();
 
   constructor(options: AnthropicAdapterOptions = {}) {
     this.options = options;
@@ -75,6 +81,10 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           "unsupported",
           "Anthropic API требует max_tokens, но предел ответа этой модели неизвестен. Укажите context.maxOutputTokens в .chiselrc или используйте API с метаданными модели.",
         );
+      const adaptive =
+        request.purpose !== "context_summary" &&
+        this.options.adaptiveThinking &&
+        (await this.getCapabilities(request.model)).adaptiveThinking;
       // Read raw events: MessageStream's eager partial-JSON parser can fail before
       // max_tokens is known, and must not decide whether a tool call is complete.
       const stream = await this.client.messages.create(
@@ -85,15 +95,9 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           system: request.system,
           messages: toAnthropicMessages(wireRequest.messages),
           tools: toAnthropicTools(wireRequest.tools),
-          // Новые параметры (adaptive thinking, effort) шлём только
-          // официальному API: совместимые шлюзы их часто не знают и
-          // отвечают 400 на весь запрос.
-          ...(this.options.adaptiveThinking &&
-          request.purpose !== "context_summary"
-            ? {
-                thinking: { type: "adaptive" },
-                output_config: { effort: "high" },
-              }
+          ...(adaptive ? { thinking: { type: "adaptive" } } : {}),
+          ...(request.reasoningEffort !== undefined
+            ? { output_config: { effort: request.reasoningEffort as Effort } }
             : {}),
         },
         {
@@ -297,11 +301,27 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
     }
   }
 
-  async getCapabilities(model: string): Promise<ModelCapabilities> {
+  async getCapabilities(model: string): Promise<AnthropicCapabilities> {
     const existing = this.metadata.get(model);
     if (existing) return existing;
-    const request = (async (): Promise<ModelCapabilities> => {
-      const fallback = {
+    const request = (async (): Promise<AnthropicCapabilities> => {
+      const native =
+        this.providerId === "anthropic" &&
+        (
+          this.options.baseUrl ??
+          process.env.ANTHROPIC_BASE_URL ??
+          "https://api.anthropic.com"
+        ).replace(/\/$/, "") === "https://api.anthropic.com";
+      const declared = Object.hasOwn(this.options.reasoningEffort ?? {}, model)
+        ? this.options.reasoningEffort?.[model]
+        : undefined;
+      const fallback: AnthropicCapabilities = {
+        reasoningEffort: declared ?? {
+          reason: native
+            ? "Каталог Anthropic не сообщил уровни для этой модели."
+            : "Для этой модели на шлюзе уровни не объявлены в provider.json.",
+        },
+        adaptiveThinking: !native && declared !== undefined,
         ...catalogModelLimits(this.providerId, model),
         tokenCounting: this.options.nativeTokenCounting
           ? ("provider" as const)
@@ -309,14 +329,28 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
       };
       if (this.options.allowModelMetadata === false) return fallback;
       try {
-        const info = modelInfo(
-          await this.client.models.retrieve(model, undefined, {
-            timeout: 5000,
-            maxRetries: 0,
-          }),
-          this.providerId,
-        );
-        return info ? { ...fallback, ...info } : fallback;
+        const raw = await this.client.models.retrieve(model, undefined, {
+          timeout: 5000,
+          maxRetries: 0,
+        });
+        const info = modelInfo(raw, this.providerId);
+        const effort = native ? raw.capabilities?.effort : undefined;
+        const levels =
+          effort?.supported === true
+            ? effortLevels.filter((level) => effort[level]?.supported === true)
+            : [];
+        return {
+          ...fallback,
+          ...info,
+          reasoningEffort: levels.length
+            ? { levels }
+            : effort?.supported === false
+              ? { reason: "Модель Anthropic не поддерживает reasoning effort." }
+              : fallback.reasoningEffort,
+          adaptiveThinking: native
+            ? raw.capabilities?.thinking?.types?.adaptive?.supported === true
+            : fallback.adaptiveThinking,
+        };
       } catch {
         return fallback;
       }
@@ -441,6 +475,7 @@ function formatAnthropicError(error: unknown): string {
 
 const optionsSchema = z
   .object({
+    reasoningEffort: reasoningEffortOptions(effortLevels),
     authMode: z.enum(["api-key", "bearer"]).optional(),
     adaptiveThinking: z.boolean().optional(),
     nativeTokenCounting: z.boolean().optional(),
@@ -457,7 +492,7 @@ export const anthropicMessagesDriver: ProviderDriver = {
             code: "invalid_driver_options",
             providerId: definition.id,
             message:
-              "Invalid anthropic-messages driverOptions; expected authMode/adaptiveThinking/nativeTokenCounting.",
+              "Invalid anthropic-messages driverOptions; check authMode, adaptiveThinking, nativeTokenCounting and reasoningEffort.",
           },
         ];
   },

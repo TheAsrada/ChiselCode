@@ -10,6 +10,9 @@ import type { TuiPresentationController as TuiController } from "./tui-controlle
 
 export interface QueuedTabPrompt {
   kind: "prompt";
+  capturedModel?: Promise<
+    import("../app/model-runtime.js").CapturedModelConfiguration | undefined
+  >;
   input: string;
   mode: AgentMode;
   approvalMode: ApprovalMode;
@@ -17,7 +20,8 @@ export interface QueuedTabPrompt {
   generation: number;
   root: string;
 }
-export interface QueuedTabCommand extends Omit<QueuedTabPrompt, "kind"> {
+export interface QueuedTabCommand
+  extends Omit<QueuedTabPrompt, "kind" | "capturedModel"> {
   kind: "command" | "ui_tool";
   prepared: PreparedExtensionCommand;
   capturedModel?: CapturedCommandModel;
@@ -27,7 +31,8 @@ export interface QueuedTabCommand extends Omit<QueuedTabPrompt, "kind"> {
   /** Optional Settings waiter; the operation still belongs to this conversation. */
   onResult?(result: ToolExecutionResult): void;
 }
-export interface QueuedTabCompact extends Omit<QueuedTabPrompt, "kind"> {
+export interface QueuedTabCompact
+  extends Omit<QueuedTabPrompt, "kind" | "capturedModel"> {
   kind: "compact";
   onResult?(result: ToolExecutionResult): void;
   quiet?: false;

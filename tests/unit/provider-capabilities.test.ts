@@ -3,6 +3,10 @@ import { observedInputTokens } from "../../src/core/context-usage.js";
 import { openai } from "../../src/providers/definitions/openai.js";
 import { normalizeAnthropicUsage } from "../../src/providers/drivers/anthropic-messages.js";
 import { createDriverRegistry } from "../../src/providers/drivers/index.js";
+import {
+  OpenAIProtocolAdapter,
+  openaiChatDriver,
+} from "../../src/providers/drivers/openai-chat.js";
 import { ProviderRegistry } from "../../src/providers/registry.js";
 import {
   checkAdapterHealth,
@@ -52,4 +56,34 @@ test("unknown prices lack USD and known prices are estimates, generic cache acco
       }),
     ),
   ).toBe(1100);
+});
+
+test("OpenAI effort support is scoped to exact models and a declared or native endpoint", async () => {
+  const native = new OpenAIProtocolAdapter({
+    apiKey: "mock",
+    baseUrl: "https://api.openai.com/v1",
+    allowModelMetadata: false,
+  });
+  const gateway = new OpenAIProtocolAdapter({
+    apiKey: "mock",
+    baseUrl: "https://example.test/v1",
+    allowModelMetadata: false,
+  });
+  expect((await native.getCapabilities("gpt-5")).reasoningEffort).toMatchObject(
+    { levels: ["minimal", "low", "medium", "high"], defaultLevel: "medium" },
+  );
+  expect(
+    (await native.getCapabilities("gpt-4o")).reasoningEffort?.reason,
+  ).toContain("нет подтверждённых");
+  expect(
+    (await gateway.getCapabilities("gpt-5")).reasoningEffort?.reason,
+  ).toContain("provider.json");
+  expect(
+    openaiChatDriver.validateDefinition?.({
+      ...openai,
+      driverOptions: {
+        reasoningEffort: { example: { levels: ["low"], defaultLevel: "high" } },
+      },
+    })?.[0]?.code,
+  ).toBe("invalid_driver_options");
 });

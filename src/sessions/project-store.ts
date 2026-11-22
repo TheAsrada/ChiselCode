@@ -625,7 +625,12 @@ export class ProjectSessionStore {
     preferences: Partial<
       Pick<
         Session,
-        "mode" | "approvalMode" | "providerId" | "profileId" | "model"
+        | "mode"
+        | "approvalMode"
+        | "providerId"
+        | "profileId"
+        | "model"
+        | "reasoningEfforts"
       >
     >,
   ): Promise<void> {

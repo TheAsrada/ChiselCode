@@ -87,6 +87,12 @@ Definition.capabilities: modelListing, tokenCounting(native/unsupported), usageR
 
 Health: checkConnection → listModels → unsupported. Последнее не означает failure. modelListing=false позволяет ручной выбор модели без /models. «Проверить подключение» не гарантирует tool compatibility или успешную генерацию; проверьте коротким запросом. `chisel doctor` проверяет локальную настройку без API-запросов.
 
+### Глубина рассуждений
+
+`ProviderAdapter.getCapabilities(model)` возвращает `ModelCapabilities.reasoningEffort` для точной модели и эффективного адреса подключения. ChatGPT берёт уровни из `supported_reasoning_levels`, а значение по умолчанию из `default_reasoning_level` каталога аккаунта. Anthropic использует `capabilities.effort` из Models API для официального адреса. OpenAI Chat Completions опирается на точные ID с подтверждёнными уровнями. Совместимые шлюзы описывают их через валидируемый `driverOptions.reasoningEffort`.
+
+Драйверы преобразуют `ProviderRequest.reasoningEffort` в `reasoning.effort` у ChatGPT, `reasoning_effort` у Chat Completions и `output_config.effort` у Messages. При Auto поля отсутствуют. Имена полей API остаются в адаптерах, а [снимок и проверка выбора](model-selection.md#глубина-рассуждений) выполняются ядром независимо от протокола.
+
 ## Добавить встроенный сервис
 
 Для встроенного сервиса на существующем protocol: создайте ProviderDefinition в definitions/, зарегистрируйте в definitions/index.ts, добавьте contract/runtime test и обновите эту справку. Label, env vars, endpoint, default model, capabilities и options принадлежат definition. Не меняйте run-prompt, core, UI, config/session schemas или CLI validation. Для пользовательского сервиса достаточно [provider.json](../custom-providers.md), без rebuild.

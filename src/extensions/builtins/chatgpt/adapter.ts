@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ReasoningEffortCapability } from "../../../providers/capabilities.js";
 import {
   normalizeProviderError,
   ProviderError,
@@ -55,6 +56,42 @@ const Catalog = z.object({ models: z.array(z.unknown()) });
 const CatalogEntry = z
   .object({ slug: z.string().trim().min(1), visibility: z.unknown() })
   .passthrough();
+type AccountModel = ModelInfo & { reasoningEffort: ReasoningEffortCapability };
+
+function catalogEffort(
+  entry: z.infer<typeof CatalogEntry>,
+): ReasoningEffortCapability {
+  const choices = z
+    .array(z.unknown())
+    .safeParse(entry.supported_reasoning_levels);
+  const level = z.object({
+    effort: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/),
+  });
+  const levels = [
+    ...new Set(
+      (choices.data ?? []).flatMap((choice) => {
+        const parsed = level.safeParse(choice);
+        return parsed.success && parsed.data.effort !== "auto"
+          ? [parsed.data.effort]
+          : [];
+      }),
+    ),
+  ];
+  const defaultLevel = entry.default_reasoning_level;
+  return levels.length
+    ? {
+        levels,
+        defaultLevel:
+          typeof defaultLevel === "string" && levels.includes(defaultLevel)
+            ? defaultLevel
+            : undefined,
+      }
+    : {
+        reason:
+          "Каталог ChatGPT не сообщает доступных уровней для этой модели.",
+      };
+}
+
 // The subscription backend gates its catalog by Codex client version.
 // Use the verified protocol baseline, independent of ChiselCode's release number.
 const CODEX_CATALOG_VERSION = "0.166.0";
@@ -101,20 +138,23 @@ export function responsesInput(
 }
 export class ChatGptAdapter implements ProviderAdapter {
   readonly providerId = "chatgpt";
-  private metadata?: Promise<ModelInfo[]>;
+  private metadata?: Promise<AccountModel[]>;
   constructor(
     private profileId: string,
     private transport: ChatGptTransport,
     private usage: ChatGptUsage,
   ) {}
   listModels(): Promise<ModelInfo[]> {
+    return this.accountModels().then((models) =>
+      models.map(({ reasoningEffort: _effort, ...model }) => model),
+    );
+  }
+  private accountModels(): Promise<AccountModel[]> {
     this.metadata ??= this.loadModels().catch((error) => {
       this.metadata = undefined;
       throw error;
     });
-    return this.metadata.then((models) =>
-      models.map((model) => ({ ...model })),
-    );
+    return this.metadata;
   }
   private async loadModels() {
     const response = await this.transport.request(
@@ -128,14 +168,15 @@ export class ChatGptAdapter implements ProviderAdapter {
         "transport",
         "Некорректный каталог моделей ChatGPT.",
       );
-    const models: ModelInfo[] = [];
+    const models: AccountModel[] = [];
     for (const raw of catalog.data.models) {
       const entry = CatalogEntry.safeParse(raw);
       if (!entry.success) continue;
       const { slug, visibility } = entry.data;
       if (visibility != null && visibility !== "list") continue;
       const model = modelInfo({ ...entry.data, id: slug }, this.providerId);
-      if (model) models.push(model);
+      if (model)
+        models.push({ ...model, reasoningEffort: catalogEffort(entry.data) });
     }
     if (!models.length)
       throw new ProviderError(
@@ -145,15 +186,17 @@ export class ChatGptAdapter implements ProviderAdapter {
     return models;
   }
   async getCapabilities(model: string) {
-    let info: ModelInfo | undefined;
+    let info: AccountModel | undefined;
+    let reason = "Модели нет в каталоге аккаунта ChatGPT.";
     try {
-      info = (await this.listModels()).find((entry) => entry.id === model);
+      info = (await this.accountModels()).find((entry) => entry.id === model);
     } catch {
-      /* Exact catalog limits remain available offline. */
+      reason = "Каталог аккаунта ChatGPT недоступен. Проверьте подключение.";
     }
     return {
       ...catalogModelLimits(this.providerId, model),
       ...info,
+      reasoningEffort: info?.reasoningEffort ?? { reason },
       tokenCounting: "local_estimate" as const,
       parallelToolCalls: true,
     };
@@ -174,6 +217,9 @@ export class ChatGptAdapter implements ProviderAdapter {
           headers: { Accept: "text/event-stream" },
           body: JSON.stringify({
             model: request.model,
+            ...(request.reasoningEffort !== undefined
+              ? { reasoning: { effort: request.reasoningEffort } }
+              : {}),
             instructions: request.system,
             input: responsesInput(request, names),
             stream: true,

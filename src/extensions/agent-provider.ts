@@ -46,7 +46,9 @@ export async function prepareAgentModelRequest(
       "EXTENSION_HOOK_FAILED",
       "Расширение превысило бюджет вывода запроса.",
     );
-  return { request: { ...request, ...decision.request } };
+  const next = { ...request, ...decision.request };
+  if (next.model !== request.model) delete next.reasoningEffort;
+  return { request: next };
 }
 export async function finishAgentModelResponse(
   response: Terminal,
