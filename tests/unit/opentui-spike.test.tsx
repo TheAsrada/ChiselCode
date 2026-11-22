@@ -2,6 +2,8 @@
 import { expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
+import { SLASH_COMMANDS } from "../../src/commands/slash.js";
+import { MAX_VISIBLE_SUGGESTIONS } from "../../src/ui/commands.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
 import { createTuiApprovalResolver } from "../../src/ui/tui-contract.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
@@ -288,8 +290,12 @@ test("slash suggestions keep the selected command visible past the first page", 
   try {
     await setup.renderOnce();
     await act(async () => setup.mockInput.pasteBracketedText("/"));
+    const resumeIndex = SLASH_COMMANDS.findIndex(
+      ({ name }) => name === "/resume",
+    );
+    expect(resumeIndex).toBeGreaterThanOrEqual(MAX_VISIBLE_SUGGESTIONS);
     act(() => {
-      for (let index = 0; index < 6; index++)
+      for (let index = 0; index < resumeIndex; index++)
         setup.mockInput.pressArrow("down");
     });
     await setup.renderOnce();
