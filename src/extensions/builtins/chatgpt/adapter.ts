@@ -39,6 +39,7 @@ const OutputItem = z.object({
     )
     .optional(),
 });
+const OutputItemType = OutputItem.pick({ type: true });
 const Completed = z.object({
   status: z.literal("completed"),
   output: z.array(OutputItem),
@@ -262,6 +263,10 @@ export class ChatGptAdapter implements ProviderAdapter {
           event.delta
         ) {
           yield { type: "tool_delta" };
+        } else if (event.type === "response.output_item.added") {
+          const item = OutputItemType.safeParse(event.item);
+          if (item.data?.type === "reasoning") yield { type: "thinking_start" };
+          if (item.data?.type === "function_call") yield { type: "tool_delta" };
         } else if (event.type === "response.failed" || event.type === "error") {
           const failed = z
             .object({

@@ -32,7 +32,7 @@ test("live status ticks without remounting its row and uses the controller clock
     await act(async () => {
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).toMatch(/Ожидаю ответ модели\s+· 0 с/);
+    expect(setup.captureCharFrame()).toMatch(/Запрашиваю модель\s+· 0 с/);
     const row = setup.renderer.root.findDescendantById("request-status");
     now += 2000;
     await act(async () => {
@@ -42,7 +42,7 @@ test("live status ticks without remounting its row and uses the controller clock
       await setup.renderOnce();
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).toMatch(/Ожидаю ответ модели\s+· 2 с/);
+    expect(setup.captureCharFrame()).toMatch(/Запрашиваю модель\s+· 2 с/);
     expect(setup.renderer.root.findDescendantById("request-status")).toBe(row);
   } finally {
     act(() => setup.renderer.destroy());
@@ -61,7 +61,7 @@ test("live status ticks without remounting its row and uses the controller clock
     await act(async () => {
       await remount.renderOnce();
     });
-    expect(remount.captureCharFrame()).toMatch(/Ожидаю подтверждения\s+· 5 с/);
+    expect(remount.captureCharFrame()).toMatch(/Нужно подтверждение\s+· 5 с/);
   } finally {
     act(() => remount.renderer.destroy());
     controller.dispose();
@@ -134,7 +134,7 @@ for (const theme of ["obsidian", "paper"] as const) {
                 line.spans
                   .map((span) => span.text)
                   .join("")
-                  .includes("Ожидаю ответ модели"),
+                  .includes("Запрашиваю модель"),
               )
               ?.spans.map((span) => [span.text, span.fg.toInts()]),
           ),
@@ -153,7 +153,7 @@ for (const theme of ["obsidian", "paper"] as const) {
       expect(setup.captureCharFrame()).toContain("Читаю файлы");
       await act(async () => controller.setAwaitingApproval(true));
       await frame();
-      expect(setup.captureCharFrame()).toContain("Ожидаю подтверждения");
+      expect(setup.captureCharFrame()).toContain("Нужно подтверждение");
       expect(clock?.activeTasks).toBe(0);
       await act(async () => controller.setAwaitingApproval(false));
       await act(async () => {
@@ -171,13 +171,15 @@ for (const theme of ["obsidian", "paper"] as const) {
       expect(clock?.activeTasks).toBe(0);
       await send("provider_request_started");
       await send("tool_completed", { name: "read_file", invocationId: "a" });
-      expect(setup.captureCharFrame()).toContain("Ожидаю ответ модели");
-      await send("provider_thinking_delta", { text: "Причина" });
+      expect(setup.captureCharFrame()).toContain("Запрашиваю модель");
+      await send("provider_request_started", { afterToolResults: true });
+      expect(setup.captureCharFrame()).toContain("Жду продолжения");
+      await send("provider_thinking_delta");
       expect(setup.captureCharFrame()).toContain("Думаю");
       await send("provider_tool_delta");
-      expect(setup.captureCharFrame()).toContain("Модель готовит вызов");
+      expect(setup.captureCharFrame()).toContain("Собираю вызов");
       await send("provider_text_delta", { text: "Ответ" });
-      expect(setup.captureCharFrame()).toContain("Отвечаю");
+      expect(setup.captureCharFrame()).toContain("Пишу ответ");
       await act(async () => controller.stopRequestActivity());
       await frame();
       expect(setup.captureCharFrame()).toContain("Останавливаю");
@@ -201,6 +203,7 @@ test("every status fits tiny widths and keeps text readable without motion", () 
   for (const width of [1, 3, 10, 17, 23, 39, 79]) {
     for (const kind of [
       "waiting",
+      "continuing",
       "thinking",
       "model_tool",
       "reading",

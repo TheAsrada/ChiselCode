@@ -13,8 +13,66 @@ const dots = [
   [64, 128],
 ];
 type Cell = { text: string; color: string };
+type Spark = { x: number; y: number; light: number };
 
-/** Five fixed terminal cells; motion happens inside the glyphs and their colors. */
+function sparks(kind: RequestActivity["kind"], age: number): Spark[] {
+  switch (kind) {
+    case "thinking": {
+      const angle = (age / 1800) * Math.PI * 2;
+      const x = Math.cos(angle) * 2.5;
+      const y = Math.sin(angle) * 1.45;
+      return [
+        { x: 2.5 + x, y: 1.5 + y, light: 1 },
+        { x: 2.5 - x, y: 1.5 - y, light: 0.6 },
+      ];
+    }
+    case "model_tool": {
+      const travel = easeOut(Math.min(1, (age % 1600) / 680));
+      return [
+        { x: 2.5 * travel, y: travel, light: 1 - travel },
+        { x: 5 - 2.5 * travel, y: 3 - travel, light: 1 - travel },
+      ];
+    }
+    case "reading":
+    case "searching":
+    case "checking": {
+      const y = Math.sin((age / 1500) * Math.PI * 2) * 1.5 + 1.5;
+      return [
+        { x: 0, y, light: 0.55 },
+        { x: 1, y, light: 0.9 },
+        { x: 4, y, light: 0.9 },
+        { x: 5, y, light: 0.55 },
+      ];
+    }
+    case "editing": {
+      const stroke = Math.min(1, age / 560);
+      return [
+        { x: 5 * stroke, y: 3 * (1 - stroke), light: 1 - stroke },
+        { x: Math.max(0, 5 * stroke - 1), y: 3, light: (1 - stroke) * 0.5 },
+      ];
+    }
+    case "continuing": {
+      const travel = easeOut(Math.min(1, age / 420));
+      return [
+        { x: 2.5 * travel, y: 2, light: 1 - travel },
+        { x: 5 - 2.5 * travel, y: 2, light: 1 - travel },
+      ];
+    }
+    case "answering":
+    case "command":
+      return [];
+    default: {
+      const position = (age % 1450) / 1450;
+      const x = position * 7 - 1;
+      return [
+        { x, y: 1, light: Math.sin(position * Math.PI) },
+        { x: x - 1, y: 2, light: Math.sin(position * Math.PI) * 0.45 },
+      ];
+    }
+  }
+}
+
+/** Five fixed terminal cells; the outer cells trace motion around a persistent icon. */
 function emblem(
   activity: RequestActivity,
   palette: Palette,
@@ -22,7 +80,6 @@ function emblem(
   morph: number,
   previous?: string,
 ): Cell[] {
-  const moving = activity.moving;
   const color =
     activity.kind === "approval"
       ? palette.yellow
@@ -31,67 +88,49 @@ function emblem(
         : activity.kind === "stopping"
           ? palette.muted
           : palette.accent;
-  const t = Math.min(1, Math.max(0, morph));
-  const thought = activity.kind === "thinking" || activity.kind === "answering";
-  const phase =
-    (age / (activity.kind === "answering" ? 2200 : 1400)) * Math.PI * 2;
-  const beat = moving ? (Math.sin(phase) + 1) / 2 : 1;
+  const period = activity.kind === "answering" ? 1700 : 1250;
+  const beat = activity.moving
+    ? (1 - Math.cos((age / period) * Math.PI * 2)) / 2
+    : 1;
+  const intensity = activity.moving ? 0.55 + beat * 0.45 : 1;
   const masks = [0, 0, 0];
   const lights = [0, 0, 0];
-  if (moving) {
-    const orbit = thought || activity.kind === "searching" ? 2.25 : 0.3;
-    const radius =
-      t < 0.5
-        ? 2.3 * (1 - easeOut(t * 2))
-        : t < 1
-          ? orbit * easeOut((t - 0.5) * 2)
-          : orbit;
-    for (let tail = 3; tail >= 0; tail--) {
-      const angle = phase - tail * 0.42;
-      const x = Math.max(
-        0,
-        Math.min(5, Math.round(2.5 + Math.cos(angle) * radius)),
-      );
-      const y = Math.max(
-        0,
-        Math.min(3, Math.round(1.5 + Math.sin(angle) * 1.35)),
-      );
+  if (activity.moving) {
+    for (const spark of sparks(activity.kind, age)) {
+      const x = Math.round(spark.x);
+      const y = Math.round(spark.y);
+      if (spark.light <= 0 || x < 0 || x > 5) continue;
       const cell = Math.floor(x / 2);
       masks[cell] = (masks[cell] ?? 0) | (dots[y]?.[x % 2] ?? 0);
-      lights[cell] = Math.max(
-        lights[cell] ?? 0,
-        [1, 0.48, 0.2, 0.08][tail] ?? 0,
-      );
+      lights[cell] = Math.max(lights[cell] ?? 0, spark.light);
     }
   }
-  const cells: Cell[] = masks.map((mask, i) => ({
-    text: moving && mask ? String.fromCharCode(0x2800 + mask) : " ",
-    color: mixColor(palette.surface, color, lights[i] ?? 0),
-  }));
-  const middle = cells[1];
-  if (middle) {
-    middle.text =
-      t < 0.38 && previous
-        ? previous
-        : t < 0.6 && previous
-          ? "·"
-          : activity.icon;
-    const fade =
-      previous && t < 1
-        ? Math.max(0.28, Math.abs(t - 0.45) * 1.8)
-        : 0.76 + beat * 0.24;
-    middle.color = mixColor(palette.muted, color, moving ? fade : 1);
-  }
-  const bracket = mixColor(
-    palette.muted,
-    color,
-    moving ? 0.34 + beat * 0.28 : 0.65,
-  );
+  const trail = (index: number): Cell => ({
+    text: masks[index]
+      ? String.fromCharCode(0x2800 + (masks[index] ?? 0))
+      : " ",
+    color: mixColor(palette.surface, color, lights[index] ?? 0),
+  });
+  const bracket = mixColor(palette.muted, color, 0.35 + beat * 0.23);
+  const icon = activityCenterIcon(activity.icon, morph, previous);
+  const center = Math.max(intensity, (lights[1] ?? 0) * 0.82);
+  const fade = previous && morph < 1 ? 0.5 + 0.5 * Math.abs(2 * morph - 1) : 1;
   return [
     { text: "<", color: bracket },
-    ...cells,
+    trail(0),
+    { text: icon, color: mixColor(palette.muted, color, center * fade) },
+    trail(2),
     { text: ">", color: bracket },
   ];
+}
+
+export function activityCenterIcon(
+  icon: string,
+  morph: number,
+  previous?: string,
+): string {
+  if (!previous || morph >= 0.6) return icon;
+  return morph < 0.38 ? previous : "·";
 }
 
 export function activityFrame({
@@ -132,7 +171,6 @@ export function activityFrame({
     timer = "";
   const available = Math.max(0, width - cells.length - 1 - timer.length);
   const text = terminalLine(label, available);
-  const wave = ((age % 2200) / 2200) * (Array.from(text).length + 8) - 4;
   const textColor =
     activity.kind === "stopping"
       ? palette.muted
@@ -144,16 +182,7 @@ export function activityFrame({
   const chunks = [
     ...cells,
     { text: " ", color: textColor },
-    ...Array.from(text, (character, column) => ({
-      text: character,
-      color: animate
-        ? mixColor(
-            textColor,
-            palette.accent,
-            Math.max(0, 1 - Math.abs(column - wave) / 2.5) * 0.38,
-          )
-        : textColor,
-    })),
+    { text, color: textColor },
     {
       text: " ".repeat(Math.max(0, available - text.length)),
       color: palette.muted,

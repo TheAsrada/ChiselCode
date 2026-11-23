@@ -10,7 +10,11 @@ import {
 import type { Palette } from "./appearance.js";
 import { useMotion } from "./opentui-motion.js";
 import { requestActivity } from "./request-activity.js";
-import { ACTIVITY_MORPH_MS, activityFrame } from "./request-activity-frame.js";
+import {
+  ACTIVITY_MORPH_MS,
+  activityCenterIcon,
+  activityFrame,
+} from "./request-activity-frame.js";
 import type { TuiPresentationController as TuiController } from "./tui-controller.js";
 
 /** Only this native text buffer animates; the editor and transcript never tick. */
@@ -60,11 +64,9 @@ export function OpenTuiRequestStatus({
           )
         : 1;
       state.displayed =
-        enabled && phase.moving && state.from && morph < 0.38
-          ? state.from
-          : enabled && phase.moving && state.from && morph < 0.6
-            ? "·"
-            : phase.icon;
+        enabled && phase.moving
+          ? activityCenterIcon(phase.icon, morph, state.from)
+          : phase.icon;
       node.current.content = activityFrame({
         activity: phase,
         palette,
@@ -87,6 +89,7 @@ export function OpenTuiRequestStatus({
       state.epoch = now;
       state.from = undefined;
     } else if (state.kind !== phase.kind) {
+      state.epoch = now;
       state.from =
         enabled && phase.moving && state.displayed !== phase.icon
           ? state.displayed

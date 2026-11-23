@@ -55,6 +55,7 @@ export interface RuntimeEvent {
   toolSource?: import("../tools/types.js").ToolSource;
   estimatedInputTokens?: number;
   maxOutputTokens?: number;
+  afterToolResults?: boolean;
   model?: string;
   contextSnapshot?: ContextSnapshot;
   compactionId?: string;

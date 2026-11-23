@@ -57,6 +57,11 @@ export class TurnRunner {
         type: "provider_request_started",
         estimatedInputTokens,
         maxOutputTokens: request.maxTokens,
+        ...(request.messages
+          .at(-1)
+          ?.content.some((block) => block.type === "tool_result")
+          ? { afterToolResults: true }
+          : {}),
       });
       if (request.signal?.aborted)
         throw new ProviderError("cancelled", "Provider request cancelled.");
@@ -89,6 +94,8 @@ export class TurnRunner {
             type: "provider_text_delta",
             text: event.text,
           });
+        else if (event.type === "thinking_start")
+          await this.events.emit({ type: "provider_thinking_delta" });
         else if (event.type === "thinking_delta")
           await this.events.emit({
             type: "provider_thinking_delta",

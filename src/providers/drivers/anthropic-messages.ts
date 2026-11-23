@@ -172,6 +172,8 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           });
           if (event.content_block.type === "tool_use")
             yield { type: "tool_delta" };
+          if (event.content_block.type === "thinking")
+            yield { type: "thinking_start" };
         }
         if (event.type === "content_block_stop") {
           const current = blocks.get(event.index);

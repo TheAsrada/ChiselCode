@@ -29,6 +29,9 @@ let release = () => {};
 const responseGate = new Promise<void>((resolve) => {
   release = resolve;
 });
+const thinkingGate = Promise.withResolvers<void>();
+const toolCallGate = Promise.withResolvers<void>();
+const continuationGate = Promise.withResolvers<void>();
 let generations = 0;
 const begun = new Set<string>();
 const toolGates = new Map<string, { wait: Promise<void>; release(): void }>();
@@ -85,10 +88,35 @@ const server = Bun.serve({
     await request.json();
     if (generations === 1) {
       await responseGate;
-      return toolResponse([
-        { name: "read_file", input: { path: "fixture.txt" } },
-        { name: "grep", input: { pattern: "spark", path: "fixture.txt" } },
-      ]);
+      return new Response(
+        new ReadableStream({
+          async start(stream) {
+            const bytes = new TextEncoder();
+            const send = (delta: object) =>
+              stream.enqueue(
+                bytes.encode(
+                  `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`,
+                ),
+              );
+            send({ reasoning_content: "Текст рассуждения для теста" });
+            await thinkingGate.promise;
+            send({
+              tool_calls: [{ index: 0, function: { name: "read_file" } }],
+            });
+            await toolCallGate.promise;
+            const terminal = toolResponse([
+              { name: "read_file", input: { path: "fixture.txt" } },
+              {
+                name: "grep",
+                input: { pattern: "spark", path: "fixture.txt" },
+              },
+            ]);
+            stream.enqueue(bytes.encode(await terminal.text()));
+            stream.close();
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
     }
     if (generations === 2)
       return toolResponse([
@@ -103,8 +131,9 @@ const server = Bun.serve({
         {
           name: "write_file",
           input: {
-            path: "spark-created.txt",
-            content: "written by real tools\n",
+            path: "index.html",
+            content:
+              "<!doctype html><title>Студия</title><h1>Студия дизайна</h1>\n",
           },
         },
       ]);
@@ -113,7 +142,8 @@ const server = Bun.serve({
         { name: "run_shell", input: { command: "echo spark-check" } },
       ]);
     const content =
-      "## Интерфейс готов к работе\n\nЯ изучил структуру проекта. Начнём с понятной навигации и проверим изменения в настоящем терминале.\n\n- Сохраним черновик и положение курсора.\n- Покажем состояние текущей задачи.\n- Проверим клавиатуру, мышь и узкое окно.\n\n```ts\nconst interfaceState = { focused: true, draft: 'сохранён' };\n```";
+      "## Лендинг готов\n\nСоздал страницу студии в `index.html`.\n\n- Добавил заголовок страницы.\n- Сохранил русский текст в UTF-8.";
+    await continuationGate.promise;
     return new Response(
       new ReadableStream({
         async start(stream) {
@@ -347,7 +377,7 @@ try {
   );
   await capture("home-after-commands-120x36");
   assert.equal(generations, 0);
-  const draft = "Изучи интерфейс 👩‍💻 汉字 e\u0301";
+  const draft = "Сделай лендинг для студии дизайна 👩‍💻 汉字 e\u0301";
   await paste(draft);
   const originalCursor = originalEditor?.cursorOffset;
   await click("home-settings");
@@ -434,6 +464,19 @@ try {
   );
   const chatEditor = t.renderer.currentFocusedEditor;
   await paste("Следующий шаг — проверить результат");
+  let journeyIndex = 0;
+  const captureJourney = () =>
+    capture(`journey-${String(journeyIndex++).padStart(2, "0")}`);
+  const captureMotion = async (count: number) => {
+    if (!process.env.CHISEL_DESIGN_CAPTURES) return;
+    for (let i = 0; i < count; i++) {
+      await act(async () => {
+        await Bun.sleep(85);
+        await t.renderOnce();
+      });
+      await captureJourney();
+    }
+  };
   const frames = new Set<string>();
   const activityColors = new Set<string>();
   for (let i = 0; i < 16; i++) {
@@ -446,7 +489,7 @@ try {
       line.spans
         .map((span) => span.text)
         .join("")
-        .includes("Ожидаю ответ модели"),
+        .includes("Запрашиваю модель"),
     );
     activityColors.add(
       JSON.stringify(activity?.spans.map((span) => span.fg.toInts())),
@@ -454,7 +497,7 @@ try {
     assert.equal(t.renderer.currentFocusedEditor, chatEditor);
     assert.equal(chatEditor?.plainText, "Следующий шаг — проверить результат");
     await capture(`motion-${String(i).padStart(2, "0")}`);
-    await capture(`journey-${String(i).padStart(2, "0")}`);
+    await captureJourney();
   }
   assert.ok(frames.size >= 3, "Real running indicator did not animate");
   assert.ok(
@@ -467,6 +510,16 @@ try {
       const value = line.spans.map((span) => span.text).join("");
       return value.includes(text) && (!icon || value.includes(icon));
     });
+  await until(() => hasStatus("Думаю", "✦"), "Reasoning state missing");
+  assert.ok(!t.captureCharFrame().includes("Текст рассуждения для теста"));
+  await captureJourney();
+  await captureMotion(13);
+  thinkingGate.resolve();
+  await until(() => hasStatus("Собираю вызов"), "Tool assembly state missing");
+  assert.equal(begun.size, 0, "Incomplete tool call started");
+  await captureJourney();
+  await captureMotion(9);
+  toolCallGate.resolve();
   await until(
     () =>
       begun.has("read_file") &&
@@ -475,32 +528,35 @@ try {
     "Parallel tool state not rendered",
   );
   await capture("activity-parallel-120x36");
-  await capture("journey-16");
+  await captureJourney();
   toolGates.get("grep")?.release();
   await until(
     () => hasStatus("Читаю файлы", "▤"),
     "Finishing one parallel tool hid its sibling",
   );
   await capture("activity-reading-120x36");
-  await capture("journey-17");
+  await captureJourney();
+  await captureMotion(8);
   assert.equal(t.renderer.currentFocusedEditor, chatEditor);
   toolGates.get("read_file")?.release();
   await until(() => hasStatus("Ищу", "⌕"), "Search state missing");
   await capture("activity-searching-120x36");
-  await capture("journey-18");
+  await captureJourney();
   toolGates.get("search-phase")?.release();
   await until(
     () => !!t.renderer.root.findDescendantById("approval-popup"),
     "Write approval missing",
   );
   await capture("activity-approval-120x36");
+  await captureJourney();
   await key("y");
   await until(
     () => begun.has("write_file") && hasStatus("Редактирую файлы", "✎"),
     "Real mutation state missing",
   );
   await capture("activity-editing-120x36");
-  await capture("journey-19");
+  await captureJourney();
+  await captureMotion(6);
   toolGates.get("write_file")?.release();
   await until(
     () => !!t.renderer.root.findDescendantById("approval-popup"),
@@ -512,24 +568,33 @@ try {
     "Shell command was mislabeled",
   );
   await capture("activity-command-120x36");
-  await capture("journey-20");
+  await captureJourney();
+  await captureMotion(6);
   toolGates.get("run_shell")?.release();
   await until(
-    () => hasStatus("Отвечаю", "✦"),
+    () => generations === 5 && hasStatus("Жду продолжения", "↻"),
+    "Request after tool results did not show continuation",
+  );
+  await captureJourney();
+  await captureMotion(8);
+  continuationGate.resolve();
+  await until(
+    () => hasStatus("Пишу ответ", "▏"),
     "Streaming response state missing",
   );
   await capture("activity-answering-120x36");
-  await capture("journey-21");
+  await captureJourney();
+  await captureMotion(8);
   assert.equal(
-    await readFile(join(project, "spark-created.txt"), "utf8"),
-    "written by real tools\n",
+    await readFile(join(project, "index.html"), "utf8"),
+    "<!doctype html><title>Студия</title><h1>Студия дизайна</h1>\n",
   );
   assert.equal(chatEditor?.plainText, "Следующий шаг — проверить результат");
   releaseAnswer();
   await until(
     () =>
       !t.renderer.root.findDescendantById("request-status") &&
-      t.captureCharFrame().includes("Интерфейс готов к работе"),
+      t.captureCharFrame().includes("Лендинг готов"),
     "SDK response not rendered",
   );
   await capture("chat-120x36");
@@ -564,6 +629,9 @@ try {
   );
 } finally {
   release();
+  thinkingGate.resolve();
+  toolCallGate.resolve();
+  continuationGate.resolve();
   releaseAnswer();
   for (const gate of toolGates.values()) gate.release();
   if (application)

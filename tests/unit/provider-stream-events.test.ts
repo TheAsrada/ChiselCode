@@ -262,6 +262,30 @@ const antTool = {
   content_block: { type: "tool_use", id: "call", name: "read_file", input: {} },
 };
 
+test("Anthropic reports the start of a validated thinking block before its text", async () => {
+  const events = await collect(
+    [
+      start,
+      {
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "thinking", thinking: "", signature: "" },
+      },
+      { type: "content_block_stop", index: 1 },
+      block,
+      delta,
+      ...antStop,
+    ],
+    true,
+  );
+  expect(events.map((event) => event.type)).toEqual([
+    "thinking_start",
+    "text_delta",
+    "turn_complete",
+  ]);
+  expect(events[0]).toEqual({ type: "thinking_start" });
+});
+
 test("Anthropic rejects data after message_stop for ordinary and extension requests", async () => {
   for (const overrides of [{}, { purpose: "extension_request" as const }]) {
     const events = await collect(

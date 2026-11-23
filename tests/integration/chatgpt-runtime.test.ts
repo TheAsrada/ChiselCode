@@ -84,8 +84,30 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
                 content: [{ type: "output_text", text: "Файл записан" }],
               },
             ];
+      const activity =
+        generations === 1
+          ? [
+              {
+                type: "response.output_item.added",
+                item: { type: "reasoning", id: "reasoning_1", summary: [] },
+              },
+              { type: "response.output_item.added", item: output[0] },
+            ]
+          : [];
       return new Response(
-        `data: ${JSON.stringify({ type: "response.completed", response: { status: "completed", output, usage: { input_tokens: 100, output_tokens: 10 } } })}\n\n`,
+        [
+          ...activity,
+          {
+            type: "response.completed",
+            response: {
+              status: "completed",
+              output,
+              usage: { input_tokens: 100, output_tokens: 10 },
+            },
+          },
+        ]
+          .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+          .join(""),
         {
           headers: {
             "Content-Type": "text/event-stream",
@@ -133,6 +155,14 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
     ]);
     const session = createSession(root, "chatgpt", "fixture-codex");
     const events = new RuntimeEventBus(session.id);
+    const activity: Pick<
+      import("../../src/runtime/events.js").RuntimeEvent,
+      "type" | "text" | "afterToolResults"
+    >[] = [];
+    events.subscribe(({ type, text, afterToolResults }) => {
+      if (type.startsWith("provider_"))
+        activity.push({ type, text, afterToolResults });
+    });
     const gate = new ApprovalGate(
       DEFAULT_PROJECT_CONFIG,
       {
@@ -171,6 +201,17 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
       "Подписка работает\n",
     );
     expect(generations).toBe(2);
+    expect(activity.map(({ type }) => type)).toEqual([
+      "provider_request_started",
+      "provider_thinking_delta",
+      "provider_tool_delta",
+      "provider_turn_completed",
+      "provider_request_started",
+      "provider_text_delta",
+      "provider_turn_completed",
+    ]);
+    expect(activity[1]?.text).toBeUndefined();
+    expect(activity[4]?.afterToolResults).toBe(true);
   } finally {
     server.stop(true);
     await rm(root, { recursive: true, force: true });

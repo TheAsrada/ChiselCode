@@ -154,6 +154,8 @@ export interface ProviderRequest {
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
+  /** Provider confirmed reasoning has begun without sending reasoning text. */
+  | { type: "thinking_start" }
   | { type: "thinking_delta"; text: string }
   /** Progress only. Partial arguments never leave the driver. */
   | { type: "tool_delta" }

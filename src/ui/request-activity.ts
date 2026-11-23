@@ -3,6 +3,7 @@ import type { ToolSource } from "../tools/types.js";
 
 export type RequestActivityKind =
   | "waiting"
+  | "continuing"
   | "thinking"
   | "answering"
   | "model_tool"
@@ -31,16 +32,27 @@ export interface RequestActivity {
 
 const phases: Record<RequestActivityKind, Omit<RequestActivity, "kind">> = {
   waiting: {
-    label: "Ожидаю ответ модели",
-    short: "Жду модель",
+    label: "Запрашиваю модель",
+    short: "Запрос к модели",
     icon: "◷",
     moving: true,
   },
+  continuing: {
+    label: "Жду продолжения",
+    short: "Жду продолжения",
+    icon: "↻",
+    moving: true,
+  },
   thinking: { label: "Думаю", short: "Думаю", icon: "✦", moving: true },
-  answering: { label: "Отвечаю", short: "Отвечаю", icon: "✦", moving: true },
+  answering: {
+    label: "Пишу ответ",
+    short: "Пишу ответ",
+    icon: "▏",
+    moving: true,
+  },
   model_tool: {
-    label: "Модель готовит вызов",
-    short: "Готовит вызов",
+    label: "Собираю вызов",
+    short: "Собираю вызов",
     icon: "◇",
     moving: true,
   },
@@ -102,7 +114,7 @@ const phases: Record<RequestActivityKind, Omit<RequestActivity, "kind">> = {
     moving: true,
   },
   approval: {
-    label: "Ожидаю подтверждения",
+    label: "Нужно подтверждение",
     short: "Нужен ответ",
     icon: "◇",
     moving: false,
@@ -183,6 +195,8 @@ export class RequestActivityTracker {
     if (this.model === "stopping") return this.snapshot();
     switch (event.type) {
       case "provider_request_started":
+        this.model = event.afterToolResults ? "continuing" : "waiting";
+        break;
       case "provider_response_recovery":
         this.model = "waiting";
         break;

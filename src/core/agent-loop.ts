@@ -40,8 +40,8 @@ export class AgentLoop {
       this.handlers.onEvent?.(event);
       if (event.type === "provider_text_delta")
         this.handlers.onText?.(event.text ?? "");
-      if (event.type === "provider_thinking_delta")
-        this.handlers.onThinking?.(event.text ?? "");
+      if (event.type === "provider_thinking_delta" && event.text !== undefined)
+        this.handlers.onThinking?.(event.text);
       if (event.type === "tool_started")
         this.handlers.onToolStart?.(
           event.name ?? "",

@@ -674,7 +674,8 @@ async function runPromptInWorkspace(
     )
       renderer.compaction(event.compaction);
     if (event.type === "provider_text_delta") onText(event.text ?? "");
-    if (event.type === "provider_thinking_delta") onThinking(event.text ?? "");
+    if (event.type === "provider_thinking_delta" && event.text !== undefined)
+      onThinking(event.text);
     if (event.type === "tool_started")
       onToolStart(
         event.name ?? "",
