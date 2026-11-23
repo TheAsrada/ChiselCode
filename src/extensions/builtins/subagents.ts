@@ -10,6 +10,7 @@ import type { SubagentService } from "../../subagents/service.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ChiselExtension } from "../contracts.js";
 import { createServiceToken } from "../services.js";
+import type { SettingsContribution } from "../settings-contributions.js";
 import { agentsUiTarget } from "../ui-core.js";
 import { registerOwnerUi } from "./owner-ui.js";
 import {
@@ -73,6 +74,24 @@ export function parseSubagentCommand(text: string): SubagentCommandInput {
     "Используйте /agent [list | readonly задача | coding задача | status ID | result ID | wait ID… | stop ID].",
   );
 }
+export const subagentsSettings = {
+  title: "Субагенты",
+  description: "Помощники: чтение и работа в отдельных копиях",
+  keywords: ["помощники", "делегирование", "subagent", "agents"],
+  fields: [
+    {
+      id: "enabled",
+      title: "Включение помощников",
+      keywords: ["выключить", "enabled"],
+    },
+    {
+      id: "project",
+      title: "Настройки проекта",
+      keywords: ["проект", "project"],
+    },
+  ],
+} satisfies SettingsContribution;
+
 export function createSubagentExtension(
   service: SubagentService,
 ): ChiselExtension {

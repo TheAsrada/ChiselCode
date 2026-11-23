@@ -13,7 +13,11 @@ import type {
   SideQueryCommandInvocation,
   SubagentControlInvocation,
 } from "./contracts.js";
-import { ExtensionLifecycleError, frozenClone } from "./lifecycle.js";
+import {
+  ExtensionLifecycleError,
+  frozenClone,
+  operationSignal,
+} from "./lifecycle.js";
 
 // Single-line terminal metadata, not instructions or UI controls.
 export const COMMAND_DESCRIPTION_LIMIT = 240;
@@ -73,12 +77,14 @@ export class ExtensionCommandContributions {
     private readonly assertAvailable: () => void,
     private readonly lifetime: AbortSignal,
     private readonly chat?: ExtensionChatViews,
+    private readonly staging = () => false,
   ) {}
   register<T>(
     extensionId: string,
     command: ExtensionCommandContribution<T>,
+    lifetime = this.lifetime,
   ): Disposable {
-    if (this.sealed || this.closed)
+    if ((this.sealed && !this.staging()) || this.closed)
       throw new ExtensionLifecycleError(
         `Extension ${extensionId} command registrations are closed.`,
         extensionId,
@@ -114,7 +120,7 @@ export class ExtensionCommandContributions {
         | ModelRequestResult
         | Promise<ToolExecutionResult | ModelRequestResult>;
       const available = () => {
-        cancelled(this.lifetime);
+        cancelled(lifetime);
         this.available();
       };
       stored = Object.freeze({
@@ -146,8 +152,12 @@ export class ExtensionCommandContributions {
                     "Control received a broad port",
                     extensionId,
                   );
-                const result = await executeControl(context, input as T);
-                cancelled(context.signal);
+                const signal = operationSignal(lifetime, context.signal);
+                const result = await executeControl(
+                  Object.freeze({ ...context, signal }),
+                  input as T,
+                );
+                cancelled(signal);
                 return (
                   this.chat?.result(extensionId, metadata.chat, result) ??
                   result
@@ -171,8 +181,12 @@ export class ExtensionCommandContributions {
               extensionId,
             );
           // Cooperative cancellation: wait for callbacks/tools to settle before releasing ownership.
-          const result = await execute(context, input as T);
-          cancelled(context.signal);
+          const signal = operationSignal(lifetime, context.signal);
+          const result = await execute(
+            Object.freeze({ ...context, signal }),
+            input as T,
+          );
+          cancelled(signal);
           return "output" in result
             ? (this.chat?.result(extensionId, metadata.chat, result) ?? result)
             : result;

@@ -40,13 +40,14 @@ export class ContextProviderRegistry
   constructor(
     private readonly workspaceRoot: string,
     private readonly lifetime: AbortSignal,
+    private readonly staging = () => false,
   ) {}
   register(
     extensionId: string,
     provider: ExtensionContextProvider,
   ): Disposable {
     this.assertOpen();
-    if (this.sealed)
+    if (this.sealed && !this.staging())
       throw new Error("Context provider registrations are closed.");
     validateId(provider.id, "context provider");
     if (

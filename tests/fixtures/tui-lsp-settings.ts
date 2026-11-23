@@ -213,6 +213,23 @@ export async function runLspTuiScenario(
     await paste(value);
     await key("ENTER");
   };
+  const enableLsp = async () => {
+    await click("settings-route-extensions");
+    if (!setup.renderer.root.findDescendantById("extensions-item-builtin.lsp"))
+      await click("extensions-back");
+    await click("extensions-item-builtin.lsp");
+    await click("extensions-action-enable");
+    await wait(
+      () =>
+        !!setup.renderer.root.findDescendantById("settings-route-builtin.lsp"),
+      "Enabled LSP page did not appear",
+    );
+    await click("settings-route-builtin.lsp");
+    await wait(
+      () => setup.captureCharFrame().includes("Анализ кода: Включён"),
+      "Enabled LSP form did not load",
+    );
+  };
   try {
     await act(async () => {
       application = runOpenTuiAgent(
@@ -233,6 +250,18 @@ export async function runLspTuiScenario(
     );
     await click("prompt-editor");
     await paste("Неотправленный черновик");
+    await key("t", true);
+    await key("f", true);
+    await paste("анализ кода");
+    await wait(
+      () => setup.captureCharFrame().includes("Нет результатов"),
+      "Disabled LSP leaked into Settings search",
+    );
+    await capture("default-off-120x40");
+    assert.equal((await lspProcessTree()).length, 0, "Clean start spawned LSP");
+    await key("ESCAPE");
+    await enableLsp();
+    await key("ESCAPE");
     // All three entrances share the actual Settings panel and its captured actions.
     await key("F9");
     await wait(
@@ -316,20 +345,6 @@ export async function runLspTuiScenario(
       () => !!setup.renderer.root.findDescendantById("lsp-row-enabled"),
       "Settings did not reuse LSP menu",
     );
-    assert.ok(setup.captureCharFrame().includes("Анализ кода: Выключен"));
-    assert.equal((await lspProcessTree()).length, 0, "Clean start spawned LSP");
-    await capture("default-off-120x40");
-    await choose("lsp-row-enabled"); // Global Off redirects from project scope.
-    await wait(
-      () =>
-        setup.captureCharFrame().includes("Анализ выключен для всех проектов"),
-      "Default Off did not explain how to enable analysis",
-    );
-    await choose("lsp-row-enabled");
-    await wait(
-      () => setup.captureCharFrame().includes("Анализ кода: Включён"),
-      "Initial global On did not apply",
-    );
     assert.equal(
       JSON.parse(await readFile(configPath, "utf8")).lsp.enabled,
       true,
@@ -384,13 +399,30 @@ export async function runLspTuiScenario(
     assert.ok(advanced, "UI restart checkpoint/generation missing");
     await key("ESCAPE"); // card -> overview
     await click("lsp-global");
+    await key("f", true);
+    await paste("lua");
+    await key("ENTER");
+    await choose("lsp-row-server-auto-lua");
+    await choose("lsp-row-server-enabled");
+    await wait(
+      async () =>
+        JSON.parse(await readFile(configPath, "utf8")).lsp.serverOverrides?.[
+          "auto-lua"
+        ]?.enabled === false,
+      "Server override was not saved before disabling its owner",
+    );
+    await key("ESCAPE");
     await choose("lsp-row-enabled");
     await wait(
-      () => setup.captureCharFrame().includes("Анализ кода: Выключен"),
-      "Global Off did not apply",
+      () =>
+        !setup.renderer.root.findDescendantById("lsp-row-enabled") &&
+        !setup.renderer.root.findDescendantById("settings-route-builtin.lsp"),
+      "Global Off did not close the LSP page",
     );
-    const stopped = await lspProcessTree();
-    assert.equal(stopped.length, 0, "Off did not close all server descendants");
+    await wait(
+      async () => (await lspProcessTree()).length === 0,
+      "Off did not close all server descendants",
+    );
     assert.equal(
       JSON.parse(await readFile(configPath, "utf8")).lsp.enabled,
       false,
@@ -400,18 +432,22 @@ export async function runLspTuiScenario(
       undefined,
     );
     await capture("off-120x40");
-    await click("lsp-project");
-    await choose("lsp-row-enabled");
+    await key("f", true);
+    await paste("анализ кода");
     await wait(
-      () =>
-        setup.captureCharFrame().includes("Анализ выключен для всех проектов"),
-      "Project switch did not explain global ceiling",
+      () => setup.captureCharFrame().includes("Нет результатов"),
+      "LSP remained searchable after Off",
     );
-    await choose("lsp-row-enabled");
-    await wait(
-      () => setup.captureCharFrame().includes("Анализ кода: Включён"),
-      "Global On failed",
+    await key("ESCAPE");
+    await enableLsp();
+    await click("lsp-global");
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.serverOverrides[
+        "auto-lua"
+      ].enabled,
+      false,
     );
+    await capture("restored-120x40");
     assert.equal((await lspProcessTree()).length, 0, "On must remain lazy");
     if (process.env.CHISEL_LSP_MENU_SMOKE === "1") {
       assert.equal(modelRequests, 0);
@@ -640,7 +676,7 @@ export async function runLspTuiScenario(
       await click("settings-theme-paper");
       await key("s", true);
       await frames();
-      await click("settings-route-tools.lsp");
+      await click("settings-route-builtin.lsp");
       await capture("server-error-paper-120x40");
       await key("ESCAPE");
       for (const [width, height] of [
@@ -662,7 +698,7 @@ export async function runLspTuiScenario(
     await choose("lsp-row-args");
     await paste("\n--external-conflict");
     savedConfig = JSON.parse(await readFile(configPath, "utf8"));
-    savedConfig.lsp.serverOverrides["auto-lua"] = { enabled: false };
+    savedConfig.lsp.serverOverrides["auto-lua"] = { enabled: true };
     await writeFile(configPath, JSON.stringify(savedConfig));
     await click("lsp-field-done");
     await wait(
@@ -687,7 +723,7 @@ export async function runLspTuiScenario(
       JSON.parse(await readFile(configPath, "utf8")).lsp.serverOverrides[
         "auto-lua"
       ].enabled,
-      false,
+      true,
     );
     assert.equal(modelRequests, 0, "LSP menu requested model chat");
     const store = await projectSessionStore(root);

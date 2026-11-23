@@ -1,8 +1,11 @@
 /** @jsxImportSource @opentui/react */
+
 import { expect, test } from "bun:test";
 import type { BoxRenderable, InputRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
+import { backgroundSettings } from "../../src/extensions/builtins/background.js";
+import { lspSettings } from "../../src/extensions/builtins/lsp.js";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
 import type { OpenTuiSettingsActions } from "../../src/ui/opentui-settings.js";
 import { OpenTuiSpike } from "../../src/ui/opentui-spike.js";
@@ -79,8 +82,17 @@ function api() {
   return { actions, saves };
 }
 test("catalog search uses only curated metadata and deep links fields in RU/EN", () => {
+  const sections = [
+    ...SETTINGS_SECTIONS,
+    { id: "builtin.lsp" as const, group: "Инструменты", ...lspSettings },
+    {
+      id: "builtin.background" as const,
+      group: "Инструменты",
+      ...backgroundSettings,
+    },
+  ];
   for (const query of ["lsp", "анализ кода", "языковой сервер", "typescript"])
-    expect(searchSettings(query)[0]?.section.id).toBe("tools.lsp");
+    expect(searchSettings(query, sections)[0]?.section.id).toBe("builtin.lsp");
   for (const query of ["ключ", "api"])
     expect(searchSettings(query)[0]).toMatchObject({
       field: "key",
@@ -90,15 +102,17 @@ test("catalog search uses only curated metadata and deep links fields in RU/EN",
   expect(searchSettings("mcp")[0]?.section.id).toBe("tools.mcp");
   expect(searchSettings("web")[0]?.section.id).toBe("tools.web");
   expect(searchSettings("private-key-value")).toEqual([]);
-  expect(searchSettings("")).toHaveLength(10);
+  expect(searchSettings("")).toHaveLength(7);
   expect(searchSettings("расширения")[0]?.section.id).toBe("extensions");
-  expect(searchSettings("фоновые")[0]?.section.id).toBe("tools.background");
+  expect(searchSettings("фоновые", sections)[0]?.section.id).toBe(
+    "builtin.background",
+  );
   expect(searchSettings("maxActive")).toEqual([]);
   expect(
     searchSettings("fixture", [
       ...SETTINGS_SECTIONS,
       {
-        id: "tools.lsp",
+        id: "builtin.lsp",
         group: "Fixture",
         title: "Fixture section",
         description: "test",
@@ -305,7 +319,7 @@ test("subagent Settings popup saves global/project enablement across resize with
     await frame(setup);
     await paste(setup, "основной черновик");
     await key(setup, "t", true);
-    await click(setup, "settings-route-tools.subagents");
+    await click(setup, "settings-route-builtin.subagents");
     await click(setup, "subagent-setting-1");
     expect(setup.captureCharFrame()).toContain("Помощники: выключены");
     expect(setup.captureCharFrame()).not.toMatch(/Одновременно:|Время, мс/);
@@ -324,7 +338,7 @@ test("subagent Settings popup saves global/project enablement across resize with
     expect(setup.captureCharFrame()).toContain("Помощники: выключены");
     await saved(async () => (await settings.load()).global.enabled === false);
     await click(setup, "settings-route-appearance");
-    await click(setup, "settings-route-tools.subagents");
+    await click(setup, "settings-route-builtin.subagents");
     expect(setup.captureCharFrame()).toContain("Помощники: выключены");
     await click(setup, "subagent-setting-0");
     await click(setup, "subagent-setting-1");

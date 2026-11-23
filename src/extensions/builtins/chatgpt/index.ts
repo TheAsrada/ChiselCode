@@ -7,6 +7,10 @@ import { ChatGptAuth, type ChatGptAuthOptions } from "./auth.js";
 import { ChatGptTransport } from "./transport.js";
 import { ChatGptUsage, usageUi } from "./usage.js";
 
+export const chatGptSettings = {
+  keywords: ["ChatGPT", "подписка", "вход по коду", "лимиты"],
+};
+
 export const chatGptDefinition: ProviderDefinition = {
   id: "chatgpt",
   label: "ChatGPT",

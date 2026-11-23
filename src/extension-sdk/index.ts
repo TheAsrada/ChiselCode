@@ -19,7 +19,12 @@ export type {
   AgentToolResult,
 } from "./agent-events.js";
 
-export type { SettingField, SettingsSchema, SettingValue } from "./settings.js";
+export type {
+  SettingField,
+  SettingsSchema,
+  SettingsSection,
+  SettingValue,
+} from "./settings.js";
 export type Json =
   | null
   | boolean

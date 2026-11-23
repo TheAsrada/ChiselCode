@@ -8,6 +8,7 @@ export const SDK_CAPABILITIES = Object.freeze([
   "agent.events",
   "ui.modelSelection",
   "ui.visibility",
+  "settings.section",
   "subagents.modelOverride",
 ] as const);
 export type SdkCapability = (typeof SDK_CAPABILITIES)[number];

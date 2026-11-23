@@ -18,10 +18,16 @@ export class UiExtensionRuntime {
   private aliases = new Map<string, string>();
   private mounts = new Map<string, Promise<Mount>>();
   private scopes = new Map<string, WorkspaceExtensionScope>();
+  private hosts = new Map<string, ExtensionHost>();
   private listeners = new Set<() => void>();
   private known = new Set<string>();
   private blocked = new Set<string>();
+  private suspended = new Set<string>();
   private failures = new Map<string, ExtensionDiagnostic>();
+  private closingDiagnostics = new Map<
+    string,
+    readonly ExtensionDiagnostic[]
+  >();
   private closed = false;
   private refreshing: Promise<void> = Promise.resolve();
   constructor(
@@ -80,16 +86,19 @@ export class UiExtensionRuntime {
     root: string,
     id: string,
   ): Promise<WorkspaceExtensionScope | undefined> {
-    if (!this.canApply(id)) return;
+    if (!this.canApply(id) || this.suspended.has(id)) return;
     const key = JSON.stringify([root, id]);
     let pending = this.mounts.get(key);
     if (!pending) {
       pending = (async () => {
         const loader = await ExternalExtensionLoader.create(() => {}, "ui", id);
         const host = new ExtensionHost(loader.definitions([]));
+        this.hosts.set(key, host);
         try {
+          if (this.suspended.has(id)) throw new Error("Расширение выключено.");
           return { host, scope: await host.open(root) };
         } catch (error) {
+          this.hosts.delete(key);
           await host.dispose();
           throw error;
         }
@@ -127,8 +136,13 @@ export class UiExtensionRuntime {
   private async closeMount(key: string, pending: Promise<Mount>) {
     this.mounts.delete(key);
     this.scopes.delete(key);
-    const { host, scope } = await pending;
-    const diagnostics = scope.externalDiagnostics();
+    this.hosts.delete(key);
+    const mount = await pending.catch(() => undefined);
+    if (!mount) return;
+    const { host, scope } = mount;
+    const diagnostics =
+      this.closingDiagnostics.get(key) ?? scope.externalDiagnostics();
+    this.closingDiagnostics.delete(key);
     try {
       await host.dispose();
     } catch (error) {
@@ -143,6 +157,22 @@ export class UiExtensionRuntime {
       }
       throw error;
     }
+  }
+  needsRestart(id: string): boolean {
+    return this.blocked.has(id);
+  }
+  publish(): void {
+    if (!this.closed) for (const changed of this.listeners) changed();
+  }
+  suspend(id: string): void {
+    this.suspended.add(id);
+    for (const [key, host] of this.hosts)
+      if ((JSON.parse(key) as string[])[1] === id) {
+        const scope = this.scopes.get(key);
+        if (scope && !scope.signal.aborted)
+          this.closingDiagnostics.set(key, scope.externalDiagnostics());
+        host.abortWorkspaces();
+      }
   }
   /** Invoked only after Settings commits an exact reviewed package/setting revision. */
   async changed(id: string): Promise<boolean> {
@@ -171,12 +201,14 @@ export class UiExtensionRuntime {
         );
         const failure = results.find((result) => result.status === "rejected");
         if (failure?.status === "rejected") throw failure.reason;
-        if (isUi && record?.enabled)
+        if (isUi && record?.enabled) {
+          this.suspended.delete(id);
           await Promise.all(
             [...this.roots].map((root) => this.acquire(root, id)),
           );
+        }
       } finally {
-        if (!this.closed) for (const changed of this.listeners) changed();
+        this.publish();
       }
     });
     this.refreshing = refresh.catch(() => {});

@@ -6,6 +6,7 @@ import { RuntimeError } from "../../runtime/errors.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ToolContext } from "../../tools/types.js";
 import type { ChiselExtension } from "../contracts.js";
+import type { SettingsContribution } from "../settings-contributions.js";
 import { registerLspUi } from "./lsp-ui.js";
 
 const empty = z.object({}).strict();
@@ -31,6 +32,72 @@ const output = (value: unknown) => {
 const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** Config is captured by composition, never added to the general ExtensionContext. */
+export const lspSettings = {
+  title: "Анализ кода · LSP",
+  description: "Включение, серверы и диагностика проекта",
+  keywords: [
+    "lsp",
+    "анализ кода",
+    "языковой сервер",
+    "typescript",
+    "javascript",
+    "diagnostics",
+    "python",
+    "go",
+    "rust",
+    "c++",
+    "c#",
+    "java",
+    "kotlin",
+    "php",
+    "ruby",
+    "swift",
+    "lua",
+    "dart",
+    "clangd",
+    "pyright",
+    "сервер",
+  ],
+  fields: [
+    {
+      id: "enabled",
+      title: "Включение анализа кода",
+      keywords: ["выключить", "включить", "enabled", "off"],
+    },
+    {
+      id: "servers",
+      title: "Все поддерживаемые серверы",
+      keywords: ["каталог", "серверы", "переключатели"],
+    },
+    {
+      id: "mode",
+      title: "Стратегия Auto / Своя настройка",
+      keywords: ["auto", "авто", "режим", "выключить", "стандартный"],
+    },
+    {
+      id: "project",
+      title: "Настройки проекта",
+      keywords: ["project", "проект", "наследовать", "tsconfig", "jsconfig"],
+    },
+    { id: "node", title: "Node.js", keywords: ["runtime", "node", "путь"] },
+    {
+      id: "server",
+      title: "Language server",
+      keywords: ["cli.mjs", "сервер"],
+    },
+    {
+      id: "typescript",
+      title: "TypeScript",
+      keywords: ["tsserver", "typescript"],
+    },
+    {
+      id: "trust",
+      title: "Доверенные проекты",
+      keywords: ["trust", "разрешить", "проект"],
+    },
+  ],
+} satisfies SettingsContribution;
+
 export function createLspExtension(
   options: { configPath?: string } = {},
 ): ChiselExtension {

@@ -230,6 +230,8 @@ export class ExtensionUiRegistry implements Disposable {
     private available: () => void,
     private commandOwner?: (name: string) => string | undefined,
     private ownsTool?: (extensionId: string, name: string) => boolean,
+    private readonly staging = () => false,
+    private readonly ownerAvailable = (_id: string) => true,
   ) {}
   on(extensionId: string, id: string, handler: UiEventHandler): Disposable {
     if (typeof handler !== "function")
@@ -241,7 +243,9 @@ export class ExtensionUiRegistry implements Disposable {
   }
   handler(owner: string, id: string) {
     this.assertAvailable();
-    return this.handlers.get(`${owner}/${id}`)?.handler;
+    return this.ownerAvailable(owner)
+      ? this.handlers.get(`${owner}/${id}`)?.handler
+      : undefined;
   }
   register(extensionId: string, contribution: UiContribution): Disposable {
     return this.stage(
@@ -296,7 +300,11 @@ export class ExtensionUiRegistry implements Disposable {
     totalLimit: number,
     capture: () => T,
   ): Disposable {
-    if (this.sealed || this.closed || this.lifetime.aborted)
+    if (
+      (this.sealed && !this.staging()) ||
+      this.closed ||
+      this.lifetime.aborted
+    )
       throw new ExtensionLifecycleError("UI registrations are closed.", owner);
     try {
       UiIdSchema.parse(id);
@@ -387,12 +395,14 @@ export class ExtensionUiRegistry implements Disposable {
   }
   descriptors(): readonly Readonly<Entry>[] {
     this.assertAvailable();
-    return [...this.entries.values()].sort(
-      (a, b) =>
-        (a.descriptor.order ?? 50) - (b.descriptor.order ?? 50) ||
-        a.extensionId.localeCompare(b.extensionId) ||
-        a.descriptor.id.localeCompare(b.descriptor.id),
-    );
+    return [...this.entries.values()]
+      .filter((entry) => this.ownerAvailable(entry.extensionId))
+      .sort(
+        (a, b) =>
+          (a.descriptor.order ?? 50) - (b.descriptor.order ?? 50) ||
+          a.extensionId.localeCompare(b.extensionId) ||
+          a.descriptor.id.localeCompare(b.descriptor.id),
+      );
   }
   bind(
     binding: Omit<UiBinding, "workspaceRoot" | "scopeInstance">,
@@ -413,16 +423,20 @@ export class ExtensionUiRegistry implements Disposable {
   }
   view(key: string): Readonly<View> | undefined {
     this.assertAvailable();
-    return this.views.get(key);
+    const view = this.views.get(key);
+    return view && this.ownerAvailable(view.extensionId) ? view : undefined;
   }
   entry(key: string): Readonly<Entry> | undefined {
     this.assertAvailable();
-    return this.entries.get(key);
+    const entry = this.entries.get(key);
+    return entry && this.ownerAvailable(entry.extensionId) ? entry : undefined;
+  }
+  invalidateBindings(): void {
+    for (const binding of this.bindings) binding.dispose();
   }
   dispose(): void {
     this.closed = true;
-    for (const binding of this.bindings) binding.dispose();
-    this.bindings.clear();
+    this.invalidateBindings();
     this.entries.clear();
     this.views.clear();
     this.handlers.clear();
@@ -717,7 +731,11 @@ export class UiSubscription implements Disposable {
     const handler = this.registry.handler(entry.extensionId, match.use.id);
     if (!handler) return;
     const pending = this.eventTail.then(async () => {
-      if (!this.isLive()) return;
+      if (
+        !this.isLive() ||
+        this.registry.handler(entry.extensionId, match.use.id) !== handler
+      )
+        return;
       try {
         await abortable(
           () =>
@@ -758,8 +776,13 @@ export class UiSubscription implements Disposable {
     if (!this.isLive() || !entry) return;
     const handler = this.registry.handler(entry.extensionId, eventId);
     if (handler) {
-      const pending = this.eventTail.then(() =>
-        abortable(
+      const pending = this.eventTail.then(() => {
+        if (
+          !this.isLive() ||
+          this.registry.handler(entry.extensionId, eventId) !== handler
+        )
+          return;
+        return abortable(
           () =>
             handler(
               Object.freeze({
@@ -780,8 +803,8 @@ export class UiSubscription implements Disposable {
               ),
             ),
           this.binding.signal,
-        ),
-      );
+        );
+      });
       this.eventTail = pending.catch(() => {});
       try {
         await pending;

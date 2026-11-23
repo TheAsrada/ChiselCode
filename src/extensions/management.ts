@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { effectiveBackgroundConfig } from "../background/config.js";
 import { BackgroundSettingsStore } from "../background/settings.js";
 import { loadGlobalConfig, loadProjectConfig } from "../config/load.js";
 import type {
@@ -15,16 +14,17 @@ import type {
   RequestMap,
 } from "../desktop/protocol.js";
 import {
-  effectiveLspMode,
-  globalLspDisabled,
   LspConfigSchema,
   LspServerSchema,
   ProjectLspConfigSchema,
 } from "../lsp/config.js";
 import { type LspSettingsRuntime, LspSettingsStore } from "../lsp/settings.js";
-import { effectiveSubagentConfig } from "../subagents/config.js";
 import { SubagentSettingsStore } from "../subagents/settings.js";
 import { VERSION } from "../version.js";
+import { backgroundSettings } from "./builtins/background.js";
+import { chatGptSettings } from "./builtins/chatgpt/index.js";
+import { lspSettings } from "./builtins/lsp.js";
+import { subagentsSettings } from "./builtins/subagents.js";
 import {
   type ExtensionDiagnostic,
   safeExtensionText,
@@ -47,24 +47,32 @@ import {
   PackageManagementService,
   type PreparedPackage,
 } from "./packages/service.js";
+import {
+  builtinAvailability,
+  externalAllowed,
+  type SettingsContribution,
+} from "./settings-contributions.js";
 import { ExtensionSettingsStore } from "./settings-store.js";
 
 const builtinNames = {
-  "builtin.chatgpt": ["ChatGPT", "Подписка, модели и лимиты", "connection"],
+  "builtin.chatgpt": ["ChatGPT", "Подписка, модели и лимиты"],
   "builtin.lsp": [
     "Анализ кода (LSP)",
     "Ошибки, определения и ссылки в коде",
     "tools.lsp",
+    lspSettings,
   ],
   "builtin.subagents": [
     "Субагенты",
     "Помощники для чтения и работы в отдельных копиях",
     "tools.subagents",
+    subagentsSettings,
   ],
   "builtin.background": [
     "Фоновые задачи",
     "Длительные локальные команды и их результаты",
     "tools.background",
+    backgroundSettings,
   ],
   "builtin.worktrees": [
     "Рабочие копии",
@@ -76,6 +84,10 @@ const builtinNames = {
     "Дополнительный вопрос в терминальной оболочке",
   ],
 } as const;
+export interface ManagedExtension extends CatalogExtension {
+  settingsSection?: SettingsContribution;
+}
+
 export const BuiltinIdSchema = z.enum([
   "builtin.lsp",
   "builtin.subagents",
@@ -131,20 +143,51 @@ interface Options {
   desktop?: boolean;
   applyUi?: (id: string) => Promise<boolean>;
   canApplyUi?: (id: string) => boolean;
+  hasBuiltin?: (id: string) => boolean;
+  applyBuiltin?: (id: string) => Promise<void>;
+  disableExternal?: (id: string) => Promise<void>;
+  externalNeedsRestart?: (id: string) => boolean;
 }
 /** One shared application service. UI receives data, never prepared handles. */
 export class ExtensionManagementService {
   readonly packages = new PackageManagementService();
   private operations = new Map<string, Operation>();
   private closed = false;
+  private listeners = new Set<(hide?: { id: string; root?: string }) => void>();
+  subscribe = (changed: (hide?: { id: string; root?: string }) => void) => {
+    this.listeners.add(changed);
+    return () => {
+      this.listeners.delete(changed);
+    };
+  };
+  private notify(hide?: { id: string; root?: string }) {
+    for (const changed of this.listeners) changed(hide);
+  }
+  async builtinChanged(id: string, root?: string) {
+    const [global, project] = await Promise.all([
+      loadGlobalConfig(this.options.configPath),
+      root ? loadProjectConfig(root) : undefined,
+    ]);
+    const { enabled, effective } = builtinAvailability(id, global, project);
+    this.notify(
+      !effective ? { id, root: enabled ? root : undefined } : undefined,
+    );
+    await this.options.applyBuiltin?.(id);
+  }
+  hasBuiltin(id: string): boolean {
+    return this.options.hasBuiltin?.(id) !== false;
+  }
+  connectionContribution() {
+    return !this.hasBuiltin("builtin.chatgpt") ? undefined : chatGptSettings;
+  }
   constructor(private readonly options: Options = {}) {}
-  private lsp(root: string) {
+  private lsp(root?: string) {
     return new LspSettingsStore(
       root,
       this.options.configPath,
-      this.options.lsp?.(root) ?? {
+      (root ? this.options.lsp?.(root) : undefined) ?? {
         status: async () => ({
-          workspaceRoot: root,
+          workspaceRoot: root ?? "",
           backend: "typescript",
           state: "unavailable",
           generation: 0,
@@ -161,7 +204,7 @@ export class ExtensionManagementService {
       },
     );
   }
-  private store(id: BuiltinId, root: string) {
+  private store(id: BuiltinId, root?: string) {
     return id === "builtin.lsp"
       ? this.lsp(root)
       : id === "builtin.subagents"
@@ -172,7 +215,7 @@ export class ExtensionManagementService {
           )
         : new BackgroundSettingsStore(root, this.options.configPath);
   }
-  async builtinRead(id: string, root: string): Promise<BuiltinSettings> {
+  async builtinRead(id: string, root?: string): Promise<BuiltinSettings> {
     const state = await this.store(BuiltinIdSchema.parse(id), root).load();
     return frozenClone({
       id,
@@ -248,7 +291,9 @@ export class ExtensionManagementService {
     if (result.isError) throw new Error(result.output);
     return { text: safeExtensionText(result.output) };
   }
-  async list(root?: string): Promise<ExtensionCatalog> {
+  async list(
+    root?: string,
+  ): Promise<ExtensionCatalog & { items: ManagedExtension[] }> {
     const [global, project, packages, registry] = await Promise.all([
       loadGlobalConfig(this.options.configPath),
       root ? loadProjectConfig(root) : undefined,
@@ -256,52 +301,29 @@ export class ExtensionManagementService {
       readExtensionRegistry(),
     ]);
     const diagnostics = this.options.diagnostics?.(root) ?? [];
-    const items: CatalogExtension[] = Object.entries(builtinNames).map(
-      ([id, metadata]) => {
-        let enabled = true,
-          effective = true,
-          configuration: unknown = {};
-        if (id === "builtin.lsp") {
-          configuration = global.lsp ?? { servers: {} };
-          const lsp = LspConfigSchema.parse(configuration);
-          enabled = !globalLspDisabled(lsp);
-          effective =
-            effectiveLspMode({
-              global: lsp,
-              project: project?.lsp,
-              ignorePatterns: [],
-            }) !== "off";
-        }
-        if (id === "builtin.subagents") {
-          configuration = global.subagents ?? {};
-          enabled = effectiveSubagentConfig(global.subagents).enabled;
-          effective = effectiveSubagentConfig(
-            global.subagents,
-            project?.subagents,
-          ).enabled;
-        }
-        if (id === "builtin.background") {
-          configuration = global.backgroundTasks ?? {};
-          enabled = effectiveBackgroundConfig(global.backgroundTasks).enabled;
-          effective = effectiveBackgroundConfig(
-            global.backgroundTasks,
-            project?.backgroundTasks,
-          ).enabled;
-        }
-        const route = metadata[
-          2 as keyof typeof metadata
-        ] as CatalogExtension["settingsRoute"];
+    const items: ManagedExtension[] = Object.entries(builtinNames).map(
+      ([id, [name, description, route, section]]) => {
+        const { enabled, effective } = builtinAvailability(id, global, project);
+        const configuration =
+          id === "builtin.lsp"
+            ? (global.lsp ?? { servers: {} })
+            : id === "builtin.subagents"
+              ? (global.subagents ?? {})
+              : id === "builtin.background"
+                ? (global.backgroundTasks ?? {})
+                : {};
         const desktopUnavailable = this.options.desktop && id === "builtin.btw";
+        const available = this.hasBuiltin(id) && !desktopUnavailable;
         return {
           id,
-          name: metadata[0],
-          description: metadata[1],
+          name,
+          description,
           origin: "builtin",
           version: VERSION,
           source: "Встроено в ChiselCode",
           revision: 0,
           digest: hash(configuration),
-          compatible: !desktopUnavailable,
+          compatible: available,
           compatibility: desktopUnavailable
             ? "Побочные вопросы доступны в CLI"
             : `ChiselCode ${VERSION}`,
@@ -309,21 +331,21 @@ export class ExtensionManagementService {
           desiredEnabled: enabled,
           actualState: !effective
             ? "disabled"
-            : desktopUnavailable
+            : !available
               ? "unavailable"
               : root && this.options.scopeReady?.(root)
                 ? "available"
                 : "not_started",
           state: !effective
             ? "disabled"
-            : desktopUnavailable
+            : !available
               ? "saved"
               : root && this.options.scopeReady?.(root)
                 ? "working"
                 : "saved",
           actualLabel: !effective
             ? actualLabel("disabled")
-            : desktopUnavailable
+            : !available
               ? actualLabel("unavailable")
               : root && this.options.scopeReady?.(root)
                 ? actualLabel("available")
@@ -332,8 +354,16 @@ export class ExtensionManagementService {
           restartRequired: false,
           deferredRemoval: false,
           actions:
-            route && root ? [enabled ? "disable" : "enable", "settings"] : [],
+            route && available
+              ? [
+                  enabled && effective ? "disable" : "enable",
+                  ...(effective ? ["settings" as const] : []),
+                ]
+              : [],
           ...(route ? { settingsRoute: route } : {}),
+          ...(section && available && effective
+            ? { settingsSection: section }
+            : {}),
           versions: [],
           ...(!effective && enabled
             ? { reason: "Возможность запрещена настройками этого проекта." }
@@ -348,13 +378,13 @@ export class ExtensionManagementService {
         selected = row.selected;
       if (row.removed && !row.versions.length && !actual) continue;
       const blocked =
-        !!this.options.externalDisabled ||
-        !!project?.externalExtensions?.disabled ||
-        !!project?.externalExtensions?.disabledIds?.includes(row.id);
+        !!this.options.externalDisabled || !externalAllowed(row.id, project);
       let manifest: ExtensionManifest | undefined;
       if (selected && !row.removed)
         try {
-          manifest = (await inspectPackage(selected.location)).manifest;
+          const candidate = await inspectPackage(selected.location);
+          if (candidate.digest === selected.digest)
+            manifest = candidate.manifest;
         } catch {
           /* The package status already reports damage. */
         }
@@ -370,17 +400,21 @@ export class ExtensionManagementService {
           settingsError =
             "Настройки расширения недоступны или повреждены; данные сохранены.";
         }
-      const restart = loaded
-        ? row.removed ||
-          !row.enabled ||
-          selected?.digest !== actual.packageDigest ||
-          actual.settingsRevision !== settingsRevision
-        : row.enabled &&
-          !blocked &&
-          row.trusted &&
-          row.compatible &&
-          !row.removed &&
-          !actual;
+      const restart =
+        !!this.options.externalNeedsRestart?.(row.id) ||
+        (loaded
+          ? row.removed ||
+            !row.enabled ||
+            selected?.digest !== actual.packageDigest ||
+            actual.settingsRevision !== settingsRevision
+          : row.enabled &&
+            !blocked &&
+            row.trusted &&
+            row.compatible &&
+            !row.removed &&
+            (!actual ||
+              actual.state === "disabled" ||
+              actual.state === "not_trusted"));
       const failure =
         (!!settingsError && row.trusted) ||
         ["invalid", "modified", "incompatible"].includes(row.state) ||
@@ -423,7 +457,37 @@ export class ExtensionManagementService {
         row.state === "not_trusted"
       )
         actions.unshift("trust");
+      const section = manifest?.settings?.section;
+      const settingsSection =
+        manifest &&
+        section &&
+        row.enabled &&
+        row.trusted &&
+        row.compatible &&
+        !blocked &&
+        !row.removed &&
+        !["invalid", "modified", "incompatible"].includes(row.state)
+          ? {
+              title: safeExtensionText(section.title),
+              description: safeExtensionText(
+                section.description ?? manifest.description ?? "",
+              ),
+              keywords: [
+                row.id,
+                row.name,
+                ...(section.keywords ?? []).map(safeExtensionText),
+              ],
+              fields: (manifest.settings?.fields ?? []).map((field) => ({
+                id: field.name,
+                title: safeExtensionText(field.label),
+                keywords: field.description
+                  ? [safeExtensionText(field.description)]
+                  : [],
+              })),
+            }
+          : undefined;
       items.push({
+        ...(settingsSection ? { settingsSection } : {}),
         id: row.id,
         name: row.name,
         description: safeExtensionText(manifest?.description ?? ""),
@@ -439,8 +503,11 @@ export class ExtensionManagementService {
           (row.compatible ? "API v1" : "Не прошёл проверку совместимости"),
         trusted: row.trusted,
         desiredEnabled: row.enabled,
-        actualState: actual?.state ?? "not_started",
-        actualLabel: actualLabel(actual?.state ?? "not_started"),
+        actualState:
+          actual?.state ?? (!row.enabled ? "disabled" : "not_started"),
+        actualLabel: actualLabel(
+          actual?.state ?? (!row.enabled ? "disabled" : "not_started"),
+        ),
         state,
         projectBlocked: blocked,
         restartRequired: !!restart,
@@ -710,6 +777,12 @@ export class ExtensionManagementService {
           options,
         );
       else result = await this.packages.remove(review.id, expected);
+      const disabled = review.kind === "remove" || input.enable === false;
+      const disabling = disabled
+        ? this.options.disableExternal?.(result.id).catch(() => {})
+        : undefined;
+      this.notify(disabled ? { id: result.id } : undefined);
+      await disabling;
       const appliedUi = await this.options
         .applyUi?.(result.id)
         .catch(() => false);
@@ -741,28 +814,58 @@ export class ExtensionManagementService {
     input: RequestMap["extensions/setEnabled"]["params"],
   ): Promise<ExtensionResult> {
     if (input.id.startsWith("builtin.")) {
-      if (!input.path) throw new Error("Сначала выберите проект.");
       const item = (await this.list(input.path)).items.find(
         (i) => i.id === input.id,
       );
-      if (!item || item.digest !== input.digest || !item.settingsRoute)
+      if (
+        !item ||
+        item.digest !== input.digest ||
+        !item.settingsRoute ||
+        !item.actions.includes(input.enabled ? "enable" : "disable")
+      )
         conflict();
-      const state = await this.builtinRead(input.id, input.path);
-      if (state.globalRevision !== input.digest) conflict();
-      if (input.id === "builtin.lsp") {
-        await this.lsp(input.path).setEnabled("global", input.enabled, state);
+      const id = BuiltinIdSchema.parse(input.id);
+      const store = this.store(id, input.path);
+      const projectOnly = item.projectBlocked && input.enabled;
+      const setEnabled = async <
+        T extends {
+          global: { enabled: boolean };
+          project: { enabled?: boolean };
+          globalRevision: string;
+          projectRevision: string;
+        },
+      >(settings: {
+        load(): Promise<T>;
+        saveGlobal(value: T["global"], revision: string): Promise<T>;
+        saveProject(value: T["project"], revision: string): Promise<T>;
+      }) => {
+        const state = await settings.load();
+        if (state.globalRevision !== input.digest) conflict();
+        if (projectOnly)
+          await settings.saveProject(
+            { ...state.project, enabled: undefined },
+            state.projectRevision,
+          );
+        else
+          await settings.saveGlobal(
+            { ...state.global, enabled: input.enabled },
+            state.globalRevision,
+          );
+      };
+      if (store instanceof LspSettingsStore) {
+        const state = await store.load();
+        if (state.globalRevision !== input.digest) conflict();
+        await store.setEnabled(
+          projectOnly ? "project" : "global",
+          projectOnly ? undefined : input.enabled,
+          state,
+        );
+      } else if (store instanceof SubagentSettingsStore) {
+        await setEnabled(store);
       } else {
-        await this.builtinSave({
-          id: input.id,
-          path: input.path,
-          scope: "global",
-          revision: state.globalRevision,
-          value: {
-            ...(state.global as Record<string, Json>),
-            enabled: input.enabled,
-          },
-        });
+        await setEnabled(store);
       }
+      await this.builtinChanged(id, input.path);
       return { id: input.id, restartRequired: false, deferred: false };
     }
     if (
@@ -777,12 +880,22 @@ export class ExtensionManagementService {
       input.enabled,
       input,
     );
+    const disabling = input.enabled
+      ? undefined
+      : this.options.disableExternal?.(result.id).catch(() => {});
+    this.notify(input.enabled ? undefined : { id: result.id });
     const appliedUi = await this.options
       .applyUi?.(result.id)
       .catch(() => false);
+    await disabling;
+    this.notify();
     return {
       id: result.id,
-      restartRequired: result.restartRequired && !appliedUi,
+      restartRequired:
+        this.options.externalNeedsRestart?.(result.id) ||
+        (result.restartRequired &&
+          !appliedUi &&
+          (input.enabled || !this.options.disableExternal)),
       deferred: result.deferred,
     };
   }
@@ -833,5 +946,6 @@ export class ExtensionManagementService {
       [...this.operations.keys()].map((id) => this.cancel(id)),
     );
     this.operations.clear();
+    this.listeners.clear();
   }
 }

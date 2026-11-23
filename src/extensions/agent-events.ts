@@ -146,6 +146,7 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
   constructor(
     private workspaceRoot: string,
     private lifetime: AbortSignal,
+    private readonly staging = () => false,
   ) {}
   on<K extends keyof AgentEventData>(
     owner: string,
@@ -154,7 +155,7 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
   ): Disposable {
     if (
       this.closed ||
-      this.sealed ||
+      (this.sealed && !this.staging()) ||
       !(type in inputs) ||
       typeof handler !== "function"
     )
@@ -175,7 +176,11 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
     owner: string,
     handler: (event: Readonly<AgentObservedEvent>) => void | Promise<void>,
   ): Disposable {
-    if (this.closed || this.sealed || typeof handler !== "function")
+    if (
+      this.closed ||
+      (this.sealed && !this.staging()) ||
+      typeof handler !== "function"
+    )
       throw Error("Agent event registrations are closed or invalid.");
     const entry = { owner, handler };
     this.observers.push(entry);

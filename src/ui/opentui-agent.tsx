@@ -44,6 +44,7 @@ import type { ChiselExtension } from "../extensions/contracts.js";
 import type { ExtensionHost } from "../extensions/host.js";
 import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
 import { ExtensionManagementService } from "../extensions/management.js";
+import { builtinAvailability } from "../extensions/settings-contributions.js";
 import { UiExtensionRuntime } from "../extensions/ui-runtime.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
@@ -166,8 +167,33 @@ async function runApplication(
     options.externalExtensions === false,
     (id) => !extensionHost.hasDefinition(id),
   );
+  extensionHost.configureOwnerAvailability(async (id, root) => {
+    if (
+      !["builtin.lsp", "builtin.subagents", "builtin.background"].includes(id)
+    )
+      return true;
+    const [global, project] = await Promise.all([
+      loadGlobalConfig(options.configPath),
+      loadProjectConfig(root),
+    ]);
+    return builtinAvailability(id, global, project).effective;
+  });
   const extensionManagement = new ExtensionManagementService({
     applyUi: (id) => uiRuntime.changed(id),
+    hasBuiltin: (id) => extensionHost.hasDefinition(id),
+    applyBuiltin: async (id) => {
+      try {
+        await extensionHost.refreshOwner(id);
+      } finally {
+        uiRuntime.publish();
+      }
+    },
+    disableExternal: (id) => {
+      uiRuntime.suspend(id);
+      return extensionHost.suspendOwner(id).finally(() => uiRuntime.publish());
+    },
+    externalNeedsRestart: (id) =>
+      extensionHost.needsRestart(id) || uiRuntime.needsRestart(id),
     canApplyUi: (id) => uiRuntime.canApply(id),
     configPath: options.configPath,
     externalDisabled: options.externalExtensions === false,

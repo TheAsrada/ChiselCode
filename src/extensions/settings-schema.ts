@@ -115,7 +115,16 @@ const FieldSchema = z
     }
   });
 export const SettingsSchemaValidator = z
-  .strictObject({ fields: z.array(FieldSchema).max(64) })
+  .strictObject({
+    fields: z.array(FieldSchema).max(64),
+    section: z
+      .strictObject({
+        title: z.string().trim().min(1).max(120),
+        description: z.string().trim().max(1000).optional(),
+        keywords: z.array(z.string().trim().min(1).max(80)).max(24).optional(),
+      })
+      .optional(),
+  })
   .refine(
     (schema) =>
       new Set(schema.fields.map((f) => f.name)).size === schema.fields.length,

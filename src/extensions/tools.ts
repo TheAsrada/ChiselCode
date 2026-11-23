@@ -46,9 +46,14 @@ export class ExtensionToolContributions implements ToolProvider {
     private readonly lifetime: AbortSignal,
     private readonly assertAvailable: () => void,
     private readonly chat?: ExtensionChatViews,
+    private readonly staging = () => false,
   ) {}
-  register(extensionId: string, tool: ExtensionToolContribution): Disposable {
-    if (this.sealed || this.closed)
+  register(
+    extensionId: string,
+    tool: ExtensionToolContribution,
+    lifetime = this.lifetime,
+  ): Disposable {
+    if ((this.sealed && !this.staging()) || this.closed)
       throw new ExtensionLifecycleError(
         `Extension ${extensionId} tool registrations are closed.`,
         extensionId,
@@ -104,7 +109,7 @@ export class ExtensionToolContributions implements ToolProvider {
       const prepare = tool.prepare.bind(tool);
       const execute = tool.execute.bind(tool);
       const context = (caller: ToolContext): ToolContext => {
-        const signal = operationSignal(this.lifetime, caller.signal);
+        const signal = operationSignal(lifetime, caller.signal);
         cancelled(signal);
         this.assertAvailable();
         return { ...caller, signal };
@@ -121,9 +126,9 @@ export class ExtensionToolContributions implements ToolProvider {
             ...(spec.chat ? { chat: spec.chat } : {}),
           },
         }) as ToolSpec,
-        lifetimeSignal: this.lifetime,
+        lifetimeSignal: lifetime,
         parse: (input) => {
-          cancelled(this.lifetime);
+          cancelled(lifetime);
           this.assertAvailable();
           return parse(input);
         },

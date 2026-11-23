@@ -10,19 +10,19 @@ import {
   updateGlobalConfig,
 } from "../config/load.js";
 import { subagentServiceToken } from "../extensions/builtins/subagents.js";
-import { type ExtensionHost } from "../extensions/host.js";
-import { ExtensionManagementService } from "../extensions/management.js";
+import type { ExtensionHost } from "../extensions/host.js";
+import type { ExtensionManagementService } from "../extensions/management.js";
 import { lspServiceToken } from "../lsp/service.js";
 import { LspSettingsStore } from "../lsp/settings.js";
 import type { getProviderCatalog } from "../providers/catalog.js";
-import { SecretRedactor } from "../security/redaction.js";
+import type { SecretRedactor } from "../security/redaction.js";
 import { effectiveSubagentConfig } from "../subagents/config.js";
 import { SubagentSettingsStore } from "../subagents/settings.js";
 import type { GlobalConfig } from "../types/domain.js";
 import type { resolveWebConfig } from "../web/schema.js";
-import { WebSettingsStore } from "../web/settings.js";
+import type { WebSettingsStore } from "../web/settings.js";
 import type { UiToolSubmit } from "./extension-ui.js";
-import { ModelCatalogController } from "./model-catalog-controller.js";
+import type { ModelCatalogController } from "./model-catalog-controller.js";
 import {
   connectProviderAccount,
   removeProviderProfile,
@@ -110,6 +110,7 @@ export function createApplicationSettingsActions({
         };
       },
       apply: async () => {
+        await extensionManagement.builtinChanged("builtin.lsp", root);
         await Promise.all(
           extensionHost
             .readyScopes()
@@ -169,11 +170,14 @@ export function createApplicationSettingsActions({
     });
     return {
       extensions: extensionManagement,
-      background: new BackgroundSettingsStore(root, options.configPath),
+      background: new BackgroundSettingsStore(root, options.configPath, () =>
+        extensionManagement.builtinChanged("builtin.background", root),
+      ),
       subagents: new SubagentSettingsStore(
         root,
         options.configPath,
         async () => {
+          await extensionManagement.builtinChanged("builtin.subagents", root);
           const global = await loadGlobalConfig(options.configPath);
           for (const scope of extensionHost.readyScopes()) {
             const project = await loadProjectConfig(scope.workspaceRoot);
@@ -204,7 +208,13 @@ export function createApplicationSettingsActions({
         },
       },
       catalog: async () => ({
-        providers: catalog.registry.list(),
+        providers: catalog.registry
+          .list()
+          .filter(
+            (provider) =>
+              catalog.registry.source(provider.id)?.type !== "extension" ||
+              !!extensionManagement.connectionContribution(),
+          ),
         profiles: (await loadGlobalConfig(options.configPath)).profiles,
       }),
       load: async (profileId) => {

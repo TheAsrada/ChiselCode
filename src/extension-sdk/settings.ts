@@ -15,6 +15,13 @@ export interface SettingField {
   maxLength?: number;
   options?: { value: string; label: string }[];
 }
+/** One Settings page. Its route is derived from the manifest ID. */
+export interface SettingsSection {
+  title: string;
+  description?: string;
+  keywords?: string[];
+}
 export interface SettingsSchema {
+  section?: SettingsSection;
   fields: SettingField[];
 }

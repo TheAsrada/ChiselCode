@@ -1,22 +1,20 @@
+import type { ManagedExtension } from "../extensions/management.js";
+import type { SettingsContribution } from "../extensions/settings-contributions.js";
+
 export type SettingsRoute =
   | "connection"
   | "appearance"
   | "permissions"
   | "extensions"
-  | "tools.background"
-  | "tools.subagents"
-  | "tools.lsp"
+  | `builtin.${string}`
+  | `extension:${string}`
   | "tools.mcp"
   | "tools.web"
   | "tools.skills";
 
-export interface SettingsDescriptor {
+export interface SettingsDescriptor extends SettingsContribution {
   id: SettingsRoute;
   group: string;
-  title: string;
-  description: string;
-  keywords: readonly string[];
-  fields: readonly { id: string; title: string; keywords: readonly string[] }[];
 }
 
 /** Metadata only: never add configuration values or secrets to this index. */
@@ -26,14 +24,7 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     group: "Подключения",
     title: "Подключения",
     description: "Профили, модели, API и подписки",
-    keywords: [
-      "connection",
-      "provider",
-      "подключение",
-      "подписка",
-      "chatgpt",
-      "аккаунт",
-    ],
+    keywords: ["connection", "provider", "подключение", "аккаунт"],
     fields: [
       { id: "providers", title: "Сервис", keywords: ["provider", "service"] },
       { id: "profiles", title: "Профиль", keywords: ["profile", "account"] },
@@ -98,112 +89,6 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     fields: [],
   },
   {
-    id: "tools.background",
-    group: "Инструменты",
-    title: "Фоновые задачи",
-    description: "Локальные команды: время, вывод и хранение",
-    keywords: ["background", "фон", "tasks", "процессы", "сервер", "watcher"],
-    fields: [
-      {
-        id: "enabled",
-        title: "Включение фоновых задач",
-        keywords: ["выключить"],
-      },
-      {
-        id: "limits",
-        title: "Лимиты процессов и вывода",
-        keywords: ["срок", "память", "хранение"],
-      },
-      { id: "project", title: "Настройки проекта", keywords: ["проект"] },
-    ],
-  },
-  {
-    id: "tools.subagents",
-    group: "Инструменты",
-    title: "Субагенты",
-    description: "Помощники: чтение и работа в отдельных копиях",
-    keywords: ["помощники", "делегирование", "subagent", "agents"],
-    fields: [
-      {
-        id: "enabled",
-        title: "Включение помощников",
-        keywords: ["выключить", "enabled"],
-      },
-      {
-        id: "project",
-        title: "Настройки проекта",
-        keywords: ["проект", "project"],
-      },
-    ],
-  },
-  {
-    id: "tools.lsp",
-    group: "Инструменты",
-    title: "Анализ кода · LSP",
-    description: "Включение, серверы и диагностика проекта",
-    keywords: [
-      "lsp",
-      "анализ кода",
-      "языковой сервер",
-      "typescript",
-      "javascript",
-      "diagnostics",
-      "python",
-      "go",
-      "rust",
-      "c++",
-      "c#",
-      "java",
-      "kotlin",
-      "php",
-      "ruby",
-      "swift",
-      "lua",
-      "dart",
-      "clangd",
-      "pyright",
-      "сервер",
-    ],
-    fields: [
-      {
-        id: "enabled",
-        title: "Включение анализа кода",
-        keywords: ["выключить", "включить", "enabled", "off"],
-      },
-      {
-        id: "servers",
-        title: "Все поддерживаемые серверы",
-        keywords: ["каталог", "серверы", "переключатели"],
-      },
-      {
-        id: "mode",
-        title: "Стратегия Auto / Своя настройка",
-        keywords: ["auto", "авто", "режим", "выключить", "стандартный"],
-      },
-      {
-        id: "project",
-        title: "Настройки проекта",
-        keywords: ["project", "проект", "наследовать", "tsconfig", "jsconfig"],
-      },
-      { id: "node", title: "Node.js", keywords: ["runtime", "node", "путь"] },
-      {
-        id: "server",
-        title: "Language server",
-        keywords: ["cli.mjs", "сервер"],
-      },
-      {
-        id: "typescript",
-        title: "TypeScript",
-        keywords: ["tsserver", "typescript"],
-      },
-      {
-        id: "trust",
-        title: "Доверенные проекты",
-        keywords: ["trust", "разрешить", "проект"],
-      },
-    ],
-  },
-  {
     id: "tools.mcp",
     group: "Инструменты",
     title: "MCP",
@@ -236,6 +121,49 @@ export const SETTINGS_SECTIONS: readonly SettingsDescriptor[] = [
     fields: [],
   },
 ];
+
+export function extensionSettingsRoute(
+  item: ManagedExtension,
+): SettingsRoute | undefined {
+  if (!item.settingsSection) return;
+  return item.origin === "builtin"
+    ? `builtin.${item.id.slice("builtin.".length)}`
+    : `extension:${item.id}`;
+}
+
+export function settingsSections(
+  items: readonly ManagedExtension[],
+  connection?: { keywords: readonly string[] },
+): SettingsDescriptor[] {
+  const builtins: SettingsDescriptor[] = [];
+  const installed: SettingsDescriptor[] = [];
+  for (const item of items) {
+    const id = extensionSettingsRoute(item);
+    if (!id || !item.settingsSection) continue;
+    const target = item.origin === "builtin" ? builtins : installed;
+    target.push({
+      ...item.settingsSection,
+      id,
+      group: item.origin === "builtin" ? "Инструменты" : "Настройки пакетов",
+    });
+  }
+  const tools = SETTINGS_SECTIONS.findIndex(
+    (section) => section.group === "Инструменты",
+  );
+  return [
+    ...SETTINGS_SECTIONS.slice(0, tools).map((section) =>
+      section.id === "connection" && connection
+        ? {
+            ...section,
+            keywords: [...section.keywords, ...connection.keywords],
+          }
+        : section,
+    ),
+    ...builtins,
+    ...SETTINGS_SECTIONS.slice(tools),
+    ...installed,
+  ];
+}
 
 export interface SettingsSearchResult {
   section: SettingsDescriptor;

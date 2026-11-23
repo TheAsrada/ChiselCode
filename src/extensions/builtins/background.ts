@@ -6,6 +6,7 @@ import { RuntimeError } from "../../runtime/errors.js";
 import { defineTool } from "../../tools/handler.js";
 import type { ChiselExtension } from "../contracts.js";
 import { createServiceToken } from "../services.js";
+import type { SettingsContribution } from "../settings-contributions.js";
 import { backgroundUiTarget } from "../ui-core.js";
 import { registerOwnerUi } from "./owner-ui.js";
 export const backgroundServiceToken = createServiceToken<BackgroundTaskService>(
@@ -89,6 +90,25 @@ export function parseBackgroundCommand(text: string): BackgroundCommandInput {
     "Используйте /tasks [list | start команда | status ID | output ID [cursor] [limit] | wait ID… [--timeout ms] | stop ID | retry ID | recover ID | stop-all --confirm].",
   );
 }
+export const backgroundSettings = {
+  title: "Фоновые задачи",
+  description: "Локальные команды: время, вывод и хранение",
+  keywords: ["background", "фон", "tasks", "процессы", "сервер", "watcher"],
+  fields: [
+    {
+      id: "enabled",
+      title: "Включение фоновых задач",
+      keywords: ["выключить"],
+    },
+    {
+      id: "limits",
+      title: "Лимиты процессов и вывода",
+      keywords: ["срок", "память", "хранение"],
+    },
+    { id: "project", title: "Настройки проекта", keywords: ["проект"] },
+  ],
+} satisfies SettingsContribution;
+
 export function createBackgroundExtension(
   service: BackgroundTaskService,
   ownsService = true,

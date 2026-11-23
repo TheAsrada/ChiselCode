@@ -85,9 +85,9 @@ try {
   await act(async () => ui.mockInput.pressKey("t", { ctrl: true }));
   await until(
     () =>
-      !!ui.renderer.root.findDescendantById("settings-route-tools.subagents"),
+      !!ui.renderer.root.findDescendantById("settings-route-builtin.subagents"),
   );
-  await click("settings-route-tools.subagents");
+  await click("settings-route-builtin.subagents");
   await until(() => ui.captureCharFrame().includes("Без квот на ходы"));
   assert.doesNotMatch(
     ui.captureCharFrame(),

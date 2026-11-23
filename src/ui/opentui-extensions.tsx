@@ -18,7 +18,10 @@ import type {
   SettingField,
   SettingValue,
 } from "../desktop/protocol.js";
-import type { ExtensionManagementService } from "../extensions/management.js";
+import type {
+  ExtensionManagementService,
+  ManagedExtension,
+} from "../extensions/management.js";
 import type { Palette } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import {
@@ -27,6 +30,10 @@ import {
 } from "./opentui-settings-input.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { useSettingsAutosave } from "./settings-autosave.js";
+import {
+  extensionSettingsRoute,
+  type SettingsRoute,
+} from "./settings-catalog.js";
 import type { SettingsPanelControl } from "./settings-panel.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
@@ -84,7 +91,9 @@ export function OpenTuiExtensions({
   active,
   focused,
   controls,
-  onOpenBuiltin,
+  onOpenSection,
+  sectionItem,
+  fieldTarget,
   onDirty,
   onFocus = () => {},
 }: {
@@ -96,16 +105,18 @@ export function OpenTuiExtensions({
   active: boolean;
   focused: boolean;
   controls: MutableRefObject<SettingsPanelControl | undefined>;
-  onOpenBuiltin(route: NonNullable<CatalogExtension["settingsRoute"]>): void;
+  onOpenSection?(route: SettingsRoute): void;
+  sectionItem?: ManagedExtension;
+  fieldTarget?: string;
   onDirty(value: boolean): void;
   onFocus?(): void;
 }) {
-  const [items, setItems] = useState<CatalogExtension[]>([]),
+  const [items, setItems] = useState<ManagedExtension[]>([]),
     [selectedId, setSelectedId] = useState(""),
     [filter, setFilter] = useState(0),
     [query, setQuery] = useState(""),
     [searching, setSearching] = useState(false);
-  const [view, setView] = useState<View>("catalog"),
+  const [view, setView] = useState<View>(sectionItem ? "settings" : "catalog"),
     [menuTarget, setMenuTarget] = useState(""),
     [metadata, setMetadata] = useState(false),
     [source, setSource] = useState(""),
@@ -148,7 +159,7 @@ export function OpenTuiExtensions({
   useEffect(() => {
     onDirty(dirty);
   }, [dirty, onDirty]);
-  const selected = items.find((i) => i.id === selectedId);
+  const selected = sectionItem ?? items.find((i) => i.id === selectedId);
   const matching = (item: CatalogExtension, option = filter) => {
     const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     const content =
@@ -179,6 +190,7 @@ export function OpenTuiExtensions({
     openView("details");
   };
   const refresh = useCallback(async () => {
+    if (sectionItem) return;
     const list = await management.list(root);
     if (alive.current) {
       setItems(list.items);
@@ -187,7 +199,7 @@ export function OpenTuiExtensions({
         list.items.some((i) => i.id === id) ? id : (list.items[0]?.id ?? ""),
       );
     }
-  }, [management, root]);
+  }, [management, root, sectionItem]);
   const cancel = useCallback(() => {
     const id = request.current;
     request.current = undefined;
@@ -207,13 +219,41 @@ export function OpenTuiExtensions({
     };
   }, [management]);
   useEffect(() => {
-    if (active)
+    if (active && !sectionItem)
       void refresh().catch((e) => setNotice(terminalSafeText(e.message, 800)));
     else if (request.current) {
       cancel();
       setView("catalog");
     }
-  }, [active, refresh, cancel]);
+  }, [active, refresh, cancel, sectionItem]);
+  const sectionId = sectionItem?.id;
+  const sectionDigest = sectionItem?.digest;
+  const sectionRevision = sectionItem?.revision;
+  useEffect(() => {
+    if (!sectionId || !sectionDigest || sectionRevision === undefined) return;
+    let current = true;
+    void management
+      .settings({
+        id: sectionId,
+        digest: sectionDigest,
+        revision: sectionRevision,
+      })
+      .then((next) => {
+        if (current) {
+          setSettings(next);
+          setValues(next.values);
+        }
+      })
+      .catch((error) => {
+        if (current) setNotice(terminalSafeText(error.message, 800));
+      });
+    return () => {
+      current = false;
+    };
+  }, [management, sectionId, sectionDigest, sectionRevision]);
+  useEffect(() => {
+    if (fieldTarget) setMenuTarget(`extensions-setting-${fieldTarget}`);
+  }, [fieldTarget]);
   useEffect(() => {
     if (!busy || !request.current) return;
     const timer = setInterval(() => {
@@ -417,7 +457,8 @@ export function OpenTuiExtensions({
   const action = (name: ExtensionAction) => {
     if (!selected || busy || !selected.actions.includes(name)) return;
     if (name === "settings") {
-      if (selected.settingsRoute) onOpenBuiltin(selected.settingsRoute);
+      const route = extensionSettingsRoute(selected);
+      if (route && onOpenSection) onOpenSection(route);
       else
         run(async () => {
           const next = await management.settings({
@@ -524,6 +565,7 @@ export function OpenTuiExtensions({
       );
       return true;
     }
+    if (sectionItem) return false;
     if (view === "settings" && dirty) {
       void autosave.flush().then((ok) => {
         if (ok) openView("details");
@@ -732,11 +774,15 @@ export function OpenTuiExtensions({
                   ]
                 : view === "settings" && settings
                   ? [
-                      {
-                        id: "extensions-back",
-                        label: "‹ О расширении",
-                        run: back,
-                      },
+                      ...(!sectionItem
+                        ? [
+                            {
+                              id: "extensions-back",
+                              label: "‹ О расширении",
+                              run: back,
+                            },
+                          ]
+                        : []),
                       ...settings.schema.fields.flatMap(
                         (field): MenuEntry[] => [
                           {
@@ -948,7 +994,7 @@ export function OpenTuiExtensions({
       )
     : 0;
   const title =
-    view === "catalog"
+    view === "catalog" || sectionItem
       ? ""
       : view === "filters"
         ? "Показать расширения"
@@ -965,7 +1011,7 @@ export function OpenTuiExtensions({
                   : "Обновление расширения";
   return (
     <box
-      id="extensions-panel"
+      id={sectionItem ? "extension-settings-panel" : "extensions-panel"}
       width="100%"
       height={height}
       flexDirection="column"
@@ -1240,7 +1286,7 @@ export function OpenTuiExtensions({
             </>
           ) : view === "settings" && settings ? (
             <>
-              {text(selected?.name ?? "", palette.accent)}
+              {!sectionItem && text(selected?.name ?? "", palette.accent)}
               {!settings.schema.fields.length &&
                 text("У этого расширения нет настроек.", palette.muted)}
               {settings.unknownKeys.length > 0 &&
@@ -1311,6 +1357,8 @@ export function OpenTuiExtensions({
                 palette.muted,
               )}
             </>
+          ) : sectionItem && !notice ? (
+            text("Загружаем параметры…", palette.muted)
           ) : (
             text(
               "Расширение недоступно. Вернитесь в каталог и обновите список.",

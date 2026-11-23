@@ -368,7 +368,7 @@ function OpenTuiScreen({
   }, [getMcpActions, capturedSettingsActions]);
   const [settingsSelection, setSettingsSelection] = useState(0);
   const [settingsPage, setSettingsPage] = useState<
-    "connection" | "appearance" | "permissions" | "web" | "tools.lsp"
+    "connection" | "appearance" | "permissions" | "web" | "builtin.lsp"
   >("connection");
   useEffect(() => {
     approvalResolver?.bind(setApproval);
@@ -953,7 +953,7 @@ function OpenTuiScreen({
   }, [focus, showSidebar, controller]);
 
   const openSettings = (
-    page: "connection" | "appearance" | "permissions" | "web" | "tools.lsp",
+    page: "connection" | "appearance" | "permissions" | "web" | "builtin.lsp",
     selection = 0,
   ) => {
     editor.current?.blur();
@@ -976,7 +976,7 @@ function OpenTuiScreen({
     if (!view.lspMenuRequest || view.lspMenuRequest === handledLspMenu.current)
       return;
     handledLspMenu.current = view.lspMenuRequest;
-    if (!settingsOpen) openSettings("tools.lsp");
+    if (!settingsOpen) openSettings("builtin.lsp");
   }, [view.lspMenuRequest]);
   const closePermissions = () => {
     setPermissionsOpen(false);
@@ -1970,7 +1970,7 @@ function OpenTuiScreen({
             detail: "Общие настройки и выбор проекта",
             shortcut: "",
             group: "ПРОЕКТ",
-            run: () => openSettings("tools.lsp"),
+            run: () => openSettings("builtin.lsp"),
           },
         ]
       : []),

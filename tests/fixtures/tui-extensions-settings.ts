@@ -217,6 +217,18 @@ if (phase < 0) {
       "Клик не открыл карточку пакета",
     );
   };
+  const route = "settings-route-extension:example.settings-demo";
+  const search = async (query: string, found: boolean) => {
+    await key("f", true);
+    await paste(query);
+    await until(
+      () =>
+        found
+          ? !!ui.renderer.root.findDescendantById(route)
+          : ui.captureCharFrame().includes("Нет результатов"),
+      `Поиск Settings, запрос ${query}`,
+    );
+  };
   const command = async (expected: string) => {
     await click("prompt-editor");
     const editor = ui.renderer.currentFocusedEditor as
@@ -306,6 +318,18 @@ if (phase < 0) {
         () => ui.captureCharFrame().includes("Нужен перезапуск"),
         "Нет pending restart",
       );
+      await search("демопараметры", true);
+      await key("RETURN");
+      await until(
+        () =>
+          !!ui.renderer.root.findDescendantById("extensions-setting-message"),
+        "Параметры до перезапуска",
+      );
+      assert.equal(
+        await Bun.file(join(storage, "imports.txt")).exists(),
+        false,
+        "Навигация Settings выполнила код пакета",
+      );
       await closeSettings();
       assert.match(ui.captureCharFrame(), /Черновик перед расширениями/);
     } else if (step === "use") {
@@ -326,7 +350,8 @@ if (phase < 0) {
       await capture("working-120x36");
       await click("extensions-metadata");
       await capture("metadata-120x36");
-      await click("extensions-action-settings");
+      await search("Сообщение", true);
+      await key("RETURN");
       await until(
         () =>
           !!ui.renderer.root.findDescendantById("extensions-setting-message"),
@@ -338,7 +363,9 @@ if (phase < 0) {
       await paste("После restart");
       await key("RETURN");
       await until(
-        () => ui.captureCharFrame().includes("Параметры применятся"),
+        () =>
+          ui.captureCharFrame().includes("Сохранено.") &&
+          ui.captureCharFrame().includes("После restart"),
         "Параметры не сохранены",
       );
       await capture("settings-120x36");
@@ -390,6 +417,29 @@ if (phase < 0) {
       );
       assert.equal((await readExtensionRegistry()).records[0]?.enabled, false);
       await capture("disabled-before-restart-120x36");
+      assert.match(ui.captureCharFrame(), /Нужен перезапуск/);
+      await search("демопараметры", false);
+      await capture("section-disabled-search-120x36");
+      await key("ESCAPE");
+      await closeSettings();
+      await command("Неизвестная команда");
+      await settings();
+      await select();
+      await click("extensions-action-enable");
+      await search("демопараметры", true);
+      await key("RETURN");
+      await until(
+        () => ui.captureCharFrame().includes("Сообщение: После restart"),
+        "Сохранённое значение не восстановилось",
+      );
+      await capture("section-restored-120x36");
+      await click("settings-route-extensions");
+      await click("extensions-action-disable");
+      await until(
+        () => !!ui.renderer.root.findDescendantById("extensions-action-enable"),
+        "Нет второго disable",
+      );
+
       for (const [width, height] of [
         [80, 24],
         [40, 16],

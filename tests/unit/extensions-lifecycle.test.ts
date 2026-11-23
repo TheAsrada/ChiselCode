@@ -570,3 +570,107 @@ test("cleanup continues across workspaces and duplicate resource ownership is re
   });
   expect(once).toBe(1);
 });
+
+test("owner disable revokes captured commands, tools and queued UI events in just the affected root", async () => {
+  const first = await root(),
+    second = await root();
+  const gate = deferred<void>();
+  let blocked = false;
+  let calls = 0;
+  let cleanups = 0;
+  const app = host([
+    {
+      id: "sample.toggle",
+      activate(ctx) {
+        ctx.commands.register({
+          name: "toggle-demo",
+          description: "Fixture",
+          parse: () => ++calls,
+          execute: () => ({ output: "", isError: false }),
+        });
+        ctx.tools.register({
+          spec: {
+            name: "sample",
+            description: "Fixture",
+            effect: "read",
+            permission: "read",
+            parallelSafe: true,
+            inputSchema: { type: "object" },
+          },
+          parse: () => {
+            calls++;
+            return {};
+          },
+          prepare: async () => ({ preview: "", resources: [], data: {} }),
+          execute: async () => ({ output: "", isError: false }),
+        });
+        ctx.ui.on("press", async () => {
+          calls++;
+          await gate.promise;
+        });
+        ctx.ui.register({
+          id: "sample",
+          slot: "status",
+          title: "Fixture",
+          scope: "workspace",
+          actions: [
+            { id: "press", label: "Run", type: "event", eventId: "press" },
+          ],
+          source: {
+            snapshot: () => ({
+              revision: 1,
+              state: "ready",
+              summary: "Fixture",
+            }),
+          },
+        });
+        ctx.add({
+          dispose: () => {
+            cleanups++;
+          },
+        });
+      },
+    },
+  ]);
+  app.configureOwnerAvailability((_id, path) => !blocked || path !== first);
+  const scope = await app.open(first);
+  const other = await app.open(second);
+  const command = scope.commands.get("toggle-demo");
+  const tool = await scope.tools.getHandler("ext:sample.toggle:sample");
+  const binding = scope.ui.bind(
+    {
+      conversationId: "example",
+      generation: 1,
+      signal: scope.signal,
+      read: {
+        ownerSummary: () => ({
+          background: { active: 0, errors: 0, awaitingApproval: 0 },
+          agents: { active: 0, total: 0, errors: 0 },
+        }),
+        subscribeOwner: () => ({ dispose() {} }),
+      },
+    },
+    () => {},
+  );
+  const key = "sample.toggle/sample";
+  const action = binding.invoke(key, "press", {}).catch(() => {});
+  const queued = binding.invoke(key, "press", {}).catch(() => {});
+  await Promise.resolve();
+  blocked = true;
+  await app.refreshOwner("sample.toggle");
+  gate.resolve();
+  await Promise.all([action, queued, binding.invoke(key, "press", {})]);
+  expect(calls).toBe(1);
+  expect(cleanups).toBe(1);
+  expect(() => command.parse("")).toThrow();
+  expect(() => tool.parse({})).toThrow();
+  expect(scope.commands.descriptors()).toEqual([]);
+  expect(await scope.tools.listTools()).toEqual([]);
+  expect(other.commands.get("toggle-demo").parse("")).toBe(2);
+
+  blocked = false;
+  await app.refreshOwner("sample.toggle");
+  expect(scope.commands.get("toggle-demo").parse("")).toBe(3);
+  expect(() => command.parse("")).toThrow();
+  expect(() => tool.parse({})).toThrow();
+});

@@ -9,6 +9,7 @@ import type { ChiselExtension } from "../contracts.js";
 import { abortable, frozenClone } from "../lifecycle.js";
 import { markRuntimeSnapshot } from "../packages/runtime-ownership.js";
 import { acquireVersionUse, type PackageUseLease } from "../packages/use.js";
+import { externalAllowed } from "../settings-contributions.js";
 import { ExtensionSettingsStore } from "../settings-store.js";
 import {
   adaptDefinition,
@@ -388,13 +389,8 @@ export class ExternalExtensionLoader {
       const wrapper: ChiselExtension = {
         id: record.id,
         activate: async (context) => {
-          const config = await loadProjectConfig(context.workspaceRoot),
-            filter = config.externalExtensions;
-          if (
-            !record.enabled ||
-            filter?.disabled ||
-            filter?.disabledIds?.includes(record.id)
-          ) {
+          const config = await loadProjectConfig(context.workspaceRoot);
+          if (!record.enabled || !externalAllowed(record.id, config)) {
             report(context.workspaceRoot, {
               id: record.id,
               version: record.version,

@@ -12,11 +12,14 @@ export class ExtensionChatViews implements ChatPresentationPort {
   private readonly views = new Map<string, (data: unknown) => unknown>();
   private sealed = false;
   private closed = false;
-  constructor(private readonly available: () => void) {}
+  constructor(
+    private readonly available: () => void,
+    private readonly staging = () => false,
+  ) {}
   register(extensionId: string, view: ExtensionChatView): Disposable {
     const key = JSON.stringify([extensionId, view?.id]);
     if (
-      this.sealed ||
+      (this.sealed && !this.staging()) ||
       this.closed ||
       !view ||
       !/^[a-z][a-z0-9_-]{0,63}$/.test(view.id) ||

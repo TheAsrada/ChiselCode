@@ -9,7 +9,10 @@ import type {
   ExtensionReview,
   ExtensionSettings,
 } from "../../src/desktop/protocol.js";
-import type { ExtensionManagementService } from "../../src/extensions/management.js";
+import type {
+  ExtensionManagementService,
+  ManagedExtension,
+} from "../../src/extensions/management.js";
 import { THEMES } from "../../src/ui/appearance.js";
 import { OpenTuiExtensions } from "../../src/ui/opentui-extensions.js";
 import type { SettingsPanelControl } from "../../src/ui/settings-panel.js";
@@ -130,7 +133,7 @@ async function click(ui: Setup, id: string) {
   await act(async () => ui.mockMouse.click(node!.x + 1, node!.y));
   await frame(ui);
 }
-async function setup(items?: CatalogExtension[], width = 73, height = 21) {
+async function setup(items?: ManagedExtension[], width = 73, height = 21) {
   const { service, calls } = api(items);
   const controls: { current: SettingsPanelControl | undefined } = {
     current: undefined,
@@ -151,7 +154,7 @@ async function setup(items?: CatalogExtension[], width = 73, height = 21) {
         onDirty={(value) => {
           dirty = value;
         }}
-        onOpenBuiltin={(route) => builtins.push(route)}
+        onOpenSection={(route) => builtins.push(route)}
       />
     );
   }
@@ -301,14 +304,19 @@ test("builtin configuration is a named action in its card", async () => {
       ...extension("builtin.lsp"),
       origin: "builtin",
       actions: ["settings"],
-      settingsRoute: "tools.lsp",
+      settingsSection: {
+        title: "LSP",
+        description: "",
+        keywords: [],
+        fields: [],
+      },
     },
   ]);
   try {
     await key(ui, "RETURN");
     expect(builtins).toEqual([]);
     await key(ui, "RETURN");
-    expect(builtins).toEqual(["tools.lsp"]);
+    expect(builtins).toEqual(["builtin.lsp"]);
     expect(calls).toEqual([]);
   } finally {
     destroy(ui);

@@ -23,7 +23,10 @@ export class ServiceRegistry implements Disposable {
   private readonly children = new Set<ServiceRegistry>();
   private closed = false;
   private sealed = false;
-  constructor(private readonly parent?: ServiceRegistry) {
+  constructor(
+    private readonly parent?: ServiceRegistry,
+    private readonly staging = () => false,
+  ) {
     parent?.assertOpen();
     parent?.children.add(this);
   }
@@ -34,7 +37,7 @@ export class ServiceRegistry implements Disposable {
   }
   provide<T>(token: ServiceToken<T>, value: T): Disposable {
     this.assertOpen();
-    if (this.sealed)
+    if (this.sealed && !this.staging())
       throw new ExtensionLifecycleError("Service registrations are closed.");
     if (this.contains(token.key) || this.descendantContains(token.key))
       throw new ExtensionLifecycleError(

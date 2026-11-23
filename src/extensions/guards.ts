@@ -25,6 +25,7 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
   constructor(
     private readonly workspaceRoot: string,
     private readonly lifetime: AbortSignal,
+    private readonly staging = () => false,
   ) {}
   register(
     extensionId: string,
@@ -32,7 +33,8 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
     guard: ToolGuard,
   ): Disposable {
     this.assertOpen();
-    if (this.sealed) throw new Error("Tool guard registrations are closed.");
+    if (this.sealed && !this.staging())
+      throw new Error("Tool guard registrations are closed.");
     const entry = { extensionId, point, guard };
     this.entries.push(entry);
     return {

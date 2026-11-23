@@ -24,7 +24,7 @@
 
 Начиная с CLI 0.6.38 опциональный `requires` перечисляет необходимые возможности SDK, например `["ui.controls", "ui.panes"]`. Host проверяет их до импорта; неподдерживаемые возможности отображаются как несовместимость. Старый host отклоняет неизвестное поле. Список `SDK_CAPABILITIES` и `sdk.capabilities` включает UI controls/style/nativeProps/panes/media и agent.events. Текущие исходники также предоставляют `ui.modelSelection` и `ui.visibility` для [данных беседы и видимости блоков](contributions.md#chat-и-ui) и `subagents.modelOverride` для [выбора модели помощника](tools-commands.md#команды-и-capabilities). [Контракт интерактивного UI](interactive-ui.md).
 
-Опциональный `settings` с CLI 0.6.30 описывает общие поля формы. [Контракт параметров и SDK](settings.md). Для пакета с этой схемой задайте минимальную совместимую версию 0.6.30.
+Опциональный `settings` с CLI 0.6.30 описывает общие поля формы. [Контракт параметров и SDK](settings.md). Для пакета только с `settings.fields` задайте минимальную совместимую версию 0.6.30. В текущих исходниках `settings.section` вместе с `requires: ["settings.section"]` добавляет страницу в основное меню OpenTUI.
 
 `chiselVersion` поддерживает точную `a.b.c`, `^a.b.c`, `~a.b.c` и до четырёх сравнений `>=`, `<=`, `>`, `<`, `=` через пробел. Альтернативы `||`, wildcard и remote resolution не поддерживаются. Будущие schema/API versions не исполняются.
 

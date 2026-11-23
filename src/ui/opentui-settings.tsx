@@ -1,6 +1,10 @@
 /** @jsxImportSource @opentui/react */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { backgroundSettings } from "../extensions/builtins/background.js";
+import { lspSettings } from "../extensions/builtins/lsp.js";
+import { subagentsSettings } from "../extensions/builtins/subagents.js";
+import type { ManagedExtension } from "../extensions/management.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
 import type { Skill } from "../skills/skills.js";
 import { ThemeCatalog } from "../themes/catalog.js";
@@ -26,7 +30,11 @@ import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
 import { useUiKeyboard } from "./overlay-input.js";
 import { useSettingsAutosave } from "./settings-autosave.js";
-import { SETTINGS_SECTIONS, searchSettings } from "./settings-catalog.js";
+import {
+  extensionSettingsRoute,
+  searchSettings,
+  settingsSections,
+} from "./settings-catalog.js";
 import {
   labels,
   type OpenTuiSettingsActions,
@@ -132,6 +140,7 @@ export function OpenTuiSettings({
   const extensionsControls = useRef<SettingsPanelControl | undefined>(
     undefined,
   );
+  const sectionControls = useRef<SettingsPanelControl | undefined>(undefined);
   const backgroundControls = useRef<SettingsPanelControl | undefined>(
     undefined,
   );
@@ -255,28 +264,133 @@ export function OpenTuiSettings({
   const innerWidth = split
     ? Math.max(1, surfaceWidth - navigationWidth - 1)
     : surfaceWidth;
-  const catalogue = searchSettings(settingsQuery);
+  const management = actions?.extensions;
+  const settingsRoot = actions?.workspaceRoot;
+  const [inventory, setInventory] = useState<{
+    root?: string;
+    items: ManagedExtension[];
+  }>();
+  useEffect(() => {
+    if (!management) return;
+    let revision = 0;
+    const refresh = (hide?: { id: string; root?: string }) => {
+      if (hide && (!hide.root || hide.root === settingsRoot))
+        setInventory(
+          (previous) =>
+            previous && {
+              ...previous,
+              items: previous.items.map((item) =>
+                item.id === hide.id
+                  ? { ...item, settingsSection: undefined }
+                  : item,
+              ),
+            },
+        );
+      const token = ++revision;
+      void management
+        .list(settingsRoot)
+        .then(({ items }) => {
+          if (token === revision) setInventory({ root: settingsRoot, items });
+        })
+        .catch((error) => {
+          if (token === revision)
+            setNotice(terminalSafeText(error.message, 600));
+        });
+    };
+    const unsubscribe = management.subscribe(refresh);
+    refresh();
+    return () => {
+      revision++;
+      unsubscribe();
+    };
+  }, [management, settingsRoot, setNotice]);
+  const currentInventory =
+    inventory?.root === settingsRoot ? inventory : undefined;
+  const sections = useMemo(
+    () =>
+      settingsSections(
+        management ? (currentInventory?.items ?? []) : [],
+        management?.connectionContribution(),
+      ),
+    [management, currentInventory],
+  );
+  // Explicit settings ports can also be mounted by embedded clients and renderer tests.
+  const standaloneSections = useMemo(
+    () => [
+      ...(actions?.background
+        ? [
+            {
+              ...backgroundSettings,
+              id: "builtin.background" as const,
+              group: "Инструменты",
+            },
+          ]
+        : []),
+      ...(actions?.subagents
+        ? [
+            {
+              ...subagentsSettings,
+              id: "builtin.subagents" as const,
+              group: "Инструменты",
+            },
+          ]
+        : []),
+      ...(actions?.lsp
+        ? [{ ...lspSettings, id: "builtin.lsp" as const, group: "Инструменты" }]
+        : []),
+    ],
+    [actions],
+  );
+  const availableSections = useMemo(
+    () =>
+      management
+        ? sections
+        : [
+            ...sections.filter((section) => section.group !== "Инструменты"),
+            ...standaloneSections,
+            ...sections.filter((section) => section.group === "Инструменты"),
+          ],
+    [management, sections, standaloneSections],
+  );
+  const catalogue = searchSettings(settingsQuery, availableSections);
+  useEffect(() => {
+    setNavigationIndex((index) =>
+      Math.max(0, Math.min(index, catalogue.length - 1)),
+    );
+  }, [catalogue.length]);
+  const selectedExtension = page.startsWith("extension:")
+    ? currentInventory?.items.find(
+        (item) => extensionSettingsRoute(item) === page,
+      )
+    : undefined;
+  const ownedPage =
+    page.startsWith("extension:") || page.startsWith("builtin.");
   const showNavigation = split || !compactDetail || !!settingsQuery;
   const navigationOnly = !!settingsQuery || (!split && !compactDetail);
   const route = page === "web" ? "tools.web" : page;
-  const section = SETTINGS_SECTIONS.find((item) => item.id === route);
+  const section = availableSections.find((item) => item.id === route);
+  const sectionsRef = useRef(availableSections);
+  sectionsRef.current = availableSections;
+  useEffect(() => {
+    if (management && currentInventory && ownedPage && !section) {
+      setPage("extensions");
+      setFieldTarget(undefined);
+      if (!settingsQuery) setShellFocus("navigation");
+    }
+  }, [management, currentInventory, ownedPage, section, settingsQuery]);
   useEffect(() => {
     if (!settingsQuery)
       setNavigationIndex(
-        SETTINGS_SECTIONS.findIndex((item) => item.id === route),
+        Math.max(
+          0,
+          availableSections.findIndex((item) => item.id === route),
+        ),
       );
-  }, [route, settingsQuery]);
+  }, [route, settingsQuery, availableSections]);
   const simpleFooter =
     navigationOnly ||
-    [
-      "extensions",
-      "tools.subagents",
-      "tools.background",
-      "tools.lsp",
-      "tools.mcp",
-      "tools.skills",
-      "web",
-    ].includes(page);
+    ownedPage ||
+    ["extensions", "tools.mcp", "tools.skills", "web"].includes(page);
   const showHint = popupHeight >= 8 && !simpleFooter;
   const contentHeight = Math.max(
     1,
@@ -339,6 +453,7 @@ export function OpenTuiSettings({
       subagentControls,
       backgroundControls,
       extensionsControls,
+      sectionControls,
       mcpControls,
     ]) {
       if (control.current?.flush && !(await control.current.flush()))
@@ -354,7 +469,7 @@ export function OpenTuiSettings({
       completeClose();
     })();
   };
-  const changePage = (next: Page) => {
+  const changePage = (next: Page, target?: string) => {
     void (async () => {
       if (!(await flushPanels())) return;
       if (
@@ -364,17 +479,27 @@ export function OpenTuiSettings({
       )
         return;
       if (next === "connection" && !actions) return;
+      if (
+        (next.startsWith("builtin.") || next.startsWith("extension:")) &&
+        !sectionsRef.current.some((section) => section.id === next)
+      )
+        return;
       if (working() !== "load") cancelWork();
       setNavigationIndex(
-        SETTINGS_SECTIONS.findIndex(
-          (item) => item.id === (next === "web" ? "tools.web" : next),
+        Math.max(
+          0,
+          sectionsRef.current.findIndex(
+            (item) => item.id === (next === "web" ? "tools.web" : next),
+          ),
         ),
       );
       setPage(next === "tools.web" ? "web" : next);
       setCompactDetail(true);
       setShellFocus("content");
-      setFieldTarget(undefined);
+      setFieldTarget(next === "connection" ? undefined : target);
+      setSettingsQuery("");
       setNotice("");
+      if (next === "connection" && target) open(target as Screen);
     })();
   };
   const themeAutosave = useSettingsAutosave(
@@ -418,10 +543,11 @@ export function OpenTuiSettings({
   const saveCurrent = () => {
     if (page === "appearance") void themeAutosave.flush();
     else if (page === "permissions") void bypassAutosave.flush();
-    else if (page === "tools.lsp") lspControls.current?.save();
-    else if (page === "tools.subagents") subagentControls.current?.save();
-    else if (page === "tools.background") backgroundControls.current?.save();
+    else if (page === "builtin.lsp") lspControls.current?.save();
+    else if (page === "builtin.subagents") subagentControls.current?.save();
+    else if (page === "builtin.background") backgroundControls.current?.save();
     else if (page === "extensions") extensionsControls.current?.save();
+    else if (selectedExtension) sectionControls.current?.save();
     else if (page === "web") webControls.current?.save();
     else if (page === "tools.mcp") mcpControls.current?.save();
     else if (page === "connection") {
@@ -585,12 +711,7 @@ export function OpenTuiSettings({
     const item = catalogue[index];
     if (!item) return;
     setNavigationIndex(index);
-    changePage(item.section.id);
-    setSettingsQuery("");
-    if (item.field) {
-      if (item.section.id === "connection") open(item.field as Screen);
-      else setFieldTarget(item.field);
-    }
+    changePage(item.section.id, item.field);
   };
   useUiKeyboard((key) => {
     if (!active) return;
@@ -603,7 +724,7 @@ export function OpenTuiSettings({
     if (isCtrlC(key)) return;
     if (key.ctrl && name === "f") {
       key.preventDefault();
-      if (page === "tools.lsp" && shellFocus === "content")
+      if (page === "builtin.lsp" && shellFocus === "content")
         lspControls.current?.search?.();
       else setShellFocus("search");
       return;
@@ -724,9 +845,9 @@ export function OpenTuiSettings({
       page === "tools.mcp" ||
       page === "tools.skills" ||
       page === "extensions" ||
-      page === "tools.lsp" ||
-      page === "tools.subagents" ||
-      page === "tools.background"
+      page === "builtin.lsp" ||
+      page === "builtin.subagents" ||
+      ownedPage
     ) {
       if (name === "escape") {
         key.preventDefault();
@@ -738,11 +859,13 @@ export function OpenTuiSettings({
                 ? skillsControls.current
                 : page === "extensions"
                   ? extensionsControls.current
-                  : page === "tools.background"
+                  : page === "builtin.background"
                     ? backgroundControls.current
-                    : page === "tools.subagents"
+                    : page === "builtin.subagents"
                       ? subagentControls.current
-                      : lspControls.current
+                      : page === "builtin.lsp"
+                        ? lspControls.current
+                        : sectionControls.current
           )?.back()
         ) {
           if (!split) {
@@ -983,24 +1106,14 @@ export function OpenTuiSettings({
           )}
           <box
             height={
-              page === "extensions" ||
-              page === "tools.lsp" ||
-              page === "tools.subagents" ||
-              page === "tools.background" ||
-              page === "web"
+              ownedPage ||
+              ["extensions", "web", "tools.mcp", "tools.skills"].includes(page)
                 ? 0
-                : page === "tools.mcp" || page === "tools.skills"
-                  ? 0
-                  : bodyHeight
+                : bodyHeight
             }
             visible={
-              page !== "extensions" &&
-              page !== "tools.lsp" &&
-              page !== "tools.subagents" &&
-              page !== "tools.background" &&
-              page !== "web" &&
-              page !== "tools.mcp" &&
-              page !== "tools.skills"
+              !ownedPage &&
+              !["extensions", "web", "tools.mcp", "tools.skills"].includes(page)
             }
             flexShrink={0}
             flexDirection="column"
@@ -1068,14 +1181,7 @@ export function OpenTuiSettings({
                   Нет подключений
                 </text>
               )}
-            {page === "tools.lsp" ? (
-              actions?.lsp ? null : (
-                <text fg={palette.muted}>
-                  LSP недоступен в этой composition.
-                </text>
-              )
-            ) : page === "web" && actions?.web ? null : page ===
-              "permissions" ? (
+            {page === "web" && actions?.web ? null : page === "permissions" ? (
               <TerminalScrollbox width="100%" height="100%">
                 <box flexDirection="column" gap={roomy ? 1 : 0}>
                   <text height={1} fg={palette.accent}>
@@ -1671,7 +1777,7 @@ export function OpenTuiSettings({
                 active={active && page === "extensions" && !navigationOnly}
                 focused={shellFocus === "content"}
                 controls={extensionsControls}
-                onOpenBuiltin={changePage}
+                onOpenSection={changePage}
                 onDirty={recordDirty}
                 onFocus={() => setShellFocus("content")}
               />
@@ -1700,70 +1806,99 @@ export function OpenTuiSettings({
               />
             </box>
           )}
-          {actions?.background && (
-            <box
-              width="100%"
-              height={page === "tools.background" ? bodyHeight : 0}
-              visible={page === "tools.background" && !navigationOnly}
-            >
-              <OpenTuiBackgroundSettings
-                actions={actions.background}
-                palette={palette}
-                width={innerWidth}
-                height={bodyHeight}
-                active={
-                  active && page === "tools.background" && !navigationOnly
-                }
-                focused={shellFocus === "content"}
-                controls={backgroundControls}
-                onDirty={recordDirty}
-              />
-            </box>
-          )}
-          {actions?.subagents && (
-            <box
-              width="100%"
-              height={page === "tools.subagents" ? bodyHeight : 0}
-              visible={page === "tools.subagents" && !navigationOnly}
-            >
-              <OpenTuiSubagentSettings
-                actions={actions.subagents}
-                palette={palette}
-                width={innerWidth}
-                height={bodyHeight}
-                active={active && page === "tools.subagents" && !navigationOnly}
-                focused={shellFocus === "content"}
-                controls={subagentControls}
-                onDirty={recordDirty}
-              />
-            </box>
-          )}
-          {actions?.lsp && (
-            <box
-              width="100%"
-              height={page === "tools.lsp" ? bodyHeight : 0}
-              visible={
-                page === "tools.lsp" &&
-                ((split && !settingsQuery) || (compactDetail && !settingsQuery))
-              }
-            >
-              <OpenTuiLspSettings
-                actions={actions.lsp}
-                palette={palette}
-                width={innerWidth}
-                height={bodyHeight}
-                active={active && page === "tools.lsp" && !navigationOnly}
-                focused={shellFocus === "content"}
+          {management && selectedExtension && (
+            <box width="100%" height={bodyHeight} visible={!navigationOnly}>
+              <OpenTuiExtensions
+                key={`${selectedExtension.id}/${selectedExtension.revision}/${selectedExtension.digest}`}
+                management={management}
+                root={settingsRoot}
+                sectionItem={selectedExtension}
                 fieldTarget={fieldTarget}
-                onFieldTargetHandled={() => setFieldTarget(undefined)}
-                controls={lspControls}
+                palette={palette}
+                width={innerWidth}
+                height={bodyHeight}
+                active={active && !navigationOnly}
+                focused={shellFocus === "content"}
+                controls={sectionControls}
                 onDirty={recordDirty}
-                onChooseProject={
-                  onChooseProject ? () => close(onChooseProject) : undefined
-                }
+                onFocus={() => setShellFocus("content")}
               />
             </box>
           )}
+          {actions?.background &&
+            availableSections.some(
+              (item) => item.id === "builtin.background",
+            ) && (
+              <box
+                width="100%"
+                height={page === "builtin.background" ? bodyHeight : 0}
+                visible={page === "builtin.background" && !navigationOnly}
+              >
+                <OpenTuiBackgroundSettings
+                  actions={actions.background}
+                  palette={palette}
+                  width={innerWidth}
+                  height={bodyHeight}
+                  active={
+                    active && page === "builtin.background" && !navigationOnly
+                  }
+                  focused={shellFocus === "content"}
+                  controls={backgroundControls}
+                  onDirty={recordDirty}
+                />
+              </box>
+            )}
+          {actions?.subagents &&
+            availableSections.some(
+              (item) => item.id === "builtin.subagents",
+            ) && (
+              <box
+                width="100%"
+                height={page === "builtin.subagents" ? bodyHeight : 0}
+                visible={page === "builtin.subagents" && !navigationOnly}
+              >
+                <OpenTuiSubagentSettings
+                  actions={actions.subagents}
+                  palette={palette}
+                  width={innerWidth}
+                  height={bodyHeight}
+                  active={
+                    active && page === "builtin.subagents" && !navigationOnly
+                  }
+                  focused={shellFocus === "content"}
+                  controls={subagentControls}
+                  onDirty={recordDirty}
+                />
+              </box>
+            )}
+          {actions?.lsp &&
+            availableSections.some((item) => item.id === "builtin.lsp") && (
+              <box
+                width="100%"
+                height={page === "builtin.lsp" ? bodyHeight : 0}
+                visible={
+                  page === "builtin.lsp" &&
+                  ((split && !settingsQuery) ||
+                    (compactDetail && !settingsQuery))
+                }
+              >
+                <OpenTuiLspSettings
+                  actions={actions.lsp}
+                  palette={palette}
+                  width={innerWidth}
+                  height={bodyHeight}
+                  active={active && page === "builtin.lsp" && !navigationOnly}
+                  focused={shellFocus === "content"}
+                  fieldTarget={fieldTarget}
+                  onFieldTargetHandled={() => setFieldTarget(undefined)}
+                  controls={lspControls}
+                  onDirty={recordDirty}
+                  onChooseProject={
+                    onChooseProject ? () => close(onChooseProject) : undefined
+                  }
+                />
+              </box>
+            )}
         </box>
       </box>
       {connectionConfirm && (
