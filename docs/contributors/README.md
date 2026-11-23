@@ -84,6 +84,7 @@
 
 ## Диагностика и исследования
 
+- [ChiselCode и Codex в Codex Cloud: предварительная проверка GPT-6.2 Sol](../benchmarks/chiselcode-vs-codex-2026-11-17.md).
 - [Live A/B общего системного промпта: результаты и ограничения квоты](reports/system-prompt-live.md).
 
 - [Устойчивость цикла инструментов: аргументы, повторы и завершение](reports/tool-cycle-reliability.md).
