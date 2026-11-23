@@ -21,6 +21,8 @@ bun run build
 
 Каждый push кода в main дополнительно автоматически запускает полный Native validation. Quick CI даёт ранний результат; завершение работы с кодом и допуск к релизу требуют успешной полной матрицы на том же source. PR сохраняет быстрый профиль, а Markdown/docs assets проверяет Docs CI.
 
+У нативной проверки Windows общий лимит 20 минут. Время включает проверку обновления и загрузку собранных бинарников. У Linux и macOS лимит 15 минут.
+
 При изменении поведения дополнительно выполните подходящий узкий тест. Например, `bun test tests/unit/background-process.test.ts` проверяет настоящий process ownership, а `bun test tests/integration/subagents-runtime.test.ts` — дочерний runtime. Не подменяйте их успешным быстрым профилем и не повторяйте весь набор после каждой небольшой правки.
 
 Для остановки через Ctrl+C используйте `bun test tests/unit/opentui-spike.test.tsx tests/unit/opentui-tab-approvals.test.tsx tests/unit/opentui-clipboard.test.tsx tests/integration/tui-interrupt.test.ts`. Проверяются обычный байт Ctrl+C и Kitty-последовательность русской раскладки, владелец подтверждения, независимость вкладок, отмена чтения clipboard и отсутствие отмены при вставке текста или Ctrl+Shift+C. Integration-fixture использует настоящий OpenTUI, локальный HTTP-провайдер с незавершённым SSE, runtime и хранилище: остановка сохраняет статус, очищает очередь и допускает следующий запрос. `CHISEL_INTERRUPT_CAPTURES=<каталог>` сохраняет текст и native spans для `python scripts/render-terminal-captures.py <каталог>`. Эти файлы входят в Linux source-набор и platform subset Windows/macOS; в быстрый профиль они не входят. Headless-ввод не заменяет проверку физического терминала или Linux PTY.

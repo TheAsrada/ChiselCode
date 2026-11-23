@@ -131,7 +131,8 @@ jobs:
   native:
     name: Native smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Windows also runs the updater lifecycle and uploads several native binaries.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 20 || 15 }}
     strategy:
       fail-fast: false
       matrix:
