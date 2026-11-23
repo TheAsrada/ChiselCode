@@ -21,6 +21,7 @@ import {
   assertUiToolInvocation,
   prepareUiToolInvocation,
 } from "../app/ui-tool.js";
+import { runWorktreeInspection } from "../app/worktree-inspection.js";
 import { type RunOptions, runPrompt } from "../commands/run.js";
 import { resolveSlashCommand, splitSlashCommand } from "../commands/slash.js";
 import {
@@ -2088,33 +2089,38 @@ async function runApplication(
         commandActions,
         getWorktreeActions: () => {
           const target = currentController();
+          const root = requireProject(target);
           const projectOperation =
             target === workspace.home
               ? workspace.projectOperation(target)
               : undefined;
           const operationController = projectOperation?.controller ?? target;
           const generation = target.currentGeneration;
-          const root = requireProject(target);
+          const manager = new AbortController();
+          const signal = AbortSignal.any([
+            abort.signal,
+            target.ownerSignal,
+            manager.signal,
+          ]);
           const assertOwner = () => {
             if (
-              abort.signal.aborted ||
+              signal.aborted ||
               !target.isCurrent(generation) ||
-              target.ownerSignal.aborted ||
               target.snapshot.projectPath !== root
             )
               throw new Error("Разговор изменён или закрыт.");
           };
           return {
-            dispose: () => projectOperation?.release(),
+            dispose: () => {
+              manager.abort();
+              projectOperation?.release();
+            },
             root,
             owner: `${target.conversationId}:${generation}`,
             mode: target.snapshot.agentMode,
             run: async (action, input = {}) => {
               assertOwner();
-              const snapshot = await commandActions.load(
-                root,
-                target.ownerSignal,
-              );
+              const snapshot = await commandActions.load(root, signal);
               assertOwner();
               const command = snapshot.scope?.commands.get("worktree");
               if (
@@ -2126,6 +2132,13 @@ async function runApplication(
                   "Менеджер рабочих копий недоступен для этого проекта.",
                 );
               const scope = snapshot.scope;
+              if (action === "list" || action === "status" || action === "diff")
+                return runWorktreeInspection(scope, action, input, signal);
+              const execution = workspace.execution(operationController);
+              if (execution.foregroundBusy)
+                throw new Error(
+                  "Дождитесь завершения запроса в этой вкладке и повторите действие.",
+                );
               return new Promise<ToolExecutionResult>((resolve) => {
                 const operation: QueuedTabOperation = {
                   kind: "command",
@@ -2143,11 +2156,7 @@ async function runApplication(
                   modelOptions: modelOptions(target),
                   onResult: resolve,
                 };
-                const execution = workspace.execution(operationController);
-                if (execution.activeRun) {
-                  execution.pendingOperations.push(operation);
-                  operationController.setBusy(true);
-                } else void executeOperation(operationController, operation);
+                void executeOperation(operationController, operation);
               });
             },
             tabs: () =>

@@ -141,16 +141,20 @@ export class WorktreeService {
     if (!managedWorkspaceCandidate(home, root)) return false;
     try {
       const repo = await this.repository(root, signal);
-      return await withLock(repo.registry, async () => {
-        const registry = await readWorktreeRegistry(repo.registry);
-        const value = Object.values(registry.records).find((record) =>
-          samePath(record.path, root),
-        );
-        if (!value) return false;
-        const record = this.checkedRecord(repo, registry, value.id);
-        await this.verify(repo, record, signal);
-        return true;
-      });
+      return await withLock(
+        repo.registry,
+        async () => {
+          const registry = await readWorktreeRegistry(repo.registry);
+          const value = Object.values(registry.records).find((record) =>
+            samePath(record.path, root),
+          );
+          if (!value) return false;
+          const record = this.checkedRecord(repo, registry, value.id);
+          await this.verify(repo, record, signal);
+          return true;
+        },
+        signal,
+      );
     } catch (error) {
       cancelled(signal);
       if (
@@ -316,9 +320,16 @@ export class WorktreeService {
   workspace(root: string, lifetime: AbortSignal): WorktreeWorkspacePort {
     const assert = () => cancelled(lifetime);
     return Object.freeze({
-      access: async (_action: WorktreeAction, input: WorktreeInput) => {
-        assert();
-        const repo = await this.repository(root, lifetime);
+      access: async (
+        _action: WorktreeAction,
+        input: WorktreeInput,
+        operation?: AbortSignal,
+      ) => {
+        const signal = operation
+          ? AbortSignal.any([lifetime, operation])
+          : lifetime;
+        cancelled(signal);
+        const repo = await this.repository(root, signal);
         const accesses: WorkspaceAccess[] = [
           { resource: repo.identity.root, mode: "read" },
           { resource: commonGitResource(repo.identity), mode: "read" },
@@ -1472,6 +1483,7 @@ export class WorktreeService {
             });
         return result;
       },
+      signal,
     );
   }
   private async users(

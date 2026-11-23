@@ -574,21 +574,24 @@ export class ExtensionHost implements Disposable {
   hasDefinition(id: string): boolean {
     return this.definitions.some((definition) => definition.id === id);
   }
-  async open(root: string): Promise<WorkspaceExtensionScope> {
+  async open(
+    root: string,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceExtensionScope> {
     if (this.closed)
       throw new ExtensionLifecycleError("Extension host is closed.");
-    const workspace = await admitWorkspace(root);
+    const workspace = await admitWorkspace(root, { signal });
     const canonical = workspace.root;
     if (this.closed)
       throw new ExtensionLifecycleError("Extension host is closed.");
     const existing = this.workspaces.get(canonical);
     if (existing) {
       if (existing.closing) {
-        await existing.closing;
-        return this.open(canonical);
+        await abortable(() => existing.closing, signal);
+        return this.open(canonical, signal);
       }
-      const scope = await existing.pending;
-      await revalidateWorkspace(existing.workspace);
+      const scope = await abortable(() => existing.pending, signal);
+      await revalidateWorkspace(existing.workspace, signal);
       scope.assertUsable();
       return scope;
     }

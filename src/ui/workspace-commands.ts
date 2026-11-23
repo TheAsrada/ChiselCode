@@ -59,7 +59,7 @@ export class WorkspaceCommands implements WorkspaceCommandsPort {
         this.signal && operation
           ? AbortSignal.any([this.signal, operation])
           : (operation ?? this.signal);
-      const scope = await abortable(() => this.host.open(root), signal);
+      const scope = await abortable(() => this.host.open(root, signal), signal);
       scope.assertUsable();
       return scope;
     } catch {
@@ -102,7 +102,7 @@ export class WorkspaceCommands implements WorkspaceCommandsPort {
         this.signal && operation
           ? AbortSignal.any([this.signal, operation])
           : (operation ?? this.signal);
-      const scope = await abortable(() => this.host.open(root), signal);
+      const scope = await abortable(() => this.host.open(root, signal), signal);
       // Read skills again after asynchronous activation: a new skill must not be intercepted.
       scope.assertUsable();
       this.scopes.set(root, scope);

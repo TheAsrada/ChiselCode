@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
+import { storageLockDiagnostics, withLock } from "../../src/sessions/lock.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 import { menuAction } from "./menu-navigation.js";
@@ -52,6 +54,8 @@ await git("add", ".");
 await git("commit", "-m", "base");
 let generations = 0;
 let failure: unknown;
+let agentWaiting = false;
+const finishAgent = Promise.withResolvers<void>();
 const server = Bun.serve({
   port: 0,
   hostname: "127.0.0.1",
@@ -68,7 +72,18 @@ const server = Bun.serve({
       });
     try {
       generations++;
-      const body = (await request.json()) as { messages: { role: string }[] };
+      const body = (await request.json()) as {
+        messages: { role: string; content?: unknown }[];
+      };
+      if (body.messages.at(-1)?.content === "Проверь меню во время работы") {
+        agentWaiting = true;
+        await finishAgent.promise;
+        agentWaiting = false;
+        return new Response(
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "Запрос продолжился после закрытия меню." }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+          { headers: { "Content-Type": "text/event-stream" } },
+        );
+      }
       const step = body.messages.filter(
         (message) => message.role === "tool",
       ).length;
@@ -181,10 +196,12 @@ const click = async (id: string) => {
   await frame();
 };
 const idle = () =>
-  until(
-    () => !t.captureCharFrame().includes("Выполняется…"),
-    "Manager remained busy",
-  );
+  until(() => {
+    const screen = t.captureCharFrame();
+    return (
+      !screen.includes("Выполняется…") && !screen.includes("Проверка Git…")
+    );
+  }, "Manager remained busy");
 const captures = process.env.CHISEL_WORKTREE_CAPTURE_DIR;
 const capture = async (name: string) => {
   if (!captures) return;
@@ -207,7 +224,7 @@ const capture = async (name: string) => {
     }),
   );
 };
-const records = async () => {
+const registryPath = async () => {
   const home = join(
     directory,
     "home",
@@ -215,10 +232,13 @@ const records = async () => {
     "worktrees",
   );
   const repo = (await readdir(home).catch(() => []))[0];
-  if (!repo) return [];
+  return repo ? join(home, repo, "registry.json") : undefined;
+};
+const records = async () => {
+  const registry = await registryPath();
+  if (!registry) return [];
   return Object.values(
-    JSON.parse(await readFile(join(home, repo, "registry.json"), "utf8"))
-      .records,
+    JSON.parse(await readFile(registry, "utf8")).records,
   ) as { id: string; label: string; path: string; state: string }[];
 };
 const approve = async () => {
@@ -236,9 +256,7 @@ const openManager = async () => {
     "Worktree manager did not open",
   );
   await until(
-    () =>
-      t.captureCharFrame().includes("Основной проект") &&
-      !t.captureCharFrame().includes("Выполняется…"),
+    () => !!t.renderer.root.findDescendantById("worktree-select-origin"),
     "List not ready",
   );
 };
@@ -305,6 +323,56 @@ try {
   assert.equal(
     await readFile(join(task.path, "file.txt"), "utf8"),
     "result from managed task\n",
+  );
+  await send("Проверь меню во время работы");
+  await until(() => agentWaiting, "Agent request did not reach the provider");
+  await openManager();
+  await capture("active-agent-120x40");
+  assert.ok(agentWaiting, "Git list must be ready before the agent completes");
+  await key("ESCAPE");
+  await until(
+    () => !t.renderer.root.findDescendantById("worktrees-popup"),
+    "Manager did not close while the agent was running",
+  );
+  await capture("active-agent-closed-120x40");
+  const registryFile = await registryPath();
+  assert.ok(registryFile);
+  const registry = await realpath(registryFile);
+  const registryHeld = Promise.withResolvers<void>();
+  const releaseRegistry = Promise.withResolvers<void>();
+  const lock = withLock(registry, () => {
+    registryHeld.resolve();
+    return releaseRegistry.promise;
+  });
+  const checksWaiting = () =>
+    storageLockDiagnostics().some(
+      ({ path, phase }) => path === registry && phase === "local_queue",
+    );
+  try {
+    await Promise.race([registryHeld.promise, lock]);
+    await send("/worktree");
+    await until(
+      () => checksWaiting() && t.captureCharFrame().includes("Esc закрыть"),
+      "The Git inspection did not wait for the held registry lock",
+    );
+    await capture("inspection-wait-120x40");
+    await key("ESCAPE");
+    await until(
+      () =>
+        !t.renderer.root.findDescendantById("worktrees-popup") &&
+        !checksWaiting(),
+      "Esc did not close the manager and cancel its pending inspection",
+    );
+    assert.ok(agentWaiting, "Esc only cancels inspection in the manager");
+  } finally {
+    releaseRegistry.resolve();
+    await lock;
+  }
+  finishAgent.resolve();
+  await until(
+    () =>
+      t.captureCharFrame().includes("Запрос продолжился после закрытия меню."),
+    "Closing the manager interrupted the agent",
   );
   await openManager();
   await click(`worktree-select-${task.id}`);
@@ -395,7 +463,7 @@ try {
     await readFile(join(task.path, "file.txt"), "utf8"),
     "result from managed task\n",
   );
-  assert.equal(generations, 3, "Manager must not generate model requests");
+  assert.equal(generations, 4, "Manager must not generate model requests");
   for (const [width, height] of [
     [80, 24],
     [40, 20],
@@ -440,6 +508,7 @@ try {
     "Worktree manager: actual OpenTUI/approvals, create/open, real isolated edit, preview/apply, origin/close, dirty refusal, clean remove, resize and no model/history pollution passed.\n",
   );
 } finally {
+  finishAgent.resolve();
   server.stop(true);
   t.renderer.destroy();
   await rm(directory, { recursive: true, force: true });

@@ -76,12 +76,20 @@ export async function preparationAccess(
       handler.spec.source.originalName === "prepare_worktree" &&
       context.worktrees
     )
-      return context.worktrees.access("create", input as WorktreeInput);
+      return context.worktrees.access(
+        "create",
+        input as WorktreeInput,
+        context.signal,
+      );
     if (
       handler.spec.source.originalName === "inspect_changes" &&
       context.worktrees
     )
-      return context.worktrees.access("diff", input as WorktreeInput);
+      return context.worktrees.access(
+        "diff",
+        input as WorktreeInput,
+        context.signal,
+      );
     if (!context.subagentTools)
       throw new RuntimeError(
         "SUBAGENT_UNAVAILABLE",
@@ -101,6 +109,7 @@ export async function preparationAccess(
     return context.worktrees.access(
       handler.spec.source.originalName as WorktreeAction,
       input as WorktreeInput,
+      context.signal,
     );
   }
   return [

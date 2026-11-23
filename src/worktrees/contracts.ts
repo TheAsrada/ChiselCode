@@ -56,6 +56,7 @@ export interface WorktreeWorkspacePort {
   access(
     action: WorktreeAction,
     input: WorktreeInput,
+    signal?: AbortSignal,
   ): Promise<readonly WorkspaceAccess[]>;
   prepare(
     action: WorktreeAction,

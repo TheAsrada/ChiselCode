@@ -103,7 +103,8 @@ export function OpenTuiWorktrees({
   const [name, setName] = useState("");
   const [base, setBase] = useState("");
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [operation, setOperation] = useState<"inspection" | "command">();
+  const busy = operation !== undefined;
   const [stale, setStale] = useState(false);
   const [diffs, setDiffs] = useState<FileDiff[]>([]);
   const [expanded, setExpanded] = useState(new Set<string>());
@@ -116,7 +117,7 @@ export function OpenTuiWorktrees({
   const previousPage = useRef<Page>("list");
   const selectedKey = useRef(selection);
   selectedKey.current = selection;
-  const pending = useRef(false);
+  const pending = useRef<typeof operation>(undefined);
   const listScroll = useRef<ScrollBoxRenderable>(null);
   const detailScroll = useRef<ScrollBoxRenderable>(null);
   const filtered = (items ?? []).filter((item) =>
@@ -133,7 +134,8 @@ export function OpenTuiWorktrees({
     setFullPath(false);
   };
   const close = () => {
-    if (pending.current) {
+    if (!active) return;
+    if (pending.current === "command") {
       setNotice("Действие ещё выполняется. Для остановки используйте Ctrl+C.");
       return;
     }
@@ -185,10 +187,13 @@ export function OpenTuiWorktrees({
           })(),
       );
   };
-  const perform = async (run: () => Promise<void>) => {
+  const perform = async (
+    run: () => Promise<void>,
+    kind: NonNullable<typeof operation> = "command",
+  ) => {
     if (pending.current || !active) return;
-    pending.current = true;
-    setBusy(true);
+    pending.current = kind;
+    setOperation(kind);
     setNotice("");
     try {
       await run();
@@ -201,8 +206,8 @@ export function OpenTuiWorktrees({
         setPage("diagnostic");
       }
     } finally {
-      pending.current = false;
-      if (mounted.current) setBusy(false);
+      pending.current = undefined;
+      if (mounted.current) setOperation(undefined);
     }
   };
   const execute = async (
@@ -219,7 +224,7 @@ export function OpenTuiWorktrees({
   // biome-ignore lint/correctness/useExhaustiveDependencies: Actions are captured once for the manager owner; refresh closures are not subscriptions.
   useEffect(() => {
     mounted.current = true;
-    void perform(readList);
+    void perform(readList, "inspection");
     return () => {
       mounted.current = false;
       actions.dispose?.();
@@ -270,7 +275,7 @@ export function OpenTuiWorktrees({
       setPage("diff");
       setFocus("list");
       setActionIndex(0);
-    });
+    }, "inspection");
   };
   const mutationBlock =
     actions.mode === "plan"
@@ -388,7 +393,7 @@ export function OpenTuiWorktrees({
     {
       id: "worktree-refresh-action",
       label: "Обновить список",
-      run: () => void perform(readList),
+      run: () => void perform(readList, "inspection"),
     },
   ];
   const toggleFile = () => {
@@ -533,10 +538,7 @@ export function OpenTuiWorktrees({
     if (key.name === "escape") {
       key.preventDefault();
       key.stopPropagation();
-      if (busy) {
-        setNotice("Действие выполняется. Ctrl+C остановит текущий запрос.");
-        return;
-      }
+      if (pending.current) return close();
       if (focus === "search") {
         setFocus("list");
         return;
@@ -762,7 +764,7 @@ export function OpenTuiWorktrees({
       </text>
       <text height={1} flexShrink={0} fg={p.muted}>
         {terminalLine(
-          `${busy ? "Выполняется…" : stale ? "Данные устарели · обновите список" : actions.mode === "plan" ? "Plan · просмотр" : "Build"} · ${actions.root}`,
+          `${operation === "inspection" ? "Проверка Git…" : busy ? "Выполняется…" : stale ? "Данные устарели · обновите список" : actions.mode === "plan" ? "Plan · просмотр" : "Build"} · ${actions.root}`,
           inner,
         )}
       </text>
@@ -895,11 +897,9 @@ export function OpenTuiWorktrees({
                       />
                     </box>
                   ))}
-                  {!items && (
+                  {!items && !busy && (
                     <text fg={p.muted}>
-                      {busy
-                        ? "Проверка репозитория…"
-                        : "Список недоступен · обновите список"}
+                      Список недоступен · обновите список
                     </text>
                   )}
                   {items && !filtered.length && (
@@ -1212,13 +1212,15 @@ export function OpenTuiWorktrees({
       </text>
       <text fg={p.muted} height={1} flexShrink={0}>
         {terminalLine(
-          tiny
-            ? "↑↓ · Tab области · Enter · Esc"
-            : page === "diff"
-              ? "↑↓ файл · Space выбор · Enter дифф · Tab кнопки · Esc назад"
-              : page === "list"
-                ? "↑↓ выбор · Tab действия · Enter · Esc назад"
-                : "↑↓ действие · Enter выбрать · Tab фокус · PgUp/PgDn · Esc назад",
+          operation === "inspection"
+            ? "Esc закрыть"
+            : tiny
+              ? "↑↓ · Tab области · Enter · Esc"
+              : page === "diff"
+                ? "↑↓ файл · Space выбор · Enter дифф · Tab кнопки · Esc назад"
+                : page === "list"
+                  ? "↑↓ выбор · Tab действия · Enter · Esc назад"
+                  : "↑↓ действие · Enter выбрать · Tab фокус · PgUp/PgDn · Esc назад",
           inner,
         )}
       </text>

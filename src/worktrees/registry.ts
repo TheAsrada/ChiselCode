@@ -141,33 +141,38 @@ export async function updateWorktreeRegistry<T>(
     registry: WorktreeRegistry,
     assertOwned: () => Promise<void>,
   ) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  return withLock(path, async (assertLease) => {
-    const registry = await readWorktreeRegistry(path);
-    const initialRevision = registry.revision;
-    const assertOwned = async () => {
+  return withLock(
+    path,
+    async (assertLease) => {
+      const registry = await readWorktreeRegistry(path);
+      const initialRevision = registry.revision;
+      const assertOwned = async () => {
+        try {
+          await assertLease();
+        } catch {
+          throw new RuntimeError(
+            "WORKTREE_STALE",
+            "Registry lease was replaced; no stale write is permitted.",
+          );
+        }
+        if ((await readWorktreeRegistry(path)).revision !== initialRevision)
+          throw new RuntimeError(
+            "WORKTREE_STALE",
+            "Registry version changed; refresh before retrying.",
+          );
+      };
       try {
-        await assertLease();
-      } catch {
-        throw new RuntimeError(
-          "WORKTREE_STALE",
-          "Registry lease was replaced; no stale write is permitted.",
-        );
+        await assertOwned();
+        return await work(registry, assertOwned);
+      } finally {
+        await assertOwned();
+        registry.revision++;
+        await atomicWorktreeJson(path, registry, assertOwned);
       }
-      if ((await readWorktreeRegistry(path)).revision !== initialRevision)
-        throw new RuntimeError(
-          "WORKTREE_STALE",
-          "Registry version changed; refresh before retrying.",
-        );
-    };
-    try {
-      await assertOwned();
-      return await work(registry, assertOwned);
-    } finally {
-      await assertOwned();
-      registry.revision++;
-      await atomicWorktreeJson(path, registry, assertOwned);
-    }
-  });
+    },
+    signal,
+  );
 }

@@ -14,7 +14,11 @@ UI не объявляет отсутствующие счётчики нуля�
 
 ## Путь действия интерфейса
 
-`OpenTuiWorktrees` получает application-owned `WorktreeManagerActions`, привязанный к controller, generation и root. Adapter находит зарегистрированную команду именно `builtin.worktrees`, затем ставит действие в обычную очередь разговора. Перед исполнением снова проверяются command owner, scope и актуальность controller.
+`OpenTuiWorktrees` получает application-owned `WorktreeManagerActions`, привязанный к controller, generation и root. Адаптер проверяет, что `/worktree` принадлежит `builtin.worktrees` в активном scope.
+
+`runWorktreeInspection` выполняет `list`, `status` и `diff` через штатные планы `ToolExecutor` во временной сессии в памяти. Вызов использует режим Plan, проверки инструментов и общие блокировки Git и реестра. Список по-прежнему может сверить реестр с состоянием Git. Допуск проекта, ожидание блокировок и чтение связаны с временем жизни окна, разговора и scope. Отмена окна освобождает ожидающие проверки и позволяет запросу агента продолжиться.
+
+Создание, перенос, удаление и открытие используют foreground lane. Если она занята, менеджер предлагает повторить действие после завершения запроса. Перед исполнением снова проверяются владелец команды, scope и generation.
 
 `runExtensionCommand` создаёт привычный runtime с конфигурацией, Session, lock, policy, grants и одноразовыми core capabilities. Quiet-флаг меняет только представление: UI сам показывает результат и не добавляет повторяющиеся списки в transcript/chatPresentations. Runtime invocations и checkpoints сохраняются; отмена и повторная проверка разрешений не отключаются. Модель не вызывается, сообщения модели не создаются.
 
@@ -45,7 +49,7 @@ GUI передаёт `expectedFiles` для выбранных путей. На 
 - `tests/unit/worktree-actions.test.ts`: область readonly, неизвестные counts, ignored/users и nil UUID.
 - `tests/unit/opentui-worktrees.test.tsx`: настоящие renderables, две темы, форма/resize, blocked remove и безопасная отмена.
 - `tests/integration/worktrees-runtime.test.ts`: настоящие Git, grants, origin admission, обычная запись origin, preview fingerprints, conflict/stale/rollback/retention/ownership.
-- `tests/fixtures/tui-worktree-manager.ts` и integration wrapper: production app, настоящий SDK и инструменты, create/open/edit/diff/apply/origin/close/remove с обычными подтверждениями, resize и отсутствие лишних model requests/history.
+- `tests/fixtures/tui-worktree-manager.ts` и integration wrapper проверяют реальный OpenTUI, Git и разрешения. Запрос к тестовому провайдеру остаётся открытым, пока менеджер загружает список. При удерживаемом lock реестра Esc закрывает окно и отменяет ожидающую проверку. Ответ агента приходит после закрытия.
 
 Полный source выполняется один раз на Linux. Native smoke дополнительно компилирует и выполняет полный сценарий менеджера на Linux/macOS/Windows. Windows/macOS запускают целиком затронутые файлы runtime/UI/paths согласно [порядку проверок](../contributors/testing.md). Физические терминалы и пользовательский Git-config не подменяются результатами headless renderer.
 

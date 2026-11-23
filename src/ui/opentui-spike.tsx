@@ -323,14 +323,20 @@ function OpenTuiScreen({
   const palette =
     themeCatalog?.palette(theme, accent) ?? themePalette(theme, accent);
   const [worktrees, setWorktrees] = useState<WorktreeManagerActions>();
+  const worktreeOwner = `${controller?.conversationId}:${controller?.currentGeneration}`;
   useEffect(() => {
-    if (
-      worktrees &&
-      worktrees.owner !==
-        `${controller?.conversationId}:${controller?.currentGeneration}`
-    )
+    if (!worktrees) return;
+    if (worktrees.owner !== worktreeOwner) {
       setWorktrees(undefined);
-  }, [controller, worktrees]);
+      return;
+    }
+    return () => {
+      if (controller?.snapshot.overlay === "worktrees") {
+        controller.setOverlay();
+        controller.setFocus("composer");
+      }
+    };
+  }, [controller, worktreeOwner, worktrees]);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [mcpActions, setMcpActions] = useState<OpenTuiMcpActions>();
   const [effortDialog, setEffortDialog] = useState<{
