@@ -62,7 +62,7 @@ await writeFile(
     profiles: {},
     ui: { theme },
     web: { enabled: false },
-    lsp: { mode: "off", servers: {} },
+    lsp: { enabled: true, servers: {} },
     mcp: {
       schemaVersion: 1,
       servers: {
@@ -154,6 +154,14 @@ async function navigate(query: string) {
   assert.equal(ui.renderer.currentFocusedEditor?.id, "settings-global-search");
   await key("a", true);
   await paste(query);
+  await until(
+    () =>
+      !!ui.renderer.root
+        .findDescendantById("settings-navigation")
+        ?.getChildren()
+        .some((child) => child.id.startsWith("settings-route-")),
+    `Поиск Settings не нашёл раздел ${query}`,
+  );
   await key("RETURN");
 }
 async function capture(name: string) {

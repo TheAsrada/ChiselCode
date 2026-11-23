@@ -138,12 +138,13 @@ export async function runLspTuiScenario(
     await frames();
   };
   const click = async (id: string) => {
-    const node = setup.renderer.root.findDescendantById(id);
-    assert.ok(
-      node?.visible && node.height > 0,
-      `Missing visible ${id}\n${setup.captureCharFrame()}`,
-    );
     await act(async () => {
+      await setup.renderOnce();
+      const node = setup.renderer.root.findDescendantById(id);
+      assert.ok(
+        node?.visible && node.height > 0,
+        `Missing visible ${id}\n${setup.captureCharFrame()}`,
+      );
       await setup.mockMouse.click(node.x + 1, node.y);
     });
     await frames();
@@ -221,10 +222,16 @@ export async function runLspTuiScenario(
     await click("extensions-action-enable");
     await wait(
       () =>
-        !!setup.renderer.root.findDescendantById("settings-route-builtin.lsp"),
+        !!setup.renderer.root.findDescendantById(
+          "settings-route-builtin.lsp",
+        ) &&
+        !!setup.renderer.root.findDescendantById(
+          "extensions-action-settings",
+        ) &&
+        !setup.captureCharFrame().includes("Выполняется…"),
       "Enabled LSP page did not appear",
     );
-    await click("settings-route-builtin.lsp");
+    await click("extensions-action-settings");
     await wait(
       () => setup.captureCharFrame().includes("Анализ кода: Включён"),
       "Enabled LSP form did not load",
