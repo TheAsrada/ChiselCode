@@ -1,6 +1,6 @@
 # Документация ChiselCode
 
-[Главная](../README.md) · [Справка последнего выпуска CLI 0.6.55](https://github.com/TheAsrada/ChiselCode/blob/v0.6.55/docs/README.md) · [Скачать релиз](https://github.com/TheAsrada/ChiselCode/releases/latest)
+[Главная](../README.md) · [Справка последнего выпуска CLI 0.6.56](https://github.com/TheAsrada/ChiselCode/blob/v0.6.56/docs/README.md) · [Скачать релиз](https://github.com/TheAsrada/ChiselCode/releases/latest)
 
 Руководства ниже описывают текущие исходники (`main`). Выполните `chisel --version`, чтобы узнать установленную версию. Для другого выпуска выберите его тег на [странице выпусков](https://github.com/TheAsrada/ChiselCode/releases) и откройте `docs/README.md` в исходниках этого тега.
 

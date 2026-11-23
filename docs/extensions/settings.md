@@ -43,7 +43,7 @@ export default async ({sdk, manifest}) => {
 
 ## Раздел в основном меню OpenTUI
 
-> Раздел в общем меню доступен в текущих исходниках (`main`). В [CLI 0.6.55](https://github.com/TheAsrada/ChiselCode/blob/v0.6.55/docs/extensions/settings.md) поля `settings.fields` открываются из карточки расширения.
+> Раздел в общем меню доступен с CLI 0.6.56. В [CLI 0.6.55](https://github.com/TheAsrada/ChiselCode/blob/v0.6.55/docs/extensions/settings.md) поля `settings.fields` открываются из карточки расширения.
 
 Добавьте `settings.section` и укажите возможность `settings.section` в `requires`. Пример полного manifest для папки с готовым `index.mjs`.
 
