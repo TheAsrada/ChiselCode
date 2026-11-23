@@ -316,6 +316,26 @@ export async function runLspTuiScenario(
       () => !!setup.renderer.root.findDescendantById("lsp-row-enabled"),
       "Settings did not reuse LSP menu",
     );
+    assert.ok(setup.captureCharFrame().includes("Анализ кода: Выключен"));
+    assert.equal((await lspProcessTree()).length, 0, "Clean start spawned LSP");
+    await capture("default-off-120x40");
+    await choose("lsp-row-enabled"); // Global Off redirects from project scope.
+    await wait(
+      () =>
+        setup.captureCharFrame().includes("Анализ выключен для всех проектов"),
+      "Default Off did not explain how to enable analysis",
+    );
+    await choose("lsp-row-enabled");
+    await wait(
+      () => setup.captureCharFrame().includes("Анализ кода: Включён"),
+      "Initial global On did not apply",
+    );
+    assert.equal(
+      JSON.parse(await readFile(configPath, "utf8")).lsp.enabled,
+      true,
+    );
+    assert.equal((await lspProcessTree()).length, 0, "On must remain lazy");
+    await capture("on-120x40");
     await choose("lsp-row-catalog");
     await choose("lsp-row-server-auto");
     await capture("card-idle-120x40");

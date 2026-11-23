@@ -126,6 +126,4 @@ export function registerLspUi(
       actions,
       source,
     });
-  // Configuration cache warm-up is activation work; it never prepares an analysis backend.
-  void service.refreshConfiguration().catch(() => {});
 }

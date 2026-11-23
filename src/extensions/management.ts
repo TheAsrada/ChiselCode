@@ -16,7 +16,7 @@ import type {
 } from "../desktop/protocol.js";
 import {
   effectiveLspMode,
-  globalLspMode,
+  globalLspDisabled,
   LspConfigSchema,
   LspServerSchema,
   ProjectLspConfigSchema,
@@ -264,7 +264,7 @@ export class ExtensionManagementService {
         if (id === "builtin.lsp") {
           configuration = global.lsp ?? { servers: {} };
           const lsp = LspConfigSchema.parse(configuration);
-          enabled = globalLspMode(lsp) !== "off";
+          enabled = !globalLspDisabled(lsp);
           effective =
             effectiveLspMode({
               global: lsp,
@@ -747,26 +747,22 @@ export class ExtensionManagementService {
       );
       if (!item || item.digest !== input.digest || !item.settingsRoute)
         conflict();
-      const state = await this.builtinRead(input.id, input.path),
-        value = state.global as Record<string, Json>;
+      const state = await this.builtinRead(input.id, input.path);
       if (state.globalRevision !== input.digest) conflict();
-      await this.builtinSave({
-        id: input.id,
-        path: input.path,
-        scope: "global",
-        revision: state.globalRevision,
-        value:
-          input.id === "builtin.lsp"
-            ? {
-                ...value,
-                mode: input.enabled
-                  ? Object.keys((value.servers ?? {}) as object).length
-                    ? "custom"
-                    : "auto"
-                  : "off",
-              }
-            : { ...value, enabled: input.enabled },
-      });
+      if (input.id === "builtin.lsp") {
+        await this.lsp(input.path).setEnabled("global", input.enabled, state);
+      } else {
+        await this.builtinSave({
+          id: input.id,
+          path: input.path,
+          scope: "global",
+          revision: state.globalRevision,
+          value: {
+            ...(state.global as Record<string, Json>),
+            enabled: input.enabled,
+          },
+        });
+      }
       return { id: input.id, restartRequired: false, deferred: false };
     }
     if (

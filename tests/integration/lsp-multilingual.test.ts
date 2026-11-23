@@ -113,7 +113,12 @@ test("real Auto Python and Lua share a workspace through core tools; revisions, 
   await mkdir(root);
   const configPath = join(directory, "config.json");
   await saveGlobalConfig(
-    { schemaVersion: 2, profiles: {}, web: { enabled: false } },
+    {
+      schemaVersion: 2,
+      profiles: {},
+      web: { enabled: false },
+      lsp: { mode: "auto", servers: {} },
+    },
     configPath,
   );
   const source =

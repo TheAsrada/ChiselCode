@@ -117,12 +117,26 @@ test("overrides are bounded strict records and reserved builtin IDs never become
     }).serverOverrides?.missing?.enabled,
   ).toBe(false);
 });
-test("Auto is the default without paths/trusted roots; legacy custom settings keep exact-root trust", async () => {
+test("analysis defaults to Off, explicit Auto and legacy custom settings remain active", async () => {
   const { root } = await fixture();
-  const automatic: LspConfiguration = {
+  const clean: LspConfiguration = {
     global: LspConfigSchema.parse({}),
     ignorePatterns: [],
   };
+  expect(effectiveLspMode(clean)).toBe("off");
+  expect(await selectLspServer(root, clean)).toMatchObject({
+    state: "disabled",
+  });
+  expect(
+    effectiveLspMode({ ...clean, project: { enabled: true, mode: "auto" } }),
+  ).toBe("off");
+  const automatic: LspConfiguration = {
+    ...clean,
+    global: { ...clean.global, enabled: true },
+  };
+  expect(
+    effectiveLspMode({ ...clean, global: { ...clean.global, mode: "auto" } }),
+  ).toBe("auto");
   expect(await selectLspServer(root, automatic)).toMatchObject({
     state: "stopped",
     id: "auto",
@@ -376,7 +390,12 @@ test("quick patches preserve strategy, argv, trust, other sections and scoped in
   };
   const store = new LspSettingsStore(root, configPath, runtime);
   const server = { ...(await installedLsp()), trustedWorkspaces: [root] };
-  let state = await store.saveGlobal({
+  let state = await store.setStrategy("global", "custom", await store.load());
+  expect(state.management?.global).toMatchObject({
+    enabled: false,
+    strategy: "custom",
+  });
+  state = await store.saveGlobal({
     mode: "custom",
     servers: { manual: server },
     serverOverrides: { "auto-python": { enabled: false } },

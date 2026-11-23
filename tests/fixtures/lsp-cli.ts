@@ -31,6 +31,7 @@ export async function smokeLspCli(
   const configPath = join(configDirectory, "config.json");
   const requests: Record<string, unknown>[] = [];
   let failure: unknown;
+  let expectOff = false;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -54,6 +55,31 @@ export async function smokeLspCli(
             tool_calls?: { function: { name: string } }[];
           }[];
         };
+        if (expectOff) {
+          assert.ok(
+            body.tools?.some((item) => item.function.name === "read_file"),
+            "Ordinary tools were missing from the model request",
+          );
+          assert.ok(
+            !body.tools?.some((item) =>
+              item.function.name.startsWith("ext_ext_builtin_lsp_"),
+            ),
+            "Off exposed LSP tool schemas to the model",
+          );
+          return new Response(
+            `data: ${JSON.stringify({
+              id: "fixture-lsp-off",
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: "LSP tools hidden" },
+                  finish_reason: "stop",
+                },
+              ],
+            })}\n\ndata: [DONE]\n\n`,
+            { headers: { "Content-Type": "text/event-stream" } },
+          );
+        }
         requests.push(body);
         const tool = body.tools?.find((item) =>
           item.function.name.startsWith("ext_ext_builtin_lsp_diagnostics_"),
@@ -156,60 +182,77 @@ export async function smokeLspCli(
       join(root, "tsconfig.json"),
       '{"compilerOptions":{"strict":true},"include":["*.ts"]}',
     );
-    await writeFile(
-      configPath,
-      JSON.stringify({
-        schemaVersion: 2,
-        web: { enabled: false },
-        defaultProfileId: "fixture",
-        profiles: {
-          fixture: {
-            providerId: "openai-compatible",
-            defaultModel: "fixture-lsp",
-            baseUrl: `http://127.0.0.1:${server.port}/v1`,
-          },
-        },
-      }),
-    );
-    const result = await execa(
-      executable,
-      [
-        ...entryArgs,
-        "--cwd",
-        root,
-        "--mode",
-        "plan",
-        "--json",
-        `Use Auto LSP to diagnose the saved ${language} file`,
-      ],
-      {
-        cwd: root,
-        reject: false,
-        // A cold standard SDK has the same five-minute preparation budget as
-        // production, plus bounded CLI startup/shutdown overhead.
-        timeout: 360000,
-        env: {
-          XDG_CONFIG_HOME: directory,
-          XDG_DATA_HOME: directory,
-          APPDATA: directory,
-          LOCALAPPDATA: directory,
-          OPENAI_API_KEY: "fixture-local-endpoint-key",
+    const config = {
+      schemaVersion: 2,
+      web: { enabled: false },
+      defaultProfileId: "fixture",
+      profiles: {
+        fixture: {
+          providerId: "openai-compatible",
+          defaultModel: "fixture-lsp",
+          baseUrl: `http://127.0.0.1:${server.port}/v1`,
         },
       },
+    };
+    const run = async (prompt: string) => {
+      const result = await execa(
+        executable,
+        [...entryArgs, "--cwd", root, "--mode", "plan", "--json", prompt],
+        {
+          cwd: root,
+          reject: false,
+          // Allow the five-minute preparation budget plus CLI startup/shutdown.
+          timeout: 360000,
+          env: {
+            XDG_CONFIG_HOME: directory,
+            XDG_DATA_HOME: directory,
+            APPDATA: directory,
+            LOCALAPPDATA: directory,
+            OPENAI_API_KEY: "fixture-local-endpoint-key",
+          },
+        },
+      );
+      if (failure) throw failure;
+      assert.equal(
+        result.exitCode,
+        0,
+        JSON.stringify({
+          stderr: result.stderr,
+          signal: result.signal,
+          timedOut: result.timedOut,
+        }),
+      );
+      const output = JSON.parse(result.stdout);
+      assert.equal(output.status, "completed");
+      return output;
+    };
+    const verifyOff = async () => {
+      expectOff = true;
+      assert.equal(
+        (await run("Explain what files you can read")).text,
+        "LSP tools hidden",
+      );
+      expectOff = false;
+    };
+    if (language === "typescript") {
+      await writeFile(configPath, JSON.stringify(config));
+      await verifyOff();
+    }
+    await writeFile(
+      configPath,
+      JSON.stringify({ ...config, lsp: { enabled: true } }),
     );
-    if (failure) throw failure;
-    assert.equal(
-      result.exitCode,
-      0,
-      JSON.stringify({
-        stderr: result.stderr,
-        signal: result.signal,
-        timedOut: result.timedOut,
-      }),
+    const output = await run(
+      `Use Auto LSP to diagnose the saved ${language} file`,
     );
-    const output = JSON.parse(result.stdout);
-    assert.equal(output.status, "completed");
     assert.equal(output.text, "Real LSP contribution verified");
+    if (language === "typescript") {
+      await writeFile(
+        configPath,
+        JSON.stringify({ ...config, lsp: { enabled: false } }),
+      );
+      await verifyOff();
+    }
     const projects = join(
       directory,
       process.platform === "win32" ? "ChiselCode" : "chiselcode",

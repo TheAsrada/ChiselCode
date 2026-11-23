@@ -3,7 +3,8 @@
 import type { TextareaRenderable } from "@opentui/core";
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import {
-  globalLspMode,
+  globalLspDisabled,
+  globalLspStrategy,
   type LspConfig,
   type LspServerConfig,
   LspServerIdSchema,
@@ -401,6 +402,8 @@ export function OpenTuiLspSettings({
       if (!current || !pendingDraft) return;
       const id = LspServerIdSchema.parse(pendingDraft.id);
       const nextGlobal = structuredClone(current.global);
+      if (globalLspDisabled(nextGlobal)) nextGlobal.enabled = false;
+      nextGlobal.mode ??= globalLspStrategy(nextGlobal);
       const previousId = originalIdRef.current;
       if (id !== previousId && nextGlobal.servers[id])
         throw new Error("Server ID уже существует.");
@@ -681,6 +684,7 @@ export function OpenTuiLspSettings({
           }
           run(async (signal) => {
             const nextGlobal = structuredClone(state.global);
+            nextGlobal.mode ??= globalLspStrategy(nextGlobal);
             delete nextGlobal.servers[originalId];
             const next = await actions.saveGlobal(
               nextGlobal,
@@ -881,11 +885,13 @@ export function OpenTuiLspSettings({
             ? `Анализ: ${view?.enabled ? "Вкл" : "Выкл"}`
             : `Анализ кода: ${view?.enabled ? "Включён" : "Выключен"}`,
         value:
-          scope === "project" && view?.globallyDisabled
-            ? "Выключен для всех проектов; открыть общую настройку"
-            : view?.source === "project"
-              ? "Изменено для проекта"
-              : "Наследуется из общих настроек",
+          scope === "global"
+            ? "Включение для всех проектов"
+            : view?.globallyDisabled
+              ? "Выключен для всех проектов; открыть общую настройку"
+              : view?.source === "project"
+                ? "Изменено для проекта"
+                : "Наследуется из общих настроек",
         activate: overallToggle,
         toggle: overallToggle,
       },

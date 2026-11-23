@@ -158,10 +158,13 @@ export class LspService {
       },
     };
   }
-  private projectUi(): Readonly<LspUiStatus> {
-    const mode = this.configuration
+  get mode(): LspUiStatus["mode"] {
+    return this.configuration
       ? effectiveLspMode(this.configuration)
       : "unknown";
+  }
+  private projectUi(): Readonly<LspUiStatus> {
+    const mode = this.mode;
     const entries = [...this.entries.values()].filter(
       (entry) =>
         !this.configuration ||

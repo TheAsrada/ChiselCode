@@ -104,7 +104,7 @@ test("language catalog covers source/config filenames without ambiguous Auto ide
   );
   const selected = await selectLspServer(
     tmpdir(),
-    { global: { servers: {} }, ignorePatterns: [] },
+    { global: { mode: "auto", servers: {} }, ignorePatterns: [] },
     undefined,
     "main.py",
   );

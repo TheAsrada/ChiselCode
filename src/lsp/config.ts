@@ -141,13 +141,11 @@ export type LspConfig = z.infer<typeof LspConfigSchema>;
 export type LspServerConfig = z.infer<typeof LspServerSchema>;
 export type ProjectLspConfig = z.infer<typeof ProjectLspConfigSchema>;
 export type LspMode = "auto" | "custom" | "off";
-export function globalLspMode(config: LspConfig): LspMode {
-  return (
-    config.mode ?? (Object.keys(config.servers).length ? "custom" : "auto")
-  );
+export function globalLspStrategy(config: LspConfig): "auto" | "custom" {
+  if (config.mode === "auto" || config.mode === "custom") return config.mode;
+  return Object.keys(config.servers).length ? "custom" : "auto";
 }
 export function effectiveLspMode(configuration: LspConfiguration): LspMode {
-  const global = globalLspMode(configuration.global);
   if (
     globalLspDisabled(configuration.global) ||
     configuration.project?.enabled === false
@@ -155,11 +153,18 @@ export function effectiveLspMode(configuration: LspConfiguration): LspMode {
     return "off";
   return (
     configuration.project?.mode ??
-    (configuration.project?.serverId ? "custom" : global)
+    (configuration.project?.serverId
+      ? "custom"
+      : globalLspStrategy(configuration.global))
   );
 }
 export function globalLspDisabled(config: LspConfig): boolean {
-  return config.enabled === false || globalLspMode(config) === "off";
+  if (config.mode === "off") return true;
+  // Explicit strategies and legacy custom entries keep their previous opt-in.
+  return !(
+    config.enabled ??
+    (config.mode !== undefined || Object.keys(config.servers).length > 0)
+  );
 }
 /** Individual permission is distinct from strategy, trust and the overall Off ceiling. */
 export function lspServerEnabled(configuration: LspConfiguration, id: string) {

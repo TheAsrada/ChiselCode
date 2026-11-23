@@ -36,7 +36,7 @@ export function createLspExtension(
 ): ChiselExtension {
   return {
     id: "builtin.lsp",
-    activate(ctx) {
+    async activate(ctx) {
       const service = new LspService(
         ctx.workspaceRoot,
         async () => {
@@ -226,6 +226,7 @@ export function createLspExtension(
           return text ? { text } : undefined;
         },
       });
+      await service.refreshConfiguration();
     },
   };
 }

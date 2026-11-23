@@ -66,10 +66,17 @@ test("LSP without a project saves keyboard toggles globally and retains a projec
   };
   try {
     await until(() =>
-      setup.captureCharFrame().includes("Анализ кода: Включён"),
+      setup.captureCharFrame().includes("Анализ кода: Выключен"),
     );
     expect(setup.captureCharFrame()).toContain("Все проекты");
     await key("ARROW_DOWN"); // scope -> overall permission
+    await key(" ");
+    await until(() =>
+      setup.captureCharFrame().includes("Анализ кода: Включён"),
+    );
+    expect(JSON.parse(await readFile(configPath, "utf8")).lsp.enabled).toBe(
+      true,
+    );
     await key(" ");
     await until(
       async () =>
@@ -102,7 +109,10 @@ test("LSP without a project saves keyboard toggles globally and retains a projec
 test("LSP card explains Plan and disables explicit launch without asking the runtime to start", async () => {
   const directory = await mkdtemp(join(tmpdir(), "chisel-lsp-plan-ui-"));
   const configPath = join(directory, "selected.json");
-  await saveGlobalConfig({ schemaVersion: 2, profiles: {} }, configPath);
+  await saveGlobalConfig(
+    { schemaVersion: 2, profiles: {}, lsp: { mode: "auto", servers: {} } },
+    configPath,
+  );
   let restarts = 0;
   const actions = new LspSettingsStore(directory, configPath, {
     status: async () => ({

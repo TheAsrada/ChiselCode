@@ -19,7 +19,12 @@ export async function smokeDesktopEngine(command: string, args: string[] = []) {
   const config = join(root, "config", "chiselcode", "config.json");
   await writeFile(
     config,
-    JSON.stringify({ schemaVersion: 2, profiles: {}, web: { enabled: false } }),
+    JSON.stringify({
+      schemaVersion: 2,
+      profiles: {},
+      web: { enabled: false },
+      lsp: { mode: "auto" },
+    }),
   );
   const model = Bun.serve({
     hostname: "127.0.0.1",

@@ -3,6 +3,7 @@ import { backgroundServiceToken } from "../extensions/builtins/background.js";
 import { worktreeServiceToken } from "../extensions/builtins/worktrees.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { attachExtensionTools } from "../extensions/tools.js";
+import { lspServiceToken } from "../lsp/service.js";
 import { McpConnectionManager } from "../mcp/manager.js";
 import { McpRuntimeBinding } from "../mcp/runtime.js";
 import { McpConfigStore } from "../mcp/storage.js";
@@ -202,6 +203,7 @@ export async function createSessionToolRuntime(input: {
       );
     const skills = loadSkills(root);
     const git = new GitCapability(root, signal);
+    const lsp = scope.services.lookup(lspServiceToken);
     const tools = createLocalToolRuntime(
       root,
       config.ignorePatterns,
@@ -228,6 +230,11 @@ export async function createSessionToolRuntime(input: {
         subagentTools: input.subagentTools,
         background,
         worktrees: scope.services.lookup(worktreeServiceToken),
+        modelVisible: ({ spec }) =>
+          spec.source?.type !== "extension" ||
+          spec.source.extensionId !== "builtin.lsp" ||
+          lsp?.mode === "auto" ||
+          lsp?.mode === "custom",
         unavailable: (handler) => git.reason(handler),
       },
     );
@@ -250,6 +257,8 @@ export async function createSessionToolRuntime(input: {
       refresh: async () => {
         await git.refresh();
         await mcpBinding?.refresh(signal);
+        // Mode is updated before cleanup. A failed cleanup must not expose disabled tools.
+        await lsp?.refreshConfiguration().catch(() => {});
       },
     };
   } catch (error) {

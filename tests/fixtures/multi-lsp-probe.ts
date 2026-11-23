@@ -76,7 +76,10 @@ for (const language of process.argv.slice(2)) {
   const createService = () =>
     new LspService(
       root,
-      async () => ({ global: { servers: {} }, ignorePatterns: [] }),
+      async () => ({
+        global: { mode: "auto", servers: {} },
+        ignorePatterns: [],
+      }),
       new AbortController().signal,
     );
   let service = createService();

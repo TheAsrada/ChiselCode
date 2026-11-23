@@ -72,13 +72,18 @@ afterEach(async () => {
   }
   await rm(directory, { recursive: true, force: true });
 });
-async function fixture(mode: "auto" | "custom" = "custom") {
+async function fixture(mode: "auto" | "custom" | "off" = "custom") {
   const root = join(directory, "project");
   await mkdir(root);
   const canonical = await canonicalWorkspaceRoot(root);
   const configPath = join(directory, "config.json");
   await saveGlobalConfig(
-    { schemaVersion: 2, profiles: {}, web: { enabled: false } },
+    {
+      schemaVersion: 2,
+      profiles: {},
+      web: { enabled: false },
+      ...(mode === "off" ? {} : { lsp: { mode: "auto", servers: {} } }),
+    },
     configPath,
   );
   await writeFile(
@@ -107,8 +112,8 @@ async function fixture(mode: "auto" | "custom" = "custom") {
     },
   });
   expect((await settings.load()).status).toMatchObject({
-    mode: "auto",
-    state: "stopped",
+    mode: mode === "off" ? "off" : "auto",
+    state: mode === "off" ? "disabled" : "stopped",
     generation: 0,
   });
   if (mode === "custom") {
@@ -183,6 +188,65 @@ async function waitDiagnostics(
     "Real TypeScript diagnostics did not reach the expected update.",
   );
 }
+
+test("default Off, persisted On and later Off control the model catalog and real server", async () => {
+  const f = await fixture("off");
+  const r = await runtime(f);
+  const modelTools = (tools = r) =>
+    tools.catalog
+      .selectForTurn()
+      .map(({ name }) => name)
+      .filter((name) => name.startsWith("ext:builtin.lsp:"))
+      .sort();
+  const diagnostics = () =>
+    r.call("ext:builtin.lsp:diagnostics", { path: "main.ts" });
+
+  let settings = await f.settings.load();
+  expect(settings.management?.project.enabled).toBe(false);
+  expect(modelTools()).toEqual([]);
+  expect((await diagnostics()).errorCode).toBe("LSP_UNAVAILABLE");
+  expect(await lspProcessTree()).toEqual([]);
+
+  settings = await f.settings.setEnabled("global", true, settings);
+  expect(settings.management?.project.enabled).toBe(true);
+  expect(await lspProcessTree()).toEqual([]);
+  const enabledTools = [
+    "definition",
+    "diagnostics",
+    "references",
+    "restart",
+    "status",
+    "symbols",
+  ].map((name) => `ext:builtin.lsp:${name}`);
+  expect(modelTools()).toEqual(enabledTools);
+
+  const host = new ExtensionHost(
+    defaultExtensions([], { configPath: f.configPath }),
+  );
+  hosts.push(host);
+  const scope = await host.open(f.root);
+  const service = scope.services.get(lspServiceToken);
+  const reopened = await runtime({ ...f, host, scope, service });
+  expect((await loadGlobalConfig(f.configPath)).lsp?.enabled).toBe(true);
+  expect((await service.status()).mode).toBe("auto");
+  expect(modelTools(reopened)).toEqual(enabledTools);
+  expect(await lspProcessTree()).toEqual([]);
+
+  expect((await diagnostics()).isError).not.toBe(true);
+  const pids = await lspProcessTree();
+  expect(pids.length).toBeGreaterThanOrEqual(2);
+  settings = await f.settings.setEnabled("project", true, settings);
+  settings = await f.settings.setEnabled("global", false, settings);
+  expect(settings.project.enabled).toBe(true);
+  expect(settings.management?.project.enabled).toBe(false);
+  await waitForLspProcessExit(pids);
+  await reopened.refresh();
+  expect(modelTools()).toEqual([]);
+  expect(modelTools(reopened)).toEqual([]);
+  expect((await diagnostics()).errorCode).toBe("LSP_UNAVAILABLE");
+  expect(await lspProcessTree()).toEqual([]);
+  expect((await loadGlobalConfig(f.configPath)).lsp?.enabled).toBe(false);
+}, 20_000);
 
 test("registered passive LSP views read a cached real analysis and mark workspace changes stale", async () => {
   const f = await fixture();

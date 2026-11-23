@@ -15,7 +15,7 @@ import {
 import {
   effectiveLspMode,
   globalLspDisabled,
-  globalLspMode,
+  globalLspStrategy,
   type LspConfig,
   LspConfigSchema,
   type LspServerConfig,
@@ -152,19 +152,14 @@ async function management(
     project: scope === "project" ? project : undefined,
     ignorePatterns: [],
   };
+  const { mode, serverId } = configuration.project ?? {};
   const strategy =
-    configuration.project?.mode === "off"
-      ? configuration.project.serverId
+    mode && mode !== "off"
+      ? mode
+      : serverId
         ? "custom"
-        : globalLspMode(global) === "custom"
-          ? "custom"
-          : "auto"
-      : (configuration.project?.mode ??
-        (configuration.project?.serverId
-          ? "custom"
-          : globalLspMode(global) === "custom"
-            ? "custom"
-            : "auto"));
+        : globalLspStrategy(global);
+  const enabled = effectiveLspMode(configuration) !== "off";
   const ids = [
     ...new Set([
       ...LSP_SERVER_CATALOG.map((server) => server.id),
@@ -199,9 +194,7 @@ async function management(
           ? "unavailable"
           : descriptor && !catalogPlatformAvailable(descriptor)
             ? "unavailable"
-            : !permission.enabled ||
-                effectiveLspMode(configuration) === "off" ||
-                !applicable
+            : !permission.enabled || !enabled || !applicable
               ? "disabled"
               : (selection?.state ?? "stopped");
       if (state === "stopped" && root && selection) {
@@ -258,14 +251,14 @@ async function management(
   return frozenClone({
     scope,
     workspaceRoot: root,
-    enabled: effectiveLspMode(configuration) !== "off",
+    enabled,
     source:
       scope === "project" &&
       (project.enabled !== undefined || project.mode === "off")
         ? "project"
         : "global",
     globallyDisabled: globalLspDisabled(global),
-    strategy: strategy === "custom" ? "custom" : "auto",
+    strategy,
     servers,
   });
 }
@@ -521,9 +514,7 @@ export class LspSettingsStore implements LspSettingsActions {
       if (value.mode === "off") {
         if (enabled === undefined) delete value.mode;
         else if (scope === "global")
-          value.mode = Object.keys((value as LspConfig).servers).length
-            ? "custom"
-            : "auto";
+          value.mode = globalLspStrategy(value as LspConfig);
         else if ((value as ProjectLspConfig).serverId) value.mode = "custom";
         else delete value.mode;
       }
@@ -553,7 +544,14 @@ export class LspSettingsStore implements LspSettingsActions {
       if (mode === undefined) {
         delete value.mode;
         delete (value as ProjectLspConfig).serverId;
-      } else value.mode = mode;
+      } else {
+        if (
+          value.mode === "off" ||
+          (scope === "global" && globalLspDisabled(value as LspConfig))
+        )
+          value.enabled = false;
+        value.mode = mode;
+      }
     });
   }
   retryApply() {
