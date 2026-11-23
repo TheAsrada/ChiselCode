@@ -153,9 +153,10 @@ try {
   );
   await click("sidebar-tab-context");
   await capture("production-context-160x50");
-  assert.ok(ui.captureCharFrame().includes("Анализ кода"));
-  assert.ok(
-    ui.captureCharFrame().includes("Анализ кода выключен в настройках"),
+  assert.doesNotMatch(ui.captureCharFrame(), /Анализ кода/);
+  assert.equal(
+    ui.renderer.root.findDescendantById("sidebar-menu-builtin.lsp/menu_entry"),
+    undefined,
   );
   await click("sidebar-tab-menu");
   await key("END");
