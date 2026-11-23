@@ -1,6 +1,6 @@
 # Анализ кода: LSP и настройки
 
-[Карта архитектуры](../architecture.md) · [Настройка LSP](../configuration.md#анализ-кода-lsp) · [Проверки серверов](../contributors/feature-checks.md#проверки-lsp-и-settings)
+[Карта архитектуры](../architecture.md) · [Настройка LSP](../lsp.md) · [Проверки серверов](../contributors/feature-checks.md#проверки-lsp-и-settings)
 
 `defaultExtensions(custom, { configPath })` явно включает `builtin.project`, configured `builtin.lsp` и `builtin.btw`. Точный borrowed host/scope и `ExtensionHost([])` не получают built-ins скрыто. Activation LSP создаёт `LspService`, сначала учитывает `ctx.add(service)`, затем предоставляет typed token и регистрирует tools и context. При активации `LspService` загружает глобальный конфиг и `.chiselrc` без запуска сервера. Runtime/executor не знают конкретный backend; app composition связывает единое меню с узким settings/action port.
 

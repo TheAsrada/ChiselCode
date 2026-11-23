@@ -1,6 +1,6 @@
 # Единое меню и разрешения LSP
 
-[Карта архитектуры](../architecture.md) · [Архитектура LSP](lsp.md) · [Настройка анализа](../configuration.md#анализ-кода-lsp) · [Кадры и проверки](../contributors/reports/lsp-menu.md)
+[Карта архитектуры](../architecture.md) · [Архитектура LSP](lsp.md) · [Настройка анализа](../lsp.md) · [Кадры и проверки](../contributors/reports/lsp-menu.md)
 
 Статус: принято в исходниках для CLI 0.6.48. [Исходный план](../contributors/plans/lsp-menu.md) сохраняет требования и исследование базы 0.6.47.
 

@@ -2,7 +2,15 @@
 
 [Разработка расширений](README.md) · [Формат](package.md) · [Tools и commands](tools-commands.md)
 
-Создайте отдельный TypeScript-проект. Установите актуальный npm tarball `chiselcode-0.6.26.tgz` или новее из assets релиза для типов (`npm install --save-dev /путь/chiselcode-0.6.26.tgz`); его не нужно размещать рядом с runtime пакетом. Базовый loader/SDK требует 0.6.25+, типы тем `ThemeContribution`/`ThemeToken` — 0.6.26+. Исходник:
+Создайте отдельный TypeScript-проект. Скачайте в его каталог [архив CLI и SDK 0.6.55](https://github.com/TheAsrada/ChiselCode/releases/download/v0.6.55/chiselcode-0.6.55.tgz) или выберите `chiselcode-<версия>.tgz` на [странице выпуска вашего CLI](https://github.com/TheAsrada/ChiselCode/releases). Установите скачанный файл как зависимость для разработки, заменив `VERSION` номером выпуска.
+
+```bash
+npm install --save-dev "./chiselcode-VERSION.tgz"
+```
+
+Минимальная версия CLI для базовой загрузки пакета и SDK — **0.6.25**. Типы тем `ThemeContribution` и `ThemeToken` доступны с **0.6.26**. Используйте архив целевой версии CLI, чтобы примеры компилировались с её типами и возможностями.
+
+Добавьте `index.ts`.
 
 ```ts
 import type { ExtensionFactory } from "chiselcode/extension-sdk";
