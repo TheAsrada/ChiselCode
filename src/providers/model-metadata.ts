@@ -17,8 +17,10 @@ function positive(...values: unknown[]): number | undefined {
   ) as number | undefined;
 }
 
-/** Exact IDs and documented Fireworks short IDs; never guess limits from a model family. */
+/** Exact API model IDs and documented Fireworks short IDs. */
 export function catalogModelLimits(providerId: string, model: string): Limits {
+  // Codex subscription limits are specific to the account's model catalog.
+  if (providerId === "chatgpt") return {};
   const providers = catalog.providers as Record<string, Record<string, Limits>>;
   const direct = providers[providerId]?.[model];
   if (direct) return { ...direct, limitsSource: "catalog" };

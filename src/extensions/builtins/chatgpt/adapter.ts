@@ -4,10 +4,6 @@ import {
   normalizeProviderError,
   ProviderError,
 } from "../../../providers/errors.js";
-import {
-  catalogModelLimits,
-  modelInfo,
-} from "../../../providers/model-metadata.js";
 import { parseToolArguments } from "../../../providers/tool-arguments.js";
 import { ProviderToolNames } from "../../../providers/tool-names.js";
 import type {
@@ -54,10 +50,42 @@ const Completed = z.object({
     .nullish(),
 });
 const Catalog = z.object({ models: z.array(z.unknown()) });
+const OptionalTokenCount = z.int().positive().optional().catch(undefined);
 const CatalogEntry = z
-  .object({ slug: z.string().trim().min(1), visibility: z.unknown() })
+  .object({
+    slug: z.string().trim().min(1),
+    visibility: z.unknown(),
+    display_name: z.string().optional().catch(undefined),
+    context_window: OptionalTokenCount,
+    max_context_window: OptionalTokenCount,
+    effective_context_window_percent: z
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .catch(undefined),
+    max_input_tokens: OptionalTokenCount,
+    max_output_tokens: OptionalTokenCount,
+  })
   .passthrough();
 type AccountModel = ModelInfo & { reasoningEffort: ReasoningEffortCapability };
+
+// Match the usable window in the Codex catalog protocol.
+function accountModel(entry: z.infer<typeof CatalogEntry>): AccountModel {
+  const window = entry.context_window ?? entry.max_context_window;
+  const percent = entry.effective_context_window_percent ?? 95;
+  const contextWindow =
+    window === undefined ? undefined : Math.floor((window * percent) / 100);
+  return {
+    id: entry.slug,
+    displayName: entry.display_name,
+    contextWindow: contextWindow || undefined,
+    maxInputTokens: entry.max_input_tokens,
+    maxOutputTokens: entry.max_output_tokens,
+    limitsSource: contextWindow ? "provider" : undefined,
+    reasoningEffort: catalogEffort(entry),
+  };
+}
 
 function catalogEffort(
   entry: z.infer<typeof CatalogEntry>,
@@ -173,11 +201,9 @@ export class ChatGptAdapter implements ProviderAdapter {
     for (const raw of catalog.data.models) {
       const entry = CatalogEntry.safeParse(raw);
       if (!entry.success) continue;
-      const { slug, visibility } = entry.data;
+      const { visibility } = entry.data;
       if (visibility != null && visibility !== "list") continue;
-      const model = modelInfo({ ...entry.data, id: slug }, this.providerId);
-      if (model)
-        models.push({ ...model, reasoningEffort: catalogEffort(entry.data) });
+      models.push(accountModel(entry.data));
     }
     if (!models.length)
       throw new ProviderError(
@@ -195,7 +221,6 @@ export class ChatGptAdapter implements ProviderAdapter {
       reason = "Каталог аккаунта ChatGPT недоступен. Проверьте подключение.";
     }
     return {
-      ...catalogModelLimits(this.providerId, model),
       ...info,
       reasoningEffort: info?.reasoningEffort ?? { reason },
       tokenCounting: "local_estimate" as const,

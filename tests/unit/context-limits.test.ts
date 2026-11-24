@@ -91,6 +91,7 @@ test("exact gateway alias has documented Fireworks limits; unknown families stay
     contextWindow: 400_000,
     maxOutputTokens: 128_000,
   });
+  expect(catalogModelLimits("chatgpt", "gpt-5")).toEqual({});
   expect(
     catalogModelLimits("openai-compatible", "deepseek-v4p1-flash-special"),
   ).toEqual({});

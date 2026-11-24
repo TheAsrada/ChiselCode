@@ -48,6 +48,7 @@ export async function verifyChatGptModelPicker(configPath: string) {
       () => frame().includes("GPT-6 Luna") && frame().includes("GPT-6.1 Terra"),
     );
     assert.ok(frame().includes("ChatGPT | work"));
+    assert.ok(frame().includes("Контекст: 475,000"), frame());
     assert.ok(frame().includes("/ 3"));
     assert.ok(!frame().includes("Invalid entry"));
     assert.ok(!frame().includes("hidden-entry"));
@@ -76,7 +77,9 @@ export async function verifyChatGptModelPicker(configPath: string) {
     await act(async () => ui.mockInput.pasteBracketedText("Luna"));
     await wait(
       () =>
-        frame().includes("GPT-6 Luna") && !frame().includes("GPT-6.1 Terra"),
+        frame().includes("GPT-6 Luna") &&
+        !frame().includes("GPT-6.1 Terra") &&
+        frame().includes("Контекст: 258,400"),
     );
     await act(async () => ui.mockInput.pressEnter());
     await wait(

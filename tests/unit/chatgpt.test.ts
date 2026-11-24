@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ChatGptAdapter } from "../../src/extensions/builtins/chatgpt/adapter.js";
 import {
   ChatGptAuth,
   type ChatGptFetch,
@@ -337,6 +338,81 @@ test("Responses normalizes text, namespaced tools, usage and terminal events", a
     }),
   );
   expect(body).not.toHaveProperty("reasoning");
+});
+
+test("ChatGPT uses the account's usable Codex window and never borrows API limits", async () => {
+  const missingLimits = "gpt-5.6-sol";
+  const unlisted = "gpt-6-astra";
+  let attempts = 0;
+  const f = await fixture(async (url) => {
+    if (!String(url).includes("/codex/models")) return loginFetch(url);
+    if (++attempts === 1) return json({}, 503);
+    return json({
+      models: [
+        {
+          slug: "gpt-6.1-sol",
+          display_name: "GPT-6.1 Sol",
+          context_window: 272_000,
+          max_context_window: 872_000,
+          auto_compact_token_limit: 240_000,
+          visibility: "list",
+        },
+        {
+          slug: "gpt-6-luna",
+          context_window: "invalid",
+          max_context_window: 500_000,
+          effective_context_window_percent: 90,
+          visibility: "list",
+        },
+        {
+          slug: missingLimits,
+          context_window: 0,
+          max_context_window: -1,
+          visibility: "list",
+        },
+        { slug: unlisted, context_window: 272_000, visibility: "hide" },
+      ],
+    });
+  });
+  const auth = new ChatGptAuth(f.options);
+  await login(auth);
+  const transport = new ChatGptTransport(auth, f.options.fetch);
+  const adapter = new ChatGptAdapter(
+    "personal",
+    transport,
+    new ChatGptUsage(transport),
+  );
+  const unavailable = await adapter.getCapabilities("gpt-6.1-sol");
+  expect(unavailable.contextWindow).toBeUndefined();
+  expect(unavailable.limitsSource).toBeUndefined();
+  expect(unavailable.reasoningEffort.reason).toContain("недоступен");
+  const models = await adapter.listModels();
+  expect(models.map(({ id }) => id)).toEqual([
+    "gpt-6.1-sol",
+    "gpt-6-luna",
+    missingLimits,
+  ]);
+  expect(models[0]).toMatchObject({
+    displayName: "GPT-6.1 Sol",
+    contextWindow: 258_400,
+    limitsSource: "provider",
+  });
+  expect(models[1]).toMatchObject({
+    contextWindow: 450_000,
+    limitsSource: "provider",
+  });
+  for (const model of models) {
+    const capabilities = await adapter.getCapabilities(model.id);
+    expect(capabilities.contextWindow).toBe(model.contextWindow);
+    expect(capabilities.limitsSource).toBe(model.limitsSource);
+    expect(capabilities.maxInputTokens).toBeUndefined();
+    expect(capabilities.maxOutputTokens).toBeUndefined();
+  }
+  expect(models[2]?.contextWindow).toBeUndefined();
+  expect(
+    (await adapter.getCapabilities(unlisted)).contextWindow,
+  ).toBeUndefined();
+  expect(attempts).toBe(2);
 });
 
 for (const scenario of [

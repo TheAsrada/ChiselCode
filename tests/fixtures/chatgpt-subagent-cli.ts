@@ -43,6 +43,7 @@ const models = [
     display_name: "GPT-6.1 Sol",
     visibility: "list",
     context_window: 500000,
+    max_context_window: 872000,
   },
   {
     slug: childModel,

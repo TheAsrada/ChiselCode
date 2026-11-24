@@ -49,7 +49,8 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
             {
               slug: "fixture-codex",
               display_name: "Fixture Codex",
-              context_window: 128000,
+              max_context_window: 128_000,
+              effective_context_window_percent: 90,
               visibility: "list",
             },
           ],
@@ -151,7 +152,7 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
       registry,
     });
     expect(await adapter.listModels!()).toMatchObject([
-      { id: "fixture-codex", contextWindow: 128000 },
+      { id: "fixture-codex", contextWindow: 115_200 },
     ]);
     const session = createSession(root, "chatgpt", "fixture-codex");
     const events = new RuntimeEventBus(session.id);
@@ -197,6 +198,11 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
       maxIterations: 3,
     });
     expect(result.text).toBe("Файл записан");
+    expect(result.session.contextSnapshot).toMatchObject({
+      model: "fixture-codex",
+      contextWindow: 115_200,
+      windowSource: "provider",
+    });
     expect(await readFile(join(root, "result.txt"), "utf8")).toBe(
       "Подписка работает\n",
     );
