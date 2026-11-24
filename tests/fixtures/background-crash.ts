@@ -329,13 +329,14 @@ if (process.argv[2] === "--child") {
         "--resume",
         first.sessionId,
         "--json",
-        `/tasks status ${first.task.id}`,
+        `/tasks recover ${first.task.id}`,
       ],
       { reject: false, timeout: 45000 },
     );
     const recoveredTask = JSON.parse(
       JSON.parse(recovered.stdout.trim().split("\n").at(-1)!).output,
     );
+    assert.equal(recoveredTask.state, "interrupted");
     assert.equal(recoveredTask.cleanup.confirmed, true);
     assert.equal(recoveredTask.cleanup.recoveryRequired, undefined);
     const lease = await storage.acquireExecution(

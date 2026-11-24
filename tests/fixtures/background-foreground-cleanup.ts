@@ -84,7 +84,51 @@ try {
       name: "read_file",
       input: { path: "file.txt" },
     });
+  const nextShell = (id: string) =>
+    second.tools.executor.execute({
+      id,
+      name: "run_shell",
+      input: { command: "printf next-command-ran" },
+    });
   await writeFile(join(root, "file.txt"), "readable after cleanup\n");
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({
+      scripts: { test: "node --test --test-reporter=tap child.test.cjs" },
+    }),
+  );
+  await writeFile(
+    join(root, "child.test.cjs"),
+    `
+const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
+const { once } = require('node:events');
+const { test } = require('node:test');
+test('waits for a child in another session', async () => {
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 750)'], {
+    detached: true, stdio: 'ignore',
+  });
+  assert.deepEqual(await once(child, 'exit'), [0, null]);
+});
+`,
+  );
+  const npmTest = await first.tools.executor.execute({
+    id: "npm-test",
+    name: "run_shell",
+    input: { command: "npm test", timeout: 10000 },
+  });
+  assert.equal(npmTest.details?.exitCode, 0, npmTest.output);
+  assert.equal(npmTest.isError, false, npmTest.output);
+  assert.equal(
+    (npmTest.details?.shell as { cleanupConfirmed?: boolean })
+      ?.cleanupConfirmed,
+    true,
+  );
+  assert.match(npmTest.output, /ok 1 - waits for a child in another session/);
+  const afterNpmTest = await nextShell("after-npm-test");
+  assert.equal(afterNpmTest.isError, false, afterNpmTest.output);
+  assert.match(afterNpmTest.output, /next-command-ran$/);
+
   const completed = await first.tools.executor.execute({
     id: "gnu-timeout",
     name: "run_shell",
@@ -131,6 +175,11 @@ child.unref();
     escaped.output,
   );
   assert.equal(escaped.details?.exitCode, 0);
+  assert.equal(
+    (escaped.details?.shell as { cleanupConfirmed?: boolean })
+      ?.cleanupConfirmed,
+    false,
+  );
   const taskId = escaped.details?.foregroundTaskId;
   assert.equal(typeof taskId, "string");
   const busy = await read("unconfirmed");
@@ -138,6 +187,10 @@ child.unref();
   assert.equal(busy.details?.taskId, taskId);
   assert.equal(busy.details?.state, "cleanup_unknown");
   assert.equal(busy.details?.ownerId, first.session.id);
+  const blockedShell = await nextShell("blocked-shell");
+  assert.equal(blockedShell.errorCode, "BACKGROUND_RECOVERY_REQUIRED");
+  assert.equal(blockedShell.details?.taskId, taskId);
+  assert.doesNotMatch(blockedShell.output, /next-command-ran/);
   const requiresRecovery = (error: unknown) =>
     error instanceof RuntimeError &&
     error.code === "BACKGROUND_RECOVERY_REQUIRED" &&

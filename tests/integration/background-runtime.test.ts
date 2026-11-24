@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 test.skipIf(process.platform !== "linux")(
-  "GNU timeout releases a foreground workspace, while an escaped process keeps the recovery fence across sessions",
+  "npm test and GNU timeout release the foreground workspace after cleanup, while a live escaped process keeps the recovery fence",
   async () => {
     const child = Bun.spawn(
       [process.execPath, "tests/fixtures/background-foreground-cleanup.ts"],

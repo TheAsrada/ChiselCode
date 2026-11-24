@@ -18,10 +18,11 @@ export async function processSupervisor(
   // Linux adopts orphaned descendants, including a fast double fork. Census
   // can then detect descendants that have left the command's session.
   const linux = process.platform === "linux";
-  let orphanTracking = !linux;
+  let linuxTreeGone: (() => boolean) | undefined;
   if (linux) {
     try {
-      const { dlopen, FFIType } = await import("bun:ffi");
+      const { dlopen, FFIType, read } = await import("bun:ffi");
+      const { ECHILD } = (await import("node:os")).constants.errno;
       const libc = dlopen("libc.so.6", {
         prctl: {
           args: [
@@ -33,9 +34,26 @@ export async function processSupervisor(
           ],
           returns: FFIType.i32,
         },
+        waitpid: {
+          args: [FFIType.i32, FFIType.ptr, FFIType.i32],
+          returns: FFIType.i32,
+        },
+        __errno_location: { args: [], returns: FFIType.ptr },
       });
-      orphanTracking = libc.symbols.prctl(36, 1, 0, 0, 0) === 0;
-      libc.close();
+      const errno = libc.symbols.__errno_location();
+      if (errno && libc.symbols.prctl(36, 1, 0, 0, 0) === 0) {
+        const allChildrenNoHang = 0x40000000 | 1; // __WALL | WNOHANG
+        linuxTreeGone = () => {
+          // Called after Bun has collected the shell and any census probe.
+          // Reap adopted zombies. ECHILD proves there is no remaining child,
+          // even if descendants changed session or reparented during a census.
+          for (let count = 0; count < 4096; count++) {
+            const pid = libc.symbols.waitpid(-1, null, allChildrenNoHang);
+            if (pid <= 0) return pid === -1 && read.i32(errno) === ECHILD;
+          }
+          return false;
+        };
+      } else libc.close();
     } catch {
       /* Without proof Linux retains a recovery fence. */
     }
@@ -60,7 +78,7 @@ export async function processSupervisor(
   const signalledGroups = new Set<number>();
   let sampling = false;
   let finished = false;
-  let escaped = !orphanTracking;
+  let escaped = linux && !linuxTreeGone;
   let commandPid: number | undefined;
   let commandEof = false;
   let transportExited = false;
@@ -264,6 +282,11 @@ export async function processSupervisor(
       const commandEndedBeforeCensus =
         exited &&
         (runtime.kind === "cmd" ? commandEof : stdoutDone && stderrDone);
+      if (commandEndedBeforeCensus && linuxTreeGone?.()) {
+        escaped = false;
+        await finish(true);
+        return;
+      }
       const rows = await census();
       const belongsToShell = (row: Row) =>
         process.platform !== "win32" &&
@@ -319,6 +342,7 @@ export async function processSupervisor(
             .join(", "),
         });
       if (
+        !linux &&
         process.platform !== "win32" &&
         live.some((row) => !belongsToShell(row)) &&
         !escaped
@@ -334,6 +358,7 @@ export async function processSupervisor(
         }
         finishWindowsTransport();
       } else if (
+        !linux &&
         runtime.kind !== "cmd" &&
         commandEndedBeforeCensus &&
         !live.length
@@ -342,11 +367,12 @@ export async function processSupervisor(
       else if (
         process.platform !== "win32" &&
         commandEndedBeforeCensus &&
-        escaped &&
+        (escaped || (linux && live.length > 0)) &&
         live.every((row) => !belongsToShell(row))
-      )
+      ) {
+        escaped = true;
         finish(false);
-      else if (
+      } else if (
         stopping &&
         process.platform !== "win32" &&
         !killedGroup &&
@@ -485,7 +511,7 @@ export async function processSupervisor(
         },
       );
       shell.on("spawn", () => {
-        if (!orphanTracking) send({ type: "ownership_unknown" });
+        if (linux && !linuxTreeGone) send({ type: "ownership_unknown" });
         if (!windows)
           send({ type: "ready", pid: shell?.pid, supervisorPid: process.pid });
       });
