@@ -217,11 +217,11 @@ export function createApplicationSettingsActions({
           ),
         profiles: (await loadGlobalConfig(options.configPath)).profiles,
       }),
-      load: async (profileId, resumeSetup) => {
+      load: async (profileId) => {
         const current = await loadGlobalConfig(options.configPath);
         const pendingId = current.ui?.pendingSetupProfileId;
         if (
-          resumeSetup &&
+          !current.defaultProfileId &&
           !profileId &&
           !options.profile &&
           !options.provider &&
@@ -230,7 +230,6 @@ export function createApplicationSettingsActions({
           catalog.registry.has(current.profiles[pendingId].providerId)
         )
           profileId = pendingId;
-        const pendingSetup = !!profileId && profileId === pendingId;
         const selection = profileId
           ? { profile: profileId }
           : modelOptions(owner);
@@ -238,7 +237,8 @@ export function createApplicationSettingsActions({
         const profile = values.profileId
           ? current.profiles[values.profileId]
           : undefined;
-        if (pendingSetup) values.model = profile?.defaultModel ?? "";
+        const pendingSetup = !!profile && values.profileId === pendingId;
+        if (pendingSetup) values.model = profile.defaultModel ?? "";
         return {
           values,
           pendingSetup,

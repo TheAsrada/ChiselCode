@@ -25,10 +25,7 @@ export interface OpenTuiSettingsActions {
     providers: ProviderDefinition[];
     profiles: Record<string, ProviderProfile>;
   }>;
-  load(
-    profileId?: string,
-    resumeSetup?: boolean,
-  ): Promise<{
+  load(profileId?: string): Promise<{
     values: TuiSettingsValues;
     hasKey: boolean;
     accountLabel?: string;

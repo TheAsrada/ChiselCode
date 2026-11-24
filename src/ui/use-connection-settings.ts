@@ -107,6 +107,7 @@ export function useConnectionSettings({
   const editorEpoch = useRef(0);
 
   const acknowledged = useRef<TuiSettingsValues | undefined>(undefined);
+  const lastWrittenProfile = useRef<string | undefined>(undefined);
 
   const valuesRef = useRef(values);
 
@@ -209,7 +210,7 @@ export function useConnectionSettings({
     if (!actions) return;
     run("load", async (valid) => {
       const [draft, catalog] = await Promise.all([
-        actions.load(undefined, setup),
+        actions.load(),
         actions.catalog?.(),
       ]);
       if (!valid()) return;
@@ -287,7 +288,10 @@ export function useConnectionSettings({
       const result = await actions.save(
         next,
         acknowledged.current &&
-          acknowledged.current.profileId === next.profileId
+          next.profileId &&
+          acknowledged.current.profileId === next.profileId &&
+          (lastWrittenProfile.current === next.profileId ||
+            Object.hasOwn(profiles, next.profileId))
           ? acknowledged.current
           : undefined,
         setupProfile,
@@ -295,6 +299,7 @@ export function useConnectionSettings({
       const saved = { ...next, apiKey: undefined };
       baseline.current = JSON.stringify(saved);
       acknowledged.current = saved;
+      lastWrittenProfile.current = saved.profileId;
       // A delayed response only acknowledges its snapshot, never newer typing.
       setValues((current) =>
         JSON.stringify(current) === JSON.stringify(values) ? saved : current,
@@ -677,6 +682,8 @@ export function useConnectionSettings({
         const draft = await actions?.load();
         if (!valid()) return;
         if (catalog) setProfiles(catalog.profiles);
+        if (lastWrittenProfile.current === pending.profileId)
+          lastWrittenProfile.current = undefined;
         if (draft) {
           setValues(draft.values);
           baseline.current = JSON.stringify(draft.values);

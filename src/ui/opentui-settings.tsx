@@ -627,16 +627,14 @@ export function OpenTuiSettings({
                   run: back,
                 },
                 ...(screen === "login"
-                  ? onboarding
-                    ? [
-                        {
-                          id: "settings-login",
-                          label: "Войти по коду",
-                          disabled: !!busy,
-                          run: login,
-                        },
-                      ]
-                    : []
+                  ? [
+                      {
+                        id: "settings-login",
+                        label: "Войти по коду",
+                        disabled: !!busy,
+                        run: login,
+                      },
+                    ]
                   : [
                       {
                         id: "settings-confirm",
@@ -690,7 +688,8 @@ export function OpenTuiSettings({
                       {
                         id: "settings-use-profile",
                         label: "Использовать подключение",
-                        disabled: !!busy,
+                        disabled:
+                          !!busy || (setup && (!hasKey || !values.model)),
                         run: () =>
                           activate(
                             setup ? () => completeClose("saved") : undefined,
@@ -1037,7 +1036,7 @@ export function OpenTuiSettings({
     } else if (name === "return") {
       key.preventDefault();
       if (selector) choose();
-      else if (screen === "login" && onboarding) login();
+      else if (screen === "login") login();
       else {
         const row = rows[Math.min(selectedRef.current, rows.length - 1)];
         if (row) open(row.screen);
@@ -1467,9 +1466,7 @@ export function OpenTuiSettings({
                     ? "Откройте в браузере"
                     : busy
                       ? "Получаем код…"
-                      : onboarding
-                        ? "Enter · получить код для входа"
-                        : "Не удалось войти"}
+                      : "Enter · получить код для входа"}
                 </text>
                 {challenge && (
                   <>
