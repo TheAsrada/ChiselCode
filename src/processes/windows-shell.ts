@@ -37,7 +37,17 @@ try {
   $owner = [System.Diagnostics.Process]::GetProcessById($ownerPid)
   $null = $owner.Handle
   if ($owner.HasExited) { throw 'Владелец команды уже завершился.' }
-  if (-not $child.Start()) { throw 'Не удалось запустить CMD.' }
+  try {
+    if (-not $child.Start()) { throw 'Не удалось запустить CMD.' }
+  } catch {
+    $cause = $_.Exception.GetBaseException()
+    # CreateProcess rejected the working directory before returning a handle.
+    if ($cause -is [System.ComponentModel.Win32Exception] -and ($cause.NativeErrorCode -in @(3, 267))) {
+      Send-Frame @{type='spawn_error'; message=$cause.Message}
+      exit 1
+    }
+    throw
+  }
   $null = $child.Handle
   $child.StandardInput.Close()
   Send-Frame @{type='started'; pid=$child.Id}

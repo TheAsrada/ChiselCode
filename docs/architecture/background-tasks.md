@@ -34,6 +34,8 @@ Owned detached target выбирается через P2.1 worktree port, от c
 
 Foreground и background используют `ManagedProcess` и одинаковый approved shell path. В packaged/compiled приложении supervisor исполняется встроенным Bun runtime через `-e`; это helper процесса, не второй model/application executor и не daemon. Stdin команды закрыт; stdout/stderr backpressured, без unlimited execa `all` buffer.
 
+`run_shell` проверяет существование каталога после разрешения пути через `WorkspacePolicy` и повторяет проверку под блокировкой перед spawn. Это относится и к командам после подтверждения или ожидания в очереди. Scratch Workspace подготавливает свой каталог по правилам сессии до проверки. При отказе spawn процессный слой сохраняет системную причину. Подтверждённый отказ до старта позволяет освободить ресурсы. При неопределённом исходе действует `BACKGROUND_RECOVERY_REQUIRED`.
+
 Foreground и fallback `run_shell` передают диагностический текст без фильтра по словам `error`/`failed`: traceback, строки исходника и итог тестов остаются вместе. Ограничение inline-результата и перенос большого вывода выполняет общий `ToolResultStore`. Подсказка CMD дополняет результат, не переписывает команду, не повторяет её и не меняет реальный exit code; для Unix-утилит она учитывает команду и границы pipeline, а не только язык сообщения ОС.
 
 Core фиксирует `ShellRuntime` до spawn: CMD на Windows, `/bin/sh` на Linux/macOS. `collectDynamicContext` и описание `run_shell` сообщают модели тот же диалект, включая child loop. Windows backend запускает CMD с `/d /s /c`, отключая AutoRun; Python получает UTF-8 defaults. Неверный `;`/отсутствующая команда объясняются после настоящего failed result; replay и подмена exit code отсутствуют.

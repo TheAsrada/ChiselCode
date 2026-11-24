@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
-import { execa } from "execa";
+import { ExecaError, execa } from "execa";
 import { RuntimeError } from "../runtime/errors.js";
 import type { ProcessProofGrant } from "./cleanup-proof.js";
 import { waitForOwnedGroupExit } from "./group-cleanup.js";
@@ -15,6 +15,7 @@ export interface ManagedOutcome {
   cleanup: boolean;
   escaped: boolean;
   captureFailed?: boolean;
+  startFailure?: { message: string; spawnFailed?: boolean };
   timing?: { waitMs: number; cleanupMs: number };
   reason?: "cancelled" | "timed_out" | "output_limit" | "capture_failed";
 }
@@ -36,6 +37,7 @@ export class ManagedProcess {
   cleanupDetail = "";
   private readonly child;
   private outcome?: ManagedOutcome;
+  private startFailure?: ManagedOutcome["startFailure"];
   private readonly started = performance.now();
   private cleanupStarted?: number;
   private captureFailed = false;
@@ -97,7 +99,7 @@ export class ManagedProcess {
       },
       Math.max(1, input.deadline - Date.now()),
     );
-    this.child.stdin!.write(
+    this.child.stdin?.write(
       `${JSON.stringify({ type: "start", command: input.command, cwd: input.cwd, ownerPid: process.pid, proof: input.proof })}\n`,
     );
     const capture = async (stream: ProcessStream, readable: Readable) => {
@@ -110,7 +112,8 @@ export class ManagedProcess {
     };
     const control = async () => {
       let pending = "";
-      const readable = this.child.stdio[3] as Readable;
+      const readable = this.child.stdio?.[3] as Readable | undefined;
+      if (!readable) return;
       for await (const bytes of readable) {
         pending += Buffer.from(bytes).toString("utf8");
         if (pending.length > 16384)
@@ -140,8 +143,8 @@ export class ManagedProcess {
               cleanup: message.cleanup === true,
               escaped: message.escaped === true,
             };
-          else if (message.type === "error")
-            this.readyReject(new Error(message.message));
+          else if (message.type === "error" || message.type === "spawn_error")
+            this.failStart(message.message, message.type === "spawn_error");
         }
       }
     };
@@ -151,12 +154,17 @@ export class ManagedProcess {
       control(),
     ]);
     this.done = (async () => {
+      let supervisorError: ExecaError | undefined;
       try {
-        await child;
-      } catch {
-        /* Cleanup remains unconfirmed. */
+        const result = await child;
+        if (result instanceof ExecaError) supervisorError = result;
+      } catch (error) {
+        if (error instanceof ExecaError) supervisorError = error;
       }
       const streams = await output;
+      const supervisorSpawnFailed = supervisorError
+        ? this.supervisorStartError(supervisorError)
+        : false;
       if (streams.some((result) => result.status === "rejected")) {
         this.captureFailed = true;
         this.reason ??= "capture_failed";
@@ -164,16 +172,14 @@ export class ManagedProcess {
       this.closed = true;
       clearTimeout(deadlineTimer);
       this.foregroundSignal?.removeEventListener("abort", this.aborted);
-      this.readyReject(
-        new Error("Процесс завершился до подтверждения запуска."),
-      );
+      this.failStart("Процесс завершился до подтверждения запуска.");
       try {
         await input.capture.close();
       } catch {
         this.captureFailed = true;
         this.reason ??= "capture_failed";
       }
-      let cleanup = this.outcome?.cleanup ?? false;
+      let cleanup = supervisorSpawnFailed || (this.outcome?.cleanup ?? false);
       if (!cleanup && this.reason && !this.escaped && !this.outcome?.escaped) {
         // Linux commands can own several groups. An empty leader group is
         // insufficient without a positive census from the Linux supervisor.
@@ -200,6 +206,7 @@ export class ManagedProcess {
           escaped: this.escaped,
         }),
         cleanup,
+        ...(this.startFailure ? { startFailure: this.startFailure } : {}),
         ...(this.reason ? { reason: this.reason } : {}),
         captureFailed: this.captureFailed,
         timing: this.timing(),
@@ -208,6 +215,24 @@ export class ManagedProcess {
     // Callers always await ready; keep a rejection during stop/start races observed.
     void this.ready.catch(() => {});
     if (input.signal?.aborted) this.aborted();
+  }
+  private failStart(message: string, spawnFailed = false) {
+    if (this.pid || (this.startFailure && !spawnFailed)) return;
+    this.startFailure = { message, spawnFailed };
+    this.readyReject(new Error(message));
+  }
+  private supervisorStartError(error: ExecaError): boolean {
+    // A failed OS spawn with no PID proves the supervisor could not run.
+    // An exit, stream failure or missing handshake alone proves nothing.
+    const cause = error.cause as NodeJS.ErrnoException | undefined;
+    const spawnFailed =
+      this.child.pid === undefined &&
+      cause?.syscall?.startsWith("spawn ") === true;
+    this.failStart(
+      cause?.message ?? error.originalMessage ?? error.shortMessage,
+      spawnFailed,
+    );
+    return spawnFailed;
   }
   /** Atomic signal ownership transfer; absolute deadline and capture stay intact. */
   detachForeground(): void {
@@ -288,6 +313,7 @@ export class ManagedProcess {
           signal: this.outcome?.signal ?? this.leaderSignal,
           cleanup: false,
           escaped: this.outcome?.escaped ?? false,
+          ...(this.startFailure ? { startFailure: this.startFailure } : {}),
           reason: this.reason,
           captureFailed: this.captureFailed,
           timing: this.timing(),

@@ -3,12 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProcessLog } from "../processes/log.js";
 import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
-import { RuntimeError } from "../runtime/errors.js";
+import { recheckShellCwd, shellStartError } from "../processes/shell-cwd.js";
+import { cancelled, RuntimeError } from "../runtime/errors.js";
 import { SENSITIVE_KEY, SecretRedactor } from "./redaction.js";
+import type { WorkspacePolicy } from "./workspace-policy.js";
 export interface PreparedCommand {
   command: string;
   cwd: string;
   timeout: number;
+  workspace?: WorkspacePolicy;
   signal?: AbortSignal;
 }
 export interface ProcessResult {
@@ -16,6 +19,7 @@ export interface ProcessResult {
   exitCode: number | null;
   outcome?: ManagedOutcome;
   captureComplete?: boolean;
+  diagnostic?: string;
   sandboxed: boolean;
 }
 export interface SandboxExecutor {
@@ -44,6 +48,8 @@ export class HostSandboxExecutor implements SandboxExecutor {
     );
     try {
       await log.create();
+      await recheckShellCwd(command.cwd, command.workspace);
+      cancelled(command.signal);
       handle = new ManagedProcess({
         ...command,
         deadline: Date.now() + command.timeout,
@@ -51,6 +57,12 @@ export class HostSandboxExecutor implements SandboxExecutor {
       });
       await handle.ready.catch(() => {});
       const outcome = await handle.done;
+      const startError = await shellStartError(command.cwd, outcome);
+      if (startError && outcome.cleanup)
+        throw new RuntimeError(
+          startError.code,
+          redactor.text(startError.message),
+        );
       const pages: string[] = [];
       let cursor = 0;
       let captureComplete = !log.truncated && !outcome.captureFailed;
@@ -72,6 +84,7 @@ export class HostSandboxExecutor implements SandboxExecutor {
         exitCode: outcome.exitCode,
         outcome,
         captureComplete,
+        diagnostic: startError && redactor.text(startError.message),
         sandboxed: false,
       };
     } finally {

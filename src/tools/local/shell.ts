@@ -1,6 +1,7 @@
 import { attestNativeShell } from "../../background/capability.js";
 import { type ShellData, ShellInputSchema } from "../../background/input.js";
 import { shellGuidance } from "../../processes/shell.js";
+import { resolveShellCwd } from "../../processes/shell-cwd.js";
 import { RuntimeError } from "../../runtime/errors.js";
 import {
   ScratchWorkspace,
@@ -36,7 +37,7 @@ export function shellHandler() {
                 context.session.id,
               )
             ).path
-          : await context.workspace.resolve(input.cwd ?? ".");
+          : await resolveShellCwd(input.cwd ?? ".", context.workspace);
         return {
           data: {
             ...input,
@@ -74,6 +75,7 @@ export function shellHandler() {
             );
           const result = await context.sandbox.execute({
             ...plan.data,
+            workspace: scratch ? undefined : context.workspace,
             signal: context.signal,
           });
           return {
@@ -88,6 +90,7 @@ export function shellHandler() {
               command: plan.data.command,
               timeoutMs: plan.data.timeout,
               captureComplete: result.captureComplete ?? true,
+              diagnostic: result.diagnostic,
             }),
             sandboxed: result.sandboxed,
           };

@@ -489,27 +489,35 @@ export async function processSupervisor(
         env.CHISEL_SHELL_CWD = message.cwd;
         env.CHISEL_SHELL_OWNER_PID = String(message.ownerPid);
       }
-      shell = spawn(
-        windows ? "powershell.exe" : runtime.executable,
-        windows
-          ? [
-              "-NoLogo",
-              "-NoProfile",
-              "-NonInteractive",
-              "-EncodedCommand",
-              Buffer.from(windowsTransport, "utf16le").toString("base64"),
-            ]
-          : ["-c", message.command],
-        {
-          cwd: message.cwd,
-          shell: false,
-          detached: !windows,
-          windowsVerbatimArguments: false,
-          windowsHide: true,
-          env,
-          stdio: [windows ? "pipe" : "ignore", "pipe", "pipe"],
-        },
-      );
+      try {
+        shell = spawn(
+          windows ? "powershell.exe" : runtime.executable,
+          windows
+            ? [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                Buffer.from(windowsTransport, "utf16le").toString("base64"),
+              ]
+            : ["-c", message.command],
+          {
+            cwd: message.cwd,
+            shell: false,
+            detached: !windows,
+            windowsVerbatimArguments: false,
+            windowsHide: true,
+            env,
+            stdio: [windows ? "pipe" : "ignore", "pipe", "pipe"],
+          },
+        );
+      } catch (error) {
+        const cause = error as NodeJS.ErrnoException;
+        if (!cause.syscall?.startsWith("spawn")) throw error;
+        send({ type: "spawn_error", message: cause.message });
+        void finish(true);
+        return;
+      }
       shell.on("spawn", () => {
         if (linux && !linuxTreeGone) send({ type: "ownership_unknown" });
         if (!windows)
@@ -553,6 +561,10 @@ export async function processSupervisor(
                 // A native owner handle observes crash even if an inherited
                 // Windows pipe remains open. Stop only this live owned tree.
                 parentGone();
+              } else if (frame.type === "spawn_error") {
+                code = null;
+                send({ type: "spawn_error", message: frame.message });
+                transportEnding = true;
               } else if (frame.type === "error") {
                 escaped = true;
                 send({ type: "error", message: frame.message });
@@ -604,7 +616,7 @@ export async function processSupervisor(
       shell.on("exit", (exitCode, exitSignal) => {
         if (windows) {
           transportExited = true;
-          if (!exited || !commandEof) {
+          if (!transportEnding && (!exited || !commandEof)) {
             escaped = !stopping && !!commandPid;
             if (!exited) {
               exited = true;
@@ -629,9 +641,17 @@ export async function processSupervisor(
         void sample();
       });
       shell.on("error", (error) => {
-        exited = stdoutDone = stderrDone = true;
-        send({ type: "error", message: error.message });
-        finish(true);
+        const spawnFailed = shell?.pid === undefined;
+        send({
+          type: spawnFailed ? "spawn_error" : "error",
+          message: error.message,
+        });
+        if (spawnFailed) void finish(true);
+        else {
+          escaped = true;
+          send({ type: "ownership_unknown" });
+          stop();
+        }
       });
     } catch {
       send({

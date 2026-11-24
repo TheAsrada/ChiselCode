@@ -416,8 +416,39 @@ try {
   assert.equal(expiredQueue!.exitCode, null);
   assert.equal(expiredQueue!.outputBytes, 0);
   assert.equal((await controls.port.status(serverId)).state, "running");
+  const queuedCwd = "cwd-after-queue";
+  await mkdir(join(root, queuedCwd));
+  const queuedShell = await tools.executor.execute({
+    id: "queue-cwd",
+    name: "run_shell",
+    input: { command: command("batch.cjs"), cwd: queuedCwd, background: true },
+  });
+  assert.ok(!queuedShell.isError, queuedShell.output);
+  const queuedId = (queuedShell.details!.backgroundTask as { id: string }).id;
+  assert.ok(
+    ["queued", "waiting_resources"].includes(
+      (await controls.port.status(queuedId)).state,
+    ),
+  );
+  await rm(join(root, queuedCwd), { recursive: true });
   assert.equal((await controls.port.stop(serverId)).cleanup.confirmed, true);
   assert.equal((await controls.port.status(serverId)).state, "cancelled");
+  const [invalidCwd] = await controls.port.wait([queuedId], 10000);
+  assert.equal(invalidCwd?.state, "start_failed");
+  assert.equal(invalidCwd.errorCode, "INVALID_TOOL_INPUT");
+  assert.match(
+    invalidCwd.error ?? "",
+    /cwd «.*cwd-after-queue»: каталог не существует/,
+  );
+  assert.equal(invalidCwd.outputBytes, 0);
+  assert.equal(invalidCwd.cleanup.confirmed, true);
+  const afterQueue = await tools.executor.execute({
+    id: "after-queue-cwd",
+    name: "run_shell",
+    input: { command: "echo after-queue", cwd: "." },
+  });
+  assert.equal(afterQueue.isError, false, afterQueue.output);
+  assert.match(afterQueue.output, /after-queue/);
   const git = async (...args: string[]) =>
     (
       await execa(

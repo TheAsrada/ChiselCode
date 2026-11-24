@@ -95,6 +95,7 @@ export const BackgroundTaskSchema = z
       )
       .max(32),
     error: z.string().max(4096).optional(),
+    errorCode: z.literal("INVALID_TOOL_INPUT").optional(),
     retryOf: z.uuid().optional(),
     process: z
       .object({

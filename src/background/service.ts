@@ -11,9 +11,11 @@ import {
 } from "../processes/identity.js";
 import { ProcessLog } from "../processes/log.js";
 import { type ManagedOutcome, ManagedProcess } from "../processes/managed.js";
+import { recheckShellCwd, shellStartError } from "../processes/shell-cwd.js";
 import { cancelled, RuntimeError, runtimeError } from "../runtime/errors.js";
 import type { RuntimeEvent } from "../runtime/events.js";
 import { SENSITIVE_KEY, SecretRedactor } from "../security/redaction.js";
+import { WorkspacePolicy } from "../security/workspace-policy.js";
 import { projectSessionStore } from "../sessions/project-store.js";
 import { shellResult } from "../tools/shell-result.js";
 import type { ToolContext, ToolPlan } from "../tools/types.js";
@@ -105,6 +107,7 @@ interface Active {
   plan?: ToolPlan<ShellData>;
   foregroundOutput?: string;
   outcome?: ManagedOutcome;
+  startError?: RuntimeError;
   foregroundCaptureComplete?: boolean;
   launching?: Promise<void>;
   spawnAttempted?: boolean;
@@ -790,7 +793,7 @@ export class BackgroundTaskService {
     const terminal = !backgroundActive(record.state);
     return {
       output: terminal
-        ? `Фоновая задача «${record.label}»: ${record.state}${record.exitCode != null ? `, код ${record.exitCode}` : ""}. ID: ${record.id}`
+        ? `Фоновая задача «${record.label}»: ${record.state}${record.exitCode != null ? `, код ${record.exitCode}` : ""}. ID: ${record.id}${record.error ? `\n${record.error}` : ""}`
         : `${record.state === "running" ? "Запущено в фоне" : "Фоновая задача принята"}: «${record.label}». ID: ${record.id}. Состояние: ${record.state}.`,
       ...(terminal &&
       [
@@ -804,9 +807,12 @@ export class BackgroundTaskService {
         ? {
             isError: true,
             errorCode:
-              record.state === "denied"
+              record.errorCode ??
+              (record.state === "denied"
                 ? "PERMISSION_DENIED"
-                : "TOOL_EXECUTION_FAILURE",
+                : record.state === "cleanup_unknown"
+                  ? "BACKGROUND_RECOVERY_REQUIRED"
+                  : "TOOL_EXECUTION_FAILURE"),
           }
         : {}),
       details: {
@@ -903,12 +909,14 @@ export class BackgroundTaskService {
             item.binding.redactor.text(result.output),
             4096,
           );
+          if (!item.spawnAttempted && result.errorCode === "INVALID_TOOL_INPUT")
+            item.record.errorCode = result.errorCode;
           await this.finish(
             item,
             {
               exitCode: null,
               signal: null,
-              cleanup: true,
+              cleanup: !item.spawnAttempted,
               escaped: false,
               reason: item.stopReason,
             },
@@ -1078,6 +1086,15 @@ export class BackgroundTaskService {
       item.record,
       item.record.foreground ? "foreground" : "changed",
     );
+    await recheckShellCwd(
+      item.data.cwd,
+      item.data.scratch
+        ? undefined
+        : new WorkspacePolicy(
+            item.data.actualRoot,
+            item.binding.config.ignorePatterns,
+          ),
+    );
     cancelled(item.abort.signal);
     cancelled(signal);
     item.spawnAttempted = true;
@@ -1104,7 +1121,12 @@ export class BackgroundTaskService {
           "cleanup_unknown",
         );
       });
-    await handle.ready;
+    try {
+      await handle.ready;
+    } catch {
+      await this.stopActive(item, "capture_failed");
+      return;
+    }
     item.record.process!.pid = handle.pid;
     item.record.startedAt = new Date().toISOString();
   }
@@ -1209,6 +1231,20 @@ export class BackgroundTaskService {
                   : "failed"));
     try {
       if (!outcome.cleanup) await item.lease?.requireRecovery();
+      if (!item.process) await item.log?.close().catch(() => {});
+      const error = await shellStartError(item.data.cwd, outcome);
+      if (error) {
+        item.record.error = terminalSafeText(
+          item.binding.redactor.text(error.message),
+          4096,
+        );
+        if (outcome.cleanup) {
+          item.startError = new RuntimeError(error.code, item.record.error);
+          item.record.state = "start_failed";
+          if (error.code === "INVALID_TOOL_INPUT")
+            item.record.errorCode = error.code;
+        }
+      }
       await item.writes;
       if (item.record.foreground && item.log) {
         const pages: string[] = [];
@@ -1295,7 +1331,6 @@ export class BackgroundTaskService {
     item.abort.abort();
     if (!item.process && item.launching) await item.launching.catch(() => {});
     if (!item.process) {
-      await item.log?.close().catch(() => {});
       await this.finish(item, {
         exitCode: null,
         signal: null,
@@ -1361,37 +1396,50 @@ export class BackgroundTaskService {
       item.launching = this.startProcess(item, context.signal);
       await item.launching;
       await this.transition(item, "running");
-      const completion = item.done.then(async () => {
-        if (!record.cleanup.confirmed) {
-          // An admitted promotion may already own the one-shot transfer.
-          if (item.promotionAdmitted) await item.promoting?.catch(() => {});
-          if (!item.lease)
-            item.lease = await transferShellLease(context, plan, {
-              taskId: record.id,
-              ownerId: record.rootOwnerId,
-              label: record.label,
-              state: "cleanup_unknown",
-            });
-        }
-        const result = shellResult({
-          outcome: item.outcome!,
-          output: item.foregroundOutput ?? record.tail.join("\n"),
-          command: plan.data.command,
-          timeoutMs: plan.data.timeout,
-          captureComplete: item.foregroundCaptureComplete ?? false,
-          infrastructureError: !!record.error,
-        });
-        return {
-          ...result,
-          details: { ...result.details, foregroundTaskId: record.id },
-          ...(record.presentation ? { presentation: record.presentation } : {}),
-        };
-      });
-      return await Promise.race([completion, item.promotion.promise]);
     } catch (error) {
-      if (!item.finished) await this.stopActive(item, "capture_failed");
-      throw error;
+      if (!item.finished) {
+        if (item.spawnAttempted)
+          record.error = terminalSafeText(
+            binding.redactor.text(runtimeError(error).message),
+            4096,
+          );
+        await this.stopActive(item, "capture_failed");
+      }
+      await item.done;
+      if (record.cleanup.confirmed) throw error;
     }
+    const completion = item.done.then(async () => {
+      if (!record.cleanup.confirmed) {
+        // An admitted promotion may already own the one-shot transfer.
+        if (item.promotionAdmitted) await item.promoting?.catch(() => {});
+        if (!item.lease)
+          item.lease = await transferShellLease(context, plan, {
+            taskId: record.id,
+            ownerId: record.rootOwnerId,
+            label: record.label,
+            state: "cleanup_unknown",
+          });
+      }
+      if (item.startError) throw item.startError;
+      const result = shellResult({
+        outcome: item.outcome!,
+        output: item.foregroundOutput ?? record.tail.join("\n"),
+        command: plan.data.command,
+        timeoutMs: plan.data.timeout,
+        captureComplete: item.foregroundCaptureComplete ?? false,
+        infrastructureError: !!record.error,
+        diagnostic:
+          item.outcome?.startFailure || !record.cleanup.confirmed
+            ? record.error
+            : undefined,
+      });
+      return {
+        ...result,
+        details: { ...result.details, foregroundTaskId: record.id },
+        ...(record.presentation ? { presentation: record.presentation } : {}),
+      };
+    });
+    return await Promise.race([completion, item.promotion.promise]);
   }
   async promote(
     ownerId: string,

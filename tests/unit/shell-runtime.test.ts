@@ -14,7 +14,10 @@ import { createSession } from "../../src/sessions/store.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 import type { ProviderAdapter } from "../../src/types/domain.js";
 import { quoteShellArg } from "../helpers/shell.js";
-import { verifyShellDiagnostics } from "../helpers/shell-diagnostics.js";
+import {
+  shellDiagnosticApproval,
+  verifyShellDiagnostics,
+} from "../helpers/shell-diagnostics.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -280,10 +283,10 @@ test("fallback managed shell retains observed outcomes and partial sanitized log
       DEFAULT_PROJECT_CONFIG,
       {
         autoApprove: false,
-        nonInteractive: true,
-        allowedTools: new Set(["run_shell"]),
+        nonInteractive: false,
+        allowedTools: new Set(),
       },
-      { requestApproval: async () => "unavailable" },
+      shellDiagnosticApproval(cwd),
     ),
     session,
     [],

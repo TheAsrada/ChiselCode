@@ -9,7 +9,10 @@ import { ExtensionHost } from "../../src/extensions/host.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
 import { projectSessionStore } from "../../src/sessions/project-store.js";
 import { createSession } from "../../src/sessions/store.js";
-import { verifyShellDiagnostics } from "../helpers/shell-diagnostics.js";
+import {
+  shellDiagnosticApproval,
+  verifyShellDiagnostics,
+} from "../helpers/shell-diagnostics.js";
 
 const directory = await realpath(
   await mkdtemp(join(tmpdir(), "chisel-shell-diagnostics-")),
@@ -44,7 +47,6 @@ try {
     approvalMode: "default",
     options: {
       interactive: true,
-      allow: "run_shell",
       subagentOwner: {
         conversationId: session.id,
         generation: 0,
@@ -53,7 +55,7 @@ try {
       },
     },
     events: new RuntimeEventBus(session.id),
-    resolver: { requestApproval: async () => "approved" },
+    resolver: shellDiagnosticApproval(root),
     onBackgroundControls: (value) => {
       controls = value;
     },

@@ -11,6 +11,7 @@ export function shellResult(input: {
   timeoutMs: number;
   captureComplete: boolean;
   infrastructureError?: boolean;
+  diagnostic?: string;
 }): ToolExecutionResult {
   const { outcome } = input;
   const reason = !outcome.cleanup
@@ -47,7 +48,7 @@ export function shellResult(input: {
     ? shellFailureHint(input.command, input.output)
     : undefined;
   return {
-    output: `${summary}\n${input.output}${hint ? `\n${hint}` : ""}`,
+    output: `${summary}${input.diagnostic ? `\n${input.diagnostic}` : ""}\n${input.output}${hint ? `\n${hint}` : ""}`,
     rawOutput: input.output,
     isError,
     errorCode: isError

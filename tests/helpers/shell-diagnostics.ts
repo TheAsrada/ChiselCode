@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ProcessLog } from "../../src/processes/log.js";
+import type { ApprovalResolver } from "../../src/security/approval.js";
 import type { ToolCall, ToolExecutionResult } from "../../src/types/domain.js";
 import { quoteShellArg } from "./shell.js";
+
+export function shellDiagnosticApproval(root: string): ApprovalResolver {
+  return {
+    async requestApproval(request) {
+      if (request.preview.includes("cwd-after-approval"))
+        await rm(join(root, "cwd-after-approval"), { recursive: true });
+      return "approved";
+    },
+  };
+}
 
 /** Real processes through the ordinary executor, shared by both ownership paths. */
 export async function verifyShellDiagnostics(
@@ -14,6 +26,65 @@ export async function verifyShellDiagnostics(
   ) => Promise<ToolExecutionResult>,
   readArtifact: (uri: string) => Promise<string>,
 ) {
+  const marker = join(root, "unexpected-shell-start");
+  const script = join(root, "cwd-check.cjs");
+  await writeFile(
+    script,
+    `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started')`,
+  );
+  const command = `${quoteShellArg(process.execPath)} ${quoteShellArg(script)}`;
+  const invalidCwd = async (cwd: string, reason: RegExp) => {
+    const result = await execute({
+      id: `diagnostic-${cwd}`,
+      name: "run_shell",
+      input: { command, cwd },
+    });
+    assert.equal(result.errorCode, "INVALID_TOOL_INPUT", result.output);
+    assert.match(result.output, /cwd/);
+    assert.ok(result.output.includes(cwd), result.output);
+    assert.match(result.output, reason);
+    await assert.rejects(readFile(marker), { code: "ENOENT" });
+  };
+  await invalidCwd("cwd-missing", /каталог не существует/);
+  await invalidCwd("cwd-check.cjs", /не является каталогом/);
+  await mkdir(join(root, "cwd-after-approval"));
+  await invalidCwd("cwd-after-approval", /каталог не существует/);
+
+  // Delete the directory after validation, at the real supervisor spawn.
+  const race = join(root, "cwd-at-spawn");
+  await mkdir(race);
+  const createLog = ProcessLog.prototype.create;
+  const execPath = Object.getOwnPropertyDescriptor(process, "execPath");
+  assert.ok(execPath?.configurable);
+  ProcessLog.prototype.create = async function () {
+    await createLog.call(this);
+    Object.defineProperty(process, "execPath", {
+      configurable: true,
+      get() {
+        if (new Error().stack?.includes("new ManagedProcess")) {
+          Object.defineProperty(process, "execPath", execPath);
+          rmSync(race, { recursive: true });
+        }
+        return execPath.value;
+      },
+    });
+  };
+  try {
+    await invalidCwd("cwd-at-spawn", /Причина запуска: .+/);
+  } finally {
+    ProcessLog.prototype.create = createLog;
+    Object.defineProperty(process, "execPath", execPath);
+  }
+  await mkdir(join(root, "cwd-valid"));
+  const next = await execute({
+    id: "diagnostic-cwd-valid",
+    name: "run_shell",
+    input: { command: "echo cwd-valid", cwd: "cwd-valid" },
+  });
+  assert.equal(next.isError, false, next.output);
+  assert.equal(next.details?.exitCode, 0);
+  assert.ok(next.output.includes("cwd-valid"), next.output);
+
   let ordinal = 0;
   const run = async (source: string, timeout = 10000, signal?: AbortSignal) => {
     const file = join(root, `diagnostic-${ordinal++}.cjs`);

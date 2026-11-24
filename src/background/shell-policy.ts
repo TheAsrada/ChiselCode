@@ -5,6 +5,7 @@ import {
   localGitResource,
 } from "../git/driver.js";
 import type { ProcessLog } from "../processes/log.js";
+import { resolveShellCwd } from "../processes/shell-cwd.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import { ScratchWorkspace } from "../scratch/workspace.js";
 import { PermissionPolicy } from "../security/permission-policy.js";
@@ -65,7 +66,7 @@ export async function resolveShell(
   const workspace = new WorkspacePolicy(root, binding.config.ignorePatterns);
   const cwd = input.scratch
     ? (await ScratchWorkspace.forSession(root, context.session.id)).path
-    : await workspace.resolve(input.cwd ?? ".");
+    : await resolveShellCwd(input.cwd ?? ".", workspace);
   return {
     ...input,
     cwd,
