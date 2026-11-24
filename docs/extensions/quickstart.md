@@ -2,7 +2,7 @@
 
 [Разработка расширений](README.md) · [Формат](package.md) · [Tools и commands](tools-commands.md)
 
-Создайте отдельный TypeScript-проект. Скачайте в его каталог [архив CLI и SDK 0.6.57](https://github.com/TheAsrada/ChiselCode/releases/download/v0.6.57/chiselcode-0.6.57.tgz) или выберите `chiselcode-<версия>.tgz` на [странице выпуска вашего CLI](https://github.com/TheAsrada/ChiselCode/releases). Установите скачанный файл как зависимость для разработки, заменив `VERSION` номером выпуска.
+Создайте отдельный TypeScript-проект. Скачайте в его каталог [архив CLI и SDK 0.6.58](https://github.com/TheAsrada/ChiselCode/releases/download/v0.6.58/chiselcode-0.6.58.tgz) или выберите `chiselcode-<версия>.tgz` на [странице выпуска вашего CLI](https://github.com/TheAsrada/ChiselCode/releases). Установите скачанный файл как зависимость для разработки, заменив `VERSION` номером выпуска.
 
 ```bash
 npm install --save-dev "./chiselcode-VERSION.tgz"

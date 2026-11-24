@@ -59,7 +59,7 @@ chisel --version
 Установите опубликованный в GitHub архив `chiselcode-<версия>.tgz`. Он содержит CLI и SDK расширений. Для запуска CLI в обоих случаях нужен Bun в PATH.
 
 ```bash
-archive=https://github.com/TheAsrada/ChiselCode/releases/download/v0.6.57/chiselcode-0.6.57.tgz
+archive=https://github.com/TheAsrada/ChiselCode/releases/download/v0.6.58/chiselcode-0.6.58.tgz
 npm install -g "$archive"
 # или
 bun add -g "$archive"

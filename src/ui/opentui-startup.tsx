@@ -11,11 +11,11 @@ import { COMPACT_LOGO, LOGO_WIDTH, renderLogoRows } from "./logo.js";
 import { easeOut, mixColor } from "./motion.js";
 import { useMotion } from "./opentui-motion.js";
 
-const INTRO_MS = 512;
-export const HANDOFF_MS = 138;
+const INTRO_MS = 3200;
+export const HANDOFF_MS = 300;
 const LOGO = renderLogoRows();
-const LEVELS = 12;
-const HUE_STEPS = 24;
+const LEVELS = 24;
+const HUE_STEPS = 36;
 const ACCENTS = [
   THEMES.obsidian.accent,
   THEMES.graphite.accent,
@@ -38,7 +38,9 @@ function noise(x: number, y: number) {
 }
 
 function wave(age: number) {
-  return easeOut(age / 74) * (1 - easeOut((age - 86) / 214));
+  const first = smooth(age / 365) * (1 - smooth((age - 530) / 915));
+  const echo = smooth((age - 1160) / 360) * (1 - smooth((age - 1580) / 770));
+  return first + echo * 0.36;
 }
 
 function inkRamp(palette: Palette) {
@@ -82,15 +84,15 @@ function introLayout(width: number, height: number) {
         return [];
       const variation = noise(y + 31, x + 17);
       const angle = 2 * Math.PI * noise(x + 73, y + 32);
-      const reach = full ? 10 + 18 * variation : 3 + 6 * variation;
+      const reach = full ? 13 + 24 * variation : 3 + 7 * variation;
       return [
         {
           x: left + x,
           y: top + y,
           dx: Math.cos(angle) * reach,
           dy: Math.sin(angle) * reach * 0.55,
-          launch: 140 + (x / artWidth) * 70 + y * 7 + seed * 48,
-          duration: 152 + variation * 97,
+          launch: 910 + (x / artWidth) * 435 + y * 36 + seed * 270,
+          duration: 1040 + variation * 430,
           hue: variation * 0.42,
           glyph: seed > 0.59 ? "█" : seed > 0.3 ? "▄" : "▀",
         },
@@ -106,7 +108,7 @@ function introFrame(
   ink: ReturnType<typeof inkRamp>,
 ) {
   const { width, height, full, art, artWidth, left, top, particles } = layout;
-  const fade = 1 - smooth((ms - 398) / 145);
+  const fade = 1 - smooth((ms - 2480) / 805);
   const gutter = full ? Math.min(29, Math.floor(width * 0.23)) : 7;
   const burst = new Map<
     number,
@@ -115,11 +117,11 @@ function introFrame(
   for (const particle of particles) {
     const progress = (ms - particle.launch) / particle.duration;
     if (progress <= 0 || progress >= 1) continue;
-    const travel = easeOut(progress);
+    const travel = 1 - (1 - progress) ** 2;
     const x = Math.round(particle.x + particle.dx * travel);
     const y = Math.round(particle.y + particle.dy * travel);
     if (x < 0 || y < 0 || x >= width || y >= height) continue;
-    const bright = smooth(progress / 0.24) * (1 - progress) ** 0.8 * fade;
+    const bright = smooth(progress / 0.28) * (1 - progress) ** 0.85 * fade;
     const level = Math.round(LEVELS * bright);
     const cell = y * width + x;
     if (level > (burst.get(cell)?.level ?? 0))
@@ -151,11 +153,11 @@ function introFrame(
       if (glyph && glyph !== " ") {
         const heading = artX / artWidth;
         const delay =
-          64 + artY * 17 + heading * 102 + Math.sin(heading * 8) * 19;
+          350 + artY * 67 + heading * 420 + Math.sin(heading * 8) * 74;
         // Let the letters stay sharp while the color travels diagonally through
         // them. The last swatch blends into the current UI's text color.
-        const hue = (ms - delay + 32) / 270 + artY * 0.025;
-        const level = Math.round(LEVELS * easeOut((ms - delay) / 126) * fade);
+        const hue = (ms - delay + 120) / 1640 + artY * 0.018;
+        const level = Math.round(LEVELS * easeOut((ms - delay) / 625) * fade);
         push(level ? glyph : " ", level ? ink(hue, level) : undefined);
         continue;
       }
@@ -183,10 +185,10 @@ function introFrame(
       }
       const scatter = noise(y, x + 19);
       const arrival =
-        vertical * 134 + edge * 3.2 + (right ? 45 : 0) + scatter * 48;
+        vertical * 730 + edge * 17 + (right ? 200 : 0) + scatter * 210;
       const brightness = wave(ms - arrival) * (0.23 + 0.51 * scatter) * fade;
       const level = Math.round(LEVELS * brightness);
-      const hue = (ms + vertical * 72 + scatter * 85) / 535;
+      const hue = (ms + vertical * 290 + scatter * 370) / 2800;
       push(
         level ? (scatter > 0.73 ? "█" : scatter > 0.36 ? "▄" : "▀") : " ",
         level ? ink(hue, level) : undefined,
