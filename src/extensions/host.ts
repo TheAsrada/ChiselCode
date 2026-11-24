@@ -107,7 +107,11 @@ export class WorkspaceExtensionScope implements Disposable {
       this.signal,
       this.staging,
     );
-    this.chat = new ExtensionChatViews(() => this.assertUsable(), this.staging);
+    this.chat = new ExtensionChatViews(
+      () => this.assertUsable(),
+      this.staging,
+      (id) => !!this.activation(id),
+    );
     this.ui = new ExtensionUiRegistry(
       workspaceRoot,
       this.signal,
@@ -176,14 +180,14 @@ export class WorkspaceExtensionScope implements Disposable {
     this.ready = true;
     for (const definition of definitions)
       if (this.activations.some((frame) => frame.extensionId === definition.id))
-        await this.publishOwner(definition);
+        this.publishOwner(definition);
   }
   activation(id: string): ExtensionActivation | undefined {
     return this.activations.find(
-      (frame) => frame.extensionId === id && frame.owner.published,
+      (frame) => frame.extensionId === id && frame.owner.available,
     )?.owner;
   }
-  private async publishOwner(definition: ChiselExtension) {
+  private publishOwner(definition: ChiselExtension) {
     const frame = this.activations.find(
       (item) => item.extensionId === definition.id,
     );
@@ -273,7 +277,14 @@ export class WorkspaceExtensionScope implements Disposable {
           handler: import("../extension-sdk/agent-events.js").AgentEventHandler<K>,
         ) => {
           assertRegistering();
-          register(() => this.events.on(definition.id, type, handler));
+          register(() =>
+            this.events.on(
+              definition.id,
+              type,
+              (event, next) => frame.owner.run(() => handler(event, next)),
+              frame.owner,
+            ),
+          );
         },
         observe: (
           handler: Parameters<
@@ -281,7 +292,9 @@ export class WorkspaceExtensionScope implements Disposable {
           >[0],
         ) => {
           assertRegistering();
-          register(() => this.events.observe(definition.id, handler));
+          register(() =>
+            this.events.observe(definition.id, handler, frame.owner),
+          );
         },
       }),
       workspaceRoot: this.workspaceRoot,
@@ -346,18 +359,23 @@ export class WorkspaceExtensionScope implements Disposable {
           value: T,
         ) => {
           assertRegistering();
-          register(() => this.services.provide(token, value));
+          register(() => this.services.provide(token, value, frame.owner));
         },
         get: <T>(token: import("./services.js").ServiceToken<T>) =>
-          this.services.get(token),
+          this.services.get(token, frame.owner),
         lookup: <T>(token: import("./services.js").ServiceToken<T>) =>
-          this.services.lookup(token),
+          this.services.lookup(token, frame.owner),
       }),
       guards: Object.freeze({
         afterPrepare: (guard: import("./contracts.js").ToolGuard) => {
           assertRegistering();
           register(() =>
-            this.toolGuards.register(definition.id, "tool.afterPrepare", guard),
+            this.toolGuards.register(
+              definition.id,
+              "tool.afterPrepare",
+              (snapshot) => frame.owner.run(() => guard(snapshot)),
+              frame.owner,
+            ),
           );
         },
         beforeExecute: (guard: import("./contracts.js").ToolGuard) => {
@@ -366,7 +384,8 @@ export class WorkspaceExtensionScope implements Disposable {
             this.toolGuards.register(
               definition.id,
               "tool.beforeExecute",
-              guard,
+              (snapshot) => frame.owner.run(() => guard(snapshot)),
+              frame.owner,
             ),
           );
         },
@@ -377,7 +396,11 @@ export class WorkspaceExtensionScope implements Disposable {
         ) => {
           assertRegistering();
           register(() =>
-            this.contextProviders.register(definition.id, provider),
+            this.contextProviders.register(
+              definition.id,
+              provider,
+              frame.owner,
+            ),
           );
         },
       }),
@@ -401,6 +424,7 @@ export class WorkspaceExtensionScope implements Disposable {
           )))
       )
         throw new Error("Выбор расширения изменился до публикации.");
+      frame.owner.published = true;
     } catch (cause) {
       registering = false;
       frame.owner.revoke();
@@ -496,7 +520,7 @@ export class WorkspaceExtensionScope implements Disposable {
     if (available && !frame) {
       try {
         await this.activateOwner(definition);
-        await this.publishOwner(definition);
+        this.publishOwner(definition);
       } catch (error) {
         const failed = this.activations.find((item) => item.extensionId === id);
         if (failed) await this.cleanupFrame(failed);

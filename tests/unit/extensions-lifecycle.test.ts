@@ -683,3 +683,48 @@ test("owner disable revokes captured commands, tools and queued UI events in jus
   expect(() => command.parse("")).toThrow();
   expect(() => tool.parse({})).toThrow();
 });
+
+test("live activation hides staged services, commands, guards and hooks until it commits", async () => {
+  const token = createServiceToken<string>("staged");
+  const staged = deferred<void>();
+  const publish = deferred<void>();
+  const app = host([
+    {
+      id: "staged",
+      async activate(ctx) {
+        ctx.services.provide(token, "ready");
+        expect(ctx.services.get(token)).toBe("ready");
+        ctx.guards.beforeExecute(() => ({ action: "continue" }));
+        ctx.events.on("tool.call", (event, next) => next(event.data));
+        ctx.commands.register({
+          name: "staged-command",
+          description: "Fixture",
+          parse: (args) => args,
+          execute: () => ({ output: "ready" }),
+        });
+        staged.resolve();
+        await publish.promise;
+      },
+    },
+  ]);
+  app.configureOwnerAvailability(() => false);
+  const scope = await app.open(await root());
+  app.configureOwnerAvailability(() => true);
+  const enabling = app.refreshOwner("staged");
+  try {
+    await staged.promise;
+    expect(scope.services.lookup(token)).toBeUndefined();
+    expect(scope.commands.descriptors()).toEqual([]);
+    expect(scope.toolGuards.has("tool.beforeExecute")).toBe(false);
+    expect(scope.events.has("tool.call")).toBe(false);
+  } finally {
+    publish.resolve();
+    await enabling;
+  }
+  expect(scope.services.get(token)).toBe("ready");
+  expect(scope.commands.descriptors().map((entry) => entry.name)).toEqual([
+    "staged-command",
+  ]);
+  expect(scope.toolGuards.has("tool.beforeExecute")).toBe(true);
+  expect(scope.events.has("tool.call")).toBe(true);
+});

@@ -96,6 +96,7 @@ function api(items = [extension()]) {
         downgrade: false,
       } as unknown as ExtensionReview;
     },
+    subscribe: () => () => {},
     operation: () => ({ phase: "review" }),
     cancel: async (id: string) => {
       calls.push({ cancel: id });

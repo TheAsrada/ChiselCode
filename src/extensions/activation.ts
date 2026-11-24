@@ -20,6 +20,10 @@ export class ExtensionActivation {
     this.signal = operationSignal(this.lifetime.signal, workspaceSignal);
   }
 
+  get available() {
+    return this.published && !this.signal.aborted;
+  }
+
   revoke() {
     this.published = false;
     this.lifetime.abort();

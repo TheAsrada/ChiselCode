@@ -1,4 +1,5 @@
 import { cancelled } from "../runtime/errors.js";
+import type { ExtensionActivation } from "./activation.js";
 import type {
   Disposable,
   ToolGuard,
@@ -19,6 +20,7 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
     extensionId: string;
     point: ToolGuardPoint;
     guard: ToolGuard;
+    owner?: ExtensionActivation;
   }[] = [];
   private closed = false;
   private sealed = false;
@@ -31,11 +33,12 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
     extensionId: string,
     point: ToolGuardPoint,
     guard: ToolGuard,
+    owner?: ExtensionActivation,
   ): Disposable {
     this.assertOpen();
     if (this.sealed && !this.staging())
       throw new Error("Tool guard registrations are closed.");
-    const entry = { extensionId, point, guard };
+    const entry = { extensionId, point, guard, owner };
     this.entries.push(entry);
     return {
       dispose: () => {
@@ -48,7 +51,9 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
   }
   has(point: ToolGuardPoint): boolean {
     this.assertOpen();
-    return this.entries.some((entry) => entry.point === point);
+    return this.entries.some(
+      (entry) => entry.point === point && (entry.owner?.available ?? true),
+    );
   }
   async run(
     point: ToolGuardPoint,
@@ -56,7 +61,9 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
     operation?: AbortSignal,
   ): Promise<void> {
     this.assertOpen();
-    const entries = this.entries.filter((entry) => entry.point === point);
+    const entries = this.entries.filter(
+      (entry) => entry.point === point && (entry.owner?.available ?? true),
+    );
     if (!entries.length) return;
     const signal = operationSignal(this.lifetime, operation);
     cancelled(signal);
@@ -66,10 +73,17 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
       signal,
     });
     for (const entry of entries) {
+      const ownerSignal = entry.owner
+        ? operationSignal(signal, entry.owner.signal)
+        : signal;
       let decision: ToolGuardDecision;
       try {
-        const result = await abortable(() => entry.guard(snapshot), signal);
-        cancelled(signal);
+        const result = await abortable(
+          () =>
+            entry.guard(Object.freeze({ ...snapshot, signal: ownerSignal })),
+          ownerSignal,
+        );
+        cancelled(ownerSignal);
         if (
           !result ||
           (result.action !== "continue" && result.action !== "deny")
@@ -86,7 +100,7 @@ export class RuntimeHookPipeline implements ToolGuardPort, Disposable {
           decision = { action: "deny", reason: reason.trim() };
         } else decision = { action: "continue" };
       } catch (error) {
-        cancelled(signal);
+        cancelled(ownerSignal);
         throw extensionFailure(
           "EXTENSION_HOOK_FAILED",
           `Extension ${entry.extensionId} failed at ${point}.`,

@@ -15,6 +15,7 @@ export class ExtensionChatViews implements ChatPresentationPort {
   constructor(
     private readonly available: () => void,
     private readonly staging = () => false,
+    private readonly ownerAvailable = (_id: string) => true,
   ) {}
   register(extensionId: string, view: ExtensionChatView): Disposable {
     const key = JSON.stringify([extensionId, view?.id]);
@@ -50,7 +51,7 @@ export class ExtensionChatViews implements ChatPresentationPort {
       if (!this.sealed || this.closed) return undefined;
       this.available();
       const render = this.views.get(JSON.stringify([extensionId, view]));
-      if (!render) return undefined;
+      if (!render || !this.ownerAvailable(extensionId)) return undefined;
       // A formatter cannot change a completed tool's output or mutable live state.
       const value = render(frozenClone(data));
       if (value === undefined) return undefined;

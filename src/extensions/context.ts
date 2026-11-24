@@ -1,5 +1,6 @@
 import type { RequestContext } from "../context/types.js";
 import { cancelled } from "../runtime/errors.js";
+import type { ExtensionActivation } from "./activation.js";
 import type {
   ContextCollectionPort,
   ContextInvocation,
@@ -34,6 +35,7 @@ export class ContextProviderRegistry
   private entries: {
     extensionId: string;
     provider: ExtensionContextProvider;
+    owner?: ExtensionActivation;
   }[] = [];
   private closed = false;
   private sealed = false;
@@ -45,6 +47,7 @@ export class ContextProviderRegistry
   register(
     extensionId: string,
     provider: ExtensionContextProvider,
+    owner?: ExtensionActivation,
   ): Disposable {
     this.assertOpen();
     if (this.sealed && !this.staging())
@@ -62,6 +65,7 @@ export class ContextProviderRegistry
       );
     const entry = {
       extensionId,
+      owner,
       provider: Object.freeze({
         id: provider.id,
         collect: provider.collect.bind(provider),
@@ -95,15 +99,22 @@ export class ContextProviderRegistry
     const sources: { extensionId: string; providerId: string }[] = [];
     let bytes = Buffer.byteLength(FRAMING);
     let rawBytes = bytes;
-    for (const { extensionId, provider } of this.entries) {
+    for (const { extensionId, provider, owner } of this.entries) {
+      if (owner && !owner.available) continue;
+      const ownerSignal = owner
+        ? operationSignal(signal, owner.signal)
+        : signal;
       const attribution = { extensionId, providerId: provider.id };
       try {
         const result = await abortable(
-          () => provider.collect(snapshot),
-          signal,
+          () =>
+            provider.collect(
+              Object.freeze({ ...snapshot, signal: ownerSignal }),
+            ),
+          ownerSignal,
         );
         cancelled(signal);
-        if (result === undefined) continue;
+        if (owner?.signal.aborted || result === undefined) continue;
         if (!result || typeof result.text !== "string")
           throw new Error("Invalid context contribution.");
         if (Buffer.byteLength(result.text) > CONTEXT_CONTRIBUTION_BYTES)
@@ -130,6 +141,7 @@ export class ContextProviderRegistry
         sources.push(source);
       } catch (error) {
         cancelled(signal);
+        if (owner?.signal.aborted) continue;
         throw extensionFailure(
           "EXTENSION_CONTEXT_FAILED",
           `Extension context ${extensionId}/${provider.id} failed or exceeded its size limit (32 KiB per source; 128 KiB total).`,

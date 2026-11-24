@@ -1,3 +1,4 @@
+import type { ExtensionActivation } from "./activation.js";
 import type { Disposable } from "./contracts.js";
 import { ExtensionLifecycleError, validateId } from "./lifecycle.js";
 
@@ -19,7 +20,10 @@ export function createServiceToken<T>(diagnosticId: string): ServiceToken<T> {
 
 /** Owns registrations only. Service resource ownership is explicit in ctx.add(). */
 export class ServiceRegistry implements Disposable {
-  private readonly values = new Map<symbol, unknown>();
+  private readonly values = new Map<
+    symbol,
+    { value: unknown; owner?: ExtensionActivation }
+  >();
   private readonly children = new Set<ServiceRegistry>();
   private closed = false;
   private sealed = false;
@@ -35,7 +39,11 @@ export class ServiceRegistry implements Disposable {
       throw new ExtensionLifecycleError("Service registry is closed.");
     this.parent?.assertOpen();
   }
-  provide<T>(token: ServiceToken<T>, value: T): Disposable {
+  provide<T>(
+    token: ServiceToken<T>,
+    value: T,
+    owner?: ExtensionActivation,
+  ): Disposable {
     this.assertOpen();
     if (this.sealed && !this.staging())
       throw new ExtensionLifecycleError("Service registrations are closed.");
@@ -43,7 +51,7 @@ export class ServiceRegistry implements Disposable {
       throw new ExtensionLifecycleError(
         `Service ${token.diagnosticId} is already registered; shadowing is not supported.`,
       );
-    this.values.set(token.key, value);
+    this.values.set(token.key, { value, owner });
     let removed = false;
     return {
       dispose: () => {
@@ -58,23 +66,38 @@ export class ServiceRegistry implements Disposable {
     this.assertOpen();
     return this.values.has(key) || (this.parent?.contains(key) ?? false);
   }
-  lookup<T>(token: ServiceToken<T>): T | undefined {
+  private visible(
+    key: symbol,
+    requester?: ExtensionActivation,
+  ): { value: unknown } | undefined {
     this.assertOpen();
-    if (this.values.has(token.key)) return this.values.get(token.key) as T;
-    return this.parent?.lookup(token);
+    const entry = this.values.get(key);
+    if (!entry) return this.parent?.visible(key, requester);
+    if (
+      !entry.owner ||
+      entry.owner.available ||
+      (entry.owner === requester && !requester.signal.aborted)
+    )
+      return entry;
+  }
+  lookup<T>(
+    token: ServiceToken<T>,
+    requester?: ExtensionActivation,
+  ): T | undefined {
+    return this.visible(token.key, requester)?.value as T | undefined;
   }
   private descendantContains(key: symbol): boolean {
     return [...this.children].some(
       (child) => child.values.has(key) || child.descendantContains(key),
     );
   }
-  get<T>(token: ServiceToken<T>): T {
-    this.assertOpen();
-    if (!this.contains(token.key))
+  get<T>(token: ServiceToken<T>, requester?: ExtensionActivation): T {
+    const entry = this.visible(token.key, requester);
+    if (!entry)
       throw new ExtensionLifecycleError(
         `Required service ${token.diagnosticId} is missing. Check extension activation order.`,
       );
-    return this.lookup(token) as T;
+    return entry.value as T;
   }
   child(): ServiceRegistry {
     this.assertOpen();

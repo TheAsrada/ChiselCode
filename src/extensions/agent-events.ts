@@ -7,6 +7,7 @@ import type {
   AgentObservedEvent,
 } from "../extension-sdk/agent-events.js";
 import { cancelled } from "../runtime/errors.js";
+import type { ExtensionActivation } from "./activation.js";
 import type { Disposable } from "./contracts.js";
 import {
   abortable,
@@ -130,6 +131,7 @@ export interface AgentEventPort {
 }
 type Entry = {
   owner: string;
+  activation?: ExtensionActivation;
   type: keyof AgentEventData;
   handler: AgentEventHandler<keyof AgentEventData>;
 };
@@ -139,6 +141,7 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
   private entries: Entry[] = [];
   private observers: {
     owner: string;
+    activation?: ExtensionActivation;
     handler: (event: Readonly<AgentObservedEvent>) => void | Promise<void>;
   }[] = [];
   private sealed = false;
@@ -152,6 +155,7 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
     owner: string,
     type: K,
     handler: AgentEventHandler<K>,
+    activation?: ExtensionActivation,
   ): Disposable {
     if (
       this.closed ||
@@ -162,6 +166,7 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
       throw Error("Agent event registrations are closed or invalid.");
     const entry = {
       owner,
+      activation,
       type,
       handler: handler as unknown as AgentEventHandler<keyof AgentEventData>,
     };
@@ -175,6 +180,7 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
   observe(
     owner: string,
     handler: (event: Readonly<AgentObservedEvent>) => void | Promise<void>,
+    activation?: ExtensionActivation,
   ): Disposable {
     if (
       this.closed ||
@@ -182,7 +188,7 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
       typeof handler !== "function"
     )
       throw Error("Agent event registrations are closed or invalid.");
-    const entry = { owner, handler };
+    const entry = { owner, handler, activation };
     this.observers.push(entry);
     return {
       dispose: () => {
@@ -191,7 +197,12 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
     };
   }
   has(type: keyof AgentEventData) {
-    return !this.closed && this.entries.some((e) => e.type === type);
+    return (
+      !this.closed &&
+      this.entries.some(
+        (e) => e.type === type && (e.activation?.available ?? true),
+      )
+    );
   }
   /** Reuse activated handlers for a child, with its real root and lifetime; no re-import or extra tools. */
   forWorkspace(workspaceRoot: string, lifetime: AbortSignal): AgentEventPort {
@@ -230,7 +241,9 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
         throw Error("Agent event data is too large.");
       return frozenClone(schema.parse(JSON.parse(serialized)) as T);
     };
-    const entries = this.entries.filter((e) => e.type === type);
+    const entries = this.entries.filter(
+      (e) => e.type === type && (e.activation?.available ?? true),
+    );
     const dispatch = async (
       index: number,
       input: AgentEventData[K],
@@ -247,6 +260,9 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
                 ? { result: (input as AgentEventData["tool.result"]).result }
                 : input
         ) as AgentEventResult[K];
+      const ownerSignal = entry.activation
+        ? operationSignal(signal, entry.activation.signal)
+        : signal;
       let used = false,
         active = true,
         invalidContinuation = false,
@@ -257,13 +273,14 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
         const event = Object.freeze({
           ...context,
           workspaceRoot: context.workspaceRoot ?? this.workspaceRoot,
-          signal,
+          signal: ownerSignal,
           type,
           data: parse(inputs[type], input),
         });
         const output = await abortable(
           () =>
             entry.handler(event, (replacement) => {
+              cancelled(ownerSignal);
               if (used || !active) {
                 invalidContinuation = true;
                 throw Error(
@@ -281,18 +298,18 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
               });
               return pending;
             }),
-          signal,
+          ownerSignal,
         );
         active = false;
         // A handler cannot leave another handler running after its decision has been accepted.
         if (pending) await pending;
         if (invalidContinuation)
           throw Error("Invalid middleware continuation.");
-        cancelled(signal);
+        cancelled(ownerSignal);
         return parse(outputs[type], output) as AgentEventResult[K];
       } catch (error) {
         active = false;
-        cancelled(signal);
+        cancelled(ownerSignal);
         if (downstreamFailed && error === downstreamError) throw error;
         throw extensionFailure(
           "EXTENSION_HOOK_FAILED",
@@ -315,10 +332,15 @@ export class AgentEventPipeline implements AgentEventPort, Disposable {
     const signal = operationSignal(this.lifetime, operation);
     for (const entry of [...this.observers]) {
       cancelled(signal);
+      if (entry.activation && !entry.activation.available) continue;
+      const ownerSignal = entry.activation
+        ? operationSignal(signal, entry.activation.signal)
+        : signal;
       try {
-        await abortable(() => entry.handler(frozenClone(event)), signal);
+        await abortable(() => entry.handler(frozenClone(event)), ownerSignal);
       } catch {
         cancelled(signal);
+        if (entry.activation?.signal.aborted) continue;
         this.observers = this.observers.filter((e) => e !== entry);
         failures.push(
           `Расширение ${entry.owner}: наблюдатель событий отключён после ошибки.`,
