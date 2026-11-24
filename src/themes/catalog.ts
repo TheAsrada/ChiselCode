@@ -2,7 +2,14 @@ import { z } from "zod";
 import { frozenClone } from "../extensions/lifecycle.js";
 import { SecretRedactor } from "../security/redaction.js";
 import { THEME_TOKENS, type ThemeContribution } from "./contracts.js";
-import { type Palette, THEMES, type ThemeName } from "./palettes.js";
+import {
+  DEFAULT_THEME,
+  type Palette,
+  THEME_NAMES,
+  THEMES,
+  type ThemeName,
+  themePalette,
+} from "./palettes.js";
 
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const plain = (max: number) =>
@@ -106,7 +113,7 @@ export class ThemeCatalog {
     if (
       !Array.isArray(definitions) ||
       definitions.length > 16 ||
-      this.themes.size + definitions.length > 260
+      this.themes.size + definitions.length > THEME_NAMES.length + 256
     ) {
       this.diagnostics.push(`Темы ${extensionId}: превышен лимит каталога.`);
       return;
@@ -156,7 +163,8 @@ export class ThemeCatalog {
     return this.themes.get(key as ThemeName);
   }
   palette(key: ThemeName, accent?: string): Palette {
-    const theme = this.get(key) ?? this.get("obsidian")!;
+    const theme = this.get(key);
+    if (!theme) return themePalette(DEFAULT_THEME, accent);
     return {
       ...theme.colors,
       label: theme.name,

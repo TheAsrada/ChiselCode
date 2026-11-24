@@ -2,7 +2,7 @@
 import { type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { useLayoutEffect, useRef } from "react";
 import { contextProgress } from "../core/context-usage.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { DialogAction } from "./opentui-dialog.js";
 import { uiTone } from "./opentui-extension-details.js";
 import { SidebarSection, useSidebarNavigation } from "./sidebar-panel.js";
@@ -24,7 +24,7 @@ export function ContextSidebar({
   width = 40,
   height = 24,
   focused: enabled = false,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   presentation,
   onAction,
   onWorktrees,

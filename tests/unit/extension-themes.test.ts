@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { GlobalConfigV2Schema } from "../../src/config/schema.js";
 import { ExtensionHost } from "../../src/extensions/host.js";
 import { ThemeCatalog, validateTheme } from "../../src/themes/catalog.js";
-import { THEMES } from "../../src/ui/appearance.js";
+import { DEFAULT_THEME, THEME_NAMES, THEMES } from "../../src/ui/appearance.js";
 
 const { label, description, ...colors } = THEMES.obsidian;
 const theme = {
@@ -56,7 +56,18 @@ test("catalog isolates invalid themes, freezes definitions, namespaces identity 
   ]);
   input.colors.text = "#000000";
   catalog.accept("author.second", [theme]);
-  expect(catalog.list()).toHaveLength(6);
+  expect(catalog.list()).toHaveLength(THEME_NAMES.length + 2);
+  const standard = catalog.get(DEFAULT_THEME);
+  expect(standard?.name).toBe("Monochrome");
+  expect(
+    validateTheme({
+      id: DEFAULT_THEME,
+      name: standard?.name,
+      description: standard?.description,
+      colors: standard?.colors,
+      variant: standard?.variant,
+    }).colors.accent,
+  ).toBe(THEMES.monochrome.accent);
   expect(catalog.diagnostics).toHaveLength(1);
   expect(catalog.get("extension:author.first:night")?.colors.text).toBe(
     colors.text,
@@ -68,7 +79,7 @@ test("catalog isolates invalid themes, freezes definitions, namespaces identity 
     catalog.palette("extension:author.first:night", "#123456").accent,
   ).toBe("#123456");
   expect(catalog.palette("extension:missing:night").bg).toBe(
-    THEMES.obsidian.bg,
+    THEMES[DEFAULT_THEME].bg,
   );
   catalog.dispose();
 });
@@ -92,6 +103,7 @@ test("application themes survive workspace close and selection uses backward com
     expect(host.themes.get("extension:linked.themes:night")).toBeDefined();
     expect(activations).toBe(1);
     for (const selected of [
+      "monochrome",
       "obsidian",
       "paper",
       "extension:linked.themes:night",

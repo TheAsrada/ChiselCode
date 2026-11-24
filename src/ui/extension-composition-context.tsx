@@ -15,7 +15,7 @@ import type {
   OwnedUiContribution,
   UiActionUse,
 } from "../extensions/ui-types.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 
 export type Composition = {
   binding?: string;
@@ -55,7 +55,7 @@ export type ControlTarget = {
 };
 export const UiCompositionContext = createContext<Composition>({
   items: [],
-  palette: THEMES.obsidian,
+  palette: THEMES[DEFAULT_THEME],
 });
 export function UiCompositionProvider({
   value,

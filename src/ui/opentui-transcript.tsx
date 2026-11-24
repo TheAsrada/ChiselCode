@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 import React from "react";
 import type { ChatCard as CardData } from "../types/chat-presentation.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { diffViewForWidth } from "./file-diff-preview.js";
 import { ChatCard } from "./opentui-chat-card.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
@@ -49,7 +49,7 @@ export function OpenTuiTranscript({
   expandedIds,
   onToggleDiff,
   windowEnd,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   actionPresentation,
   onActionSelect,
   focusedActionId,

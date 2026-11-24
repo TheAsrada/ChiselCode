@@ -20,7 +20,7 @@ import {
   type McpValue,
 } from "../mcp/schema.js";
 import { mcpTrustPreview } from "../mcp/trust-preview.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction } from "./opentui-dialog.js";
 import {
@@ -90,7 +90,7 @@ export function OpenTuiMcp({
   actions,
   width,
   height,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   onClose,
   embedded = false,
   active = true,

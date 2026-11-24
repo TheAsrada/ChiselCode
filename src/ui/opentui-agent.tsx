@@ -96,7 +96,7 @@ import { clipText } from "../utils/text.js";
 import { VERSION } from "../version.js";
 import { resolveWebConfig } from "../web/schema.js";
 import { WebSettingsStore } from "../web/settings.js";
-import type { ThemeName } from "./appearance.js";
+import { DEFAULT_THEME, THEMES, type ThemeName } from "./appearance.js";
 import { createApplicationSettingsActions } from "./application-settings-actions.js";
 import {
   appendChatPresentation,
@@ -398,7 +398,7 @@ async function runApplication(
     modelCatalog.warm(controller);
   warmModelCapabilities(workspace.home);
   warmModelCapabilities(workspace.controller);
-  let currentTheme: ThemeName = preferences.config.ui?.theme ?? "obsidian";
+  let currentTheme: ThemeName = preferences.config.ui?.theme ?? DEFAULT_THEME;
   const classic =
     process.env.CHISEL_ALT_SCREEN === "0" ||
     process.env.CHISEL_NO_ALT_SCREEN === "1";
@@ -2066,9 +2066,9 @@ async function runApplication(
   try {
     if (initialRoot) await extensionHost.open(initialRoot);
     if (!extensionHost.themes.get(currentTheme)) {
-      currentTheme = "obsidian";
+      currentTheme = DEFAULT_THEME;
       currentController().appendNotice(
-        "Выбранная тема расширения недоступна. Используется Obsidian; проверьте расширение и перезапустите ChiselCode после изменения его состояния.",
+        `Выбранная тема расширения недоступна. Используется ${THEMES[DEFAULT_THEME].label}. Проверьте расширение и перезапустите ChiselCode после изменения его состояния.`,
         "info",
       );
     }

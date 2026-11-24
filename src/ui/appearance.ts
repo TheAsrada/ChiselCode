@@ -6,6 +6,7 @@ export type {
   ThemeName,
 } from "../themes/palettes.js";
 export {
+  DEFAULT_THEME,
   isThemeName,
   THEME_NAMES,
   THEMES,

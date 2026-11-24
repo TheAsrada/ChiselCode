@@ -1,5 +1,19 @@
-/** Terminal palettes. Obsidian is deliberately black, independent of terminal settings. */
+/** Terminal palettes use explicit colors, independent of terminal settings. */
 export const THEMES = {
+  monochrome: {
+    label: "Monochrome",
+    description: "чёрный | белый акцент",
+    bg: "#080808",
+    surface: "#131313",
+    raised: "#232323",
+    border: "#515151",
+    text: "#f4f4f4",
+    muted: "#a6a6a6",
+    accent: "#fafafa",
+    green: "#b9d7be",
+    red: "#f2a8aa",
+    yellow: "#ead4a1",
+  },
   obsidian: {
     label: "Obsidian",
     description: "чёрный | мятный акцент",
@@ -63,15 +77,16 @@ export type ThemeName = BuiltinThemeName | `extension:${string}:${string}`;
 export type Palette = { [K in keyof (typeof THEMES)["obsidian"]]: string } & {
   variant?: "light" | "dark";
 };
+export const DEFAULT_THEME: BuiltinThemeName = "monochrome";
 export const THEME_NAMES = Object.keys(THEMES) as BuiltinThemeName[];
 
 export function isThemeName(value: string): value is BuiltinThemeName {
-  return value in THEMES;
+  return Object.hasOwn(THEMES, value);
 }
 
 export function themePalette(name: ThemeName, accent?: string): Palette {
   return {
-    ...THEMES[isThemeName(name) ? name : "obsidian"],
+    ...THEMES[isThemeName(name) ? name : DEFAULT_THEME],
     variant: name === "paper" ? "light" : "dark",
     ...(accent && /^#[0-9a-fA-F]{6}$/.test(accent) ? { accent } : {}),
   };

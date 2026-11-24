@@ -239,12 +239,7 @@ export interface GlobalConfig {
     motion?: "full" | "reduced";
     /** @deprecated Legacy input only; panel visibility is local to the current screen. */
     sidebarMode?: "auto" | "show" | "hide";
-    theme?:
-      | "obsidian"
-      | "graphite"
-      | "ember"
-      | "paper"
-      | `extension:${string}:${string}`;
+    theme?: import("../themes/palettes.js").ThemeName;
     accent?: string;
   };
 }

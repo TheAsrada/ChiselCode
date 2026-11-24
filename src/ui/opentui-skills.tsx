@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Skill } from "../skills/skills.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction as Action } from "./opentui-dialog.js";
 import { OpenTuiToolPane, toolPaneLayout } from "./opentui-tool-pane.js";
@@ -42,7 +42,7 @@ export function OpenTuiSkills({
   actions,
   width,
   height,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   onClose,
   onChoose,
   onCreate,

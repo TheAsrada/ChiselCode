@@ -9,7 +9,12 @@ import type { ManagedExtension } from "../extensions/management.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
 import type { Skill } from "../skills/skills.js";
 import { ThemeCatalog } from "../themes/catalog.js";
-import { type Palette, THEMES, type ThemeName } from "./appearance.js";
+import {
+  DEFAULT_THEME,
+  type Palette,
+  THEMES,
+  type ThemeName,
+} from "./appearance.js";
 import {
   type MenuAction,
   MenuActions,
@@ -57,11 +62,11 @@ export function OpenTuiSettings({
   actions,
   width,
   height,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   onClose,
   initialSelection = 0,
   initialPage = "connection",
-  theme = "obsidian",
+  theme = DEFAULT_THEME,
   themeCatalog,
   onThemePreview,
   onThemeChange,

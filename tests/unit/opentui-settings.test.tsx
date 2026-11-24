@@ -4,6 +4,7 @@ import type { InputRenderable } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
+import { DEFAULT_THEME, THEME_NAMES } from "../../src/ui/appearance.js";
 import { matchingCommands, parseSlashCommand } from "../../src/ui/commands.js";
 import { LOGO_TERM_ROWS } from "../../src/ui/logo.js";
 import {
@@ -598,7 +599,7 @@ for (const [width, height] of [
   });
 }
 
-for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
+for (const theme of THEME_NAMES) {
   test(`theme ${theme} previews, commits explicitly and restores the unsent draft`, async () => {
     const persisted: string[] = [];
     const setup = await testRender(
@@ -618,8 +619,8 @@ for (const theme of ["obsidian", "graphite", "ember", "paper"] as const) {
       await key(setup, "t", true);
       await click(setup, `settings-theme-${theme}`);
 
-      expect(persisted).toEqual(theme === "obsidian" ? [] : [theme]);
-      if (theme !== "obsidian")
+      expect(persisted).toEqual(theme === DEFAULT_THEME ? [] : [theme]);
+      if (theme !== DEFAULT_THEME)
         expect(setup.captureCharFrame()).toContain("Тема сохранена");
       await key(setup, "ESCAPE");
       expect(setup.renderer.currentFocusedEditor === editor).toBe(true);

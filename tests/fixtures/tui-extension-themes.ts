@@ -14,7 +14,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
 import { PackageManagementService } from "../../src/extensions/packages/service.js";
-import { THEMES } from "../../src/ui/appearance.js";
+import { DEFAULT_THEME, THEMES } from "../../src/ui/appearance.js";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
 import { focusMenuAction, menuAction } from "./menu-navigation.js";
 
@@ -173,8 +173,8 @@ async function start() {
 function assertFallback() {
   assert.deepEqual(
     ui.captureSpans().lines[0]?.spans[0]?.bg.toInts().slice(0, 3),
-    RGBA.fromHex(THEMES.obsidian.bg).toInts().slice(0, 3),
-    "Unavailable theme did not fall back to the actual Obsidian palette",
+    RGBA.fromHex(THEMES[DEFAULT_THEME].bg).toInts().slice(0, 3),
+    "Unavailable theme did not fall back to the actual Monochrome palette",
   );
   assert.ok(
     !ui.captureCharFrame().includes("Выбранная тема расширения недоступна"),

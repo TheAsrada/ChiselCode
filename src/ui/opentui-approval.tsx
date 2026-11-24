@@ -3,7 +3,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useRef } from "react";
 import type { ApprovalRequest } from "../security/approval.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { extensionToolLabel } from "./extension-tool.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
@@ -17,7 +17,7 @@ export function OpenTuiApproval({
   request,
   width,
   height,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   onApprove = () => {},
   onAlwaysApprove,
   onSessionApprove,

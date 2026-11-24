@@ -3,6 +3,7 @@ import { BackgroundConfigSchema } from "../background/config.js";
 import { LspConfigSchema } from "../lsp/config.js";
 import { McpConfigSchema } from "../mcp/schema.js";
 import { SubagentConfigSchema } from "../subagents/config.js";
+import { THEME_NAMES } from "../themes/palettes.js";
 import { WebConfigSchema } from "../web/schema.js";
 export const ProfileIdSchema = z
   .string()
@@ -53,7 +54,7 @@ export const GlobalConfigV2Schema = z.looseObject({
       motion: z.enum(["full", "reduced"]).optional(),
       theme: z
         .union([
-          z.enum(["obsidian", "graphite", "ember", "paper"]),
+          z.enum(THEME_NAMES),
           z
             .string()
             .max(220)

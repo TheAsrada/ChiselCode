@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProviderId } from "../types/domain.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { cleanSettingsInput } from "./opentui-settings-input.js";
@@ -53,7 +53,7 @@ export function OpenTuiModels({
   actions,
   width,
   height,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   onClose,
   onSettings,
 }: {

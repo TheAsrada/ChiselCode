@@ -4,7 +4,7 @@ import type { InputRenderable } from "@opentui/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSummary } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
 import { DialogAction, dialogLayout, OpenTuiDialog } from "./opentui-dialog.js";
 import { FormattedMessage } from "./opentui-message.js";
@@ -56,7 +56,7 @@ export function OpenTuiSessions({
   actions,
   width,
   height,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
   onClose,
 }: {
   actions: OpenTuiSessionsActions;

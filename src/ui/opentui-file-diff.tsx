@@ -6,7 +6,7 @@ import {
 } from "@opentui/core";
 import { useEffect, useMemo } from "react";
 import type { FileDiff } from "../types/domain.js";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { diffLinePrefix } from "./file-diff-model.js";
 import {
   diffAction,
@@ -105,7 +105,7 @@ export function FileDiffCard({
   expanded = false,
   latest = false,
   onToggle,
-  palette = THEMES.obsidian,
+  palette = THEMES[DEFAULT_THEME],
 }: {
   diff: FileDiff;
   id: string;

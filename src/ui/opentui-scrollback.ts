@@ -1,6 +1,6 @@
 import { BoxRenderable, type CliRenderer, TextRenderable } from "@opentui/core";
 import stringWidth from "string-width";
-import { type Palette, THEMES } from "./appearance.js";
+import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { diffColors, diffPreviewText } from "./file-diff-preview.js";
 import { terminalSafeText } from "./terminal-text.js";
 import {
@@ -23,7 +23,7 @@ export function attachTranscriptScrollback(
     CliRenderer,
     "writeToScrollback" | "resetSplitFooterForReplay"
   >,
-  palette: () => Palette = () => THEMES.obsidian,
+  palette: () => Palette = () => THEMES[DEFAULT_THEME],
 ): () => void {
   let lastId = -1;
   let previousCount = 0;

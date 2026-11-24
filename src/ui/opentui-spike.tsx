@@ -34,7 +34,7 @@ import {
 import { invocableSkills } from "../skills/skills.js";
 import type { ThemeCatalog } from "../themes/catalog.js";
 import { AgentsSidebar } from "./agents-sidebar.js";
-import { type ThemeName, themePalette } from "./appearance.js";
+import { DEFAULT_THEME, type ThemeName, themePalette } from "./appearance.js";
 import {
   isSlashInput,
   MAX_VISIBLE_SUGGESTIONS,
@@ -151,7 +151,7 @@ export function OpenTuiSpike(
   },
 ) {
   const [, refresh] = useState(0);
-  const [theme, setTheme] = useState(props.initialTheme ?? "obsidian");
+  const [theme, setTheme] = useState(props.initialTheme ?? DEFAULT_THEME);
   const [previewTheme, setPreviewTheme] = useState<ThemeName>();
   useEffect(
     () => props.themeCatalog?.subscribe(() => refresh((value) => value + 1)),
@@ -254,7 +254,7 @@ function OpenTuiScreen({
   getWorktreeActions,
   getMcpActions,
   getProjectActions,
-  initialTheme = "obsidian",
+  initialTheme = DEFAULT_THEME,
   themeCatalog,
   accent,
   onThemeChange,
