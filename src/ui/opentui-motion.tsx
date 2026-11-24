@@ -145,16 +145,21 @@ export function useSurfaceReveal({
 }) {
   const { clock, enabled } = useMotion();
   const node = useRef<BoxRenderable>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: A section change restarts the reveal on the existing renderable.
+  const previousSurface = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     const box = node.current;
-    if (!box || !shown) return;
+    if (!box || !shown) {
+      previousSurface.current = undefined;
+      return;
+    }
+    const entering = previousSurface.current !== surfaceKey;
+    previousSurface.current = surfaceKey;
     const paint = (progress: number) => {
       box.backgroundColor = mixColor(from, background, progress);
       if (accent && border)
         box.borderColor = mixColor(accent, border, progress);
     };
-    if (!clock || !enabled) {
+    if (!clock || !enabled || !entering) {
       paint(1);
       return;
     }
