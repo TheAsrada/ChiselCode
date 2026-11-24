@@ -14,6 +14,7 @@ import type { ContextCompactionRecord } from "../context/types.js";
 import {
   aggregateSpend,
   childSpend,
+  ensureMainSpend,
   recomputeSessionSpend,
   sideSpend,
   spendForRecord,
@@ -666,6 +667,7 @@ export class TuiPresentationController implements TuiTranscript {
       return;
     if (this.state.sessionId && this.state.sessionId !== session.id) return;
     session = structuredClone(session);
+    ensureMainSpend(session);
     const merged = new Map(
       (session.sideQueries ?? []).map((record) => [record.operationId, record]),
     );

@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test";
+import { RuntimeEventBus } from "../../src/runtime/events.js";
+import { attachSessionRecorder } from "../../src/sessions/checkpoints.js";
 import { createSession } from "../../src/sessions/store.js";
+import { subagentDescriptor } from "../../src/subagents/service.js";
 import type { TuiTranscript } from "../../src/ui/tui-contract.js";
 import { TuiController } from "../../src/ui/tui-controller.js";
 import { TuiWorkspace } from "../../src/ui/tui-workspace.js";
+import { childFixture } from "../helpers/subagent.js";
 
 test("request timing excludes the queue, flushes the answer and completes only once", () => {
   let now = 0;
@@ -94,6 +98,45 @@ test("selected model exists before a session, survives old request completion an
   workspace.openSession({ ...session, id: "other" });
   expect(workspace.controller.snapshot.modelSelection?.model).toBe("old-model");
   workspace.dispose();
+});
+
+test("live usage merges with a child receipt in the originating tab only", async () => {
+  const workspace = new TuiWorkspace("/project");
+  try {
+    const session = createSession("/project", "openai", "model");
+    const owner = workspace.openSession(session);
+    const child = childFixture(session.id, session.projectPath);
+    owner.acceptSubagent({
+      type: "changed",
+      ownerId: session.id,
+      child: subagentDescriptor({
+        ...child,
+        spend: { ...child.spend, usage: { inputTokens: 40, outputTokens: 5 } },
+      }),
+    });
+    const other = createSession("/project", "openai", "model");
+    const visible = workspace.openSession(other);
+    const events = new RuntimeEventBus(session.id);
+    attachSessionRecorder(session, events, (updated) => {
+      owner.setSessionUsage(updated);
+      visible.setSessionUsage(updated); // Session ID rejects a misrouted snapshot.
+    });
+
+    await events.emit({
+      type: "provider_turn_completed",
+      usage: { inputTokens: 100, outputTokens: 15, cacheReadTokens: 0 },
+      message: { role: "assistant", content: [{ type: "text", text: "OK" }] },
+    });
+    expect(workspace.controller).toBe(visible);
+    expect(visible.snapshot.usage?.totalTokens).toEqual(other.totalTokens);
+    const total = { inputTokens: 140, outputTokens: 20, cacheReadTokens: 0 };
+    expect(owner.snapshot.usage?.totalTokens).toEqual(total);
+    owner.setSessionUsage(session);
+    expect(owner.snapshot.usage?.totalTokens).toEqual(total);
+    expect(session.totalTokens.inputTokens).toBe(100);
+  } finally {
+    workspace.dispose();
+  }
 });
 
 test("controller delivers agent callbacks to a fake renderer and replays after replacement", () => {

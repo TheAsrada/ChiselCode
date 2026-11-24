@@ -172,6 +172,7 @@ for (const failure of ["invalid_tool_arguments", "output_truncated"] as const)
     const setup = await fixture();
     const requests: ProviderRequest[] = [];
     let recoveries = 0;
+    const spend: number[] = [];
     setup.events.subscribe((event) => {
       if (event.type === "provider_response_recovery") recoveries++;
     });
@@ -184,7 +185,12 @@ for (const failure of ["invalid_tool_arguments", "output_truncated"] as const)
         if (requests.length === 1) {
           yield { type: "text_delta", text: "Rejected partial prose" };
           if (failure === "invalid_tool_arguments")
-            yield { type: "error", code: failure, message: "Malformed JSON" };
+            yield {
+              type: "error",
+              code: failure,
+              message: "Malformed JSON",
+              usage: { inputTokens: 1, outputTokens: 4 },
+            };
           else
             yield {
               type: "turn_complete",
@@ -222,7 +228,14 @@ for (const failure of ["invalid_tool_arguments", "output_truncated"] as const)
         } else yield completed();
       },
     };
-    const result = await setup.run(provider);
+    const result = await setup.run(provider, undefined, {
+      onSessionUsage: ({ totalTokens }) =>
+        spend.push(totalTokens.inputTokens + totalTokens.outputTokens),
+    });
+    const firstSpend = failure === "invalid_tool_arguments" ? 5 : 4097;
+    expect(spend).toEqual([firstSpend, firstSpend + 2, firstSpend + 4]);
+    expect(result.session.totalTokens.inputTokens).toBe(3);
+    expect(result.session.totalTokens.outputTokens).toBe(firstSpend + 1);
     expect(result.status).toBe("completed");
     expect(result.text).toBe("Готово");
     expect(await readFile(join(setup.root, "landing.html"), "utf8")).toBe(
@@ -280,10 +293,20 @@ test("cancellation during recovery prevents a second provider call", async () =>
         type: "error",
         code: "output_truncated",
         message: "Limit reached",
+        usage: { inputTokens: 20, outputTokens: 10 },
       };
     },
   };
-  const result = await setup.run(provider, abort.signal);
+  const spend: number[] = [];
+  const result = await setup.run(provider, abort.signal, {
+    onSessionUsage: ({ totalTokens }) =>
+      spend.push(totalTokens.inputTokens + totalTokens.outputTokens),
+  });
+  expect(spend).toEqual([30]);
+  expect(result.session.totalTokens).toEqual({
+    inputTokens: 20,
+    outputTokens: 10,
+  });
   expect(attempts).toBe(1);
   expect(result.status).toBe("cancelled");
   expect(await readdir(setup.root)).toEqual([]);

@@ -387,15 +387,16 @@ export function normalizeAnthropicUsage(usage: {
   cache_read_input_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
 }): TokenUsage {
+  const inputTokens =
+    (usage.input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0);
   return {
-    inputTokens: usage.input_tokens ?? 0,
+    inputTokens,
     outputTokens: usage.output_tokens ?? 0,
     cacheReadTokens: usage.cache_read_input_tokens ?? undefined,
     cacheCreationTokens: usage.cache_creation_input_tokens ?? undefined,
-    contextInputTokens:
-      (usage.input_tokens ?? 0) +
-      (usage.cache_read_input_tokens ?? 0) +
-      (usage.cache_creation_input_tokens ?? 0),
+    contextInputTokens: inputTokens,
   };
 }
 

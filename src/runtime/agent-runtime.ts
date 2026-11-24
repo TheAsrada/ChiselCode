@@ -62,6 +62,7 @@ export interface RuntimeOptions {
   maxTokens?: number;
   signal?: AbortSignal;
   onCheckpoint?: (session: Session) => Promise<void>;
+  onSessionUsage?: (session: Session) => void;
   /** Internal request-only data port; no extension host or ambient service resolver. */
   contextProviders?: ContextCollectionPort;
 }
@@ -106,7 +107,11 @@ export class AgentRuntime {
     this.events.turnId = runtime.turnId;
     this.events.agentEvents = options.agentEvents ?? this.events.agentEvents;
     this.events.agentSignal = options.signal;
-    const detach = attachSessionRecorder(session, this.events);
+    const detach = attachSessionRecorder(
+      session,
+      this.events,
+      options.onSessionUsage,
+    );
     let finalText = "";
     let overflowRecovered = false;
     let emptyRetried = false;

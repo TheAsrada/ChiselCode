@@ -1392,6 +1392,15 @@ async function runApplication(
       modelOptions: turnModelOptions,
     } = item;
     const requestGeneration = controller.currentGeneration;
+    const onSessionUsage = (session: Session) => {
+      if (controller.isCurrent(requestGeneration))
+        controller.setSessionUsage(session, {
+          provider: session.providerId,
+          profileId: session.profileId,
+          model: session.model,
+          baseUrl: turnModelOptions.baseUrl,
+        });
+    };
     const turnAbort = new AbortController();
     execution.abort = turnAbort;
     const signal = AbortSignal.any([
@@ -1457,6 +1466,7 @@ async function runApplication(
             execution.approvalResolver,
             {
               onText: () => {},
+              onSessionUsage,
               onConversation: (source) => {
                 if (controller.isCurrent(requestGeneration))
                   controller.conversation.bind(source);
@@ -1523,12 +1533,7 @@ async function runApplication(
           );
           status = result.status;
           if (controller.isCurrent(requestGeneration) && !signal.aborted) {
-            controller.setSessionUsage(result.session, {
-              provider: result.session.providerId,
-              profileId: result.session.profileId,
-              model: result.session.model,
-              baseUrl: turnModelOptions.baseUrl,
-            });
+            onSessionUsage(result.session);
             if (!compressed) controller.append(result.text, "info");
           }
           return;
@@ -1860,6 +1865,7 @@ async function runApplication(
                 controller.setSubagentControls(controls);
               }
             },
+            onSessionUsage,
             onConversation: (source) => {
               if (controller.isCurrent(requestGeneration)) {
                 controller.conversation.bind(source);
@@ -1950,12 +1956,7 @@ async function runApplication(
         status = signal.aborted ? "cancelled" : result.status;
         elapsedMs = result.elapsedMs;
         if (!controller.isCurrent(requestGeneration)) return;
-        controller.setSessionUsage(result.session, {
-          provider: result.session.providerId,
-          profileId: result.session.profileId,
-          model: result.session.model,
-          baseUrl: turnModelOptions.baseUrl,
-        });
+        onSessionUsage(result.session);
         controller.setToolActivity();
         if (result.error && !signal.aborted)
           controller.append(result.error, "error");

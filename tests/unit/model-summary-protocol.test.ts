@@ -150,7 +150,7 @@ for (const anthropic of [false, true]) {
       );
       expect(usage).toHaveLength(1);
       expect(usage[0]).toMatchObject({
-        inputTokens: 100,
+        inputTokens: anthropic ? 150 : 100,
         outputTokens: 40,
         cacheReadTokens: 50,
         contextInputTokens: anthropic ? 150 : 100,

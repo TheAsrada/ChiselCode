@@ -109,8 +109,9 @@ export interface ModelInfo {
 }
 
 export interface TokenUsage {
-  /** Full request input, normalized by the protocol driver (cache included exactly once). */
+  /** Optional observed input for context metering, retained for adapter compatibility. */
   contextInputTokens?: number;
+  /** Full input, including cache reads and writes, for new driver usage. */
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;

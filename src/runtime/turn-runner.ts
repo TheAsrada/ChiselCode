@@ -73,10 +73,12 @@ export class TurnRunner {
             request,
             this.providerIdleTimeoutMs,
           )) {
+        if (event.type === "error" && event.usage) observedUsage = event.usage;
+        if (event.type === "turn_complete" && !completed)
+          observedUsage = event.usage;
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
         if (event.type === "error") {
-          observedUsage = event.usage;
           throw new ProviderError(
             event.code ?? normalizeProviderError(new Error(event.message)).code,
             event.message,
@@ -108,7 +110,6 @@ export class TurnRunner {
               "Multiple terminal messages in one stream.",
             );
           completed = event;
-          observedUsage = event.usage;
         }
       }
       if (completed?.message.role !== "assistant")
@@ -134,14 +135,6 @@ export class TurnRunner {
               type: "provider_text_delta",
               text: block.text,
             });
-      await this.events.emit({
-        type: "provider_turn_completed",
-        message: completed.message,
-        usage: completed.usage,
-        model: request.model,
-        durationMs: performance.now() - started,
-      });
-      return completed;
     } catch (error) {
       if (
         error instanceof RuntimeError &&
@@ -166,5 +159,15 @@ export class TurnRunner {
       });
       throw failure;
     }
+    // A completion listener can fail after the recorder has accepted the usage.
+    // Keep that path outside the provider failure handler.
+    await this.events.emit({
+      type: "provider_turn_completed",
+      message: completed.message,
+      usage: completed.usage,
+      model: request.model,
+      durationMs: performance.now() - started,
+    });
+    return completed;
   }
 }

@@ -29,8 +29,6 @@ export function createSession(
     totalTokens: {
       inputTokens: 0,
       outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
     },
     totalCost: 0,
     undoStack: [],

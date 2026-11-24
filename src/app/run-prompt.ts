@@ -67,6 +67,7 @@ import type {
   ModelInfo,
   ProviderAdapter,
   ProviderId,
+  Session,
   ToolExecutionResult,
 } from "../types/domain.js";
 import { exitCodeFor, OneShotRenderer } from "../ui/one-shot.js";
@@ -93,6 +94,8 @@ export interface RunEventHandlers {
   ): Promise<void>;
   /** Core-only live snapshot bridge; never passed to an extension callback. */
   onConversation?(source: ConversationSource): void;
+  /** Called after the session recorder accounts for one model request. */
+  onSessionUsage?(session: Session): void;
   onEvent?(event: RuntimeEvent): void | Promise<void>;
   onText?(text: string): void;
   onThinking?(text: string): void;
@@ -717,7 +720,11 @@ async function runPromptInWorkspace(
       modelSummarizer,
     );
     if (options.compactOnly) {
-      const detachRecorder = attachSessionRecorder(session, eventBus);
+      const detachRecorder = attachSessionRecorder(
+        session,
+        eventBus,
+        events.onSessionUsage,
+      );
       try {
         const capabilities = (await provider.getCapabilities?.(
           session.model,
@@ -790,6 +797,7 @@ async function runPromptInWorkspace(
         approvalMode,
         signal,
         onCheckpoint: saveCheckpoint,
+        onSessionUsage: events.onSessionUsage,
         contextProviders: contextCollection(extensionScope, sanitize),
         agentEvents: extensionScope.events,
       });

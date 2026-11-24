@@ -12,10 +12,12 @@ export function emptySpend(): ModelSpend {
 export function addTokenUsage(target: TokenUsage, usage: TokenUsage): void {
   target.inputTokens += usage.inputTokens;
   target.outputTokens += usage.outputTokens;
-  target.cacheReadTokens =
-    (target.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0);
-  target.cacheCreationTokens =
-    (target.cacheCreationTokens ?? 0) + (usage.cacheCreationTokens ?? 0);
+  if (usage.cacheReadTokens !== undefined)
+    target.cacheReadTokens =
+      (target.cacheReadTokens ?? 0) + usage.cacheReadTokens;
+  if (usage.cacheCreationTokens !== undefined)
+    target.cacheCreationTokens =
+      (target.cacheCreationTokens ?? 0) + usage.cacheCreationTokens;
 }
 export function aggregateSpend(values: Iterable<ModelSpend>): ModelSpend {
   const result = emptySpend();
@@ -56,14 +58,16 @@ export function ensureMainSpend(session: Session): ModelSpend {
     0,
     usage.outputTokens - side.usage.outputTokens,
   );
-  usage.cacheReadTokens = Math.max(
-    0,
-    (usage.cacheReadTokens ?? 0) - (side.usage.cacheReadTokens ?? 0),
-  );
-  usage.cacheCreationTokens = Math.max(
-    0,
-    (usage.cacheCreationTokens ?? 0) - (side.usage.cacheCreationTokens ?? 0),
-  );
+  if (usage.cacheReadTokens !== undefined)
+    usage.cacheReadTokens = Math.max(
+      0,
+      usage.cacheReadTokens - (side.usage.cacheReadTokens ?? 0),
+    );
+  if (usage.cacheCreationTokens !== undefined)
+    usage.cacheCreationTokens = Math.max(
+      0,
+      usage.cacheCreationTokens - (side.usage.cacheCreationTokens ?? 0),
+    );
   session.mainSpend = {
     usage,
     knownCost: Math.max(0, session.totalCost - side.knownCost),

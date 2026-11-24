@@ -55,12 +55,12 @@ const server = Bun.serve({
       if (mainCalls === 1) {
         await mainBarrier;
         return new Response(
-          `data: ${JSON.stringify({ id: "main", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "write", type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: "new.txt", content: "denied" }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
+          `data: ${JSON.stringify({ id: "main", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "write", type: "function", function: { name: "write_file", arguments: JSON.stringify({ path: "new.txt", content: "denied" }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: {"usage":{"prompt_tokens":100,"completion_tokens":10}}\n\ndata: [DONE]\n\n`,
           { headers: { "Content-Type": "text/event-stream" } },
         );
       }
       return new Response(
-        `${chunk("Основная задача завершена", "stop")}data: [DONE]\n\n`,
+        `${chunk("Основная задача завершена", "stop")}data: {"usage":{"prompt_tokens":200,"completion_tokens":20}}\n\ndata: [DONE]\n\n`,
         { headers: { "Content-Type": "text/event-stream" } },
       );
     }
@@ -258,6 +258,12 @@ try {
     );
   }, "Side did not complete while approval stayed open");
   assert.ok(setup.renderer.root.findDescendantById("approval-popup"));
+  const pendingApproval = (await store.list())[0];
+  assert.ok(pendingApproval);
+  assert.deepEqual((await store.load(pendingApproval.id)).totalTokens, {
+    inputTokens: 125,
+    outputTokens: 25,
+  });
   await key("n");
   await until(
     () =>
@@ -322,7 +328,11 @@ try {
   const saved = await store.load(summary.id);
   assert.equal(saved.sideQueries?.length, 1);
   assert.equal(saved.sideQueries?.[0]?.usage?.inputTokens, 25);
-  assert.equal(saved.totalTokens.inputTokens, 25);
+  assert.deepEqual(saved.mainSpend?.usage, {
+    inputTokens: 300,
+    outputTokens: 30,
+  });
+  assert.deepEqual(saved.totalTokens, { inputTokens: 325, outputTokens: 45 });
   assert.ok(!JSON.stringify(saved.messages).includes("Побочный ответ"));
   assert.ok(!JSON.stringify(saved.messages).includes("Почему это безопасно"));
   assert.equal((requests[1]?.tools as unknown[] | undefined)?.length ?? 0, 0);

@@ -10,6 +10,7 @@ import { estimateCost } from "./store.js";
 export function attachSessionRecorder(
   session: Session,
   events: RuntimeEventBus,
+  onUsage?: (session: Session) => void,
 ): () => void {
   return events.subscribe((event) => {
     if (
@@ -17,8 +18,10 @@ export function attachSessionRecorder(
         event.type === "provider_failed" ||
         event.type === "extension_notice") &&
       event.usage
-    )
+    ) {
       addUsage(session, event.usage, event.model);
+      onUsage?.(session);
+    }
     if (event.type === "context_updated" && event.contextSnapshot)
       session.contextSnapshot = event.contextSnapshot;
     if (event.type === "turn_state" && session.runtime)
@@ -31,24 +34,26 @@ export function attachSessionRecorder(
     ) {
       session.messages.push(event.message);
       addUsage(session, event.usage, event.model);
-      if (event.model && event.model !== session.model) return;
-      const prior = session.contextSnapshot;
-      const observed = observedContextSnapshot(
-        session.providerId,
-        session.model,
-        event.usage,
-        {
-          id: session.model,
-          contextWindow: prior?.contextWindow,
-          limitsSource: prior?.windowSource,
-        },
-      );
-      if (observed.observedInputTokens > 0)
-        session.contextSnapshot = {
-          ...observed,
-          localTokens: prior?.localTokens,
-          connectionId: prior?.connectionId,
-        };
+      if (!event.model || event.model === session.model) {
+        const prior = session.contextSnapshot;
+        const observed = observedContextSnapshot(
+          session.providerId,
+          session.model,
+          event.usage,
+          {
+            id: session.model,
+            contextWindow: prior?.contextWindow,
+            limitsSource: prior?.windowSource,
+          },
+        );
+        if (observed.observedInputTokens > 0)
+          session.contextSnapshot = {
+            ...observed,
+            localTokens: prior?.localTokens,
+            connectionId: prior?.connectionId,
+          };
+      }
+      onUsage?.(session);
     }
     if (
       (event.type === "tool_completed" || event.type === "tool_failed") &&

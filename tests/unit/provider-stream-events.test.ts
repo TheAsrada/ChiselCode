@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { AnthropicProtocolAdapter } from "../../src/providers/drivers/anthropic-messages.js";
 import { OpenAIProtocolAdapter } from "../../src/providers/drivers/openai-chat.js";
+import { RuntimeEventBus } from "../../src/runtime/events.js";
+import { TurnRunner } from "../../src/runtime/turn-runner.js";
+import { attachSessionRecorder } from "../../src/sessions/checkpoints.js";
+import { createSession } from "../../src/sessions/store.js";
 import type {
   ChatMessage,
   ProviderRequest,
@@ -261,6 +265,92 @@ const antTool = {
   index: 1,
   content_block: { type: "tool_use", id: "call", name: "read_file", input: {} },
 };
+
+test("session counts the same full input across Anthropic and OpenAI cache formats", async () => {
+  const anthropicRecords = [
+    {
+      ...start,
+      message: {
+        ...start.message,
+        usage: {
+          input_tokens: 100,
+          output_tokens: 0,
+          cache_read_input_tokens: 800,
+          cache_creation_input_tokens: 200,
+        },
+      },
+    },
+    block,
+    delta,
+    { type: "content_block_stop", index: 0 },
+    { ...antStop[0], usage: { output_tokens: 25 } },
+    antStop[1],
+  ];
+  const openAiRecords = [
+    text,
+    stop,
+    {
+      usage: {
+        prompt_tokens: 1100,
+        completion_tokens: 25,
+        prompt_tokens_details: { cached_tokens: 800 },
+      },
+    },
+  ];
+  const session = createSession("/project", "anthropic", request.model);
+  const events = new RuntimeEventBus(session.id);
+  const totals: number[] = [];
+  attachSessionRecorder(session, events, ({ totalTokens }) => {
+    totals.push(totalTokens.inputTokens + totalTokens.outputTokens);
+  });
+  const anthropic = adapter(async () => response(anthropicRecords, true), true);
+  const openAi = adapter(async () => response(openAiRecords));
+  const first = await new TurnRunner(anthropic, events).run(request, 100);
+  expect(session.totalTokens).toEqual({
+    inputTokens: 1100,
+    outputTokens: 25,
+    cacheReadTokens: 800,
+    cacheCreationTokens: 200,
+  });
+  expect(first.usage.contextInputTokens).toBe(1100);
+
+  session.providerId = "openai";
+  session.model = "next-model";
+  const second = await new TurnRunner(openAi, events).run(
+    { ...request, model: session.model },
+    100,
+  );
+  expect(second.usage.inputTokens + second.usage.outputTokens).toBe(1125);
+  expect(second.usage.cacheCreationTokens).toBeUndefined();
+  expect(session.totalTokens).toEqual({
+    inputTokens: 2200,
+    outputTokens: 50,
+    cacheReadTokens: 1600,
+    cacheCreationTokens: 200,
+  });
+  expect(totals).toEqual([1125, 2250]);
+});
+
+test("a failure after a recorded provider completion does not charge it again", async () => {
+  const provider = adapter(async () =>
+    response([
+      text,
+      stop,
+      { usage: { prompt_tokens: 19, completion_tokens: 7 } },
+    ]),
+  );
+  const session = createSession("/project", "openai", request.model);
+  const events = new RuntimeEventBus(session.id);
+  attachSessionRecorder(session, events);
+  events.subscribe((event) => {
+    if (event.type === "provider_turn_completed") throw new Error("observer");
+  });
+
+  await expect(
+    new TurnRunner(provider, events).run(request, 19),
+  ).rejects.toThrow("observer");
+  expect(session.totalTokens).toEqual({ inputTokens: 19, outputTokens: 7 });
+});
 
 test("Anthropic reports the start of a validated thinking block before its text", async () => {
   const events = await collect(

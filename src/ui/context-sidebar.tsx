@@ -195,6 +195,11 @@ export function ContextSidebar({
               )}
             />
           )}
+          {usage && (
+            <text fg={palette.muted} wrapMode="word">
+              {`Кэш · чтение ${usage.totalTokens.cacheReadTokens?.toLocaleString("ru-RU") ?? "—"} · запись ${usage.totalTokens.cacheCreationTokens?.toLocaleString("ru-RU") ?? "—"}`}
+            </text>
+          )}
           {state.childSpend && (
             <text
               height={1}

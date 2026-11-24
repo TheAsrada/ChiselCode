@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -42,9 +43,18 @@ for (const name of ["review-fixture", "checks-fixture"]) {
   );
 }
 const script = join(root, "check.cjs");
+const releaseCheck = join(root, "release-check");
 await writeFile(
   script,
-  "require('node:fs').appendFileSync('launches.txt','one\\n');for(let i=0;i<450;i++)console.log('Строка результата '+i);console.error('AssertionError: ожидалось 42, получено 7');process.exitCode=1;",
+  `const fs = require("node:fs");
+fs.appendFileSync("launches.txt", "one\\n");
+const poll = setInterval(() => {
+  if (!fs.existsSync("release-check")) return;
+  clearInterval(poll);
+  for (let i = 0; i < 450; i++) console.log("Строка результата " + i);
+  console.error("AssertionError: ожидалось 42, получено 7");
+  process.exitCode = 1;
+}, 20);`,
 );
 await writeFile(
   join(root, ".chiselrc"),
@@ -123,8 +133,22 @@ const server = Bun.serve({
       await finalBarrier;
       delta = { content: "Готово. Диагностика сохранена." };
     }
+    const usage =
+      calls === 1
+        ? {
+            prompt_tokens: 1100,
+            completion_tokens: 25,
+            prompt_tokens_details: { cached_tokens: 0 },
+          }
+        : calls === 2
+          ? {
+              prompt_tokens: 1100,
+              completion_tokens: 25,
+              prompt_tokens_details: { cached_tokens: 800 },
+            }
+          : { prompt_tokens: 40, completion_tokens: 10 };
     return new Response(
-      `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta, finish_reason: calls < 4 ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta, finish_reason: calls < 4 ? "tool_calls" : "stop" }] })}\n\ndata: ${JSON.stringify({ usage })}\n\ndata: [DONE]\n\n`,
       { headers: { "Content-Type": "text/event-stream" } },
     );
   },
@@ -284,6 +308,9 @@ try {
       ui.captureCharFrame().includes("Загрузка"),
     "Нет загрузки навыков",
   );
+  assert.match(ui.captureCharFrame(), /Расход сессии:\s+2\s250/);
+  assert.match(ui.captureCharFrame(), /Вход 2\s200 · выход 50/);
+  assert.match(ui.captureCharFrame(), /Кэш · чтение 800 · запись —/);
   assert.match(ui.captureCharFrame(), /Чтение 2.*Поиск 1/);
   assert.doesNotMatch(ui.captureCharFrame(), /PRIVATE SKILL/);
   await capture("closed-and-skills-loading");
@@ -323,6 +350,18 @@ try {
   assert.ok(readingScroll);
   const readingTop = readingScroll.scrollTop;
   releaseSkills();
+  await until(
+    () =>
+      existsSync(join(root, "launches.txt")) &&
+      ui.captureCharFrame().includes("Выполняю команду"),
+    "Команда не запустилась",
+  );
+  assert.equal(calls, 3);
+  assert.match(ui.captureCharFrame(), /Расход сессии:\s+2\s300/);
+  assert.match(ui.captureCharFrame(), /Вход 2\s240 · выход 60/);
+  assert.match(ui.captureCharFrame(), /Кэш · чтение 800 · запись —/);
+  await capture("live-session-spend");
+  await writeFile(releaseCheck, "");
   await until(() => calls === 4, "Проверка не завершилась");
   assert.equal(
     readingScroll.scrollTop,
@@ -395,6 +434,11 @@ try {
   );
   assert.ok(record);
   const saved = await store.load(record.id);
+  assert.deepEqual(saved.totalTokens, {
+    inputTokens: 2280,
+    outputTokens: 70,
+    cacheReadTokens: 800,
+  });
   const savedSkill = saved.runtime?.invocations["skill-one"]?.result?.details
     ?.skill as { source?: string } | undefined;
   assert.equal(savedSkill?.source, "user");
@@ -432,6 +476,7 @@ try {
     "Tool actions OpenTUI: real executor, parallel reads, skills, failure, artifact pages, keyboard, narrow layouts and restored history",
   );
 } finally {
+  await writeFile(releaseCheck, "");
   releaseSkills();
   releaseFinal();
   if (application)

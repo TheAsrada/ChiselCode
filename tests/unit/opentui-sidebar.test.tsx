@@ -64,7 +64,11 @@ function scenario() {
     "deepseek-v4-flash",
   );
   session.title = "Обновить интерфейс проекта";
-  session.totalTokens = { inputTokens: 38000, outputTokens: 8200 };
+  session.totalTokens = {
+    inputTokens: 38000,
+    outputTokens: 8200,
+    cacheReadTokens: 0,
+  };
   controller.setSessionUsage(session);
   const selection = {
     provider: "openai-compatible" as const,
@@ -142,6 +146,7 @@ for (const theme of ["obsidian", "paper", "graphite", "ember"] as const) {
     });
     try {
       await frame(setup);
+      expect(setup.captureCharFrame()).toContain("Кэш · чтение 0 · запись —");
       await capture(setup, `${theme}-context`);
       await click(setup, "context-sidebar");
       expect(controller.snapshot.focus).toBe("sidebar");
