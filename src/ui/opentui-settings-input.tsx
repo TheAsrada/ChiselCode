@@ -33,7 +33,7 @@ export function SettingsSecretInput({
 }: {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (value: string) => void;
   palette: Palette;
   active?: boolean;
 }) {
@@ -172,7 +172,7 @@ export function SettingsSecretInput({
       textColor={palette.text}
       focusedTextColor={palette.text}
       placeholderColor={palette.muted}
-      onSubmit={onSubmit}
+      onSubmit={() => onSubmit(secret.current)}
     />
   );
 }

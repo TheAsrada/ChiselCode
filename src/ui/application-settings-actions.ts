@@ -217,8 +217,20 @@ export function createApplicationSettingsActions({
           ),
         profiles: (await loadGlobalConfig(options.configPath)).profiles,
       }),
-      load: async (profileId) => {
+      load: async (profileId, resumeSetup) => {
         const current = await loadGlobalConfig(options.configPath);
+        const pendingId = current.ui?.pendingSetupProfileId;
+        if (
+          resumeSetup &&
+          !profileId &&
+          !options.profile &&
+          !options.provider &&
+          pendingId &&
+          current.profiles[pendingId] &&
+          catalog.registry.has(current.profiles[pendingId].providerId)
+        )
+          profileId = pendingId;
+        const pendingSetup = !!profileId && profileId === pendingId;
         const selection = profileId
           ? { profile: profileId }
           : modelOptions(owner);
@@ -226,8 +238,10 @@ export function createApplicationSettingsActions({
         const profile = values.profileId
           ? current.profiles[values.profileId]
           : undefined;
+        if (pendingSetup) values.model = profile?.defaultModel ?? "";
         return {
           values,
+          pendingSetup,
           hasKey: await settingsKeyReady(
             catalog.registry,
             profile ?? { providerId: values.provider },
@@ -256,11 +270,12 @@ export function createApplicationSettingsActions({
               },
         );
       },
-      save: async (values, previous) => {
+      save: async (values, previous, setupProfile) => {
         if (values.apiKey?.trim()) uiRedactor.add(values.apiKey.trim());
         const outcome = await saveProviderSettings(values, catalog.registry, {
           configPath: options.configPath,
           activate: false,
+          setupProfile,
           updateSelectedModel:
             owner.isCurrent(generation) &&
             owner.snapshot.modelSelection?.profileId === values.profileId,
@@ -291,19 +306,42 @@ export function createApplicationSettingsActions({
         return outcome;
       },
       activate: async (values) => {
-        await updateGlobalConfig(options.configPath, (latest) => {
+        await updateGlobalConfig(options.configPath, async (latest) => {
           if (!owner.isCurrent(generation))
             throw new Error("Беседа изменилась. Откройте настройки заново.");
+          const profile = values.profileId
+            ? latest.profiles[values.profileId]
+            : undefined;
           if (
             !values.profileId ||
-            latest.profiles[values.profileId]?.providerId !== values.provider
+            !profile ||
+            profile.providerId !== values.provider
           )
             throw new Error("Подключение изменилось. Обновите список.");
+          if (latest.ui?.pendingSetupProfileId === values.profileId) {
+            const definition = catalog.registry.require(profile.providerId);
+            if (!profile.defaultModel || profile.defaultModel !== values.model)
+              throw new Error("Выберите и сохраните модель.");
+            if (
+              definition.endpoint.required &&
+              !profile.baseUrl &&
+              !definition.endpoint.defaultBaseUrl
+            )
+              throw new Error("Укажите адрес API.");
+            if (!(await settingsKeyReady(catalog.registry, profile)))
+              throw new Error("Сначала настройте авторизацию.");
+          }
+          if (!owner.isCurrent(generation))
+            throw new Error("Беседа изменилась. Откройте настройки заново.");
           return {
             ...latest,
             defaultProfileId: values.profileId,
             ui: {
               ...latest.ui,
+              pendingSetupProfileId:
+                latest.ui?.pendingSetupProfileId === values.profileId
+                  ? undefined
+                  : latest.ui?.pendingSetupProfileId,
               lastModelSelection: {
                 provider: values.provider,
                 profileId: values.profileId,

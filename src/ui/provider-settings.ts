@@ -88,6 +88,7 @@ export async function saveProviderSettings(
   options: {
     configPath?: string;
     activate?: boolean;
+    setupProfile?: boolean;
     updateSelectedModel?: boolean;
     previous?: TuiSettingsValues;
     credentials?: CredentialsReader & {
@@ -114,13 +115,14 @@ export async function saveProviderSettings(
     throw new Error(
       `Profile "${id}" belongs to another provider; choose a new profile ID.`,
     );
-  const model = values.model.trim();
-  if (!model) throw new Error("Введите модель.");
+  const model = values.model.trim() || undefined;
+  if (!model && !options.setupProfile) throw new Error("Введите модель.");
   const raw = values.baseUrl?.trim();
   const baseUrl = raw
     ? normalizeEndpoint(definition.endpoint.normalization, raw)
     : undefined;
   if (
+    !options.setupProfile &&
     definition.endpoint.required &&
     !baseUrl &&
     !definition.endpoint.defaultBaseUrl
@@ -142,6 +144,8 @@ export async function saveProviderSettings(
         `Profile "${id}" belongs to another provider; reload Settings.`,
       );
     const baseline = options.previous;
+    if (options.setupProfile && !baseline && existing)
+      throw new Error("Такой профиль уже есть. Выберите другой ID.");
     if (baseline && !existing)
       throw new Error("Профиль удалён. Обновите список подключений.");
     const fields = {
@@ -154,7 +158,7 @@ export async function saveProviderSettings(
     };
     const before = baseline
       ? {
-          defaultModel: baseline.model.trim(),
+          defaultModel: baseline.model.trim() || undefined,
           baseUrl: baseline.baseUrl?.trim()
             ? normalizeEndpoint(
                 definition.endpoint.normalization,
@@ -199,9 +203,13 @@ export async function saveProviderSettings(
       profiles: { ...latest.profiles, [id]: profile },
       ui: {
         ...latest.ui,
+        ...(options.setupProfile && !latest.defaultProfileId
+          ? { startupIntroSeen: true, pendingSetupProfileId: id }
+          : {}),
         lastModelSelection:
-          options.activate === false
-            ? options.updateSelectedModel &&
+          options.activate === false || !model
+            ? model &&
+              options.updateSelectedModel &&
               latest.ui?.lastModelSelection?.profileId === id
               ? { ...latest.ui.lastModelSelection, model }
               : latest.ui?.lastModelSelection
@@ -268,6 +276,10 @@ export async function removeProviderProfile(
       defaultProfileId,
       ui: {
         ...latest.ui,
+        pendingSetupProfileId:
+          latest.ui?.pendingSetupProfileId === profileId
+            ? undefined
+            : latest.ui?.pendingSetupProfileId,
         lastModelSelection:
           latest.ui?.lastModelSelection?.profileId === profileId
             ? undefined

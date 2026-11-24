@@ -140,6 +140,10 @@ Native LSP catalog probe повторяет только начальную по
 
 Измеряйте тесты, setup, jobs, очередь и суммарные runner minutes отдельно. Результат конкретного source и непроверенные платформы фиксируйте в [отчётах](README.md), без обещания миллисекунд для настоящего GUI/сервера.
 
+## Первый интерактивный запуск
+
+`bun test tests/integration/first-run.test.ts` запускает настоящий OpenTUI и локальный API. Проверка включает resize, пропуск интро, возобновление прерванного подключения, быстрый ввод ключа и Enter, ручной ID модели, активацию и отправку первой задачи из заданной папки. Сценарий выбора папки из ярлыка и возврат черновика проверяет существующий `project-startup.test.ts`.
+
 ## Автосохранение Settings
 
 `bun test tests/unit/settings-autosave.test.ts tests/unit/provider-settings.test.ts tests/unit/settings-autosave-runtime.test.tsx` проверяет очередь, ошибки/повтор, защищённые ключи, пустую установку и настоящий OpenTUI с файловым хранилищем. Нативный сценарий включает клавиатуру, мышь, resize, быстрый ввод во время записи, закрытие и повторное открытие. Эти файлы входят в Linux full source; Windows/macOS выполняют их в существующем platform subset без повторения в installed/compiled smoke. Профиль fast включает только очередь и сервис профилей. [Кадры и воспроизведение](../assets/settings-autosave/README.md).

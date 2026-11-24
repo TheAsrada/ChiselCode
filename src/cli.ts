@@ -172,6 +172,8 @@ program
   )
   .option("--profile <profile-id>", "создать или настроить профиль")
   .action(async (raw: Record<string, unknown>) => {
+    if (!process.stdin.isTTY || !process.stdout.isTTY)
+      throw new Error("Для chisel setup нужен интерактивный терминал.");
     const provider =
       (raw.provider as string | undefined) ?? argvFlagValue("--provider");
     if (provider && !(await getProviderCatalog()).registry.has(provider))
@@ -459,7 +461,7 @@ async function startTui(options: RunOptions): Promise<InteractiveExitReason> {
         return store.load((await store.resolve(options.resume ?? "")).id);
       })()
     : undefined;
-  let keyReady = false;
+  let connectionReady = false;
   try {
     const selected = selectProfile(
       config,
@@ -473,10 +475,26 @@ async function startTui(options: RunOptions): Promise<InteractiveExitReason> {
             }
           : {},
     );
-    keyReady = await hasApiKey(
+    const definition = (await getProviderCatalog()).registry.get(
       selected.profile.providerId,
-      selected.profile.apiKeyRef,
     );
+    connectionReady =
+      !!definition &&
+      !!(
+        options.model ??
+        selected.profile.defaultModel ??
+        definition.defaults.model
+      ) &&
+      (!definition.endpoint.required ||
+        !!(
+          options.baseUrl ??
+          selected.profile.baseUrl ??
+          definition.endpoint.defaultBaseUrl
+        )) &&
+      (await hasApiKey(
+        selected.profile.providerId,
+        selected.profile.apiKeyRef,
+      ));
   } catch (error) {
     if (
       !initialSession &&
@@ -485,7 +503,7 @@ async function startTui(options: RunOptions): Promise<InteractiveExitReason> {
       throw error;
   }
   const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
-  return runOpenTuiAgent(options, initialSession, !keyReady && !initialSession);
+  return runOpenTuiAgent(options, initialSession, !connectionReady && !initialSession);
 }
 
 function isTooManyArgumentsError(error: unknown): boolean {

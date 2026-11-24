@@ -72,7 +72,7 @@ import { OpenTuiEffort, type OpenTuiEffortActions } from "./opentui-effort.js";
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
-import { OpenTuiMotion } from "./opentui-motion.js";
+import { OpenTuiMotion, useMotion } from "./opentui-motion.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPermissions } from "./opentui-permissions.js";
 import {
@@ -90,6 +90,7 @@ import {
 } from "./opentui-settings.js";
 import { OpenTuiSideQuery } from "./opentui-side-query.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
+import { StartupIntro } from "./opentui-startup.js";
 import { OpenTuiStatusOverflow } from "./opentui-status.js";
 import {
   FormattedMessage,
@@ -243,6 +244,8 @@ function OpenTuiScreen({
   allowBypassPermissions = false,
   onBypassAvailabilityChange,
   initialSettingsOpen = false,
+  onboarding = false,
+  onStartupIntro,
   onSetupComplete,
   onInitialSettingsComplete,
   skillsActions,
@@ -282,6 +285,8 @@ function OpenTuiScreen({
   allowBypassPermissions?: boolean;
   onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   initialSettingsOpen?: boolean;
+  onboarding?: boolean;
+  onStartupIntro?: () => Promise<void>;
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
@@ -356,6 +361,24 @@ function OpenTuiScreen({
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
+  const { enabled: motionEnabled } = useMotion();
+  const [introOpen, setIntroOpen] = useState(
+    () => !!onStartupIntro && motionEnabled,
+  );
+  const [startupNotice, setStartupNotice] = useState<string>();
+  const [homeReveal, setHomeReveal] = useState(false);
+  const recordIntro = useEffectEvent(async () => onStartupIntro?.());
+  useEffect(() => {
+    let mounted = true;
+    void recordIntro().catch(() => {
+      if (mounted)
+        setStartupNotice("Не удалось сохранить отметку о показе интро.");
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  const introVisible = setupPending && introOpen && motionEnabled;
   const [capturedSettingsActions, setCapturedSettingsActions] = useState(
     () => getSettingsActions?.() ?? settingsActions,
   );
@@ -1101,6 +1124,12 @@ function OpenTuiScreen({
 
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== inputOwner || commandFeedbackActive) return;
+    if (introVisible && !isCtrlC(key)) {
+      key.preventDefault();
+      key.stopPropagation();
+      if (key.name === "escape") setIntroOpen(false);
+      return;
+    }
     if (effortActions && !approval && !isCtrlC(key)) return;
     if (
       inputOwner.startsWith("ui-widget:") &&
@@ -1729,7 +1758,11 @@ function OpenTuiScreen({
   const settingsDialog = settingsOpen ? (
     <OpenTuiSettings
       actions={capturedSettingsActions}
-      active={!approval && !mcpActions && !skillsOpen}
+      active={!introVisible && !approval && !mcpActions && !skillsOpen}
+      shown={!introVisible}
+      onboarding={onboarding && setupPending}
+      handoff={!!onStartupIntro && onboarding && setupPending}
+      startupNotice={startupNotice}
       getMcpActions={settingsMcpFactory}
       skillsActions={settingsSkills}
       onChooseSkill={(skill) =>
@@ -1782,13 +1815,19 @@ function OpenTuiScreen({
         onBypassAvailabilityChange ? changeBypassAvailability : undefined
       }
       onClose={(outcome) => {
-        if (setupPending && outcome === "saved") onSetupComplete?.();
+        if (setupPending && outcome === "saved") {
+          onSetupComplete?.();
+          setHomeReveal(true);
+          setFocus("editor");
+        }
         onInitialSettingsComplete?.();
         setSetupPending(false);
         setSettingsOpen(false);
         onSettingsVisibility?.(false);
         controller?.setOverlay();
-        controller?.setFocus(focus === "editor" ? "composer" : focus);
+        controller?.setFocus(
+          setupPending || focus === "editor" ? "composer" : focus,
+        );
       }}
     />
   ) : undefined;
@@ -1911,6 +1950,14 @@ function OpenTuiScreen({
   if (setupPending && settingsOpen)
     return (
       <box width={width} height={height} backgroundColor={palette.bg}>
+        {introVisible && (
+          <StartupIntro
+            width={width}
+            height={height}
+            palette={palette}
+            onComplete={() => setIntroOpen(false)}
+          />
+        )}
         {settingsDialog}
         {uiOverflow && !approval && (
           <OpenTuiStatusOverflow
@@ -2139,6 +2186,7 @@ function OpenTuiScreen({
       palette={palette}
       composerWidth={composerWidth}
       home={home}
+      reveal={home && homeReveal}
       height={height}
       promptFocused={
         !commandFeedbackActive &&

@@ -13,7 +13,7 @@ import {
   safeNotice,
   type Work,
 } from "./settings-contracts.js";
-import { type TuiSettingsValues } from "./settings-values.js";
+import type { TuiSettingsValues } from "./settings-values.js";
 import { FAIL_MARK } from "./theme.js";
 import { useConnectionSettingsModel } from "./use-connection-settings-model.js";
 
@@ -21,10 +21,12 @@ export function useConnectionSettings({
   actions,
   initialSelection,
   onOpenContent,
+  setup = false,
 }: {
   actions?: OpenTuiSettingsActions;
   initialSelection: number;
   onOpenContent(): void;
+  setup?: boolean;
 }) {
   const [values, setValues] = useState<TuiSettingsValues>({
     provider: "",
@@ -62,6 +64,8 @@ export function useConnectionSettings({
   const [connectionChoice, setConnectionChoice] = useState(0);
 
   const [addingProfile, setAddingProfile] = useState(false);
+  const [setupProfile, setSetupProfile] = useState(false);
+  const creating = useRef<string | undefined>(undefined);
 
   const [screen, setScreen] = useState<Screen>("menu");
 
@@ -176,11 +180,36 @@ export function useConnectionSettings({
     setBusy(undefined);
   };
 
+  const advanceSetup = (
+    draft: TuiSettingsValues,
+    ready: boolean,
+    provider = providers.find((item) => item.id === draft.provider),
+  ) => {
+    setQuery("");
+    setSelected(0);
+    setEditing("");
+    if (
+      provider?.endpoint.required &&
+      !draft.baseUrl &&
+      !provider.endpoint.defaultBaseUrl
+    ) {
+      setScreen("base-url");
+    } else if (!ready && provider?.auth.type === "subscription") {
+      setScreen("login");
+    } else if (!ready && provider?.auth.required) {
+      setScreen("key");
+    } else if (!draft.model) {
+      setScreen("model-list");
+    } else {
+      setScreen("menu");
+    }
+  };
+
   const load = () => {
     if (!actions) return;
     run("load", async (valid) => {
       const [draft, catalog] = await Promise.all([
-        actions.load(),
+        actions.load(undefined, setup),
         actions.catalog?.(),
       ]);
       if (!valid()) return;
@@ -194,7 +223,14 @@ export function useConnectionSettings({
       setHasKey(draft.hasKey);
       setAccountLabel(draft.accountLabel);
       setLoaded(true);
-      setScreen("profiles");
+      setSetupProfile(!!draft.pendingSetup);
+      if (draft.pendingSetup)
+        advanceSetup(
+          draft.values,
+          draft.hasKey,
+          catalog?.providers.find((item) => item.id === draft.values.provider),
+        );
+      else setScreen("profiles");
     });
   };
 
@@ -209,7 +245,7 @@ export function useConnectionSettings({
     };
   }, [actions]);
 
-  const fieldValues = () =>
+  const fieldValues = (input = editing) =>
     field && screen !== "profile-id"
       ? {
           ...values,
@@ -219,7 +255,7 @@ export function useConnectionSettings({
               ? "apiKey"
               : screen === "base-url"
                 ? "baseUrl"
-                : "model"]: editing,
+                : "model"]: input,
         }
       : values;
 
@@ -240,7 +276,8 @@ export function useConnectionSettings({
         apiKey: pendingValues.apiKey?.trim() || undefined,
         baseUrl: pendingValues.baseUrl?.trim() || undefined,
       };
-      if (!next.model) throw new Error("Введите название модели");
+      if (!next.model && !setupProfile)
+        throw new Error("Введите название модели");
       if (next.baseUrl) {
         const url = new URL(next.baseUrl);
         if (!["http:", "https:"].includes(url.protocol))
@@ -249,9 +286,11 @@ export function useConnectionSettings({
       setMessage("Сохранение…");
       const result = await actions.save(
         next,
-        next.profileId && profiles[next.profileId]
+        acknowledged.current &&
+          acknowledged.current.profileId === next.profileId
           ? acknowledged.current
           : undefined,
+        setupProfile,
       );
       const saved = { ...next, apiKey: undefined };
       baseline.current = JSON.stringify(saved);
@@ -263,11 +302,15 @@ export function useConnectionSettings({
       setHasKey(result === "saved");
       const catalog = await actions.catalog?.();
       if (catalog) setProfiles(catalog.profiles);
+      if (creating.current && creating.current === next.profileId) {
+        creating.current = undefined;
+        advanceSetup(saved, result === "saved");
+      }
       setMessage(
-        result === "saved"
+        result === "saved" && next.model
           ? "Сохранено · готово к работе"
           : "Сохранено · требуется настройка / авторизация",
-        result === "saved" ? "success" : "info",
+        result === "saved" && next.model ? "success" : "info",
       );
     },
     (error) =>
@@ -303,6 +346,7 @@ export function useConnectionSettings({
   };
 
   const login = () => {
+    if (lifetime.current.busy) return;
     if (!actions?.connect || !values.profileId) {
       setMessage("Сначала создайте профиль", "error");
       return;
@@ -320,16 +364,14 @@ export function useConnectionSettings({
       setHasKey(status.connected);
       setAccountLabel(status.label);
       setChallenge(undefined);
-      const result = await actions.models(values);
-      if (!valid()) return;
-      setModels(result.ok ? result.models : []);
+      if (!status.connected) {
+        setMessage("Вход не завершён. Повторите попытку.", "info");
+        return;
+      }
       setScreen("model-list");
       setSelected(0);
       setQuery("");
-      setMessage(
-        result.ok ? "Аккаунт подключён · выберите модель" : result.error,
-        result.ok ? "success" : "error",
-      );
+      setMessage("Аккаунт подключён · выберите модель", "success");
     });
   };
 
@@ -344,7 +386,9 @@ export function useConnectionSettings({
       acknowledged.current = loaded.values;
       setHasKey(loaded.hasKey);
       setAccountLabel(loaded.accountLabel);
-      setScreen("menu");
+      setSetupProfile(!!loaded.pendingSetup);
+      if (loaded.pendingSetup) advanceSetup(loaded.values, loaded.hasKey);
+      else setScreen("menu");
       setSelected(0);
       setQuery("");
       setNotice("");
@@ -423,20 +467,24 @@ export function useConnectionSettings({
             ? (values.baseUrl ?? "")
             : "",
     );
-    if (next === "model-list" && actions) {
-      setModels([]);
-      run("models", async (valid) => {
-        const result = await actions.models(values);
-        if (!valid()) return;
-        if (result.ok) setModels(result.models);
-        else setMessage(result.error, "error");
-      });
-    }
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Request once on entering a picker, including after profile recovery and device login.
+  useEffect(() => {
+    if (screen !== "model-list" || !actions) return;
+    setModels([]);
+    run("models", async (valid) => {
+      const result = await actions.models(values);
+      if (!valid()) return;
+      if (result.ok) setModels(result.models);
+      else setMessage(result.error, "error");
+    });
+  }, [actions, screen]);
+
   const back = (accepted = false) => {
+    if (creating.current && connectionAutosave.saving) return;
     if (field && !accepted) {
-      if (screen === "profile-id") {
+      if (screen === "profile-id" && !creating.current) {
         setScreen("profiles");
         setAddingProfile(false);
         if (acknowledged.current) setValues(acknowledged.current);
@@ -471,45 +519,75 @@ export function useConnectionSettings({
     setNotice("");
   };
 
-  const acceptField = () => {
+  const acceptField = (input = editing) => {
     if (screen !== "profile-id") {
-      back();
+      if (setupProfile && (screen === "key" || screen === "base-url")) {
+        const draft = fieldValues(input);
+        const epoch = editorEpoch.current;
+        if (
+          screen === "base-url" &&
+          definition?.endpoint.required &&
+          !draft.baseUrl?.trim()
+        ) {
+          setMessage("Укажите адрес API.", "error");
+          return;
+        }
+        void connectionAutosave.flush().then((ok) => {
+          if (!ok || !lifetime.current.mounted || epoch !== editorEpoch.current)
+            return;
+          if (screen === "key" && !readiness.current) {
+            setMessage("Введите API-ключ.", "error");
+            return;
+          }
+          advanceSetup(acknowledged.current ?? draft, readiness.current);
+        });
+      } else {
+        if (screen === "model-manual" && !input.trim()) {
+          setMessage("Введите название модели.", "error");
+          return;
+        }
+        back();
+      }
       return;
     }
-    let next: TuiSettingsValues;
-    if (screen === "profile-id") {
-      const id = editing.trim();
-      if (!ProfileIdSchema.safeParse(id).success) {
-        setMessage(
-          "Имя: буквы, цифры, точка, дефис или _; до 128 символов",
-          "error",
-        );
-        return;
-      }
-      if (profiles[id]) {
-        setMessage(
-          "Такой профиль уже есть. Выберите его в списке профилей.",
-          "error",
-        );
-        return;
-      }
-      next = { ...values, profileId: id, label: undefined, apiKey: undefined };
-      setAddingProfile(false);
-      setHasKey(false);
-    } else
-      next = {
-        ...values,
-        [screen === "profile-label"
-          ? "label"
-          : screen === "key"
-            ? "apiKey"
-            : screen === "base-url"
-              ? "baseUrl"
-              : "model"]: editing,
-      };
-    setValues(next);
-    back(true);
-    return next;
+    const id = input.trim();
+    if (!ProfileIdSchema.safeParse(id).success) {
+      setMessage(
+        "Имя: буквы, цифры, точка, дефис или _; до 128 символов",
+        "error",
+      );
+      return;
+    }
+    if (creating.current && connectionAutosave.saving) return;
+    if (creating.current === id) {
+      save();
+      return;
+    }
+    if (profiles[id]) {
+      setMessage(
+        "Такой профиль уже есть. Выберите его в списке профилей.",
+        "error",
+      );
+      return;
+    }
+    const next = {
+      ...values,
+      profileId: id,
+      label: undefined,
+      apiKey: undefined,
+    };
+    setAddingProfile(false);
+    setHasKey(false);
+    if (setup) {
+      creating.current = id;
+      setSetupProfile(true);
+      setValues({ ...next, model: "" });
+    } else {
+      setSetupProfile(false);
+      setValues(next);
+      back(true);
+      return next;
+    }
   };
 
   const choose = (
@@ -558,7 +636,11 @@ export function useConnectionSettings({
               : undefined,
         });
         setHasKey(false);
-        setEditing("");
+        const prefix = provider.id.replaceAll("/", "-").slice(0, 114);
+        let proposed = `${prefix}-default`;
+        for (let suffix = 2; Object.hasOwn(profiles, proposed); suffix++)
+          proposed = `${prefix}-${suffix}`;
+        setEditing(setup ? proposed : "");
         setScreen("profile-id");
         setNotice("");
         return;
@@ -623,24 +705,20 @@ export function useConnectionSettings({
       );
   };
   const activate = (onReady?: () => void) => {
-    void connectionAutosave.flush().then(async (ok) => {
-      if (!ok) return;
-      try {
-        await actions?.activate?.(values);
-        if (onReady && readiness.current) onReady();
-        else
-          setMessage(
-            readiness.current
-              ? "Подключение выбрано"
-              : "Подключение выбрано · требуется настройка",
-            "success",
-          );
-      } catch (error) {
+    run("save", async (valid) => {
+      if (!(await connectionAutosave.flush()) || !valid()) return;
+      if (onReady && !readiness.current)
+        throw new Error("Сначала настройте авторизацию.");
+      await actions?.activate?.(acknowledged.current ?? values);
+      if (!valid()) return;
+      if (onReady && readiness.current) onReady();
+      else
         setMessage(
-          safeNotice(error, values, editing, screen === "key"),
-          "error",
+          readiness.current
+            ? "Подключение выбрано"
+            : "Подключение выбрано · требуется настройка",
+          "success",
         );
-      }
     });
   };
   const working = () => lifetime.current.busy;

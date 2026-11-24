@@ -2224,6 +2224,23 @@ async function runApplication(
         getMcpActions: (root) =>
           getMcpController(root ?? currentController().snapshot.projectPath),
         initialSettingsOpen: setupRequired || setupOnly,
+        onboarding: setupRequired && !setupOnly,
+        onStartupIntro:
+          setupRequired &&
+          !setupOnly &&
+          !preferences.config.ui?.startupIntroSeen &&
+          !Object.keys(preferences.config.profiles).length
+            ? () => {
+                const saved = saves.pending.then(async () => {
+                  await updateGlobalConfig(options.configPath, (current) => ({
+                    ...current,
+                    ui: { ...current.ui, startupIntroSeen: true },
+                  }));
+                });
+                saves.pending = saved.catch(() => {});
+                return saved;
+              }
+            : undefined,
         onSetupComplete: setupOnly ? shutdown : undefined,
         onSubmit: submit,
         uiRedactor,

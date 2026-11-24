@@ -11,7 +11,9 @@ import {
   uiColor,
   useUiNativePresentation,
 } from "./extension-presentation.js";
+import { mixColor } from "./motion.js";
 import { UiSurface } from "./opentui-composition.js";
+import { useSurfaceReveal } from "./opentui-motion.js";
 
 import { terminalLine } from "./terminal-text.js";
 import { ENTER_KEY } from "./theme.js";
@@ -34,6 +36,7 @@ export function OpenTuiPrompt({
   onModelSelect,
   onSubmit,
   compact = false,
+  reveal = false,
 }: {
   children: ReactNode;
   palette: Palette;
@@ -51,8 +54,19 @@ export function OpenTuiPrompt({
   onModelSelect?: () => void;
   onSubmit: () => void;
   compact?: boolean;
+  reveal?: boolean;
 }) {
   const native = useUiNativePresentation();
+  const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
+  const borderColor = focused ? modeColor : palette.border;
+  const surface = useSurfaceReveal({
+    shown: reveal && !compact && !native.bg && !native.borderColor,
+    surfaceKey: "home-prompt",
+    from: mixColor(palette.surface, palette.accent, 0.09),
+    background: palette.surface,
+    accent: mixColor(borderColor, palette.text, 0.35),
+    border: borderColor,
+  });
   const decorateEditor = (child: ReactNode) =>
     React.isValidElement<Record<string, unknown>>(child)
       ? React.cloneElement(child, {
@@ -90,7 +104,6 @@ export function OpenTuiPrompt({
         {editor}
       </box>
     );
-  const modeColor = agentMode === "plan" ? palette.yellow : palette.accent;
   const differentRun =
     !!runningMode &&
     (runningMode !== agentMode ||
@@ -108,11 +121,12 @@ export function OpenTuiPrompt({
   return (
     <box
       id="prompt"
+      ref={surface}
       width="100%"
       flexShrink={0}
       border={["left", "top"]}
       borderStyle="single"
-      borderColor={focused ? modeColor : palette.border}
+      borderColor={borderColor}
       backgroundColor={palette.surface}
       titleColor={palette.muted}
       paddingLeft={2}

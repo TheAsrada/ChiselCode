@@ -1,10 +1,11 @@
 /** @jsxImportSource @opentui/react */
-import type { TextRenderable } from "@opentui/core";
+import type { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
   createContext,
   type ReactNode,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -122,6 +123,61 @@ export function useEntrance(duration = 160, active = true): number {
     });
   }, [clock, enabled, active, duration]);
   return enabled && active ? progress : 1;
+}
+
+/** Animate only the native surface, with its children and focus left in place. */
+export function useSurfaceReveal({
+  shown,
+  surfaceKey,
+  from,
+  background,
+  accent,
+  border,
+  duration = 140,
+}: {
+  shown: boolean;
+  surfaceKey: string;
+  from: string;
+  background: string;
+  accent?: string;
+  border?: string;
+  duration?: number;
+}) {
+  const { clock, enabled } = useMotion();
+  const node = useRef<BoxRenderable>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A section change restarts the reveal on the existing renderable.
+  useLayoutEffect(() => {
+    const box = node.current;
+    if (!box || !shown) return;
+    const paint = (progress: number) => {
+      box.backgroundColor = mixColor(from, background, progress);
+      if (accent && border)
+        box.borderColor = mixColor(accent, border, progress);
+    };
+    if (!clock || !enabled) {
+      paint(1);
+      return;
+    }
+    paint(0);
+    const start = performance.now();
+    return clock.add((now) => {
+      if (box.isDestroyed) return false;
+      const elapsed = now - start;
+      paint(easeOut(elapsed / duration));
+      return elapsed < duration;
+    });
+  }, [
+    clock,
+    enabled,
+    shown,
+    surfaceKey,
+    from,
+    background,
+    accent,
+    border,
+    duration,
+  ]);
+  return node;
 }
 
 /** Only active indicators subscribe; text, native editor and transcript do not tick. */

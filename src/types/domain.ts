@@ -234,6 +234,8 @@ export interface GlobalConfig {
   providers: Partial<Record<ProviderId, ProviderConfig>>;
   ui?: {
     lastModelSelection?: { provider: string; profileId: string; model: string };
+    startupIntroSeen?: boolean;
+    pendingSetupProfileId?: string;
     motion?: "full" | "reduced";
     /** @deprecated Legacy input only; panel visibility is local to the current screen. */
     sidebarMode?: "auto" | "show" | "hide";

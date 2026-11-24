@@ -3,7 +3,12 @@ import { RGBA } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { type ReactNode, useRef, useState } from "react";
 import { type Palette, THEMES } from "./appearance.js";
-import { useAnimatedColor, useEntrance } from "./opentui-motion.js";
+import { mixColor } from "./motion.js";
+import {
+  useAnimatedColor,
+  useEntrance,
+  useSurfaceReveal,
+} from "./opentui-motion.js";
 import { uiInputStamp } from "./overlay-input.js";
 import { terminalSafeText } from "./terminal-text.js";
 
@@ -43,6 +48,10 @@ export function OpenTuiDialog({
   maxHeight,
   maxWidth,
   shadow = true,
+  shown = true,
+  surfaceKey,
+  revealDuration,
+  handoff = false,
 }: {
   id: string;
   width: number;
@@ -53,6 +62,10 @@ export function OpenTuiDialog({
   maxHeight?: number;
   maxWidth?: number;
   shadow?: boolean;
+  shown?: boolean;
+  surfaceKey?: string;
+  revealDuration?: number;
+  handoff?: boolean;
 }) {
   const renderer = useRenderer();
   const dismiss = useRef(false);
@@ -63,10 +76,22 @@ export function OpenTuiDialog({
     maxWidth,
   );
   const entrance = useEntrance(160, shadow && !tiny);
+  const surface = useSurfaceReveal({
+    shown: shown && surfaceKey !== undefined,
+    surfaceKey: surfaceKey ?? id,
+    from: palette.bg,
+    background: palette.surface,
+    accent: handoff ? palette.accent : palette.border,
+    border: handoff
+      ? palette.border
+      : mixColor(palette.border, palette.accent, 0.25),
+    duration: revealDuration,
+  });
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape also dismisses the dialog.
     <box
       id={`${id}-backdrop`}
+      visible={shown}
       position="absolute"
       left={0}
       top={0}
@@ -112,6 +137,7 @@ export function OpenTuiDialog({
       {/* biome-ignore lint/a11y/noStaticElementInteractions: Popup clicks must not dismiss the backdrop. */}
       <box
         id={`${id}-popup`}
+        ref={surface}
         position="absolute"
         left={left}
         top={top}

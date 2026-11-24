@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
+import { flushSync } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { backgroundSettings } from "../extensions/builtins/background.js";
 import { lspSettings } from "../extensions/builtins/lsp.js";
@@ -25,6 +26,7 @@ import {
   SettingsSecretInput,
 } from "./opentui-settings-input.js";
 import { OpenTuiSkills, type OpenTuiSkillsActions } from "./opentui-skills.js";
+import { HANDOFF_MS } from "./opentui-startup.js";
 import { OpenTuiSubagentSettings } from "./opentui-subagent-settings.js";
 import { terminalSafeText } from "./opentui-transcript.js";
 import { OpenTuiWebSettings } from "./opentui-web-settings.js";
@@ -66,6 +68,10 @@ export function OpenTuiSettings({
   allowBypassPermissions = false,
   onBypassAvailabilityChange,
   setup = false,
+  onboarding = false,
+  shown = true,
+  handoff = false,
+  startupNotice,
   active = true,
   getMcpActions,
   skillsActions,
@@ -88,6 +94,10 @@ export function OpenTuiSettings({
   allowBypassPermissions?: boolean;
   onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   setup?: boolean;
+  onboarding?: boolean;
+  shown?: boolean;
+  handoff?: boolean;
+  startupNotice?: string;
   active?: boolean;
   getMcpActions?: () => OpenTuiMcpActions;
   skillsActions?: OpenTuiSkillsActions;
@@ -178,12 +188,14 @@ export function OpenTuiSettings({
   const [bypassAllowed, setBypassAllowed] = useState(allowBypassPermissions);
   const restore = useRef({ theme, preview: onThemePreview });
   restore.current.preview = onThemePreview;
+  const maxHeight = onboarding ? 18 : 30;
+  const maxWidth = onboarding ? 82 : 104;
   const {
     popupHeight,
     innerWidth: surfaceWidth,
     roomy,
     tiny,
-  } = dialogLayout(width, height, 30, 104);
+  } = dialogLayout(width, height, maxHeight, maxWidth);
 
   const {
     values,
@@ -241,7 +253,18 @@ export function OpenTuiSettings({
     },
     actions,
     initialSelection,
+    setup: onboarding,
   });
+  const submitField = (raw: unknown) => {
+    const input = typeof raw === "string" ? cleanSettingsInput(raw) : editing;
+    if (input !== editing) flushSync(() => setEditing(input));
+    acceptField(input);
+  };
+  const emptyOnboarding =
+    onboarding &&
+    screen === "profiles" &&
+    loaded &&
+    !Object.keys(profiles).length;
   useEffect(() => {
     if (page === "tools.skills") setSkillsVisited(true);
     if (page === "tools.mcp" && !mcp && getMcpActions) {
@@ -259,7 +282,7 @@ export function OpenTuiSettings({
     },
     [actions],
   );
-  const split = width >= 100 && height >= 26;
+  const split = !onboarding && width >= 100 && height >= 26;
   const navigationWidth = split ? 26 : surfaceWidth;
   const innerWidth = split
     ? Math.max(1, surfaceWidth - navigationWidth - 1)
@@ -397,12 +420,16 @@ export function OpenTuiSettings({
     popupHeight -
       (tiny ? 0 : 2) -
       (roomy ? 2 : 0) -
-      (tiny && compactDetail && shellFocus !== "search" ? 0 : 2) -
+      (onboarding
+        ? 1
+        : tiny && compactDetail && shellFocus !== "search"
+          ? 0
+          : 2) -
       (showHint ? 2 : 1) -
-      (notice ? 1 : 0),
+      (notice || startupNotice ? 1 : 0),
   );
   const bodyHeight = Math.max(1, contentHeight - (split ? 2 : 0));
-  const wide = innerWidth >= 70 && roomy;
+  const wide = !onboarding && innerWidth >= 70 && roomy;
   const listWidth = wide
     ? Math.min(38, Math.floor(innerWidth * 0.43))
     : innerWidth;
@@ -557,8 +584,9 @@ export function OpenTuiSettings({
       } else save();
     }
   };
-  const settingsMenuActions: MenuAction[] =
-    page === "tools.skills"
+  const settingsMenuActions: MenuAction[] = emptyOnboarding
+    ? []
+    : page === "tools.skills"
       ? [{ id: "settings-close", label: "Закрыть настройки", run: close }]
       : page === "appearance"
         ? [
@@ -599,7 +627,16 @@ export function OpenTuiSettings({
                   run: back,
                 },
                 ...(screen === "login"
-                  ? []
+                  ? onboarding
+                    ? [
+                        {
+                          id: "settings-login",
+                          label: "Войти по коду",
+                          disabled: !!busy,
+                          run: login,
+                        },
+                      ]
+                    : []
                   : [
                       {
                         id: "settings-confirm",
@@ -702,6 +739,21 @@ export function OpenTuiSettings({
         });
       },
     });
+  if (onboarding) {
+    if (emptyOnboarding) settingsMenuActions.length = 0;
+    const useIndex = settingsMenuActions.findIndex(
+      (action) => action.id === "settings-use-profile",
+    );
+    if (useIndex >= 0) {
+      const [useProfile] = settingsMenuActions.splice(useIndex, 1);
+      if (useProfile) settingsMenuActions.unshift(useProfile);
+    }
+    settingsMenuActions.push({
+      id: "settings-later",
+      label: "Настроить позже",
+      run: close,
+    });
+  }
   const actionNavigation = useMenuNavigation(
     ["actions"],
     settingsMenuActions,
@@ -722,7 +774,7 @@ export function OpenTuiSettings({
       return;
     }
     if (isCtrlC(key)) return;
-    if (key.ctrl && name === "f") {
+    if (key.ctrl && name === "f" && !onboarding) {
       key.preventDefault();
       if (page === "builtin.lsp" && shellFocus === "content")
         lspControls.current?.search?.();
@@ -772,13 +824,15 @@ export function OpenTuiSettings({
         )?.tab?.(key.shift)
       )
         return;
-      const zonesWithActions = navigationOnly
-        ? (["search", "navigation"] as const)
-        : split
-          ? (["search", "navigation", "content", "actions"] as const)
-          : compactDetail
-            ? (["content", "actions", "search"] as const)
-            : (["search", "navigation"] as const);
+      const zonesWithActions = onboarding
+        ? (["content", "actions"] as const)
+        : navigationOnly
+          ? (["search", "navigation"] as const)
+          : split
+            ? (["search", "navigation", "content", "actions"] as const)
+            : compactDetail
+              ? (["content", "actions", "search"] as const)
+              : (["search", "navigation"] as const);
       const zones = zonesWithActions.filter(
         (zone) =>
           zone !== "actions" ||
@@ -786,10 +840,11 @@ export function OpenTuiSettings({
       );
       const index = zones.indexOf(shellFocus as never);
       if (field) void connectionAutosave.flush();
-      setShellFocus(
+      const nextFocus =
         zones[(index + (key.shift ? -1 : 1) + zones.length) % zones.length] ??
-          "content",
-      );
+        "content";
+      if (onboarding) flushSync(() => setShellFocus(nextFocus));
+      else setShellFocus(nextFocus);
       return;
     }
     if (
@@ -892,6 +947,7 @@ export function OpenTuiSettings({
       key.preventDefault();
       if (page === "connection" && screen === "profiles") close();
       else if (page === "connection" && screen !== "menu") back();
+      else if (onboarding) close();
       else if (!split && compactDetail) {
         setCompactDetail(false);
         setShellFocus("navigation");
@@ -981,6 +1037,7 @@ export function OpenTuiSettings({
     } else if (name === "return") {
       key.preventDefault();
       if (selector) choose();
+      else if (screen === "login" && onboarding) login();
       else {
         const row = rows[Math.min(selectedRef.current, rows.length - 1)];
         if (row) open(row.screen);
@@ -1005,54 +1062,72 @@ export function OpenTuiSettings({
       height={height}
       palette={palette}
       onClose={close}
-      maxHeight={30}
-      maxWidth={104}
+      maxHeight={maxHeight}
+      maxWidth={maxWidth}
+      shown={shown}
+      shadow={!onboarding}
+      surfaceKey={page}
+      handoff={handoff}
+      revealDuration={handoff ? HANDOFF_MS : undefined}
     >
-      {!(tiny && compactDetail && shellFocus !== "search") && (
-        <>
-          <box
-            height={1}
-            flexShrink={0}
-            flexDirection="row"
-            justifyContent="space-between"
-          >
-            <text fg={palette.accent} height={1}>
-              <strong>
-                {terminalLine(
-                  split || !compactDetail
-                    ? "Настройки ChiselCode"
-                    : `Настройки > ${section?.title ?? ""}`,
-                  surfaceWidth - 7,
-                )}
-              </strong>
-            </text>
-            <DialogAction
-              id="settings-close"
-              label="Esc x"
-              palette={palette}
-              onSelect={close}
-            />
-          </box>
-          <box height={1} flexShrink={0} backgroundColor={palette.raised}>
-            <input
-              id="settings-global-search"
-              value={settingsQuery}
-              focused={active && !connectionConfirm && shellFocus === "search"}
-              placeholder="Поиск настроек · Ctrl+F"
-              backgroundColor={palette.raised}
-              focusedBackgroundColor={palette.raised}
-              textColor={palette.text}
-              focusedTextColor={palette.text}
-              placeholderColor={palette.muted}
-              onMouseDown={() => setShellFocus("search")}
-              onInput={(value) => {
-                if (value === settingsQuery) return;
-                setSettingsQuery(cleanSettingsInput(value));
-                setNavigationIndex(0);
-              }}
-            />
-          </box>
-        </>
+      {onboarding ? (
+        <text
+          id="settings-onboarding-title"
+          height={1}
+          flexShrink={0}
+          fg={palette.accent}
+        >
+          <strong>Подключения</strong>
+        </text>
+      ) : (
+        !(tiny && compactDetail && shellFocus !== "search") && (
+          <>
+            <box
+              height={1}
+              flexShrink={0}
+              flexDirection="row"
+              justifyContent="space-between"
+            >
+              <text fg={palette.accent} height={1}>
+                <strong>
+                  {terminalLine(
+                    split || !compactDetail
+                      ? "Настройки ChiselCode"
+                      : `Настройки > ${section?.title ?? ""}`,
+                    surfaceWidth - 7,
+                  )}
+                </strong>
+              </text>
+              <DialogAction
+                id="settings-close"
+                label="Esc x"
+                palette={palette}
+                onSelect={close}
+              />
+            </box>
+            <box height={1} flexShrink={0} backgroundColor={palette.raised}>
+              <input
+                id="settings-global-search"
+                value={settingsQuery}
+                focused={
+                  active && !connectionConfirm && shellFocus === "search"
+                }
+                placeholder="Поиск настроек · Ctrl+F"
+                backgroundColor={palette.raised}
+                focusedBackgroundColor={palette.raised}
+                textColor={palette.text}
+                focusedTextColor={palette.text}
+                placeholderColor={palette.muted}
+                onMouseDown={() => setShellFocus("search")}
+                onInput={(value) => {
+                  if (value === settingsQuery) return;
+                  setSettingsQuery(cleanSettingsInput(value));
+                  setNavigationIndex(0);
+                }}
+              />
+            </box>
+          </>
+        )
       )}
       <box
         flexDirection="row"
@@ -1148,6 +1223,7 @@ export function OpenTuiSettings({
             {page === "connection" &&
               loaded &&
               !wide &&
+              !onboarding &&
               (field || screen === "login") && (
                 <box height={tiny ? 1 : 2} flexShrink={0} flexDirection="row">
                   <DialogAction
@@ -1175,6 +1251,7 @@ export function OpenTuiSettings({
               )}
             {page === "connection" &&
               loaded &&
+              !onboarding &&
               screen === "profiles" &&
               !Object.keys(profiles).length && (
                 <text height={1} fg={palette.muted}>
@@ -1390,7 +1467,9 @@ export function OpenTuiSettings({
                     ? "Откройте в браузере"
                     : busy
                       ? "Получаем код…"
-                      : "Не удалось войти"}
+                      : onboarding
+                        ? "Enter · получить код для входа"
+                        : "Не удалось войти"}
                 </text>
                 {challenge && (
                   <>
@@ -1424,7 +1503,7 @@ export function OpenTuiSettings({
                     <SettingsSecretInput
                       value={editing}
                       onChange={setEditing}
-                      onSubmit={acceptField}
+                      onSubmit={submitField}
                       palette={palette}
                       active={
                         active &&
@@ -1461,7 +1540,7 @@ export function OpenTuiSettings({
                         setEditing(cleanSettingsInput(value));
                         setNotice("");
                       }}
-                      onSubmit={acceptField}
+                      onSubmit={submitField}
                     />
                   )}
                 </box>
@@ -1477,36 +1556,40 @@ export function OpenTuiSettings({
               </box>
             ) : (
               <>
-                <box
-                  height={1}
-                  flexShrink={0}
-                  flexDirection="row"
-                  justifyContent="space-between"
-                >
-                  <DialogAction
-                    id="settings-profile-switcher"
-                    label={screen === "profiles" ? "Профили" : "‹ Профили"}
-                    palette={palette}
-                    onSelect={() => open("profiles")}
-                  />
-                  {screen === "menu" && (
-                    <text fg={palette.muted}>
-                      {terminalLine(
-                        values.label || values.profileId || "Новое подключение",
-                        Math.max(1, innerWidth - 14),
-                      )}
-                    </text>
-                  )}
-                  {screen === "profiles" && (
+                {!emptyOnboarding && (
+                  <box
+                    height={1}
+                    flexShrink={0}
+                    flexDirection="row"
+                    justifyContent="space-between"
+                  >
                     <DialogAction
-                      id="settings-new-profile"
-                      label="+ Добавить"
+                      id="settings-profile-switcher"
+                      label={screen === "profiles" ? "Профили" : "‹ Профили"}
                       palette={palette}
-                      onSelect={newProfile}
+                      onSelect={() => open("profiles")}
                     />
-                  )}
-                </box>
-                {selector && (
+                    {screen === "menu" && (
+                      <text fg={palette.muted}>
+                        {terminalLine(
+                          values.label ||
+                            values.profileId ||
+                            "Новое подключение",
+                          Math.max(1, innerWidth - 14),
+                        )}
+                      </text>
+                    )}
+                    {screen === "profiles" && !emptyOnboarding && (
+                      <DialogAction
+                        id="settings-new-profile"
+                        label="+ Добавить"
+                        palette={palette}
+                        onSelect={newProfile}
+                      />
+                    )}
+                  </box>
+                )}
+                {selector && !emptyOnboarding && (
                   <box
                     height={1}
                     flexShrink={0}
@@ -1530,11 +1613,20 @@ export function OpenTuiSettings({
                       focusedTextColor={palette.text}
                       placeholderColor={palette.muted}
                       onInput={(value) => {
-                        setQuery(cleanSettingsInput(value));
-                        setSelected(0);
+                        const filter = () => {
+                          setQuery(cleanSettingsInput(value));
+                          setSelected(0);
+                        };
+                        if (onboarding) flushSync(filter);
+                        else filter();
                       }}
                     />
                   </box>
+                )}
+                {emptyOnboarding && (
+                  <text height={1} flexShrink={0} fg={palette.muted}>
+                    Сохранённых профилей пока нет
+                  </text>
                 )}
                 <box
                   width="100%"
@@ -1934,19 +2026,19 @@ export function OpenTuiSettings({
           />
         </box>
       )}
-      {notice && (
+      {(notice || startupNotice) && (
         <text
           height={1}
           flexShrink={0}
           fg={
-            noticeKind === "error"
+            (!notice && startupNotice) || noticeKind === "error"
               ? palette.red
               : noticeKind === "success"
                 ? palette.green
                 : palette.muted
           }
         >
-          {terminalLine(safeValue(notice), innerWidth)}
+          {terminalLine(safeValue(notice || startupNotice || ""), innerWidth)}
         </text>
       )}
       {navigationOnly ? (
@@ -1977,11 +2069,13 @@ export function OpenTuiSettings({
                   : "Подождите..."
               : shellFocus === "actions"
                 ? "←→ · Enter · Esc"
-                : innerWidth >= 70
-                  ? "Tab области · ←→ действия · Esc"
-                  : innerWidth >= 32
-                    ? "Tab фокус · Esc назад"
-                    : "Tab · Esc назад",
+                : emptyOnboarding
+                  ? "Enter · добавить   Tab · действия"
+                  : innerWidth >= 70
+                    ? "Tab области · ←→ действия · Esc"
+                    : innerWidth >= 32
+                      ? "Tab фокус · Esc назад"
+                      : "Tab · Esc назад",
             innerWidth,
           )}
         </text>

@@ -59,6 +59,6 @@ export function createLogoImage(
 
 /** Compact signature for the home screen. */
 export const COMPACT_LOGO = [
-  "▄▀▀ █▄█ █ ▄▀▀ ██▀ █   ▄▀▀ ▄▀▄ ▄▀▄ ██▀",
-  "▀▄▄ █ █ █ ▄██ █▄▄ █▄▄ ▄██ ▀▄▀ █▄▀ █▄▄",
+  "▄▀▀ █▄█ █ ▄▀▀ ██▀ █   ▄▀▀ █▀█ █▀▄ ██▀",
+  "▀▄▄ █ █ █ ▄██ █▄▄ █▄▄ ▀▄▄ █▄█ █▄▀ █▄▄",
 ];

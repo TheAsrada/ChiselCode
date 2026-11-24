@@ -48,6 +48,8 @@ export const GlobalConfigV2Schema = z.looseObject({
             ),
         })
         .optional(),
+      startupIntroSeen: z.boolean().optional(),
+      pendingSetupProfileId: ProfileIdSchema.optional(),
       motion: z.enum(["full", "reduced"]).optional(),
       theme: z
         .union([

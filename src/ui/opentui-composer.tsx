@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import type { TextareaRenderable } from "@opentui/core";
-import React from "react";
+import type React from "react";
 import type { CommandDescriptor } from "../commands/slash.js";
 import type { Palette } from "./appearance.js";
 import { UiPaneRegion, UiSurface } from "./opentui-composition.js";
@@ -18,6 +18,7 @@ export function OpenTuiComposer({
   palette,
   composerWidth,
   home,
+  reveal,
   height,
   promptFocused,
   editorFocused,
@@ -43,6 +44,7 @@ export function OpenTuiComposer({
   palette: Palette;
   composerWidth: number;
   home: boolean;
+  reveal?: boolean;
   height: number;
   promptFocused: boolean;
   editorFocused: boolean;
@@ -88,6 +90,7 @@ export function OpenTuiComposer({
         ))}
         <OpenTuiPrompt
           compact={!home && height < 10}
+          reveal={reveal}
           palette={palette}
           width={composerWidth}
           focused={promptFocused}

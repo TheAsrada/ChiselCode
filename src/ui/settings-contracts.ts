@@ -11,11 +11,8 @@ import type { SubagentSettingsActions } from "../subagents/settings.js";
 import type { ProviderId } from "../types/domain.js";
 import type { WebSettingsActions } from "../web/settings.js";
 import { terminalSafeText } from "./opentui-transcript.js";
-import { type SettingsRoute } from "./settings-catalog.js";
-import {
-  type ModelListResult,
-  type TuiSettingsValues,
-} from "./settings-values.js";
+import type { SettingsRoute } from "./settings-catalog.js";
+import type { ModelListResult, TuiSettingsValues } from "./settings-values.js";
 
 export interface OpenTuiSettingsActions {
   extensions?: ExtensionManagementService;
@@ -28,15 +25,20 @@ export interface OpenTuiSettingsActions {
     providers: ProviderDefinition[];
     profiles: Record<string, ProviderProfile>;
   }>;
-  load(profileId?: string): Promise<{
+  load(
+    profileId?: string,
+    resumeSetup?: boolean,
+  ): Promise<{
     values: TuiSettingsValues;
     hasKey: boolean;
     accountLabel?: string;
+    pendingSetup?: boolean;
   }>;
   hasKey(provider: ProviderId, profileId?: string): Promise<boolean>;
   save(
     values: TuiSettingsValues,
     previous?: TuiSettingsValues,
+    setupProfile?: boolean,
   ): Promise<"saved" | "setup_required">;
   activate?(values: TuiSettingsValues): Promise<void>;
   check(values: TuiSettingsValues): Promise<string>;
