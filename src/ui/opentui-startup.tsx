@@ -13,6 +13,7 @@ import { useMotion } from "./opentui-motion.js";
 
 const INTRO_MS = 3200;
 export const HANDOFF_MS = 300;
+const PROMPT = "Press any key";
 const LOGO = renderLogoRows();
 const LEVELS = 24;
 const HUE_STEPS = 36;
@@ -73,7 +74,9 @@ function introLayout(width: number, height: number) {
       : ["<i> ChiselCode"];
   const artWidth = Math.max(...art.map((line) => line.length));
   const left = Math.floor((width - artWidth) / 2);
-  const top = Math.floor((height - art.length) / 2);
+  const top = Math.max(0, Math.floor((height - art.length - 2) / 2));
+  const promptX = Math.max(0, Math.floor((width - PROMPT.length) / 2));
+  const promptY = Math.min(height - 1, top + art.length + 1);
 
   // The burst starts in the actual strokes. A fixed seed keeps the trajectories
   // coherent between frames and preserves the splash phase through a resize.
@@ -99,37 +102,93 @@ function introLayout(width: number, height: number) {
       ];
     }),
   );
-  return { width, height, full, art, artWidth, left, top, particles };
+  const driftCount = Math.min(full ? 85 : 20, Math.ceil((width * height) / 66));
+  const drifting = Array.from({ length: driftCount }, (_, i) => {
+    const seed = noise(i, 31);
+    const period = 3600 + noise(i, 51) * 2600;
+    return {
+      x: noise(i, 19) * (width - 1),
+      y: noise(i, 29) * (height - 1),
+      dx: (seed - 0.5) * (full ? 30 : 16),
+      dy: 3 + noise(i, 39) * (full ? 11 : 5),
+      period,
+      offset: noise(i, 61) * period,
+      hue: 0.19 + seed * 0.6,
+      glyph: seed > 0.67 ? "█" : seed > 0.33 ? "▄" : "▀",
+    };
+  });
+  return {
+    width,
+    height,
+    full,
+    art,
+    artWidth,
+    left,
+    top,
+    promptX,
+    promptY,
+    particles,
+    drifting,
+  };
 }
 
 function introFrame(
   layout: ReturnType<typeof introLayout>,
   ms: number,
   ink: ReturnType<typeof inkRamp>,
+  animated: boolean,
 ) {
-  const { width, height, full, art, artWidth, left, top, particles } = layout;
-  const fade = 1 - smooth((ms - 2480) / 805);
+  const { width, height, full, art, artWidth, left, top, promptX, promptY } =
+    layout;
+  const waiting = ms >= INTRO_MS;
+  const fade = animated ? 1 - smooth((ms - 2480) / 805) : 0;
   const gutter = full ? Math.min(29, Math.floor(width * 0.23)) : 7;
-  const burst = new Map<
+  const particles = new Map<
     number,
     { glyph: string; hue: number; level: number }
   >();
-  for (const particle of particles) {
-    const progress = (ms - particle.launch) / particle.duration;
-    if (progress <= 0 || progress >= 1) continue;
-    const travel = 1 - (1 - progress) ** 2;
-    const x = Math.round(particle.x + particle.dx * travel);
-    const y = Math.round(particle.y + particle.dy * travel);
-    if (x < 0 || y < 0 || x >= width || y >= height) continue;
-    const bright = smooth(progress / 0.28) * (1 - progress) ** 0.85 * fade;
-    const level = Math.round(LEVELS * bright);
+  const addParticle = (
+    col: number,
+    row: number,
+    glyph: string,
+    hue: number,
+    brightness: number,
+  ) => {
+    const x = Math.round(col);
+    const y = Math.round(row);
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const level = Math.round(LEVELS * brightness);
     const cell = y * width + x;
-    if (level > (burst.get(cell)?.level ?? 0))
-      burst.set(cell, {
-        glyph: particle.glyph,
-        hue: particle.hue + progress * 0.57,
-        level,
-      });
+    if (level > (particles.get(cell)?.level ?? 0))
+      particles.set(cell, { glyph, hue, level });
+  };
+  if (fade > 0) {
+    for (const particle of layout.particles) {
+      const progress = (ms - particle.launch) / particle.duration;
+      if (progress <= 0 || progress >= 1) continue;
+      const travel = 1 - (1 - progress) ** 2;
+      addParticle(
+        particle.x + particle.dx * travel,
+        particle.y + particle.dy * travel,
+        particle.glyph,
+        particle.hue + progress * 0.57,
+        smooth(progress / 0.28) * (1 - progress) ** 0.85 * fade,
+      );
+    }
+  }
+  const driftOpacity = animated ? smooth((ms - 2730) / 640) : 0;
+  if (driftOpacity > 0) {
+    for (const particle of layout.drifting) {
+      const phase =
+        ((ms + particle.offset) % particle.period) / particle.period;
+      addParticle(
+        particle.x + particle.dx * (phase - 0.5),
+        particle.y - particle.dy * (phase - 0.5),
+        particle.glyph,
+        particle.hue,
+        Math.sin(phase * Math.PI) ** 2 * (full ? 0.45 : 0.52) * driftOpacity,
+      );
+    }
   }
 
   const chunks: TextChunk[] = [];
@@ -147,6 +206,18 @@ function introFrame(
   for (let y = 0; y < height; y++) {
     const vertical = y / Math.max(1, height - 1);
     for (let x = 0; x < width; x++) {
+      const promptColumn = x - promptX;
+      const promptGlyph =
+        waiting && y === promptY ? PROMPT[promptColumn] : undefined;
+      if (promptGlyph) {
+        const shine =
+          (1 + Math.cos((ms - INTRO_MS) / 380 - promptColumn * 0.4)) / 2;
+        const level = animated
+          ? Math.round(LEVELS * (0.76 + 0.24 * shine))
+          : LEVELS;
+        push(promptGlyph, ink(1, level));
+        continue;
+      }
       const artX = x - left;
       const artY = y - top;
       const glyph = art[artY]?.[artX];
@@ -157,14 +228,22 @@ function introFrame(
         // Let the letters stay sharp while the color travels diagonally through
         // them. The last swatch blends into the current UI's text color.
         const hue = (ms - delay + 120) / 1640 + artY * 0.018;
-        const level = Math.round(LEVELS * easeOut((ms - delay) / 625) * fade);
+        const level = animated
+          ? Math.round(
+              LEVELS * easeOut((ms - delay) / 625) * (0.92 + 0.08 * fade),
+            )
+          : LEVELS;
         push(level ? glyph : " ", level ? ink(hue, level) : undefined);
         continue;
       }
 
-      const particle = burst.get(y * width + x);
+      const particle = particles.get(y * width + x);
       if (particle) {
         push(particle.glyph, ink(particle.hue, particle.level));
+        continue;
+      }
+      if (fade === 0) {
+        push(" ");
         continue;
       }
 
@@ -204,33 +283,40 @@ export function StartupIntro({
   width,
   height,
   palette,
-  onComplete,
+  onReady,
 }: {
   width: number;
   height: number;
   palette: Palette;
-  onComplete(): void;
+  onReady(): void;
 }) {
-  const { clock } = useMotion();
+  const { clock, enabled } = useMotion();
   const node = useRef<TextRenderable>(null);
   const start = useRef<number | undefined>(undefined);
-  const finish = useEffectEvent(onComplete);
+  const promptVisible = useRef(false);
+  const showPrompt = useEffectEvent(onReady);
   useLayoutEffect(() => {
+    const renderable = node.current;
+    if (!renderable) return;
     start.current ??= performance.now();
     const layout = introLayout(width, height);
     const ink = inkRamp(palette);
+    if (!enabled || !clock) {
+      renderable.content = introFrame(layout, INTRO_MS, ink, false);
+      return;
+    }
     const paint = (now: number) => {
       const elapsed = now - (start.current ?? now);
-      if (elapsed >= INTRO_MS) {
-        finish();
-        return false;
+      if (renderable.isDestroyed) return false;
+      renderable.content = introFrame(layout, elapsed, ink, true);
+      if (elapsed >= INTRO_MS && !promptVisible.current) {
+        promptVisible.current = true;
+        showPrompt();
       }
-      if (node.current && !node.current.isDestroyed)
-        node.current.content = introFrame(layout, elapsed, ink);
       return true;
     };
-    if (paint(performance.now())) return clock?.add(paint);
-  }, [clock, width, height, palette]);
+    if (paint(performance.now())) return clock.add(paint);
+  }, [clock, enabled, width, height, palette]);
   return (
     <box width={width} height={height} backgroundColor={palette.bg}>
       <text
@@ -241,18 +327,6 @@ export function StartupIntro({
         wrapMode="none"
         selectable={false}
       />
-      {width >= 24 && height >= 10 && (
-        <text
-          position="absolute"
-          right={2}
-          bottom={1}
-          height={1}
-          fg={palette.muted}
-          selectable={false}
-        >
-          Esc · пропустить
-        </text>
-      )}
     </box>
   );
 }

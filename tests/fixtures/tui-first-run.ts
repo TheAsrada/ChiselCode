@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
@@ -48,9 +48,9 @@ const createUi = () =>
 let ui = await createUi();
 let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 
-async function start() {
+async function start(path = configPath) {
   application = runOpenTuiAgent(
-    { cwd, configPath, externalExtensions: false },
+    { cwd, configPath: path, externalExtensions: false },
     undefined,
     true,
     false,
@@ -68,16 +68,24 @@ async function stop() {
   application = undefined;
 }
 
-const ready = async (text: string) => {
+const ready = async (
+  target: string | (() => boolean),
+  label = typeof target === "string" ? target : "startup screen",
+) => {
   const deadline = Date.now() + 4500;
   do {
     await act(async () => {
       await Bun.sleep(10);
       await ui.renderOnce();
     });
-    if (ui.captureCharFrame().includes(text)) return;
+    if (
+      typeof target === "string"
+        ? ui.captureCharFrame().includes(target)
+        : target()
+    )
+      return;
   } while (Date.now() < deadline);
-  assert.fail(`Missing ${text}\n${ui.captureCharFrame()}`);
+  assert.fail(`Missing ${label}\n${ui.captureCharFrame()}`);
 };
 
 const paste = async (text: string, submit = false) => {
@@ -89,11 +97,26 @@ const paste = async (text: string, submit = false) => {
 
 try {
   await start();
-  await ready("Esc · пропустить");
+  await ready(() => !!ui.renderer.root.findDescendantById("startup-intro"));
   await act(async () => {
     ui.resize(52, 15);
     ui.mockInput.pressEscape();
+    ui.mockInput.pressEnter();
   });
+  assert.ok(!ui.captureCharFrame().includes("Добавить подключение"));
+  await ready("Press any key");
+  const waiting = ui.captureCharFrame();
+  await ready(
+    () =>
+      ui.captureCharFrame().includes("Press any key") &&
+      ui.captureCharFrame() !== waiting,
+    "moving particles while waiting for a key",
+  );
+  assert.equal(
+    (await loadGlobalConfig(configPath)).ui?.startupIntroSeen,
+    undefined,
+  );
+  await act(async () => ui.mockInput.pressEnter());
   await ready("> Добавить подключение");
   await act(async () => ui.mockInput.pressEnter());
   await ready("Выберите сервис");
@@ -142,6 +165,23 @@ try {
   config = await loadGlobalConfig(configPath);
   assert.equal(config.defaultProfileId, "openai-compatible-default");
   assert.equal(config.ui?.pendingSetupProfileId, undefined);
+  await stop();
+
+  const reducedConfig = join(directory, "reduced.json");
+  await writeFile(
+    reducedConfig,
+    JSON.stringify({
+      schemaVersion: 2,
+      profiles: {},
+      ui: { motion: "reduced" },
+    }),
+  );
+  ui = await createUi();
+  await start(reducedConfig);
+  await ready("Press any key");
+  assert.ok(!ui.captureCharFrame().includes("Добавить подключение"));
+  await act(async () => ui.mockInput.pressKey("space"));
+  await ready("> Добавить подключение");
 } finally {
   await stop();
   server.stop(true);

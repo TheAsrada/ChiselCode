@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 
-test("first-run OpenTUI resumes a saved profile and sends the first task", async () => {
+test("first-run OpenTUI waits for a key, resumes a saved profile and sends the first task", async () => {
   const result = Bun.spawnSync(
     [process.execPath, "tests/fixtures/tui-first-run.ts"],
     {

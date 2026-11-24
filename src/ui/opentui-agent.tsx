@@ -2225,7 +2225,7 @@ async function runApplication(
           getMcpController(root ?? currentController().snapshot.projectPath),
         initialSettingsOpen: setupRequired || setupOnly,
         onboarding: setupRequired && !setupOnly,
-        onStartupIntro:
+        onStartupIntroAccepted:
           setupRequired &&
           !setupOnly &&
           !preferences.config.ui?.startupIntroSeen &&

@@ -245,7 +245,7 @@ function OpenTuiScreen({
   onBypassAvailabilityChange,
   initialSettingsOpen = false,
   onboarding = false,
-  onStartupIntro,
+  onStartupIntroAccepted,
   onSetupComplete,
   onInitialSettingsComplete,
   skillsActions,
@@ -286,7 +286,7 @@ function OpenTuiScreen({
   onBypassAvailabilityChange?: (allowed: boolean) => Promise<void>;
   initialSettingsOpen?: boolean;
   onboarding?: boolean;
-  onStartupIntro?: () => Promise<void>;
+  onStartupIntroAccepted?: () => Promise<void>;
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
@@ -362,13 +362,13 @@ function OpenTuiScreen({
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const { enabled: motionEnabled } = useMotion();
-  const [introOpen, setIntroOpen] = useState(
-    () => !!onStartupIntro && motionEnabled,
-  );
+  const [introAccepted, setIntroAccepted] = useState(false);
+  const introReady = useRef(false);
   const [startupNotice, setStartupNotice] = useState<string>();
   const [homeReveal, setHomeReveal] = useState(false);
-  const recordIntro = useEffectEvent(async () => onStartupIntro?.());
+  const recordIntro = useEffectEvent(async () => onStartupIntroAccepted?.());
   useEffect(() => {
+    if (!introAccepted) return;
     let mounted = true;
     void recordIntro().catch(() => {
       if (mounted)
@@ -377,8 +377,9 @@ function OpenTuiScreen({
     return () => {
       mounted = false;
     };
-  }, []);
-  const introVisible = setupPending && introOpen && motionEnabled;
+  }, [introAccepted]);
+  const introVisible =
+    setupPending && !!onStartupIntroAccepted && !introAccepted;
   const [capturedSettingsActions, setCapturedSettingsActions] = useState(
     () => getSettingsActions?.() ?? settingsActions,
   );
@@ -1124,10 +1125,15 @@ function OpenTuiScreen({
 
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== inputOwner || commandFeedbackActive) return;
-    if (introVisible && !isCtrlC(key)) {
+    if (introVisible) {
       key.preventDefault();
       key.stopPropagation();
-      if (key.name === "escape") setIntroOpen(false);
+      if (
+        (!motionEnabled || introReady.current) &&
+        key.eventType === "press" &&
+        !key.repeated
+      )
+        setIntroAccepted(true);
       return;
     }
     if (effortActions && !approval && !isCtrlC(key)) return;
@@ -1761,7 +1767,7 @@ function OpenTuiScreen({
       active={!introVisible && !approval && !mcpActions && !skillsOpen}
       shown={!introVisible}
       onboarding={onboarding && setupPending}
-      handoff={!!onStartupIntro && onboarding && setupPending}
+      handoff={!!onStartupIntroAccepted && onboarding && setupPending}
       startupNotice={startupNotice}
       getMcpActions={settingsMcpFactory}
       skillsActions={settingsSkills}
@@ -1955,7 +1961,9 @@ function OpenTuiScreen({
             width={width}
             height={height}
             palette={palette}
-            onComplete={() => setIntroOpen(false)}
+            onReady={() => {
+              introReady.current = true;
+            }}
           />
         )}
         {settingsDialog}
