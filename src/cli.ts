@@ -503,7 +503,11 @@ async function startTui(options: RunOptions): Promise<InteractiveExitReason> {
       throw error;
   }
   const { runOpenTuiAgent } = await import("./ui/opentui-agent.js");
-  return runOpenTuiAgent(options, initialSession, !connectionReady && !initialSession);
+  return runOpenTuiAgent(
+    options,
+    initialSession,
+    !connectionReady && !initialSession,
+  );
 }
 
 function isTooManyArgumentsError(error: unknown): boolean {
