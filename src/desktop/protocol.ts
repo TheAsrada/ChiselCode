@@ -32,6 +32,9 @@ export interface CatalogExtension {
   compatibility: string;
   trusted: boolean;
   desiredEnabled: boolean;
+  activeVersion?: string;
+  lastWorkingVersion?: string;
+  failedVersion?: string;
   actualState: string;
   actualLabel: string;
   state:

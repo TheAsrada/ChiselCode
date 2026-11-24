@@ -40,6 +40,23 @@ if (phase < 0) {
     const manifest = JSON.parse(
       await readFile(join(storage, "author/chisel-extension.json"), "utf8"),
     );
+    manifest.requires.push("automations");
+    const entry = (
+      await readFile(join(storage, "author/index.mjs"), "utf8")
+    ).replace(
+      "ctx.tools.register(tool);",
+      `ctx.tools.register(tool);
+      ctx.automations.register({
+        id: "readme",
+        schedule: { kind: "interval", firstAt: "2020-01-01T00:00:00Z", everyMs: 86400000 },
+        tool: { name: \`ext:\${manifest.id}:message\`, input: {} },
+      });`,
+    );
+    await writeFile(join(storage, "author/index.mjs"), entry);
+    await writeFile(
+      join(storage, "author/chisel-extension.json"),
+      JSON.stringify(manifest),
+    );
     manifest.version = "1.1.0";
     await writeFile(
       join(storage, "update.zip"),
@@ -348,6 +365,29 @@ if (phase < 0) {
       await settings();
       await select();
       await capture("working-120x36");
+      await until(
+        () =>
+          !!ui.renderer.root.findDescendantById("extensions-automation-readme"),
+        "Нет управления автоматизацией",
+      );
+      const automation = ui.renderer.root.findDescendantById(
+        "extensions-automation-readme",
+      )!;
+      for (let parent = automation.parent; parent; parent = parent.parent)
+        if (parent instanceof ScrollBoxRenderable)
+          parent.scrollChildIntoView("extensions-automation-readme");
+      await frame();
+      await until(
+        () => ui.captureCharFrame().includes("Последний запуск · Успешно"),
+        "Автоматизация не завершилась",
+      );
+      await capture("automation-active-120x36");
+      await click("extensions-automation-readme");
+      await until(
+        () => ui.captureCharFrame().includes("readme · Пауза"),
+        "Пауза не применена",
+      );
+      await capture("automation-paused-120x36");
       await click("extensions-metadata");
       await capture("metadata-120x36");
       await search("Сообщение", true);

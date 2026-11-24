@@ -113,9 +113,12 @@ async function runExtensionCommandOwned(
   const uiAttachment = uiToolAttachment(prepared, scope);
   if (prepared.command.executionPolicy !== "foreground")
     throw new Error("Side command requires the side-query dispatch lane.");
+  const extensionActivation =
+    uiAttachment?.handler?.extensionActivation ??
+    scope.activation(prepared.command.source.extensionId);
   const acceptedAt = Date.now();
   const signal = operationSignal(
-    scope.signal,
+    extensionActivation?.signal ?? scope.signal,
     uiAttachment
       ? AbortSignal.any([
           uiAttachment.signal,
@@ -235,6 +238,7 @@ async function runExtensionCommandOwned(
   }
   const tools = await createSessionToolRuntime({
     uiTool: uiAttachment?.handler,
+    extensionActivation,
     subagentTools,
     backgroundOwner: { redactor },
     onBackground: handlers.onBackground,
@@ -507,10 +511,10 @@ async function runExtensionCommandOwned(
       invocableSkills(loadSkills(root)),
       scope.commands.descriptors(),
     );
-    const callbackResult = await prepared.command.execute(
-      invocation,
-      prepared.input,
-    );
+    const execute = () => prepared.command.execute(invocation, prepared.input);
+    const callbackResult = await (extensionActivation
+      ? extensionActivation.run(execute)
+      : execute());
     // Validate the existing result DTO, preserving pending/error/artifact semantics.
     result = ToolResultSchema.extend({
       rawOutput: z.string().optional(),

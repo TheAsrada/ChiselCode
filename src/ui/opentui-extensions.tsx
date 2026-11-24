@@ -46,6 +46,13 @@ export const EXTENSION_STATE_LABELS = {
   error: "Ошибка",
   restart_required: "Нужен перезапуск",
 } as const;
+const automationResults = {
+  accepted: "Принят",
+  succeeded: "Успешно",
+  failed: "Ошибка",
+  cancelled: "Отменён",
+  interrupted: "Прерван",
+} as const;
 const filters = ["Все", "Встроенные", "Установленные", "Требуют внимания"];
 const actionLabels: Record<ExtensionAction, string> = {
   enable: "Включить",
@@ -200,6 +207,18 @@ export function OpenTuiExtensions({
       );
     }
   }, [management, root, sectionItem]);
+  useEffect(() => {
+    if (!active || sectionItem) return;
+    return management.subscribe((hide) => {
+      if (hide?.id === selectedId && (!hide.root || hide.root === root)) {
+        setView((current) => (current === "settings" ? "details" : current));
+        setEdit(undefined);
+        setInput("");
+        setSecrets({});
+      }
+      void refresh().catch(() => {});
+    });
+  }, [active, management, refresh, root, sectionItem, selectedId]);
   const cancel = useCallback(() => {
     const id = request.current;
     request.current = undefined;
@@ -491,9 +510,10 @@ export function OpenTuiExtensions({
         });
         await refresh();
         setNotice(
-          result.restartRequired
-            ? "Сохранено. Изменения применятся после перезапуска ChiselCode."
-            : "Настройка возможности сохранена.",
+          result.warning ??
+            (result.restartRequired
+              ? "Сохранено. Изменения применятся после перезапуска ChiselCode."
+              : "Настройка возможности сохранена."),
         );
       });
   };
@@ -705,6 +725,24 @@ export function OpenTuiExtensions({
                     run: () => action(name),
                   }),
                 ),
+              ...(root && selected.desiredEnabled && !selected.projectBlocked
+                ? (selected.automations ?? []).map(
+                    (task): MenuEntry => ({
+                      id: `extensions-automation-${task.id}`,
+                      label: `${task.paused ? "Возобновить" : "Приостановить"} · ${task.id}`,
+                      run: () =>
+                        run(async () => {
+                          await management.pauseAutomation(
+                            root,
+                            selected.id,
+                            task.id,
+                            !task.paused,
+                          );
+                          await refresh();
+                        }),
+                    }),
+                  )
+                : []),
               {
                 id: "extensions-metadata",
                 label: `${metadata ? "▾" : "▸"} Технические сведения`,
@@ -1188,7 +1226,24 @@ export function OpenTuiExtensions({
                 ),
               )}
               {text(`Сейчас: ${selected.actualLabel}`, palette.muted)}
+              {selected.activeVersion &&
+                selected.activeVersion !== selected.version &&
+                text(
+                  `Активная версия · ${selected.activeVersion}`,
+                  palette.muted,
+                )}
+              {selected.lastWorkingVersion &&
+                text(
+                  `Последняя рабочая версия · ${selected.lastWorkingVersion}`,
+                  palette.muted,
+                )}
+              {selected.failedVersion &&
+                text(
+                  `Возврат после ошибки версии ${selected.failedVersion}`,
+                  palette.yellow,
+                )}
               {selected.reason && text(selected.reason, palette.yellow)}
+
               {selected.restartRequired &&
                 text(
                   "Изменения применятся после перезапуска ChiselCode.",
@@ -1208,7 +1263,28 @@ export function OpenTuiExtensions({
                   .filter((name) => selected.actions.includes(name))
                   .map((name) => button(`extensions-action-${name}`))}
               </box>
+              {!!selected.automations?.length && (
+                <box flexDirection="column">
+                  {text("Автоматизации", palette.accent)}
+                  {selected.automations.map((task) => (
+                    <box key={task.id} flexDirection="column">
+                      {text(
+                        `${task.id} · ${task.paused ? "Пауза" : task.nextAt ? `Следующий запуск ${task.nextAt.slice(0, 19).replace("T", " ")} UTC` : selected.desiredEnabled ? "Нет следующего запуска" : "Расписание приостановлено"}`,
+                      )}
+                      {task.last &&
+                        text(
+                          `Последний запуск · ${automationResults[task.last.status]}${task.last.result ? ` · ${task.last.result}` : ""}`,
+                          palette.muted,
+                        )}
+                      {entries.some(
+                        ({ id }) => id === `extensions-automation-${task.id}`,
+                      ) && button(`extensions-automation-${task.id}`)}
+                    </box>
+                  ))}
+                </box>
+              )}
               {button("extensions-metadata")}
+
               {metadata &&
                 text(
                   `ID: ${selected.id}\nИсточник: ${selected.source}\nСовместимость: ${selected.compatibility}\nДоверие: ${selected.trusted ? "Подтверждено" : "Не выдано"}\nСохранено: ${selected.desiredEnabled ? "Включено" : "Выключено"}${selected.digest ? `\nSHA-256:\n${digestLines(selected.digest)}` : ""}`,

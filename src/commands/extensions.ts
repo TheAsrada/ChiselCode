@@ -116,7 +116,7 @@ export function registerExtensionCommands(program: Command): void {
               ? packages
                   .map(
                     (item) =>
-                      `${item.name} · ${item.id} · ${item.selected?.version ?? "?"} · ${item.state}\nВыбор: ${item.enabled ? "включён" : "выключен"} · доверие ${item.trusted ? "подтверждено" : "не подтверждено"}\n${item.selected?.location ?? ""} · SHA-256 ${item.selected?.digest ?? "?"}\n${item.uses.length ? "Используемые версии: " + item.uses.map((use) => `${use.digest.slice(0, 12)} ${use.phase}/${use.confidence}`).join(", ") + ". Физическое удаление отложено до подтверждённого выхода." : "Живой workspace этим status не проверяется."}${item.reason ? "\n" + item.reason : ""}`,
+                      `${item.name} · ${item.id} · ${item.selected?.version ?? "?"} · ${item.state}\nВыбор: ${item.enabled ? "включён" : "выключен"} · доверие ${item.trusted ? "подтверждено" : "не подтверждено"}\n${item.selected?.location ?? ""} · SHA-256 ${item.selected?.digest ?? "?"}\n${item.lastWorkingVersion ? "Последняя рабочая версия · " + item.lastWorkingVersion + "\n" : ""}${item.failedVersion ? "Возврат после ошибки версии " + item.failedVersion + "\n" : ""}${item.uses.length ? "Используемые версии: " + item.uses.map((use) => `${use.digest.slice(0, 12)} ${use.phase}/${use.confidence}`).join(", ") + ". Физическое удаление отложено до подтверждённого выхода." : "Живой workspace этим status не проверяется."}${item.reason ? "\n" + item.reason : ""}`,
                   )
                   .join("\n\n") + "\n"
               : "Внешних пакетов в user реестре нет.\n",

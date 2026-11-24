@@ -11,14 +11,19 @@ export class ToolScheduler {
     signal?: AbortSignal,
   ): Promise<ToolExecutionResult[]> {
     const results: ToolExecutionResult[] = new Array(calls.length);
-    const readOnly = calls.every((call) => {
+    const handlers = calls.map((call) => {
       try {
-        const spec = this.executor.catalog.get(call.name).spec;
-        return isReadEffect(spec.effect) && spec.parallelSafe;
+        return this.executor.catalog.get(call.name);
       } catch {
-        return false;
+        return undefined;
       }
     });
+    const readOnly = handlers.every(
+      (handler) =>
+        handler &&
+        isReadEffect(handler.spec.effect) &&
+        handler.spec.parallelSafe,
+    );
     let next = 0;
     let paused = false;
     const worker = async () => {
@@ -26,7 +31,12 @@ export class ToolScheduler {
         const index = next++;
         const call = calls[index];
         if (!call) continue;
-        results[index] = await this.executor.execute(call, signal);
+        const lifetime = handlers[index]?.lifetimeSignal;
+        const invocation =
+          lifetime && signal
+            ? AbortSignal.any([lifetime, signal])
+            : (lifetime ?? signal);
+        results[index] = await this.executor.execute(call, invocation);
         if (results[index]?.requiresApproval) paused = true;
       }
     };

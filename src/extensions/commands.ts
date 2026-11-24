@@ -78,6 +78,7 @@ export class ExtensionCommandContributions {
     private readonly lifetime: AbortSignal,
     private readonly chat?: ExtensionChatViews,
     private readonly staging = () => false,
+    private readonly ownerAvailable = (_id: string) => true,
   ) {}
   register<T>(
     extensionId: string,
@@ -122,6 +123,11 @@ export class ExtensionCommandContributions {
       const available = () => {
         cancelled(lifetime);
         this.available();
+        if (!this.ownerAvailable(extensionId))
+          throw new ExtensionLifecycleError(
+            "Активация команды недоступна.",
+            extensionId,
+          );
       };
       stored = Object.freeze({
         ...frozenClone({
@@ -231,32 +237,34 @@ export class ExtensionCommandContributions {
   descriptors(): readonly ExtensionCommandDescriptor[] {
     this.available();
     return Object.freeze(
-      [...this.commands.values()].map(
-        ({
-          name,
-          description,
-          usage,
-          source,
-          executionPolicy,
-          controlActions,
-          chat,
-        }) =>
-          Object.freeze({
+      [...this.commands.values()]
+        .filter(({ source }) => this.ownerAvailable(source.extensionId))
+        .map(
+          ({
             name,
             description,
             usage,
             source,
             executionPolicy,
             controlActions,
-            ...(chat ? { chat } : {}),
-          }),
-      ),
+            chat,
+          }) =>
+            Object.freeze({
+              name,
+              description,
+              usage,
+              source,
+              executionPolicy,
+              controlActions,
+              ...(chat ? { chat } : {}),
+            }),
+        ),
     );
   }
   get(name: string): RegisteredExtensionCommand {
     this.available();
     const command = this.commands.get(name);
-    if (!command)
+    if (!command || !this.ownerAvailable(command.source.extensionId))
       throw new ExtensionLifecycleError(
         `Extension command /${name} is not available.`,
       );

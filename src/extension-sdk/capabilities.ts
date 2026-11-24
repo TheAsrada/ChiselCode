@@ -6,6 +6,7 @@ export const SDK_CAPABILITIES = Object.freeze([
   "ui.panes",
   "ui.media",
   "agent.events",
+  "automations",
   "ui.modelSelection",
   "ui.visibility",
   "settings.section",

@@ -7,6 +7,11 @@ import { SecretRedactor } from "../../security/redaction.js";
 import { setThemeSource } from "../../themes/source.js";
 import type { ChiselExtension } from "../contracts.js";
 import { abortable, frozenClone } from "../lifecycle.js";
+import {
+  activationPlan,
+  settlePackageActivation,
+  withActivePackage,
+} from "../packages/activation.js";
 import { markRuntimeSnapshot } from "../packages/runtime-ownership.js";
 import { acquireVersionUse, type PackageUseLease } from "../packages/use.js";
 import { externalAllowed } from "../settings-contributions.js";
@@ -17,7 +22,12 @@ import {
   hostSettingsRevision,
 } from "./adapter.js";
 import { setApplicationResource } from "./application-resource.js";
-import { markOptional, setOptionalDiagnostic } from "./optional.js";
+import {
+  markOptional,
+  setOptionalClaim,
+  setOptionalDiagnostic,
+  setOptionalTransition,
+} from "./optional.js";
 import {
   canonicalPath,
   type InspectedPackage,
@@ -26,8 +36,10 @@ import {
 } from "./package.js";
 import {
   type ExtensionRecord,
-  extensionRecords,
+  readExtensionRegistry,
   receiptMatches,
+  runtimeRecord,
+  selectedVersion,
 } from "./registry.js";
 
 export type ExternalState =
@@ -201,6 +213,8 @@ async function loadModule(
         );
         if (cacheEntry.abort.signal.aborted)
           throw new Error("Загрузка отменена до import.");
+        const sdk = createHostSdk(candidate.manifest);
+        const settingsRevision = await hostSettingsRevision(sdk);
         cacheEntry.started = true;
         const module = await abortable(
           () => import(pathToFileURL(file).href),
@@ -208,8 +222,7 @@ async function loadModule(
         );
         if (typeof module.default !== "function")
           throw new Error("Отсутствует default factory.");
-        const sdk = createHostSdk(candidate.manifest),
-          factory = module.default as ExtensionFactory;
+        const factory = module.default as ExtensionFactory;
         const definition = await abortable(
           () =>
             factory(
@@ -222,7 +235,7 @@ async function loadModule(
           throw new Error(
             "Declare application themes in a standard extension.",
           );
-        loadedSettings.set(adapted, await hostSettingsRevision(sdk));
+        loadedSettings.set(adapted, settingsRevision);
         return adapted;
       }),
     );
@@ -272,21 +285,29 @@ export class ExternalExtensionLoader {
   private constructor(
     private readonly records: readonly ExtensionRecord[],
     private readonly notify: (message: string) => void,
+    private readonly prepareOnly = false,
   ) {}
   static async create(
     notify: (message: string) => void = (message) =>
       process.stderr.write(message + "\n"),
     kind?: "standard" | "ui",
     onlyId?: string,
+    prepareOnly = false,
   ): Promise<ExternalExtensionLoader> {
     try {
-      const records = (await extensionRecords()).filter(
-        (record) => !onlyId || record.id === onlyId,
-      );
+      const rows = (await readExtensionRegistry()).records;
+      const records = rows.flatMap((row) => {
+        const record = runtimeRecord(row);
+        return record && (!onlyId || record.id === onlyId) ? [record] : [];
+      });
       const selected = kind
         ? (
             await Promise.all(
               records.map(async (record) => {
+                const row = rows.find(({ id }) => id === record.id)!;
+                const extensionKind = selectedVersion(row)?.extensionKind;
+                if (extensionKind)
+                  return extensionKind === kind ? record : undefined;
                 try {
                   const candidate = await inspectPackage(record.location);
                   return (candidate.manifest.kind ?? "standard") === kind
@@ -299,7 +320,11 @@ export class ExternalExtensionLoader {
             )
           ).filter((record): record is ExtensionRecord => !!record)
         : records;
-      return new ExternalExtensionLoader(frozenClone(selected), notify);
+      return new ExternalExtensionLoader(
+        frozenClone(selected),
+        notify,
+        prepareOnly,
+      );
     } catch {
       const loader = new ExternalExtensionLoader([], notify);
       loader.notice(
@@ -368,7 +393,13 @@ export class ExternalExtensionLoader {
     required: readonly ChiselExtension[],
   ): readonly ChiselExtension[] {
     const ids = new Set(required.map((item) => item.id));
-    return this.records.flatMap((record) => {
+    return this.records.flatMap((initial) => {
+      let record = initial;
+      const active = new Map<string, ExtensionRecord>();
+      const plans = new Map<
+        string,
+        NonNullable<Awaited<ReturnType<typeof activationPlan>>>
+      >();
       if (ids.has(record.id)) {
         this.notice(
           record.id,
@@ -384,41 +415,63 @@ export class ExternalExtensionLoader {
         this.diagnostics.set(`${record.id}/${root}`, {
           ...diagnostic,
           workspaceRoot: root,
-          packageDigest: record.digest,
+          packageDigest: active.get(root)?.digest ?? record.digest,
         });
       const wrapper: ChiselExtension = {
         id: record.id,
         activate: async (context) => {
+          const selected = record;
+          plans.delete(context.workspaceRoot);
+          loadedRoots.delete(context.workspaceRoot);
           const config = await loadProjectConfig(context.workspaceRoot);
-          if (!record.enabled || !externalAllowed(record.id, config)) {
+          if (!externalAllowed(selected.id, config)) {
             report(context.workspaceRoot, {
-              id: record.id,
-              version: record.version,
+              id: selected.id,
+              version: selected.version,
               apiVersion: 1,
-              digest: record.digest.slice(0, 12),
+              digest: selected.digest.slice(0, 12),
               enabled: false,
-              trusted: !!record.approvedAt,
+              trusted: !!selected.approvedAt,
               compatible: false,
               state: "disabled",
               reason: "Выключено user/project настройкой; код не загружен.",
             });
             return;
           }
-          const { diagnostic, candidate } = await inspectRecord(record);
+          const plan = await activationPlan(selected);
+          if (!plan) {
+            report(context.workspaceRoot, {
+              id: selected.id,
+              version: selected.version,
+              apiVersion: 1,
+              digest: selected.digest.slice(0, 12),
+              enabled: false,
+              trusted: false,
+              compatible: false,
+              state: "disabled",
+              reason: "Сохранённый выбор изменился до активации.",
+            });
+            return;
+          }
+          plans.set(context.workspaceRoot, plan);
+          active.set(context.workspaceRoot, selected);
+          const { diagnostic, candidate } = await inspectRecord(selected);
           report(context.workspaceRoot, diagnostic);
           if (!candidate || !diagnostic.trusted || !diagnostic.compatible) {
             this.notice(
-              record.id,
-              `Расширение ${record.id}: ${diagnostic.reason}`,
+              selected.id,
+              `Расширение ${selected.id}: ${diagnostic.reason}`,
             );
+            if (plan.lastWorking && plan.lastWorking !== plan.selected)
+              throw new Error("Запрошенная версия недоступна.");
             return;
           }
           report(context.workspaceRoot, { ...diagnostic, state: "loading" });
           let definition: ChiselExtension;
           try {
-            const lease = await this.use(record, candidate);
+            const lease = await this.use(selected, candidate);
             definition = await abortable(
-              () => loadModule(record, candidate, context.signal, lease),
+              () => loadModule(selected, candidate, context.signal, lease),
               context.signal,
             );
             await lease.loaded();
@@ -433,10 +486,10 @@ export class ExternalExtensionLoader {
               state: "load_failed",
               reason: "Ошибка import/factory после подтверждения доверия.",
             });
-            this.failedCleanup.add(record.id);
+            this.failedCleanup.add(selected.id);
             this.notice(
-              record.id,
-              `Расширение ${record.id}: код не загружен; inspect/status покажет сведения.`,
+              selected.id,
+              `Расширение ${selected.id}: код не загружен; inspect/status покажет сведения.`,
             );
             throw new Error("Внешнее расширение не загрузилось.");
           }
@@ -453,6 +506,7 @@ export class ExternalExtensionLoader {
             await definition.activate(
               Object.freeze({
                 ...context,
+                automations: Object.freeze({ register: unsupported }),
                 events: Object.freeze({
                   on: unsupported,
                   observe: unsupported,
@@ -478,6 +532,20 @@ export class ExternalExtensionLoader {
           ? { themes: themeDefinition.themes ?? [], name: themeName }
           : undefined,
       );
+      setOptionalClaim(wrapper, (root, claim) => {
+        const selected = active.get(root);
+        return selected
+          ? withActivePackage(selected, claim)
+          : Promise.resolve(undefined);
+      });
+      setOptionalTransition(wrapper, async (root, success, signal) => {
+        if (this.prepareOnly) return success;
+        const plan = plans.get(root);
+        if (!plan || (success && !loadedRoots.has(root))) return success;
+        const settled = await settlePackageActivation(plan, success, signal);
+        if (settled && !success) record = settled;
+        return !!settled;
+      });
       setApplicationResource(wrapper, this);
       setOptionalDiagnostic(wrapper, (root) =>
         this.diagnostics.get(`${record.id}/${root}`),
@@ -485,6 +553,7 @@ export class ExternalExtensionLoader {
       return [
         markOptional(wrapper, (state, root) => {
           if (state === "cleanup_failed") this.failedCleanup.add(record.id);
+          if (state === "activation_failed") loadedRoots.delete(root);
           if (state === "disposed") {
             this.diagnostics.delete(`${record.id}/${root}`);
             loadedRoots.delete(root);

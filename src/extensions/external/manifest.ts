@@ -112,6 +112,8 @@ export function compatibility(manifest: ExtensionManifest): string | undefined {
   const unsupported = manifest.requires?.filter(
     (feature) => !(SDK_CAPABILITIES as readonly string[]).includes(feature),
   );
+  if (manifest.kind === "ui" && manifest.requires?.includes("automations"))
+    return "Автоматизации доступны стандартным пакетам.";
   if (unsupported?.length)
     return `ChiselCode не поддерживает возможности SDK: ${unsupported.join(", ")}.`;
   if (

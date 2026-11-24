@@ -496,6 +496,9 @@ export function adaptDefinition(
         return value as unknown as import("../services.js").ServiceToken<T>;
       };
       const context: Public.ActivationContext = Object.freeze({
+        ...(manifest.kind !== "ui" && manifest.requires?.includes("automations")
+          ? { automations: core.automations }
+          : {}),
         events: Object.freeze({
           on: <
             K extends

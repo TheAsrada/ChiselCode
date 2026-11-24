@@ -68,6 +68,7 @@ export interface ToolExecutionConstraint {
   ): import("../security/permission-policy.js").PermissionDecision;
 }
 export interface ToolContext {
+  readonly extensionActivation?: import("../extensions/activation.js").ExtensionActivation;
   readonly background?: import("../background/binding.js").BackgroundToolBinding;
   readonly backgroundExecution?: object;
   /** Private core lease grant; never accepted from model/extension DTOs. */
@@ -116,6 +117,7 @@ export interface ToolHandler {
   spec: ToolSpec;
   /** Internal provider lifetime; combined with invocation cancellation by core. */
   readonly lifetimeSignal?: AbortSignal;
+  readonly extensionActivation?: import("../extensions/activation.js").ExtensionActivation;
   permissions?(): import("../mcp/schema.js").McpPermissions;
   rememberApproval?(): Promise<void>;
   parse(input: JsonObject): unknown;

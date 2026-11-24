@@ -47,6 +47,13 @@ export const BackgroundTaskSchema = z
     turnId: z.string().max(240),
     childId: z.uuid().optional(),
     ownerLabel: z.string().max(240),
+    extensionActivation: z
+      .strictObject({
+        extensionId: z.string().max(128),
+        id: z.uuid(),
+        workspaceRoot: z.string().max(4096),
+      })
+      .optional(),
     origin: z.string().max(4096),
     workspace: z.string().max(4096),
     workspaceLabel: z.string().max(240),

@@ -142,6 +142,13 @@ export class ThemeCatalog {
     }
     if (changed) for (const listener of this.listeners) listener();
   }
+  removeOwner(extensionId: string): void {
+    let changed = false;
+    for (const [key, theme] of this.themes)
+      if (theme.extensionId === extensionId)
+        changed = this.themes.delete(key) || changed;
+    if (changed) for (const listener of this.listeners) listener();
+  }
   list(): readonly CatalogTheme[] {
     return [...this.themes.values()];
   }

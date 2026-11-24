@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { AutomationDefinition } from "../extension-sdk/automations.js";
 import {
   admitWorkspace,
   revalidateWorkspace,
@@ -8,7 +9,13 @@ import {
 import { cancelled } from "../runtime/errors.js";
 import { ThemeCatalog } from "../themes/catalog.js";
 import { inheritThemeSource, themeSource } from "../themes/source.js";
+import { ExtensionActivation } from "./activation.js";
 import { AgentEventPipeline } from "./agent-events.js";
+import {
+  type AutomationDispatch,
+  captureAutomation,
+  ExtensionAutomations,
+} from "./automations.js";
 import { ExtensionChatViews } from "./chat.js";
 import { ExtensionCommandContributions } from "./commands.js";
 import { ContextProviderRegistry } from "./context.js";
@@ -23,8 +30,10 @@ import {
 } from "./external/application-resource.js";
 import {
   inheritOptional,
+  optionalClaim,
   optionalDiagnostic,
   optionalOutcome,
+  optionalTransition,
 } from "./external/optional.js";
 import { RuntimeHookPipeline } from "./guards.js";
 import {
@@ -32,7 +41,6 @@ import {
   type CleanupFailure,
   cleanupFailure,
   ExtensionLifecycleError,
-  operationSignal,
   validateId,
 } from "./lifecycle.js";
 import { ServiceRegistry } from "./services.js";
@@ -50,7 +58,8 @@ type ActivationResources = {
   extensionId: string;
   resources: Disposable[];
   registrations: Disposable[];
-  lifetime: AbortController;
+  owner: ExtensionActivation;
+  automations: AutomationDefinition[];
 };
 
 export class WorkspaceExtensionScope implements Disposable {
@@ -66,6 +75,8 @@ export class WorkspaceExtensionScope implements Disposable {
   readonly ui: ExtensionUiRegistry;
   readonly events: AgentEventPipeline;
   private readonly activations: ActivationResources[] = [];
+  readonly automations: ExtensionAutomations;
+  private readonly cleanupErrors = new Set<string>();
   private readonly tracked = new Set<Disposable>();
   private disposal?: Promise<void>;
   private ready = false;
@@ -81,7 +92,16 @@ export class WorkspaceExtensionScope implements Disposable {
   constructor(
     readonly workspaceRoot: string,
     private readonly onClose: () => void = () => {},
+    dispatch?: (scope: WorkspaceExtensionScope) => AutomationDispatch,
+    private readonly checkOwner: (
+      id: string,
+    ) => boolean | Promise<boolean> = () => true,
+    automationChanged?: () => void,
   ) {
+    this.automations = new ExtensionAutomations(
+      dispatch?.(this),
+      automationChanged,
+    );
     this.events = new AgentEventPipeline(
       workspaceRoot,
       this.signal,
@@ -97,7 +117,10 @@ export class WorkspaceExtensionScope implements Disposable {
       this.staging,
       (id) =>
         this.activations.some(
-          (frame) => frame.extensionId === id && !frame.lifetime.signal.aborted,
+          (frame) =>
+            frame.extensionId === id &&
+            frame.owner.published &&
+            !frame.owner.signal.aborted,
         ),
     );
     this.toolGuards = new RuntimeHookPipeline(
@@ -121,6 +144,7 @@ export class WorkspaceExtensionScope implements Disposable {
       this.signal,
       this.chat,
       this.staging,
+      (id) => !!this.activation(id),
     );
   }
   get signal(): AbortSignal {
@@ -152,18 +176,45 @@ export class WorkspaceExtensionScope implements Disposable {
     this.ready = true;
     for (const definition of definitions)
       if (this.activations.some((frame) => frame.extensionId === definition.id))
-        optionalOutcome(definition)?.("active", this.workspaceRoot);
+        await this.publishOwner(definition);
   }
-  private async activateOwner(definition: ChiselExtension): Promise<void> {
+  activation(id: string): ExtensionActivation | undefined {
+    return this.activations.find(
+      (frame) => frame.extensionId === id && frame.owner.published,
+    )?.owner;
+  }
+  private async publishOwner(definition: ChiselExtension) {
+    const frame = this.activations.find(
+      (item) => item.extensionId === definition.id,
+    );
+    if (!frame || frame.owner.signal.aborted) return;
+    optionalOutcome(definition)?.("active", this.workspaceRoot);
+    frame.owner.published = true;
+    this.tools.publish();
+    const packageClaim = optionalClaim(definition);
+    this.automations.publish(frame.owner, frame.automations, async (claim) => {
+      if (!(await this.checkOwner(definition.id))) return;
+      return packageClaim ? packageClaim(this.workspaceRoot, claim) : claim();
+    });
+  }
+  private async activateOwner(
+    definition: ChiselExtension,
+    retry = true,
+  ): Promise<void> {
     cancelled(this.signal);
     const frame: ActivationResources = {
       extensionId: definition.id,
       resources: [],
       registrations: [],
-      lifetime: new AbortController(),
+      owner: new ExtensionActivation(
+        definition.id,
+        this.workspaceRoot,
+        this.signal,
+      ),
+      automations: [],
     };
     const optional = optionalOutcome(definition);
-    const frameSignal = operationSignal(this.signal, frame.lifetime.signal);
+    const frameSignal = frame.owner.signal;
     this.activations.push(frame);
     let registering = true;
     const assertRegistering = () => {
@@ -199,6 +250,20 @@ export class WorkspaceExtensionScope implements Disposable {
       }
     };
     const context: ExtensionContext = Object.freeze({
+      automations: Object.freeze({
+        register: (definition: AutomationDefinition) => {
+          assertRegistering();
+          const task = captureAutomation(frame.extensionId, definition);
+          if (
+            frame.automations.length >= 32 ||
+            frame.automations.some(({ id }) => id === task.id)
+          )
+            throw new Error(
+              "Повторный ID или исчерпан лимит автоматизаций расширения.",
+            );
+          frame.automations.push(task);
+        },
+      }),
       events: Object.freeze({
         on: <
           K extends
@@ -220,6 +285,7 @@ export class WorkspaceExtensionScope implements Disposable {
         },
       }),
       workspaceRoot: this.workspaceRoot,
+      workspaceSignal: this.signal,
       signal: frameSignal,
       chat: Object.freeze({
         register: (view: import("./contracts.js").ExtensionChatView) => {
@@ -230,7 +296,20 @@ export class WorkspaceExtensionScope implements Disposable {
       ui: Object.freeze({
         on: (id: string, handler: import("./ui-types.js").UiEventHandler) => {
           assertRegistering();
-          register(() => this.ui.on(definition.id, id, handler));
+          register(() =>
+            this.ui.on(definition.id, id, (binding, event, args) =>
+              frame.owner.run(() =>
+                handler(
+                  Object.freeze({
+                    ...binding,
+                    signal: AbortSignal.any([binding.signal, frameSignal]),
+                  }),
+                  event,
+                  args,
+                ),
+              ),
+            ),
+          );
         },
         register: (contribution: import("./ui-types.js").UiContribution) => {
           assertRegistering();
@@ -256,7 +335,9 @@ export class WorkspaceExtensionScope implements Disposable {
           tool: import("./contracts.js").ExtensionToolContribution,
         ) => {
           assertRegistering();
-          register(() => this.tools.register(definition.id, tool, frameSignal));
+          register(() =>
+            this.tools.register(definition.id, tool, frameSignal, frame.owner),
+          );
         },
       }),
       services: Object.freeze({
@@ -310,15 +391,36 @@ export class WorkspaceExtensionScope implements Disposable {
           : frameSignal,
       );
       this.ui.validateOwner(definition.id);
+      if (
+        frameSignal.aborted ||
+        (optionalTransition(definition) &&
+          !(await optionalTransition(definition)!(
+            this.workspaceRoot,
+            true,
+            frameSignal,
+          )))
+      )
+        throw new Error("Выбор расширения изменился до публикации.");
     } catch (cause) {
       registering = false;
-      frame.lifetime.abort();
+      frame.owner.revoke();
       if (optional && !this.signal.aborted) {
         const failures = await this.cleanupFrame(frame);
         optional(
           failures.length ? "cleanup_failed" : "activation_failed",
           this.workspaceRoot,
         );
+        if (
+          retry &&
+          !failures.length &&
+          !this.signal.aborted &&
+          (await optionalTransition(definition)?.(
+            this.workspaceRoot,
+            false,
+            this.signal,
+          ))
+        )
+          await this.activateOwner(definition, false);
         return;
       }
       throw new ExtensionLifecycleError(
@@ -335,6 +437,12 @@ export class WorkspaceExtensionScope implements Disposable {
     frame: ActivationResources,
   ): Promise<CleanupFailure[]> {
     const failures: CleanupFailure[] = [];
+    this.automations.revoke(frame.owner);
+    try {
+      await frame.owner.drain();
+    } catch (cause) {
+      failures.push(cleanupFailure(frame.extensionId, cause));
+    }
     const definition = this.definitions.find(
       (item) => item.id === frame.extensionId,
     );
@@ -354,13 +462,25 @@ export class WorkspaceExtensionScope implements Disposable {
       this.tracked.delete(resource);
     }
     this.activations.splice(this.activations.indexOf(frame), 1);
+    if (failures.length) this.cleanupErrors.add(frame.extensionId);
     return failures;
   }
 
   abortOwner(id: string): void {
-    this.activations
-      .find((frame) => frame.extensionId === id)
-      ?.lifetime.abort();
+    const frame = this.activations.find((item) => item.extensionId === id);
+    if (!frame) return;
+    frame.owner.revoke();
+    this.automations.revoke(frame.owner);
+    for (const resource of frame.registrations) {
+      void resource.dispose();
+      this.tracked.delete(resource);
+    }
+    frame.resources = frame.resources.filter(
+      (resource) => !frame.registrations.includes(resource),
+    );
+    frame.registrations = [];
+    if (this.ready) this.tools.publish();
+    this.ui.invalidateBindings();
   }
 
   async setOwnerAvailable(id: string, available: boolean): Promise<void> {
@@ -368,24 +488,22 @@ export class WorkspaceExtensionScope implements Disposable {
     const definition = this.definitions.find((item) => item.id === id);
     if (!definition) return;
     const frame = this.activations.find((item) => item.extensionId === id);
+    if (available && this.cleanupErrors.has(id))
+      throw new ExtensionLifecycleError(
+        "Очистка расширения не подтверждена.",
+        id,
+      );
     if (available && !frame) {
       try {
         await this.activateOwner(definition);
+        await this.publishOwner(definition);
       } catch (error) {
         const failed = this.activations.find((item) => item.extensionId === id);
         if (failed) await this.cleanupFrame(failed);
         throw error;
       }
     } else if (!available && frame) {
-      frame.lifetime.abort();
-      for (const resource of frame.registrations) {
-        void resource.dispose();
-        this.tracked.delete(resource);
-      }
-      frame.resources = frame.resources.filter(
-        (resource) => !frame.registrations.includes(resource),
-      );
-      this.ui.invalidateBindings();
+      this.abortOwner(id);
       const failures = await this.cleanupFrame(frame);
       optionalOutcome(definition)?.(
         failures.length ? "cleanup_failed" : "disposed",
@@ -408,7 +526,7 @@ export class WorkspaceExtensionScope implements Disposable {
     this.disposal = Promise.resolve().then(async () => {
       const failures: CleanupFailure[] = [];
       for (const frame of [...this.activations].reverse()) {
-        frame.lifetime.abort();
+        frame.owner.revoke();
         const definition = this.definitions.find(
           (item) => item.id === frame.extensionId,
         );
@@ -450,12 +568,24 @@ export class ExtensionHost implements Disposable {
   private readonly themeOwners = new Set<string>();
   private readonly suspended = new Set<string>();
   private readonly restart = new Set<string>();
-  private readonly loadedOwners = new Set<string>();
+  private readonly cleanupBlocked = new Set<string>();
   private ownerAvailable: (
     id: string,
     root: string,
   ) => boolean | Promise<boolean> = () => true;
   private ownerUpdates: Promise<void> = Promise.resolve();
+  private automationDispatch?: (
+    scope: WorkspaceExtensionScope,
+  ) => AutomationDispatch;
+
+  private automationChanged?: () => void;
+  configureAutomations(
+    dispatch: (scope: WorkspaceExtensionScope) => AutomationDispatch,
+    changed?: () => void,
+  ) {
+    this.automationChanged = changed;
+    this.automationDispatch = dispatch;
+  }
 
   configureOwnerAvailability(
     check: (id: string, root: string) => boolean | Promise<boolean>,
@@ -478,7 +608,10 @@ export class ExtensionHost implements Disposable {
           if (!scope || entry.closing || this.closed) return;
           const enabled = await available(scope.workspaceRoot);
           if (!entry.closing && !this.closed)
-            await scope.setOwnerAvailable(id, enabled);
+            await scope.setOwnerAvailable(
+              id,
+              enabled && !this.suspended.has(id),
+            );
         }),
       );
       const failure = results.find((result) => result.status === "rejected");
@@ -486,6 +619,20 @@ export class ExtensionHost implements Disposable {
     });
     this.ownerUpdates = update.catch(() => {});
     return update;
+  }
+
+  resumeOwner(id: string) {
+    if (this.cleanupBlocked.has(id)) return Promise.resolve();
+    this.suspended.delete(id);
+    this.restart.delete(id);
+    return this.refreshOwner(id).then(() => {
+      const definition = this.definitions.find((item) => item.id === id);
+      const source = definition && themeSource(definition);
+      if (source && this.readyScopes().some((scope) => scope.activation(id))) {
+        this.themes.accept(id, source.themes, source.name);
+        this.themeOwners.add(id);
+      }
+    });
   }
 
   refreshOwner(id: string) {
@@ -496,23 +643,25 @@ export class ExtensionHost implements Disposable {
     const definition = this.definitions.find((item) => item.id === id);
     if (!definition) return Promise.resolve();
     this.suspended.add(id);
-    if (this.loadedOwners.has(id)) this.restart.add(id);
-    for (const { scope } of this.workspaces.values()) {
-      const diagnostic = optionalDiagnostic(definition, scope.workspaceRoot);
-      if (
-        diagnostic &&
-        [
-          "loading",
-          "active",
-          "load_failed",
-          "activation_failed",
-          "cleanup_failed",
-        ].includes(diagnostic.state)
+    if (
+      this.readyScopes().some((scope) =>
+        scope
+          .externalDiagnostics()
+          .some(
+            (diagnostic) =>
+              diagnostic.id === id && diagnostic.settingsRevision !== undefined,
+          ),
       )
-        this.restart.add(id);
-      scope.abortOwner(id);
-    }
-    return this.updateOwner(id, () => false);
+    )
+      this.restart.add(id);
+    this.themes.removeOwner(id);
+    this.themeOwners.delete(id);
+    for (const { scope } of this.workspaces.values()) scope.abortOwner(id);
+    return this.updateOwner(id, () => false).catch((error) => {
+      this.restart.add(id);
+      this.cleanupBlocked.add(id);
+      throw error;
+    });
   }
   private definitions: readonly ChiselExtension[];
   private readonly workspaces = new Map<
@@ -595,10 +744,16 @@ export class ExtensionHost implements Disposable {
       scope.assertUsable();
       return scope;
     }
-    const scope = new WorkspaceExtensionScope(canonical, () => {
-      if (this.workspaces.get(canonical)?.scope === scope)
-        this.workspaces.delete(canonical);
-    });
+    const scope: WorkspaceExtensionScope = new WorkspaceExtensionScope(
+      canonical,
+      () => {
+        if (this.workspaces.get(canonical)?.scope === scope)
+          this.workspaces.delete(canonical);
+      },
+      this.automationDispatch,
+      (id) => !this.suspended.has(id) && this.ownerAvailable(id, canonical),
+      this.automationChanged,
+    );
     const definitions = this.definitions;
     const pending = Promise.resolve().then(async () => {
       try {
@@ -616,11 +771,6 @@ export class ExtensionHost implements Disposable {
           );
         scope.assertUsable();
         for (const definition of definitions) {
-          if (
-            optionalDiagnostic(definition, canonical)?.settingsRevision !==
-            undefined
-          )
-            this.loadedOwners.add(definition.id);
           if (this.themeOwners.has(definition.id)) continue;
           const source = themeSource(definition);
           if (

@@ -94,6 +94,8 @@ export interface PackageExpected {
 export interface PackageStatus {
   id: string;
   revision: number;
+  lastWorkingVersion?: string;
+  failedVersion?: string;
   name: string;
   selected?: InstalledVersion;
   enabled: boolean;
@@ -320,6 +322,7 @@ export class PackageManagementService {
         location,
         digest: candidate.digest,
         kind: "managed",
+        extensionKind: candidate.manifest.kind ?? "standard",
         bytes: candidate.bytes,
         files: candidate.files,
         installedAt: new Date().toISOString(),
@@ -336,6 +339,11 @@ export class PackageManagementService {
               "Этот id уже установлен. Используйте update с явным источником.",
             );
           assertExpected(row, record.expected);
+          const incompatible =
+            prior?.extensionKind &&
+            prior.extensionKind !== version.extensionKind
+              ? "Тип установленного расширения нельзя изменить через update."
+              : candidate.incompatible;
           if (
             row &&
             row.versions.length >= 64 &&
@@ -362,9 +370,7 @@ export class PackageManagementService {
             phase: "ready",
             candidate: version,
             sourceKind: captured.kind,
-            ...(candidate.incompatible
-              ? { incompatible: candidate.incompatible }
-              : {}),
+            ...(incompatible ? { incompatible } : {}),
           };
           await writeJournal(record, assertOwned);
           return frozenClone({
@@ -386,9 +392,7 @@ export class PackageManagementService {
                   expectedRevision: row!.revision,
                 }
               : {}),
-            ...(candidate.incompatible
-              ? { incompatible: candidate.incompatible }
-              : {}),
+            ...(incompatible ? { incompatible } : {}),
             requestedEnabled: kind === "update" && !!row?.enabled,
             trustRequired: true,
             restartRequired: true as const,
@@ -543,6 +547,7 @@ export class PackageManagementService {
           id: version.id,
           revision: (prior?.revision ?? 0) + 1,
           selected: published.key,
+          lastWorking: prior?.lastWorking,
           enabled,
           lastOperationId: id,
           versions: [
@@ -619,7 +624,12 @@ export class PackageManagementService {
     assertOwned: () => Promise<void>,
   ): Promise<void> {
     const inactive = row.versions
-      .filter((v) => v.key !== row.selected && v.kind === "managed")
+      .filter(
+        (v) =>
+          v.key !== row.selected &&
+          v.key !== row.lastWorking &&
+          v.kind === "managed",
+      )
       .sort((a, b) => b.installedAt.localeCompare(a.installedAt));
     for (const version of inactive.slice(4)) {
       if (await this.#deleteVersion(version, assertOwned))
@@ -698,6 +708,10 @@ export class PackageManagementService {
         return frozenClone({
           id: row.id,
           revision: row.revision,
+          lastWorkingVersion: row.versions.find(
+            (v) => v.key === row.lastWorking,
+          )?.version,
+          failedVersion: row.failedVersion,
           name: version?.name ?? row.id,
           ...(version
             ? {
@@ -888,6 +902,7 @@ export class PackageManagementService {
       const changed = row.selected !== version.key || trustChanged;
       if (changed) {
         row.selected = version.key;
+        delete row.failedVersion;
         row.revision++;
         state.revision++;
         await save();
@@ -930,6 +945,8 @@ export class PackageManagementService {
       const version = selectedVersion(row)!;
       row.removedAt = new Date().toISOString();
       row.enabled = false;
+      delete row.lastWorking;
+      delete row.failedVersion;
       row.revision++;
       state.revision++;
       await save();

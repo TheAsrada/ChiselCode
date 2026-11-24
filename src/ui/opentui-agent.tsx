@@ -1,3 +1,4 @@
+import { automationDispatcher } from "../app/run-automation.js";
 /** @jsxImportSource @opentui/react */
 
 import { randomUUID } from "node:crypto";
@@ -45,7 +46,10 @@ import type { ChiselExtension } from "../extensions/contracts.js";
 import type { ExtensionHost } from "../extensions/host.js";
 import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
 import { ExtensionManagementService } from "../extensions/management.js";
-import { builtinAvailability } from "../extensions/settings-contributions.js";
+import {
+  builtinAvailability,
+  externalAllowed,
+} from "../extensions/settings-contributions.js";
 import { UiExtensionRuntime } from "../extensions/ui-runtime.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
@@ -172,7 +176,10 @@ async function runApplication(
     if (
       !["builtin.lsp", "builtin.subagents", "builtin.background"].includes(id)
     )
-      return true;
+      return (
+        id.startsWith("builtin.") ||
+        externalAllowed(id, await loadProjectConfig(root))
+      );
     const [global, project] = await Promise.all([
       loadGlobalConfig(options.configPath),
       loadProjectConfig(root),
@@ -193,6 +200,10 @@ async function runApplication(
       uiRuntime.suspend(id);
       return extensionHost.suspendOwner(id).finally(() => uiRuntime.publish());
     },
+    enableExternal: (id) => extensionHost.resumeOwner(id),
+    automations: (root) =>
+      extensionHost.readyScopes().find((scope) => scope.workspaceRoot === root)
+        ?.automations,
     externalNeedsRestart: (id) =>
       extensionHost.needsRestart(id) || uiRuntime.needsRestart(id),
     canApplyUi: (id) => uiRuntime.canApply(id),
@@ -229,6 +240,26 @@ async function runApplication(
     initialRoot,
     options.mode ?? DEFAULT_AGENT_MODE,
     initialApprovalMode,
+  );
+  extensionHost.configureAutomations(
+    (scope) =>
+      automationDispatcher(scope, options, () => {
+        const controller = workspace.controller;
+        const selected =
+          controller.snapshot.projectPath === scope.workspaceRoot;
+        return {
+          mode: selected ? controller.snapshot.agentMode : "plan",
+          resolver: {
+            requestApproval: (request, signal) =>
+              selected
+                ? workspace
+                    .execution(controller)
+                    .approvalResolver.requestApproval(request, signal)
+                : Promise.resolve("unavailable"),
+          },
+        };
+      }),
+    () => extensionManagement.automationsChanged(),
   );
   if (initialWorkspace) workspace.home.selection = initialWorkspace;
   if (initialSession) {
@@ -2018,6 +2049,17 @@ async function runApplication(
   if (initialSession)
     await restoreSubagentControls(workspace.controller, initialSession);
   process.once("SIGTERM", shutdown);
+  let reconcile: Promise<void> | undefined;
+  const packageWatch = setInterval(() => {
+    if (!reconcile)
+      reconcile = extensionManagement
+        .reconcileExternalDisables()
+        .catch(() => {})
+        .finally(() => {
+          reconcile = undefined;
+        });
+  }, 1000);
+  packageWatch.unref();
   let applicationFailure: unknown;
   let applicationFailed = false;
   const cleanupErrors: unknown[] = [];
@@ -2220,6 +2262,8 @@ async function runApplication(
     applicationFailed = true;
     applicationFailure = error;
   } finally {
+    clearInterval(packageWatch);
+    await reconcile;
     process.off("SIGINT", cancel);
     process.off("SIGTERM", shutdown);
     abort.abort();

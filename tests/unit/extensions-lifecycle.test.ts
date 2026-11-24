@@ -574,7 +574,7 @@ test("cleanup continues across workspaces and duplicate resource ownership is re
 test("owner disable revokes captured commands, tools and queued UI events in just the affected root", async () => {
   const first = await root(),
     second = await root();
-  const gate = deferred<void>();
+  const revoked = deferred<void>();
   let blocked = false;
   let calls = 0;
   let cleanups = 0;
@@ -604,9 +604,18 @@ test("owner disable revokes captured commands, tools and queued UI events in jus
           prepare: async () => ({ preview: "", resources: [], data: {} }),
           execute: async () => ({ output: "", isError: false }),
         });
-        ctx.ui.on("press", async () => {
+        ctx.ui.on("press", async (binding) => {
           calls++;
-          await gate.promise;
+          await new Promise<void>((resolve) =>
+            binding.signal.addEventListener(
+              "abort",
+              () => {
+                revoked.resolve();
+                resolve();
+              },
+              { once: true },
+            ),
+          );
         });
         ctx.ui.register({
           id: "sample",
@@ -658,7 +667,7 @@ test("owner disable revokes captured commands, tools and queued UI events in jus
   await Promise.resolve();
   blocked = true;
   await app.refreshOwner("sample.toggle");
-  gate.resolve();
+  await revoked.promise;
   await Promise.all([action, queued, binding.invoke(key, "press", {})]);
   expect(calls).toBe(1);
   expect(cleanups).toBe(1);

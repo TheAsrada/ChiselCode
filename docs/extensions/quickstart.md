@@ -43,6 +43,6 @@ export default factory;
 
 Npm tarball ChiselCode нужен для приложения и SDK declarations. Это **не ZIP расширения** и не аргумент extension install. [Упаковка ZIP и управление версиями](package-management.md).
 
-Полный самостоятельный пример: [examples/extensions/project-notes](../../examples/extensions/project-notes/index.ts) и его [manifest](../../examples/extensions/project-notes/chisel-extension.json). Пример содержит чтение, planned write, полезную команду, side-query, context, chat и три UI slots с paginated details. Он не входит в defaultExtensions или установщики. Для authoring используйте types из packed distribution, а не импорт `../../src`.
+Полный самостоятельный пример: [examples/extensions/project-notes](../../examples/extensions/project-notes/index.ts) и его [manifest](../../examples/extensions/project-notes/chisel-extension.json). Пример содержит чтение, planned write, полезную команду, side-query, context, chat три UI slots с paginated details и [автоматизацию чтения](automations.md). Он не входит в defaultExtensions или установщики. Для authoring используйте types из packed distribution, а не импорт `../../src`.
 
 Factory выполняется один раз для approved identity/digest в процессе; `activate` — для каждого canonical workspace. Храните workspace state внутри `activate`, а не в глобальной переменной factory.

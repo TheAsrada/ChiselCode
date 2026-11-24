@@ -372,3 +372,201 @@ for (const point of [
       await expect(access(journal.candidate.location)).rejects.toBeDefined();
     await expect(access(f.sentinel)).rejects.toBeDefined();
   });
+
+test.each(["import", "factory", "activate", "settings", "revoked"] as const)(
+  "startup reconciles an unconfirmed version after a %s failure",
+  async (stage) => {
+    const f = await fixture();
+    const v1 = await f.source("1.0.0");
+    await install(f, v1.path);
+    const start = async () => {
+      const loader = await ExternalExtensionLoader.create(() => {}, "standard");
+      const host = new ExtensionHost(loader.definitions([]));
+      hosts.push(host);
+      await host.open(f.root);
+      return { loader, host };
+    };
+    const original = await start();
+    expect(original.loader.metadata()[0]?.state).toBe("active");
+    await original.host.dispose();
+    const v2 = await f.source("2.0.0");
+    const manifestFile = join(v2.path, "chisel-extension.json");
+    if (stage === "settings") {
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+      manifest.settings = {
+        fields: [
+          {
+            name: "required",
+            type: "string",
+            label: "Новое поле",
+            required: true,
+          },
+        ],
+      };
+      await writeFile(manifestFile, JSON.stringify(manifest));
+    } else {
+      const code =
+        stage === "import"
+          ? 'throw Error("import failed");'
+          : stage === "factory"
+            ? 'export default () => { throw Error("factory failed"); };'
+            : 'export default ({manifest}) => ({...manifest, activate() { throw Error("activate failed"); }});';
+      await writeFile(join(v2.path, "index.mjs"), code);
+    }
+    const update = await f.service.prepareUpdate("author.package", v2.path);
+    await f.service.commitCandidate(update, {
+      digest: update.preview.digest,
+      acknowledgeProcessAccess: true,
+    });
+    expect((await f.service.status("author.package")).selected?.version).toBe(
+      "2.0.0",
+    );
+    if (stage === "revoked") {
+      const { withExtensionRegistry } = await import(
+        "../../src/extensions/external/registry.js"
+      );
+      await withExtensionRegistry(async (state, _assertOwned, save) => {
+        const row = state.records[0]!;
+        delete row.versions.find(({ key }) => key === row.lastWorking)!
+          .approvedAt;
+        row.revision++;
+        state.revision++;
+        await save();
+      });
+    }
+    const restarted = await start();
+    const status = await f.service.status("author.package");
+    if (stage === "revoked") {
+      expect(status.selected?.version).toBe("2.0.0");
+      expect(restarted.loader.metadata()[0]?.state).toBe("activation_failed");
+    } else {
+      expect(status.selected?.version).toBe("1.0.0");
+      expect(status.lastWorkingVersion).toBe("1.0.0");
+      expect(status.failedVersion).toBe("2.0.0");
+      expect(restarted.loader.metadata()[0]).toMatchObject({
+        state: "active",
+        version: "1.0.0",
+      });
+    }
+  },
+);
+
+test.each(["disable", "rollback"] as const)(
+  "a concurrent %s wins over pending startup confirmation",
+  async (operation) => {
+    const f = await fixture();
+    const v1 = await f.source("1.0.0");
+    const original = await install(f, v1.path);
+    const first = new ExtensionHost(
+      (await ExternalExtensionLoader.create(() => {}, "standard")).definitions(
+        [],
+      ),
+    );
+    hosts.push(first);
+    await first.open(f.root);
+    await first.dispose();
+    const v2 = await f.source("2.0.0");
+    const starting = join(f.root, "starting");
+    const proceed = join(f.root, "proceed");
+    await writeFile(
+      join(v2.path, "index.mjs"),
+      `import {writeFile} from "node:fs/promises"; export default ({manifest}) => ({...manifest, async activate() {
+        await writeFile(${JSON.stringify(starting)}, "");
+        while (!(await Bun.file(${JSON.stringify(proceed)}).exists())) await Bun.sleep(10);
+      }});`,
+    );
+    const update = await f.service.prepareUpdate("author.package", v2.path);
+    await f.service.commitCandidate(update, {
+      digest: update.preview.digest,
+      acknowledgeProcessAccess: true,
+    });
+    const loader = await ExternalExtensionLoader.create(() => {}, "standard");
+    const host = new ExtensionHost(loader.definitions([]));
+    hosts.push(host);
+    const open = host.open(f.root);
+    try {
+      const deadline = Date.now() + 5000;
+      while (!(await Bun.file(starting).exists())) {
+        if (Date.now() > deadline) throw Error("Не началась активация v2.");
+        await Bun.sleep(15);
+      }
+      const requested = await f.service.status("author.package");
+      const expected = {
+        digest: update.preview.digest,
+        revision: requested.revision,
+      };
+      if (operation === "disable")
+        await f.service.setEnabled(requested.id, false, expected);
+      else
+        await f.service.rollback(
+          requested.id,
+          original.candidate.preview.digest,
+          expected,
+        );
+    } finally {
+      await writeFile(proceed, "");
+      await open;
+    }
+    const final = await f.service.status("author.package");
+    expect(final.enabled).toBe(operation === "rollback");
+    expect(final.selected?.version).toBe(
+      operation === "rollback" ? "1.0.0" : "2.0.0",
+    );
+    expect(final.lastWorkingVersion).toBe("1.0.0");
+    expect(loader.metadata()[0]?.state).not.toBe("active");
+  },
+);
+
+test("live UI keeps working contributions while a broken candidate is prepared", async () => {
+  const { UiExtensionRuntime } = await import(
+    "../../src/extensions/ui-runtime.js"
+  );
+  const f = await fixture();
+  const sources = await Promise.all(
+    ["1.0.0", "2.0.0", "3.0.0"].map((version) => f.source(version)),
+  );
+  for (const [index, source] of sources.entries()) {
+    const manifestFile = join(source.path, "chisel-extension.json");
+    const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+    await writeFile(manifestFile, JSON.stringify({ ...manifest, kind: "ui" }));
+    await writeFile(
+      join(source.path, "index.mjs"),
+      index === 1
+        ? 'export default ({manifest}) => ({...manifest, activate() { throw Error("failed UI"); }});'
+        : 'export default ({manifest}) => ({...manifest, activate(ctx) { ctx.ui.register({id:"version", slot:"status", scope:"workspace", title:manifest.version, source:{snapshot(){return {revision:0,state:"ready",label:manifest.version}}}}); }});',
+    );
+  }
+  await install(f, sources[0]!.path);
+  const runtime = new UiExtensionRuntime();
+  try {
+    const [v1] = await runtime.open(f.root);
+    expect(v1?.ui.descriptors()[0]?.descriptor.title).toBe("1.0.0");
+    for (const source of sources.slice(1)) {
+      const update = await f.service.prepareUpdate(
+        "author.package",
+        source.path,
+      );
+      await f.service.commitCandidate(update, {
+        digest: update.preview.digest,
+        acknowledgeProcessAccess: true,
+      });
+      expect(await runtime.changed("author.package")).toBe(true);
+      const current = (await f.service.status("author.package")).selected
+        ?.version;
+      if (source === sources[1]) {
+        expect(current).toBe("1.0.0");
+        expect((await runtime.open(f.root))[0]).toBe(v1);
+        expect(v1?.signal.aborted).toBe(false);
+      } else {
+        expect(current).toBe("3.0.0");
+        expect(v1?.signal.aborted).toBe(true);
+        expect(
+          (await runtime.open(f.root))[0]?.ui.descriptors()[0]?.descriptor
+            .title,
+        ).toBe("3.0.0");
+      }
+    }
+  } finally {
+    await runtime.dispose();
+  }
+});

@@ -22,6 +22,11 @@ const factory: ExtensionFactory = ({ sdk, manifest }) => ({
       async execute(invocation) { const result = await invocation.effects.run(); changed(); return result; },
     });
     context.tools.register(read); context.tools.register(write);
+    context.automations?.register({
+      id: "daily-readme",
+      schedule: { kind: "interval", firstAt: "2026-11-25T09:00:00Z", everyMs: 86_400_000 },
+      tool: { name: `ext:${manifest.id}:read_note`, input: { path: "README.md" } },
+    });
     context.commands.register({
       name: "notes-write", description: "Обновить заметку проекта", usage: "/notes-write <JSON path/content>",
       parse(args) { return JSON.parse(args) as { path: string; content: string }; },

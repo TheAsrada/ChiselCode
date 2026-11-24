@@ -12,6 +12,7 @@ import type {
   ToolSpec,
 } from "../tools/types.js";
 import { ChatStyleSchema } from "../types/chat-presentation.js";
+import type { ExtensionActivation } from "./activation.js";
 import type { ExtensionChatViews } from "./chat.js";
 import type { Disposable, ExtensionToolContribution } from "./contracts.js";
 import type { WorkspaceExtensionScope } from "./host.js";
@@ -48,10 +49,27 @@ export class ExtensionToolContributions implements ToolProvider {
     private readonly chat?: ExtensionChatViews,
     private readonly staging = () => false,
   ) {}
+  private readonly listeners = new Set<() => void>();
+  subscribe(publish: () => void): () => void {
+    this.listeners.add(publish);
+    return () => this.listeners.delete(publish);
+  }
+  publish(): void {
+    for (const listener of this.listeners) listener();
+  }
+  snapshot(): ToolHandler[] {
+    this.available();
+    return [...this.handlers.values()].filter(
+      (handler) =>
+        !handler.lifetimeSignal?.aborted &&
+        (handler.extensionActivation?.published ?? true),
+    );
+  }
   register(
     extensionId: string,
     tool: ExtensionToolContribution,
     lifetime = this.lifetime,
+    extensionActivation?: ExtensionActivation,
   ): Disposable {
     if ((this.sealed && !this.staging()) || this.closed)
       throw new ExtensionLifecycleError(
@@ -127,6 +145,7 @@ export class ExtensionToolContributions implements ToolProvider {
           },
         }) as ToolSpec,
         lifetimeSignal: lifetime,
+        extensionActivation,
         parse: (input) => {
           cancelled(lifetime);
           this.assertAvailable();
@@ -134,7 +153,9 @@ export class ExtensionToolContributions implements ToolProvider {
         },
         prepare: async (caller, input) => {
           const invocation = context(caller);
-          const plan = await prepare(invocation, input);
+          const plan = await (extensionActivation
+            ? extensionActivation.run(() => prepare(invocation, input))
+            : prepare(invocation, input));
           cancelled(invocation.signal);
           if (plan.approval !== undefined)
             throw new RuntimeError(
@@ -146,7 +167,9 @@ export class ExtensionToolContributions implements ToolProvider {
         execute: async (caller, plan) => {
           const invocation = context(caller);
           // Cooperative cancellation only: never release a mutation lease before it settles.
-          const result = await execute(invocation, plan);
+          const result = await (extensionActivation
+            ? extensionActivation.run(() => execute(invocation, plan))
+            : execute(invocation, plan));
           cancelled(invocation.signal);
           return this.chat?.result(extensionId, spec.chat, result) ?? result;
         },
@@ -188,7 +211,7 @@ export class ExtensionToolContributions implements ToolProvider {
   }
   async listTools(): Promise<ToolSpec[]> {
     this.available();
-    return [...this.handlers.values()].map((handler) => handler.spec);
+    return this.snapshot().map((handler) => handler.spec);
   }
   async getHandler(name: string): Promise<ToolHandler> {
     this.available();
@@ -212,15 +235,13 @@ export async function attachExtensionTools(
     throw new ExtensionLifecycleError(
       "Extension tools are already attached to this catalog.",
     );
-  let published = false;
+  const publish = () =>
+    catalog.setProviderSnapshot("extensions", scope.tools.snapshot());
   try {
-    await catalog.replaceProvider("extensions", scope.tools, {
+    catalog.setProviderSnapshot("extensions", scope.tools.snapshot(), {
       requireNew: true,
     });
-    published = true;
-    scope.assertUsable();
   } catch (cause) {
-    if (published) await catalog.replaceProvider("extensions");
     throw new ExtensionLifecycleError(
       "Failed to attach extension tools. " +
         (cause instanceof Error ? cause.message : "Provider snapshot failed."),
@@ -233,8 +254,11 @@ export async function attachExtensionTools(
       cause,
     );
   }
-  let disposal: Promise<void> | undefined;
+  const unsubscribe = scope.tools.subscribe(publish);
   return {
-    dispose: () => (disposal ??= catalog.replaceProvider("extensions")),
+    dispose: () => {
+      unsubscribe();
+      catalog.setProviderSnapshot("extensions");
+    },
   };
 }

@@ -1,3 +1,8 @@
+export type {
+  AutomationDefinition,
+  AutomationRegistrations,
+  AutomationSchedule,
+} from "./automations.js";
 /** Public API v1. Runtime helpers are injected by the current host into the factory. */
 export const API_VERSION = 1 as const;
 export type { SdkCapability } from "./capabilities.js";
@@ -372,6 +377,8 @@ export type Guard = (
   | { action: "deny"; reason: string }
   | Promise<{ action: "continue" } | { action: "deny"; reason: string }>;
 export interface ActivationContext {
+  /** Available to standard packages declaring the automations capability. */
+  readonly automations?: import("./automations.js").AutomationRegistrations;
   readonly events: import("./agent-events.js").AgentEvents;
   readonly workspaceRoot: string;
   readonly signal: AbortSignal;

@@ -21,6 +21,7 @@ import {
 import { type LspSettingsRuntime, LspSettingsStore } from "../lsp/settings.js";
 import { SubagentSettingsStore } from "../subagents/settings.js";
 import { VERSION } from "../version.js";
+import type { ExtensionAutomations } from "./automations.js";
 import { backgroundSettings } from "./builtins/background.js";
 import { chatGptSettings } from "./builtins/chatgpt/index.js";
 import { lspSettings } from "./builtins/lsp.js";
@@ -85,6 +86,7 @@ const builtinNames = {
   ],
 } as const;
 export interface ManagedExtension extends CatalogExtension {
+  automations?: ReturnType<ExtensionAutomations["list"]>;
   settingsSection?: SettingsContribution;
 }
 
@@ -146,6 +148,8 @@ interface Options {
   hasBuiltin?: (id: string) => boolean;
   applyBuiltin?: (id: string) => Promise<void>;
   disableExternal?: (id: string) => Promise<void>;
+  enableExternal?: (id: string) => Promise<void>;
+  automations?: (root: string) => ExtensionAutomations | undefined;
   externalNeedsRestart?: (id: string) => boolean;
 }
 /** One shared application service. UI receives data, never prepared handles. */
@@ -162,6 +166,61 @@ export class ExtensionManagementService {
   };
   private notify(hide?: { id: string; root?: string }) {
     for (const changed of this.listeners) changed(hide);
+  }
+  /** Reconcile external CLI disable/remove and trust revocation with already published owners. */
+  async reconcileExternalDisables() {
+    if (this.closed || !this.options.disableExternal) return;
+    const active =
+      this.options.diagnostics?.().filter((item) => item.state === "active") ??
+      [];
+    if (!active.length) return;
+    const invalid = (
+      registry: Awaited<ReturnType<typeof readExtensionRegistry>>,
+    ) =>
+      new Set(
+        active.flatMap((diagnostic) => {
+          const row = registry.records.find(({ id }) => id === diagnostic.id);
+          return row?.enabled &&
+            !row.removedAt &&
+            row.versions.some(
+              (version) =>
+                version.digest === diagnostic.packageDigest &&
+                !!version.approvedAt,
+            )
+            ? []
+            : [diagnostic.id];
+        }),
+      );
+    if (!invalid(await readExtensionRegistry()).size) return;
+    const cleanup: Promise<unknown>[] = [];
+    await withExtensionRegistry((registry) => {
+      for (const id of invalid(registry)) {
+        const removing = this.options.disableExternal?.(id);
+        this.notify({ id });
+        cleanup.push(
+          Promise.resolve(removing).then(() => this.options.applyUi?.(id)),
+        );
+      }
+      return Promise.resolve();
+    });
+    if (cleanup.length) {
+      await Promise.allSettled(cleanup);
+      this.notify();
+    }
+  }
+  automationsChanged() {
+    this.notify();
+  }
+  async pauseAutomation(
+    root: string,
+    id: string,
+    taskId: string,
+    paused: boolean,
+  ) {
+    const automations = this.options.automations?.(root);
+    if (!automations) throw new Error("Рабочая область автоматизации закрыта.");
+    await automations.pause(id, taskId, paused);
+    this.notify();
   }
   async builtinChanged(id: string, root?: string) {
     const [global, project] = await Promise.all([
@@ -436,7 +495,9 @@ export class ExtensionManagementService {
       const actions: CatalogExtension["actions"] = row.removed
         ? []
         : [
-            ...(manifest ? ["settings" as const] : []),
+            ...(manifest && row.enabled && row.trusted && !blocked
+              ? ["settings" as const]
+              : []),
             "update",
             "versions",
             "remove",
@@ -493,6 +554,9 @@ export class ExtensionManagementService {
         description: safeExtensionText(manifest?.description ?? ""),
         origin: "installed",
         version: selected?.version ?? actual?.version ?? "—",
+        ...(loaded ? { activeVersion: actual.version } : {}),
+        lastWorkingVersion: row.lastWorkingVersion,
+        failedVersion: row.failedVersion,
         source:
           selected?.source ?? selected?.location ?? "Удалённое подключение",
         ...(selected ? { digest: selected.digest } : {}),
@@ -544,6 +608,9 @@ export class ExtensionManagementService {
         })),
       });
     }
+    const automations = root ? this.options.automations?.(root) : undefined;
+    if (automations)
+      for (const item of items) item.automations = automations.list(item.id);
     return frozenClone({ items, revision: registry.revision });
   }
   prepare(
@@ -779,10 +846,14 @@ export class ExtensionManagementService {
       else result = await this.packages.remove(review.id, expected);
       const disabled = review.kind === "remove" || input.enable === false;
       const disabling = disabled
-        ? this.options.disableExternal?.(result.id).catch(() => {})
+        ? this.options.disableExternal?.(result.id)
         : undefined;
+      const cleanup = disabling?.then(
+        () => undefined,
+        () => "Очистка расширения не подтверждена; ресурсы защищены.",
+      );
       this.notify(disabled ? { id: result.id } : undefined);
-      await disabling;
+      const warning = await cleanup;
       const appliedUi = await this.options
         .applyUi?.(result.id)
         .catch(() => false);
@@ -791,9 +862,11 @@ export class ExtensionManagementService {
         phase: "completed",
         result: {
           id: result.id,
-          restartRequired: result.restartRequired && !appliedUi,
+          restartRequired: !!warning || (result.restartRequired && !appliedUi),
           deferred: result.deferred,
-          ...(result.warning ? { warning: result.warning } : {}),
+          ...(warning || result.warning
+            ? { warning: warning ?? result.warning }
+            : {}),
         },
       };
       return op.dto.result!;
@@ -880,23 +953,36 @@ export class ExtensionManagementService {
       input.enabled,
       input,
     );
-    const disabling = input.enabled
-      ? undefined
-      : this.options.disableExternal?.(result.id).catch(() => {});
+    const changing = input.enabled
+      ? this.options.enableExternal?.(result.id)
+      : this.options.disableExternal?.(result.id);
+    const cleanup = changing?.then(
+      () => undefined,
+      () =>
+        "Очистка или активация расширения не подтверждена; ресурсы защищены.",
+    );
     this.notify(input.enabled ? undefined : { id: result.id });
     const appliedUi = await this.options
       .applyUi?.(result.id)
       .catch(() => false);
-    await disabling;
+    const warning =
+      (await cleanup) ??
+      (this.options.externalNeedsRestart?.(result.id) &&
+      appliedUi === false &&
+      input.enabled
+        ? "Активация ждёт перезапуска."
+        : undefined);
     this.notify();
     return {
       id: result.id,
       restartRequired:
+        !!warning ||
         this.options.externalNeedsRestart?.(result.id) ||
         (result.restartRequired &&
           !appliedUi &&
           (input.enabled || !this.options.disableExternal)),
       deferred: result.deferred,
+      ...(warning ? { warning } : {}),
     };
   }
   async settings(
@@ -911,6 +997,7 @@ export class ExtensionManagementService {
       if (
         !row ||
         row.removedAt ||
+        !row.enabled ||
         row.revision !== input.revision ||
         !version ||
         version.digest !== input.digest

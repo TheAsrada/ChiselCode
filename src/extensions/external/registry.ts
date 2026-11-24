@@ -37,6 +37,7 @@ export const InstalledVersionSchema = z
     digest,
     approvedAt: z.iso.datetime().optional(),
     kind: z.enum(["legacy", "managed"]),
+    extensionKind: z.enum(["standard", "ui"]).optional(),
     bytes: z.number().int().min(0).max(EXTERNAL_LIMITS.bytes),
     files: z.number().int().min(0).max(EXTERNAL_LIMITS.files),
     installedAt: z.iso.datetime(),
@@ -58,6 +59,8 @@ export const ManagedRecordSchema = z
     revision: z.number().int().nonnegative(),
     enabled: z.boolean(),
     selected: z.string().max(160).optional(),
+    lastWorking: z.string().max(160).optional(),
+    failedVersion: z.string().max(80).optional(),
     removedAt: z.iso.datetime().optional(),
     lastOperationId: z.uuid().optional(),
     versions: z.array(InstalledVersionSchema).max(64),
@@ -119,8 +122,8 @@ export function selectedVersion(
 }
 export function runtimeRecord(
   record: ManagedRecord,
+  v = selectedVersion(record),
 ): ExtensionRecord | undefined {
-  const v = selectedVersion(record);
   if (!v || record.removedAt) return;
   return ExtensionRecordSchema.parse({
     id: v.id,

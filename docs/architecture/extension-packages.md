@@ -2,7 +2,7 @@
 
 [Архитектура](../architecture.md) · [Loader/SDK](external-extensions.md) · [Контракт автора](../extensions/package-management.md) · [Отчёт](../contributors/reports/extension-packages.md)
 
-PackageManagementService — общий core service для production CLI и будущего Settings consumer. Loader сохраняет Home-only inspectPackage; новый source reader захватывает явно выбранную external directory/ZIP в private staging. Manifest и digest вычисляет прежний inspector, без второго алгоритма и import.
+PackageManagementService — общий core service для CLI и OpenTUI. Loader сохраняет Home-only inspectPackage; новый source reader захватывает явно выбранную external directory/ZIP в private staging. Manifest и digest вычисляет прежний inspector, без второго алгоритма и import.
 
 ## Контракты
 
@@ -34,6 +34,19 @@ Manager GC под тем же lock исключает live/unknown use и select
 
 Budget managed packages/runtime/staging — 1 GiB. Capture резервирует до 128 MiB (ZIP + expanded bytes), snapshot — transient copy reservation; actual unknown bytes учитываются. Пакет 64 MiB/1024 files, archive ≤64 MiB/2048 entries. Metadata bounded: registry ≤2 MiB, journals ≤1024 по ≤32 KiB, use records ≤1024 по ≤8 KiB. Protected versions не вытесняются; невозможная admission возвращает quota error, сохраняя prior.
 
-Different-id writers сохраняют чужие records; same-id stale candidate conflict-ит. Remove не удаляет чужие paths, conversations/artifacts/worktrees/results или config. Theme catalog остаётся у approved loaded version до restart; новая selection после startup публикует themes после successful seal. Desired ui.theme и ui.accent installer не меняет.
+Different-id writers сохраняют чужие records; same-id stale candidate conflict-ит. Remove не удаляет чужие paths, conversations/artifacts/worktrees/results или config. Каталог тем снимает вклады при выключении владельца. Новая активация публикует темы после успешной проверки. Desired ui.theme и ui.accent installer не меняет.
 
 Trusted JS остаётся in-process: private snapshots/checks/guardrails уменьшают ошибки и races, но не являются защитой от намеренной concurrent modification того же user filesystem или arbitrary raw effects.
+
+
+## Подтверждение версии активацией
+
+Registry разделяет запрошенный `selected` и подтверждённый `lastWorking`. Активная версия относится к конкретному workspace и процессу. Установка, CLI status и подготовка review остаются пассивными. Standard подтверждается после загрузки на штатном запуске. Live UI готовит отдельный host для каждого открытого workspace, затем переключает регистрации. Подтверждение и автоматический возврат проверяют per-ID revision, выбранную версию и exact trust через существующий registry lock. Leases продолжают защищать рабочие и загруженные bytes. Если конкурирующая операция опередила активацию, её решение о выборе или включённости сохраняется.
+
+При неудаче ядро снимает регистрации candidate и проверяет последнюю рабочую версию. Рабочий digest должен быть доступен, совместим и иметь действующий trust receipt. Гарантия возврата охватывает выбранную версию и ресурсы ядра. Изменения файлов и внешние эффекты произвольного JS находятся за этой границей.
+
+## Владение запусками
+
+Host создаёт владельца по ID расширения, каноническому корню и UUID активации. Отзыв lifetime блокирует старые вызовы и approvals, снимает регистрации из активных каталогов и передаёт остановку фоновых процессов BackgroundTaskService. При неизвестной очистке сохраняется recovery-защита. Встроенный код входит в CLI и использует его версию.
+
+Автоматизация хранит расписание и историю по корню, ID расширения и ID задачи. Запись текущего слота и следующего срока выполняется атомарно под межпроцессным lock до вызова ToolExecutor. Для внешнего пакета принятие дополнительно проверяет текущий выбор и receipt под registry lock. Остановка использует системную идентичность процесса и обычный cleanup фоновых задач. [SDK автоматизаций](../extensions/automations.md).

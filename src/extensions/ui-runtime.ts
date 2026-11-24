@@ -4,12 +4,19 @@ import {
   ExternalExtensionLoader,
 } from "./external/loader.js";
 import { canonicalPath, inspectPackage } from "./external/package.js";
-import { extensionRecords } from "./external/registry.js";
+import {
+  readExtensionRegistry,
+  runtimeRecord,
+  selectedVersion,
+  withExtensionRegistry,
+} from "./external/registry.js";
 import {
   canonicalWorkspaceRoot,
   ExtensionHost,
   type WorkspaceExtensionScope,
 } from "./host.js";
+
+import { settlePackageActivation } from "./packages/activation.js";
 
 type Mount = { host: ExtensionHost; scope: WorkspaceExtensionScope };
 /** Live UI mounts have per-extension lifetimes, independent of core services and other mods. */
@@ -58,13 +65,16 @@ export class UiExtensionRuntime {
     if (this.closed || signal?.aborted) return [];
     this.aliases.set(canonicalPath(resolve(root)), canonical);
     this.roots.add(canonical);
-    const records = await extensionRecords();
+    const records = (await readExtensionRegistry()).records;
     const ids = (
       await Promise.all(
-        records.map(async (record) => {
+        records.map(async (row) => {
+          const record = runtimeRecord(row);
+          if (!record) return;
           try {
             if (
-              (await inspectPackage(record.location)).manifest.kind === "ui"
+              (selectedVersion(row)?.extensionKind ??
+                (await inspectPackage(record.location)).manifest.kind) === "ui"
             ) {
               this.known.add(record.id);
               return record.enabled ? record.id : undefined;
@@ -138,7 +148,10 @@ export class UiExtensionRuntime {
     this.scopes.delete(key);
     this.hosts.delete(key);
     const mount = await pending.catch(() => undefined);
-    if (!mount) return;
+    if (!mount) {
+      this.closingDiagnostics.delete(key);
+      return;
+    }
     const { host, scope } = mount;
     const diagnostics =
       this.closingDiagnostics.get(key) ?? scope.externalDiagnostics();
@@ -173,47 +186,175 @@ export class UiExtensionRuntime {
           this.closingDiagnostics.set(key, scope.externalDiagnostics());
         host.abortWorkspaces();
       }
+    this.publish();
   }
   /** Invoked only after Settings commits an exact reviewed package/setting revision. */
   async changed(id: string): Promise<boolean> {
     if (this.closed || this.disabled) return false;
-    const record = (await extensionRecords()).find(
-      (record) => record.id === id,
-    );
-    let isUi = false;
-    if (record) {
-      try {
-        isUi = (await inspectPackage(record.location)).manifest.kind === "ui";
-      } catch {
-        /* A previously mounted invalid owner must still be removed. */
-      }
-    }
-    if (!isUi && !this.known.has(id)) return false;
-    this.known.add(id);
-    const refresh = this.refreshing.then(async () => {
-      if (this.closed) return;
-      try {
+    let applied = false;
+    const refresh = this.refreshing
+      .then(async () => {
+        if (this.closed) return;
+        const row = (await readExtensionRegistry()).records.find(
+          (record) => record.id === id,
+        );
+        const record = row && runtimeRecord(row);
+        let isUi = false;
+        if (record) {
+          try {
+            isUi =
+              (selectedVersion(row)?.extensionKind ??
+                (await inspectPackage(record.location)).manifest.kind) === "ui";
+          } catch {
+            /* A previously mounted invalid owner still needs recovery. */
+          }
+        }
+        if (!isUi && !this.known.has(id)) return;
+        this.known.add(id);
         const previous = [...this.mounts].filter(
           ([key]) => (JSON.parse(key) as string[])[1] === id,
         );
-        const results = await Promise.allSettled(
-          previous.map(([key, pending]) => this.closeMount(key, pending)),
-        );
-        const failure = results.find((result) => result.status === "rejected");
-        if (failure?.status === "rejected") throw failure.reason;
-        if (isUi && record?.enabled) {
-          this.suspended.delete(id);
+        if (!record?.enabled) {
+          this.suspend(id);
+          await this.closePrevious(previous);
+          applied = true;
+          return;
+        }
+        if (!isUi || !row || !this.canApply(id)) return;
+        const staged = new Map<string, Mount>();
+        try {
+          await Promise.allSettled(
+            [...this.roots].map(async (root) => {
+              const key = JSON.stringify([root, id]);
+              const loader = await ExternalExtensionLoader.create(
+                () => {},
+                "ui",
+                id,
+                true,
+              );
+              const host = new ExtensionHost(loader.definitions([]));
+              try {
+                const scope = await host.open(root);
+                staged.set(key, { host, scope });
+              } catch (error) {
+                await host.dispose();
+                throw error;
+              }
+            }),
+          ).then((results) => {
+            const failure = results.find(
+              (result) => result.status === "rejected",
+            );
+            if (failure?.status === "rejected") throw failure.reason;
+          });
+          const diagnostics = [...staged.values()].flatMap(({ scope }) =>
+            scope.externalDiagnostics(),
+          );
+          const failure = diagnostics.find(
+            ({ state }) => state !== "active" && state !== "disabled",
+          );
+          const active = diagnostics.some(
+            (diagnostic) => diagnostic.state === "active",
+          );
+          if (failure || (staged.size && !diagnostics.length)) {
+            const fallback = await settlePackageActivation(row, false);
+            if (failure)
+              this.failures.set(
+                JSON.stringify([failure.workspaceRoot, id]),
+                failure,
+              );
+            if (fallback) {
+              this.suspended.delete(id);
+              const missing = [...this.roots].filter(
+                (root) => !this.mounts.has(JSON.stringify([root, id])),
+              );
+              await Promise.all(missing.map((root) => this.acquire(root, id)));
+              for (const [key] of this.mounts)
+                if ((JSON.parse(key) as string[])[1] === id)
+                  this.failures.delete(key);
+              applied = true;
+            } else {
+              const current = (await readExtensionRegistry()).records.find(
+                (item) => item.id === id,
+              );
+              const stillWorking =
+                row.lastWorking === row.selected &&
+                previous.some(([key]) =>
+                  this.scopes
+                    .get(key)
+                    ?.externalDiagnostics()
+                    .some(
+                      (diagnostic) =>
+                        diagnostic.state === "active" &&
+                        diagnostic.packageDigest === record.digest,
+                    ),
+                );
+              if (current?.revision === row.revision && !stillWorking) {
+                this.suspend(id);
+                await this.closePrevious(previous);
+              }
+            }
+            return;
+          }
+          let closing: Promise<void> | undefined;
+          const publish = () => {
+            if (this.closed) return;
+            this.suspended.delete(id);
+            // Revoke and replace inside the same registry CAS.
+            for (const [key] of previous) {
+              const scope = this.scopes.get(key);
+              if (scope && !scope.signal.aborted)
+                this.closingDiagnostics.set(key, scope.externalDiagnostics());
+              this.hosts.get(key)?.abortWorkspaces();
+            }
+            closing = this.closePrevious(previous);
+            for (const [key, mount] of staged) {
+              this.scopes.set(key, mount.scope);
+              this.hosts.set(key, mount.host);
+              this.mounts.set(key, Promise.resolve(mount));
+              this.failures.delete(key);
+            }
+            staged.clear();
+          };
+          if (active)
+            await settlePackageActivation(row, true, undefined, publish);
+          else
+            await withExtensionRegistry(async (registry) => {
+              const current = registry.records.find((item) => item.id === id);
+              if (current?.enabled && current.revision === row.revision)
+                publish();
+            });
+          if (!closing) return;
+          this.publish();
+          try {
+            await closing;
+            applied = true;
+          } catch (error) {
+            this.suspend(id);
+            await this.closePrevious(
+              [...this.mounts].filter(
+                ([key]) => (JSON.parse(key) as string[])[1] === id,
+              ),
+            ).catch(() => {});
+            throw error;
+          }
+        } finally {
           await Promise.all(
-            [...this.roots].map((root) => this.acquire(root, id)),
+            [...staged.values()].map(({ host }) => host.dispose()),
           );
         }
-      } finally {
-        this.publish();
-      }
-    });
+      })
+      .finally(() => this.publish());
     this.refreshing = refresh.catch(() => {});
     await refresh;
-    return (isUi && this.canApply(id)) || !record?.enabled;
+    return applied;
+  }
+  private async closePrevious(previous: [string, Promise<Mount>][]) {
+    const results = await Promise.allSettled(
+      previous.map(([key, pending]) => this.closeMount(key, pending)),
+    );
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
   }
   async closeWorkspace(root: string) {
     const canonical =

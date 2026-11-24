@@ -74,6 +74,8 @@ interface Owner {
 }
 interface Active {
   owner: Owner;
+  releaseActivation?: (confirmed: boolean) => void;
+  stopping?: Promise<void>;
   binding: BackgroundOwnerBinding;
   record: BackgroundTaskRecord;
   data: ShellData;
@@ -326,8 +328,13 @@ export class BackgroundTaskService {
       },
       prepareShell: (context, input) =>
         this.prepareShell(binding, context, input),
-      submit: (call, input, context, run) =>
-        this.submit(capturedOwner, binding, call, input, context, run),
+      submit: (call, input, context, run) => {
+        const submit = () =>
+          this.submit(capturedOwner, binding, call, input, context, run);
+        return context.extensionActivation
+          ? context.extensionActivation.run(submit)
+          : submit();
+      },
       executeShell: (context, plan) => this.executeShell(context, plan),
       foreground: (context, plan, promote) =>
         this.foreground(capturedOwner, binding, context, plan, promote),
@@ -536,6 +543,15 @@ export class BackgroundTaskService {
       turnId,
       ...(binding.childId ? { childId: binding.childId } : {}),
       ownerLabel: binding.childLabel ?? "Основной агент",
+      ...(context.extensionActivation
+        ? {
+            extensionActivation: {
+              id: context.extensionActivation.id,
+              extensionId: context.extensionActivation.extensionId,
+              workspaceRoot: context.extensionActivation.workspaceRoot,
+            },
+          }
+        : {}),
       origin: binding.origin ?? owner.binding.root,
       workspace: data.actualRoot,
       workspaceLabel: data.worktree?.label ?? basename(data.actualRoot),
@@ -626,6 +642,9 @@ export class BackgroundTaskService {
     };
     this.active.set(record.id, item);
     this.tickets.set(ticket, item);
+    item.releaseActivation = context.extensionActivation?.retain(() =>
+      this.stopActive(item),
+    );
     return item;
   }
   private async retain(owner: Owner): Promise<void> {
@@ -713,6 +732,7 @@ export class BackgroundTaskService {
     await owner.allocation.catch(() => {});
     binding.assertAvailable();
     cancelled(binding.signal);
+    cancelled(context.extensionActivation?.signal);
     this.assert(owner.binding.session.id, binding.generation);
     const prior = [...owner.records.values()].find(
       (record) => record.operationKey === capturedKey,
@@ -744,6 +764,7 @@ export class BackgroundTaskService {
     const allocation = owner.allocation
       .catch(() => {})
       .then(async () => {
+        cancelled(context.extensionActivation?.signal);
         duplicate = [...owner.records.values()].find(
           (r) => r.operationKey === record.operationKey,
         );
@@ -1312,6 +1333,7 @@ export class BackgroundTaskService {
           }
         });
     } finally {
+      item.releaseActivation?.(item.record.cleanup.confirmed);
       this.active.delete(item.record.id);
       if (item.record.foreground && item.record.cleanup.confirmed)
         item.owner.records.delete(item.record.id);
@@ -1322,7 +1344,14 @@ export class BackgroundTaskService {
       void this.pump();
     }
   }
-  private async stopActive(
+  private stopActive(
+    item: Active,
+    reason: NonNullable<ManagedOutcome["reason"]> = "cancelled",
+  ): Promise<void> {
+    item.stopping ??= this.stopProcess(item, reason);
+    return item.stopping;
+  }
+  private async stopProcess(
     item: Active,
     reason: NonNullable<ManagedOutcome["reason"]> = "cancelled",
   ): Promise<void> {
@@ -1822,6 +1851,15 @@ export class BackgroundTaskService {
       this.stopIdleClock();
     })();
     return owner.closing;
+  }
+  async stopBuiltinRoot(root: string): Promise<void> {
+    const tasks = [...this.active.values()].filter(
+      (item) =>
+        item.owner.binding.root === root && !item.record.extensionActivation,
+    );
+    await Promise.all(tasks.map((item) => this.stopActive(item)));
+    if (tasks.some((item) => !item.record.cleanup.confirmed))
+      throw new Error("Завершение встроенных фоновых задач не подтверждено.");
   }
   async closeRoot(root: string): Promise<void> {
     await Promise.all(

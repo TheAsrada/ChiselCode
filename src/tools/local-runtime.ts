@@ -28,6 +28,7 @@ export function createLocalToolRuntime(
   session: Session,
   skills: readonly Skill[] = [],
   options: {
+    extensionActivation?: ToolContext["extensionActivation"];
     mode?: AgentMode;
     approvalMode?: ApprovalMode;
     events?: RuntimeEventBus;
@@ -76,6 +77,7 @@ export function createLocalToolRuntime(
   ])
     catalog.register(handler);
   const context: ToolContext = {
+    extensionActivation: options.extensionActivation,
     background: options.background,
     executionConstraint: options.executionConstraint,
     approvalOwner: options.approvalOwner,

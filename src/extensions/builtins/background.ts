@@ -119,7 +119,12 @@ export function createBackgroundExtension(
       registerOwnerUi(ctx, "background", backgroundUiTarget);
       ctx.services.provide(backgroundServiceToken, service);
       if (ownsService)
-        ctx.add({ dispose: () => service.closeRoot(ctx.workspaceRoot) });
+        ctx.add({
+          dispose: () =>
+            ctx.workspaceSignal && !ctx.workspaceSignal.aborted
+              ? service.stopBuiltinRoot(ctx.workspaceRoot)
+              : service.closeRoot(ctx.workspaceRoot),
+        });
       ctx.chat.register({ id: "task", render: backgroundTaskView });
       ctx.contextProviders.register({
         id: "outcomes",

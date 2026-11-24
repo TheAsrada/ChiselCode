@@ -93,9 +93,12 @@ export interface ContextCollectionPort {
 }
 
 export interface ExtensionContext {
+  readonly automations: import("../extension-sdk/automations.js").AutomationRegistrations;
   readonly events: import("../extension-sdk/agent-events.js").AgentEvents;
   readonly workspaceRoot: string;
   readonly signal: AbortSignal;
+  /** Internal distinction between feature revocation and workspace shutdown. */
+  readonly workspaceSignal?: AbortSignal;
   readonly chat: { register(view: ExtensionChatView): void };
   readonly ui: {
     on(id: string, handler: import("./ui-types.js").UiEventHandler): void;

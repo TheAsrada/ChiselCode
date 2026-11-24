@@ -25,6 +25,7 @@ import type { RunOptions } from "./run-prompt.js";
 
 /** Shared composition for model turns and deterministic commands; no model adapter. */
 export async function createSessionToolRuntime(input: {
+  extensionActivation?: import("../extensions/activation.js").ExtensionActivation;
   root: string;
   session: Session;
   store: Awaited<ReturnType<typeof projectSessionStore>>;
@@ -212,6 +213,7 @@ export async function createSessionToolRuntime(input: {
       skills,
       {
         events,
+        extensionActivation: input.extensionActivation,
         skillsCatalog: () => loadSkills(root),
         remoteSkills: new RemoteSkills(web.http),
         mode,

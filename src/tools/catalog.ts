@@ -70,10 +70,18 @@ export class ToolCatalog {
         names.add(name);
         snapshot.push(handler);
       }
+    this.setProviderSnapshot(id, provider ? snapshot : undefined, options);
+  }
+  setProviderSnapshot(
+    id: string,
+    snapshot?: readonly ToolHandler[],
+    options?: { requireNew?: boolean },
+  ): void {
+    const names = new Set(snapshot?.map(({ spec }) => spec.name));
     const old = this.providers.get(id) ?? new Set<string>();
     if (options?.requireNew && this.providers.has(id))
       throw new Error(`Provider ${id} is already attached to this catalog.`);
-    for (const handler of snapshot)
+    for (const handler of snapshot ?? [])
       if (this.handlers.has(handler.spec.name) && !old.has(handler.spec.name))
         throw duplicate(handler, this.handlers.get(handler.spec.name));
     for (const name of old) {
@@ -82,13 +90,13 @@ export class ToolCatalog {
       this.handlers.delete(name);
       if (!names.has(name)) this.explicit.delete(name);
     }
-    for (const handler of snapshot) {
+    for (const handler of snapshot ?? []) {
       this.handlers.set(handler.spec.name, handler);
       this.retiredMcp.delete(handler.spec.name);
     }
     while (this.retiredMcp.size > 2000)
       this.retiredMcp.delete(this.retiredMcp.values().next().value as string);
-    if (provider) this.providers.set(id, names);
+    if (snapshot) this.providers.set(id, names);
     else this.providers.delete(id);
   }
   hasProvider(id: string): boolean {
@@ -100,10 +108,12 @@ export class ToolCatalog {
         this.explicit.set(name, ++this.selectionSequence);
   }
   handlersSnapshot(): readonly ToolHandler[] {
-    return [...this.handlers.values()];
+    return [...this.handlers.values()].filter(
+      (handler) => !handler.lifetimeSignal?.aborted,
+    );
   }
   specs() {
-    return [...this.handlers.values()].map((handler) => handler.spec);
+    return this.handlersSnapshot().map((handler) => handler.spec);
   }
   get(name: string): ToolHandler {
     const handler = this.handlers.get(name);
@@ -121,7 +131,12 @@ export class ToolCatalog {
   instructionsForTurn(tools: readonly ToolDefinition[]): string {
     const guidance = tools.flatMap(({ name }) => {
       const handler = this.handlers.get(name);
-      if (!handler || !this.permitted(handler) || this.unavailable?.(handler))
+      if (
+        !handler ||
+        handler.lifetimeSignal?.aborted ||
+        !this.permitted(handler) ||
+        this.unavailable?.(handler)
+      )
         return [];
       const { spec } = handler;
       // Skill bodies, server text and extension guidance cannot gain system authority.
@@ -144,7 +159,7 @@ export class ToolCatalog {
     prompt?: string;
     recentTools?: string[];
   }): ToolDefinition[] {
-    const permitted = [...this.handlers.values()].filter(
+    const permitted = this.handlersSnapshot().filter(
       (handler) =>
         this.permitted(handler) &&
         !this.unavailable?.(handler) &&

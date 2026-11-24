@@ -536,3 +536,110 @@ test("foreground command model port uses real driver without main history/events
     else process.env.OPENAI_API_KEY = previousKey;
   }
 });
+
+test("disabling an activation cancels its running and queued background work, preserving a peer", async () => {
+  const { defaultExtensions } = await import(
+    "../../src/extensions/composition.js"
+  );
+  const { backgroundServiceToken } = await import(
+    "../../src/extensions/builtins/background.js"
+  );
+  const { quoteShellArg } = await import("../helpers/shell.js");
+  const owned = join(directory, "workspace"),
+    peer = join(directory, "peer");
+  await mkdir(peer);
+  for (const root of [owned, peer])
+    await writeFile(
+      join(root, "hold.cjs"),
+      "console.log('ready'); setInterval(() => {}, 500);",
+    );
+  const definition = (id: string): ChiselExtension => ({
+    id,
+    activate(ctx) {
+      ctx.commands.register({
+        name: id.endsWith("owned") ? "owned-work" : "peer-work",
+        description: "Fixture background command",
+        parse: (input) => input,
+        execute: (invocation, label) =>
+          invocation.tools.execute("run_shell", {
+            command: `${quoteShellArg(process.execPath)} hold.cjs`,
+            background: true,
+            taskKind: "service",
+            label,
+          }),
+      });
+    },
+  });
+  const host = new ExtensionHost(
+    defaultExtensions([
+      definition("fixture.owned"),
+      definition("fixture.peer"),
+    ]),
+  );
+  hosts.push(host);
+  const [scope, other] = await Promise.all([host.open(owned), host.open(peer)]);
+  const owner = new AbortController();
+  const start = async (
+    scope: Awaited<ReturnType<typeof host.open>>,
+    name: string,
+    label: string,
+    resume?: string,
+  ) => {
+    const command = scope.commands.get(name);
+    const result = await runExtensionCommand(
+      { command, input: command.parse(label) },
+      scope,
+      {
+        cwd: scope.workspaceRoot,
+        configPath: join(directory, "config.json"),
+        interactive: true,
+        mode: "build",
+        resume,
+        subagentOwner: {
+          conversationId: scope.workspaceRoot,
+          generation: 0,
+          signal: owner.signal,
+          assertAvailable: () => scope.assertUsable(),
+        },
+      },
+      { requestApproval: async () => "approved" },
+    );
+    expect(result.result.isError).not.toBe(true);
+    const receipt = result.result.details?.backgroundTask as
+      | { id: string }
+      | undefined;
+    if (!receipt) throw new Error("Нет квитанции фоновой задачи.");
+    const { id } = receipt;
+    const service = scope.services.get(backgroundServiceToken);
+    return { ...result, id, control: service.controls(result.session.id, 0) };
+  };
+  try {
+    const running = await start(scope, "owned-work", "run");
+    const queued = await start(
+      scope,
+      "owned-work",
+      "queued",
+      running.session.id,
+    );
+    const unrelated = await start(other, "peer-work", "peer");
+    expect((await running.control.port.status(running.id)).state).toBe(
+      "running",
+    );
+    expect((await queued.control.port.status(queued.id)).state).toBe(
+      "waiting_resources",
+    );
+    await host.suspendOwner("fixture.owned");
+    expect(() => scope.commands.get("owned-work")).toThrow();
+    for (const id of [running.id, queued.id])
+      expect(await running.control.port.status(id)).toMatchObject({
+        state: "cancelled",
+        cleanup: { confirmed: true },
+      });
+    expect((await unrelated.control.port.status(unrelated.id)).state).toBe(
+      "running",
+    );
+    await unrelated.control.close();
+  } finally {
+    owner.abort();
+  }
+}, 20000);
