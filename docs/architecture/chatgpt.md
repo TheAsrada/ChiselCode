@@ -30,7 +30,9 @@ Refresh начинается перед запросом, если до исте
 
 Запрос `/codex/responses` отправляется с `stream: true` и `store: false`. История преобразуется в сообщения, `function_call` и `function_call_output`. `call_id` и namespaced aliases инструментов сохраняются. Все вызовы проверяются до публикации исполняемых `tool_call`.
 
-`response.completed` / `response.done` завершают ход только с подтверждённым `status: completed`. Обрыв, incomplete response, неверные аргументы и отказ остаются ошибками. Входные токены включают cache ровно один раз. Тариф API не применяется к расходу подписки.
+Для GPT‑6.2 адаптер один раз передаёт исходный `request.system` как первое сообщение `developer` в `input`, чтобы сервис мог кэшировать этот префикс. Поле `instructions` опускается, а элементы истории идут следом в исходном порядке. Для остальных моделей подписки системный промпт передаётся в `instructions`. [Замеры форматов запроса в OpenCode](https://github.com/anomalyco/opencode/pull/64542).
+
+`response.completed` / `response.done` завершают ход только с подтверждённым `status: completed`. Обрыв, incomplete response, неверные аргументы и отказ остаются ошибками. `input_tokens` уже включает токены из кэша. Адаптер отдельно передаёт `input_tokens_details.cached_tokens` как `cacheReadTokens`, когда сервис возвращает этот счётчик. Тариф API не применяется к расходу подписки.
 
 Параметр `max_output_tokens` в Codex backend не отправляется. Ограничения вспомогательных model requests по времени и объёму по-прежнему обеспечивает их core service. Подключение подписки не добавляет обычный OpenAI Responses driver для произвольных API.
 

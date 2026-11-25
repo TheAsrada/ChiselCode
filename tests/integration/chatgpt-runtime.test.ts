@@ -19,6 +19,7 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
   const root = await mkdtemp(join(tmpdir(), "chisel-chatgpt-runtime-"));
   const token = `header.${Buffer.from(JSON.stringify({ email: "fixture@example.test", "https://api.openai.com/auth": { chatgpt_account_id: "fixture-account" } })).toString("base64url")}.signature`;
   let generations = 0;
+  const inputs: unknown[][] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -47,8 +48,8 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
         return Response.json({
           models: [
             {
-              slug: "fixture-codex",
-              display_name: "Fixture Codex",
+              slug: "gpt-6.2-sol",
+              display_name: "GPT-6.2 Sol",
               max_context_window: 128_000,
               effective_context_window_percent: 90,
               visibility: "list",
@@ -57,15 +58,15 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
         });
       expect(path).toBe("/backend-api/codex/responses");
       const body = (await request.json()) as {
+        stream: boolean;
         store: boolean;
-        input: { type?: string; call_id?: string; output?: string }[];
+        input: unknown[];
       };
+      expect(body).not.toHaveProperty("instructions");
+      expect(body.stream).toBe(true);
       expect(body.store).toBe(false);
+      inputs.push(body.input);
       generations++;
-      if (generations > 1)
-        expect(
-          body.input.find((item) => item.type === "function_call_output"),
-        ).toMatchObject({ call_id: "call_write" });
       const output =
         generations === 1
           ? [
@@ -152,9 +153,9 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
       registry,
     });
     expect(await adapter.listModels!()).toMatchObject([
-      { id: "fixture-codex", contextWindow: 115_200 },
+      { id: "gpt-6.2-sol", contextWindow: 115_200 },
     ]);
-    const session = createSession(root, "chatgpt", "fixture-codex");
+    const session = createSession(root, "chatgpt", "gpt-6.2-sol");
     const events = new RuntimeEventBus(session.id);
     const activity: Pick<
       import("../../src/runtime/events.js").RuntimeEvent,
@@ -199,7 +200,7 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
     });
     expect(result.text).toBe("Файл записан");
     expect(result.session.contextSnapshot).toMatchObject({
-      model: "fixture-codex",
+      model: "gpt-6.2-sol",
       contextWindow: 115_200,
       windowSource: "provider",
     });
@@ -207,6 +208,45 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
       "Подписка работает\n",
     );
     expect(generations).toBe(2);
+    const [initialInput, toolInput] = inputs;
+    const uiObservation = {
+      role: "user",
+      content: [
+        { type: "input_text", text: expect.stringContaining("<ui_snapshot>") },
+      ],
+    };
+    const userMessage = {
+      role: "user",
+      content: [{ type: "input_text", text: "Запиши result.txt" }],
+    };
+    expect(initialInput).toEqual([
+      {
+        type: "message",
+        role: "developer",
+        content: expect.stringContaining("Запиши файл"),
+      },
+      uiObservation,
+      userMessage,
+    ]);
+    expect(toolInput).toEqual([
+      initialInput?.[0],
+      uiObservation,
+      userMessage,
+      {
+        type: "function_call",
+        call_id: "call_write",
+        name: "write_file",
+        arguments: JSON.stringify({
+          path: "result.txt",
+          content: "Подписка работает\n",
+        }),
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_write",
+        output: expect.any(String),
+      },
+    ]);
     expect(activity.map(({ type }) => type)).toEqual([
       "provider_request_started",
       "provider_thinking_delta",

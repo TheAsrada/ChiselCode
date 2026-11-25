@@ -82,8 +82,8 @@ async function login(auth: ChatGptAuth, profileId = "personal") {
   });
 }
 const request: ProviderRequest = {
-  model: "codex-test",
-  system: "system",
+  model: "gpt-6.2-astra",
+  system: "Системный промпт.\n\nСохрани переносы.\n",
   messages: [{ role: "user", content: [{ type: "text", text: "Задача" }] }],
   tools: [
     {
@@ -244,7 +244,7 @@ test("Responses normalizes text, namespaced tools, usage and terminal events", a
             ],
             default_reasoning_level: "low",
           },
-          { slug: "no-effort", visibility: "list" },
+          { slug: "gpt-6.1-sol", visibility: "list" },
         ],
       });
     }
@@ -308,6 +308,16 @@ test("Responses normalizes text, namespaced tools, usage and terminal events", a
     }),
   );
   expect(body.reasoning).toEqual({ effort: "high" });
+  expect(body).not.toHaveProperty("instructions");
+  const userMessage = {
+    role: "user",
+    content: [{ type: "input_text", text: "Задача" }],
+  };
+  expect(body.input).toEqual([
+    { type: "message", role: "developer", content: request.system },
+    userMessage,
+  ]);
+  expect(body.stream).toBe(true);
   expect(body.store).toBe(false);
   expect(body.max_output_tokens).toBeUndefined();
   expect(events.find((event) => event.type === "tool_call")).toMatchObject({
@@ -327,17 +337,19 @@ test("Responses normalizes text, namespaced tools, usage and terminal events", a
       cacheReadTokens: 12,
     },
   });
-  const unsupported = (await adapter.getCapabilities?.("no-effort"))
+  const unsupported = (await adapter.getCapabilities?.("gpt-6.1-sol"))
     ?.reasoningEffort;
   expect(unsupported?.reason).toContain("Каталог ChatGPT");
   await Array.fromAsync(
     adapter.streamChat({
       ...request,
-      model: "no-effort",
+      model: "gpt-6.1-sol",
       reasoningEffort: resolveReasoningEffort(unsupported, "high"),
     }),
   );
   expect(body).not.toHaveProperty("reasoning");
+  expect(body.instructions).toBe(request.system);
+  expect(body.input).toEqual([userMessage]);
 });
 
 test("ChatGPT uses the account's usable Codex window and never borrows API limits", async () => {

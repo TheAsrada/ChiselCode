@@ -234,6 +234,15 @@ export class ChatGptAdapter implements ProviderAdapter {
     ]);
     const names = new ProviderToolNames(request.tools, request.messages);
     try {
+      const input = responsesInput(request, names);
+      // GPT-6.2 caches the system prompt when it leads input as a developer message.
+      const useDeveloperPrompt = /^gpt-6\.2(?:-|$)/.test(request.model);
+      if (useDeveloperPrompt)
+        input.unshift({
+          type: "message",
+          role: "developer",
+          content: request.system,
+        });
       const response = await this.transport.request(
         this.profileId,
         "/codex/responses",
@@ -246,8 +255,8 @@ export class ChatGptAdapter implements ProviderAdapter {
             ...(request.reasoningEffort !== undefined
               ? { reasoning: { effort: request.reasoningEffort } }
               : {}),
-            instructions: request.system,
-            input: responsesInput(request, names),
+            instructions: useDeveloperPrompt ? undefined : request.system,
+            input,
             stream: true,
             store: false,
             parallel_tool_calls: true,
