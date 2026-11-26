@@ -1,0 +1,19 @@
+{
+  "status": "completed",
+  "verified": true,
+  "tokens": {
+    "input": 51723,
+    "output": 313,
+    "cache_read": 49152
+  },
+  "tools": 3,
+  "tool_errors": 0,
+  "exit": 0,
+  "seconds": 21.309,
+  "logs": [
+    "stdout.jsonl",
+    "stderr.log",
+    "session-01.jsonl"
+  ],
+  "probe_ok": true
+}

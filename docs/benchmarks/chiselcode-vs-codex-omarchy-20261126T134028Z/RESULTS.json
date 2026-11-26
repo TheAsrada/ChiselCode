@@ -1,0 +1,1523 @@
+{
+  "status": "COMPLETE",
+  "planned_attempts": 48,
+  "recorded_attempts": 48,
+  "environment": {
+    "suite_sha256": "7eb20cfa8037ac451d22f01f4c623980bf8a884cbde8adaad6069a70b98aacf0",
+    "seed": 6212,
+    "repeats": 3,
+    "timeout_seconds": 720,
+    "model": "gpt-6.2-sol",
+    "effort": "high",
+    "clients": {
+      "chisel": {
+        "version": "0.6.58",
+        "launcher_sha256": "009ef02a445e39aa5c1e9b4a00e771f95899fb3a987189df04acb0f94c55e23f"
+      },
+      "codex": {
+        "version": "codex-cli 0.166.0",
+        "launcher_sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8"
+      }
+    },
+    "platform": "Linux",
+    "kernel": "7.2.15-1-omarchy",
+    "machine": "x86_64",
+    "python": "3.14.8",
+    "git": "git version 2.56.0",
+    "bubblewrap": "bubblewrap 0.13.1",
+    "started_utc": "2026-11-26T13:41:21.693136+00:00"
+  },
+  "agents": {
+    "chisel": {
+      "recorded": 24,
+      "completed": 22,
+      "solved": 22,
+      "mean_fraction": 0.93333,
+      "statuses": {
+        "completed": 22,
+        "failed": 2
+      },
+      "median_wall_s_solved": 51.224999999999994,
+      "median_input": 54626.0,
+      "n_input": 22,
+      "median_output": 1221.5,
+      "n_output": 22,
+      "median_cache_read": 16128.0,
+      "n_cache_read": 22,
+      "median_tools": 12.0,
+      "n_tools": 22,
+      "median_tool_errors": 0.0,
+      "n_tool_errors": 22
+    },
+    "codex": {
+      "recorded": 24,
+      "completed": 24,
+      "solved": 24,
+      "mean_fraction": 1.0,
+      "statuses": {
+        "completed": 24
+      },
+      "median_wall_s_solved": 49.759,
+      "median_input": 89946.5,
+      "n_input": 24,
+      "median_output": 1695.5,
+      "n_output": 24,
+      "median_cache_read": 63744.0,
+      "n_cache_read": 24,
+      "median_tools": 11.0,
+      "n_tools": 24,
+      "median_tool_errors": 1.0,
+      "n_tool_errors": 24
+    }
+  },
+  "paired": {
+    "eligible_pairs": 24,
+    "both_solved": 22,
+    "only_chisel": 0,
+    "only_codex": 2,
+    "neither_solved": 0,
+    "task_macro_solve_delta_pp": -8.33,
+    "solve_delta_bootstrap_95_pp": [
+      -20.83,
+      0
+    ],
+    "paired_case_delta_pp": -6.67,
+    "both_solved_median_wall_delta_s": 3.06
+  },
+  "attempts": [
+    {
+      "task": "jobs",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 68426,
+        "output": 1447,
+        "cache_read": 64128
+      },
+      "tools": 10,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 49.823,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "jobs",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 49148,
+        "output": 1076,
+        "cache_read": 0
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 48.989,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "ledger",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 62081,
+        "output": 2260,
+        "cache_read": 3584
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "seconds": 71.54,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "ledger",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 109043,
+        "output": 5630,
+        "cache_read": 71296
+      },
+      "tools": 12,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 128.097,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "cursor",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 49174,
+        "output": 1240,
+        "cache_read": 14336
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 47.074,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "cursor",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 83061,
+        "output": 1561,
+        "cache_read": 53248
+      },
+      "tools": 11,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 45.749,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "batches",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 95573,
+        "output": 1144,
+        "cache_read": 51968
+      },
+      "tools": 8,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 44.297,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "batches",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 2,
+      "status": "failed",
+      "verified": false,
+      "exit": 0,
+      "tokens": {
+        "input": 6202,
+        "output": 61,
+        "cache_read": 3584
+      },
+      "tools": 3,
+      "tool_errors": 0,
+      "seconds": 8.513,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 2,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": [
+          "batches-02",
+          "batches-03",
+          "batches-04",
+          "batches-05",
+          "batches-06",
+          "batches-07",
+          "batches-09",
+          "batches-10"
+        ]
+      }
+    },
+    {
+      "task": "replay",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 50998,
+        "output": 1676,
+        "cache_read": 10752
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 82.7,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "replay",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 99862,
+        "output": 2125,
+        "cache_read": 90496
+      },
+      "tools": 13,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 58.226,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "occupancy",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 68083,
+        "output": 1101,
+        "cache_read": 52736
+      },
+      "tools": 11,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 35.077,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "occupancy",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 49072,
+        "output": 1154,
+        "cache_read": 10752
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "seconds": 46.87,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "layers",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 101039,
+        "output": 2444,
+        "cache_read": 80384
+      },
+      "tools": 12,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 64.438,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "layers",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 58278,
+        "output": 1817,
+        "cache_read": 17920
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 67.607,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "alerts",
+      "repeat": 1,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 48454,
+        "output": 871,
+        "cache_read": 17920
+      },
+      "tools": 11,
+      "tool_errors": 0,
+      "seconds": 39.654,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "alerts",
+      "repeat": 1,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 69014,
+        "output": 1887,
+        "cache_read": 40832
+      },
+      "tools": 9,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 57.574,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "ledger",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 73904,
+        "output": 3869,
+        "cache_read": 41856
+      },
+      "tools": 10,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 93.337,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "ledger",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 61728,
+        "output": 2798,
+        "cache_read": 7168
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 87.728,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "jobs",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 1,
+      "status": "failed",
+      "verified": false,
+      "exit": 0,
+      "tokens": {
+        "input": 19394,
+        "output": 148,
+        "cache_read": 7168
+      },
+      "tools": 7,
+      "tool_errors": 0,
+      "seconds": 18.436,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 2,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": [
+          "jobs-03",
+          "jobs-04",
+          "jobs-05",
+          "jobs-06",
+          "jobs-07",
+          "jobs-08",
+          "jobs-09",
+          "jobs-10"
+        ]
+      }
+    },
+    {
+      "task": "jobs",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 95641,
+        "output": 1220,
+        "cache_read": 91264
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 42.398,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "replay",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 100941,
+        "output": 3279,
+        "cache_read": 90496
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 84.173,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "replay",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 50732,
+        "output": 1382,
+        "cache_read": 14336
+      },
+      "tools": 11,
+      "tool_errors": 0,
+      "seconds": 50.778,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "batches",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 56897,
+        "output": 1027,
+        "cache_read": 10752
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 50.245,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "batches",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 82210,
+        "output": 1243,
+        "cache_read": 63616
+      },
+      "tools": 12,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 41.041,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "occupancy",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 49035,
+        "output": 1146,
+        "cache_read": 3584
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "seconds": 46.292,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "occupancy",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 68214,
+        "output": 1245,
+        "cache_read": 41728
+      },
+      "tools": 9,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 39.042,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "alerts",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 98597,
+        "output": 1883,
+        "cache_read": 94592
+      },
+      "tools": 11,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 57.171,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "alerts",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 56547,
+        "output": 1050,
+        "cache_read": 17920
+      },
+      "tools": 11,
+      "tool_errors": 0,
+      "seconds": 47.257,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "cursor",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 98111,
+        "output": 1481,
+        "cache_read": 52736
+      },
+      "tools": 11,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 48.633,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "cursor",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 57584,
+        "output": 1278,
+        "cache_read": 21504
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "seconds": 57.132,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "layers",
+      "repeat": 2,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 57593,
+        "output": 1960,
+        "cache_read": 28672
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 65.714,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "layers",
+      "repeat": 2,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 100797,
+        "output": 2848,
+        "cache_read": 55552
+      },
+      "tools": 14,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 81.815,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "occupancy",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 68812,
+        "output": 1212,
+        "cache_read": 40320
+      },
+      "tools": 8,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 39.337,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "occupancy",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 48711,
+        "output": 1008,
+        "cache_read": 14336
+      },
+      "tools": 11,
+      "tool_errors": 0,
+      "seconds": 53.407,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "ledger",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 52705,
+        "output": 2656,
+        "cache_read": 14336
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "seconds": 75.085,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "ledger",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 106726,
+        "output": 6081,
+        "cache_read": 71040
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 145.629,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "layers",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 100009,
+        "output": 2508,
+        "cache_read": 91520
+      },
+      "tools": 14,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 68.897,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "layers",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 57875,
+        "output": 2160,
+        "cache_read": 17920
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "seconds": 72.523,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "jobs",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 96296,
+        "output": 1390,
+        "cache_read": 76800
+      },
+      "tools": 11,
+      "tool_errors": 2,
+      "exit": 0,
+      "seconds": 46.147,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "jobs",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 56680,
+        "output": 1071,
+        "cache_read": 21504
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 51.095,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "cursor",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 49266,
+        "output": 1181,
+        "cache_read": 25088
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 48.706,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "cursor",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 84320,
+        "output": 1491,
+        "cache_read": 79360
+      },
+      "tools": 11,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 44.29,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "batches",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 68363,
+        "output": 1050,
+        "cache_read": 50432
+      },
+      "tools": 7,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 33.475,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "batches",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 57032,
+        "output": 941,
+        "cache_read": 17920
+      },
+      "tools": 12,
+      "tool_errors": 0,
+      "seconds": 46.962,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "replay",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 51912,
+        "output": 1672,
+        "cache_read": 25088
+      },
+      "tools": 13,
+      "tool_errors": 0,
+      "seconds": 61.25,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "replay",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 70380,
+        "output": 2342,
+        "cache_read": 63872
+      },
+      "tools": 9,
+      "tool_errors": 1,
+      "exit": 0,
+      "seconds": 58.308,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "alerts",
+      "repeat": 3,
+      "agent": "chisel",
+      "position": 1,
+      "status": "completed",
+      "verified": true,
+      "exit": 0,
+      "tokens": {
+        "input": 57544,
+        "output": 1203,
+        "cache_read": 25088
+      },
+      "tools": 14,
+      "tool_errors": 0,
+      "seconds": 51.355,
+      "logs": [
+        "terminal.log",
+        "session-01.json"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    },
+    {
+      "task": "alerts",
+      "repeat": 3,
+      "agent": "codex",
+      "position": 2,
+      "status": "completed",
+      "verified": true,
+      "tokens": {
+        "input": 68979,
+        "output": 1830,
+        "cache_read": 38784
+      },
+      "tools": 9,
+      "tool_errors": 0,
+      "exit": 0,
+      "seconds": 49.695,
+      "logs": [
+        "stdout.jsonl",
+        "stderr.log",
+        "session-01.jsonl"
+      ],
+      "grade": {
+        "passed": 10,
+        "total": 10,
+        "pristine": true,
+        "public_ok": true,
+        "grader_error": null,
+        "failed_cases": []
+      }
+    }
+  ]
+}

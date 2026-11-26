@@ -1,0 +1,34 @@
+{
+  "status": "failed",
+  "verified": false,
+  "exit": 0,
+  "tokens": {
+    "input": 19394,
+    "output": 148,
+    "cache_read": 7168
+  },
+  "tools": 7,
+  "tool_errors": 0,
+  "seconds": 18.436,
+  "logs": [
+    "terminal.log",
+    "session-01.json"
+  ],
+  "grade": {
+    "passed": 2,
+    "total": 10,
+    "pristine": true,
+    "public_ok": true,
+    "grader_error": null,
+    "failed_cases": [
+      "jobs-03",
+      "jobs-04",
+      "jobs-05",
+      "jobs-06",
+      "jobs-07",
+      "jobs-08",
+      "jobs-09",
+      "jobs-10"
+    ]
+  }
+}

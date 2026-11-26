@@ -1,0 +1,26 @@
+{
+  "status": "completed",
+  "verified": true,
+  "tokens": {
+    "input": 99862,
+    "output": 2125,
+    "cache_read": 90496
+  },
+  "tools": 13,
+  "tool_errors": 1,
+  "exit": 0,
+  "seconds": 58.226,
+  "logs": [
+    "stdout.jsonl",
+    "stderr.log",
+    "session-01.jsonl"
+  ],
+  "grade": {
+    "passed": 10,
+    "total": 10,
+    "pristine": true,
+    "public_ok": true,
+    "grader_error": null,
+    "failed_cases": []
+  }
+}

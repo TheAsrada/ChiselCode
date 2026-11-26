@@ -1,0 +1,654 @@
+{
+  "mainSpend": {
+    "usage": {
+      "inputTokens": 62081,
+      "outputTokens": 2260,
+      "cacheReadTokens": 3584
+    },
+    "knownCost": 0,
+    "unknownCost": true,
+    "unknownUsage": false
+  },
+  "mode": "build",
+  "approvalMode": "acceptEdits",
+  "schemaVersion": 3,
+  "runtime": {
+    "turnMode": "build",
+    "turnApprovalMode": "acceptEdits",
+    "turnId": "216f0746-a032-4877-8630-59778395f706",
+    "state": "completed",
+    "invocations": {
+      "call_cb088bbad15d46e9919b9789dbb1ccf7": {
+        "id": "call_cb088bbad15d46e9919b9789dbb1ccf7",
+        "name": "read_file",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "path": "TASK.md"
+        },
+        "fingerprint": "b8c5aa482eca4c619cf5aa7d909c883858340bdbb970712f0bd70c46ef5ac38f",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:07.967Z",
+        "updatedAt": "2026-11-26T13:43:08.083Z",
+        "result": {
+          "output": "1\t# Задача\n2\t\n3\tРеализуй `post(opening, transfers)` в `solution.py`. Opening — словарь account → неотрицательная\n4\tсумма целых единиц. Перевод — [id, from, to, amount], amount положительный int, аккаунты — строки.\n5\tОбработай переводы по порядку. Если id уже успешно применён, статус \"duplicate\" имеет приоритет.\n6\tИначе если любой аккаунт отсутствует, статус \"unknown\"; иначе если остаток from меньше amount,\n7\tстатус \"insufficient\"; иначе статус \"posted\". Перевод на тот же счёт проверяет достаточность,\n8\tзапоминает успешный id, оставляет остаток прежним. Неуспех не резервирует id. Для хранения используй\n9\tSQLite через `sqlite3` и временный in-memory ledger. Сохрани API `ledger_db.open_ledger(opening)`\n10\tи используй этот helper из solution.py. Этот helper создаёт схему, заполняет счета и возвращает\n11\tоткрытое соединение. Согласованно сохраняй балансы и факт применения перевода.\n12\tВерни {\"balances\": словарь всех счетов, \"statuses\": список статусов}. Входы не меняй.\n13\t\n14\tПубличные проверки запускаются командой `python3 -m unittest discover -s tests`.\n15\t"
+        }
+      },
+      "call_5f5f7afe2b0b470abbfa8b2eded8bde2": {
+        "id": "call_5f5f7afe2b0b470abbfa8b2eded8bde2",
+        "name": "list_dir",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "path": "."
+        },
+        "fingerprint": "1863cfbadb6c1c7beb8804631b6f7f322de121b5af64c4c6461ff4db27bb2951",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:07.967Z",
+        "updatedAt": "2026-11-26T13:43:08.071Z",
+        "result": {
+          "output": "tests\nsolution.py\nledger_db.py\nTASK.md"
+        }
+      },
+      "call_d0ecc4859776491a8a26ee3fcdff12be": {
+        "id": "call_d0ecc4859776491a8a26ee3fcdff12be",
+        "name": "git_status",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {},
+        "fingerprint": "5221d712c05c7b41b378e3e1ac990b9e527be56dc437850ef80544dbe5cb2d77",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:07.968Z",
+        "updatedAt": "2026-11-26T13:43:08.052Z",
+        "result": {
+          "output": "Git operation completed.",
+          "isError": false
+        }
+      },
+      "call_061bad711647445d8cb9d97bd7d1fa95": {
+        "id": "call_061bad711647445d8cb9d97bd7d1fa95",
+        "name": "read_file",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "path": "solution.py"
+        },
+        "fingerprint": "c3977068cd94b43374a22a14adfa4808bdaae7640c090023678191d2b4cf044c",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:12.338Z",
+        "updatedAt": "2026-11-26T13:43:12.403Z",
+        "result": {
+          "output": "1\tfrom ledger_db import open_ledger\n2\t\n3\tdef post(opening, transfers):\n4\t    with open_ledger(opening) as conn:\n5\t        for _, source, target, amount in transfers:\n6\t            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n7\t            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n8\t        return {\n9\t            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n10\t            \"statuses\": [\"posted\"] * len(transfers),\n11\t        }\n12\t"
+        }
+      },
+      "call_733acfa1377e404a972accd6a08836ff": {
+        "id": "call_733acfa1377e404a972accd6a08836ff",
+        "name": "read_file",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "path": "ledger_db.py"
+        },
+        "fingerprint": "9069ecab3b1da38ed4ebf010e8a2057b0a1c04c7188f444649cd367ac71533d6",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:12.338Z",
+        "updatedAt": "2026-11-26T13:43:12.442Z",
+        "result": {
+          "output": "1\timport sqlite3\n2\t\n3\tdef open_ledger(opening):\n4\t    connection = sqlite3.connect(\":memory:\")\n5\t    with connection:\n6\t        connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n7\t        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n8\t    return connection\n9\t"
+        }
+      },
+      "call_d0f0b75cd05a4652bdbd00f915742003": {
+        "id": "call_d0f0b75cd05a4652bdbd00f915742003",
+        "name": "list_dir",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "path": "tests"
+        },
+        "fingerprint": "bd0a210ead607134d970fd4fa362fba6b851309b367d3a4437f0d77c95e1b139",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:12.338Z",
+        "updatedAt": "2026-11-26T13:43:12.423Z",
+        "result": {
+          "output": "tests/test_public.py"
+        }
+      },
+      "call_e368db2ab98a4628b4be9e6f030aeab4": {
+        "id": "call_e368db2ab98a4628b4be9e6f030aeab4",
+        "name": "glob",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "pattern": "AGENTS.md"
+        },
+        "fingerprint": "b9a0c3a9a756e42338c9d17b3f5695b8ac3509815fd1aa8c4de3888a9f17bdd8",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:12.338Z",
+        "updatedAt": "2026-11-26T13:43:12.403Z",
+        "result": {
+          "output": "No files matched."
+        }
+      },
+      "call_af3da63bc6914f9abccb0cc8970c7271": {
+        "id": "call_af3da63bc6914f9abccb0cc8970c7271",
+        "name": "read_file",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "path": "tests/test_public.py"
+        },
+        "fingerprint": "d021856d2768c5d05f9a9a348dc222fce50a85dc76ca65779dc7743292d80e6c",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:15.705Z",
+        "updatedAt": "2026-11-26T13:43:15.742Z",
+        "result": {
+          "output": "1\timport unittest\n2\tfrom solution import post\n3\t\n4\tclass PublicTest(unittest.TestCase):\n5\t    def test_example(self):\n6\t        self.assertEqual(post(*[{\"a\": 5, \"b\": 0}, [[\"t\", \"a\", \"b\", 2]]]), {\"balances\": {\"a\": 3, \"b\": 2}, \"statuses\": [\"posted\"]})\n7\t\n8\t\n9\tif __name__ == \"__main__\":\n10\t    unittest.main()\n11\t"
+        }
+      },
+      "call_a60047717f2c492dae2030e7c201f21d": {
+        "id": "call_a60047717f2c492dae2030e7c201f21d",
+        "name": "apply_patch",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "patchText": "*** Begin Patch\n*** Update File: ledger_db.py\n@@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\n*** Update File: solution.py\n@@\n-from ledger_db import open_ledger\n+from contextlib import closing\n+\n+from ledger_db import decode_balance, encode_balance, open_ledger\n+\n+\n+def _post_transfer(conn, transfer_id, source, target, amount):\n+    if conn.execute(\n+        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n+    ).fetchone() is not None:\n+        return \"duplicate\"\n+\n+    accounts = dict(conn.execute(\n+        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n+    ))\n+    if source not in accounts or target not in accounts:\n+        return \"unknown\"\n+\n+    source_balance = decode_balance(accounts[source])\n+    if source_balance < amount:\n+        return \"insufficient\"\n+\n+    if source != target:\n+        target_balance = decode_balance(accounts[target])\n+        conn.executemany(\n+            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n+            ((encode_balance(source_balance - amount), source),\n+             (encode_balance(target_balance + amount), target)),\n+        )\n+    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n+    return \"posted\"\n+\n \n def post(opening, transfers):\n-    with open_ledger(opening) as conn:\n-        for _, source, target, amount in transfers:\n-            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n-            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n-        return {\n-            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n-            \"statuses\": [\"posted\"] * len(transfers),\n+    with closing(open_ledger(opening)) as conn, conn:\n+        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n+        balances = {\n+            name: decode_balance(balance)\n+            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n         }\n+    return {\"balances\": balances, \"statuses\": statuses}\n*** End Patch"
+        },
+        "fingerprint": "344a7cc282065ab41fd475ab2327c590616b95acf61908fa89de675885104701",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:49.983Z",
+        "updatedAt": "2026-11-26T13:43:50.040Z",
+        "result": {
+          "output": "Updated 2 files:\n- ledger_db.py (edit)\n- solution.py (edit)",
+          "preview": "Index: ledger_db.py\n===================================================================\n--- ledger_db.py\tbefore\n+++ ledger_db.py\tafter\n@@ -1,8 +1,25 @@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\n\nIndex: solution.py\n===================================================================\n--- solution.py\tbefore\n+++ solution.py\tafter\n@@ -1,11 +1,40 @@\n-from ledger_db import open_ledger\n+from contextlib import closing\n \n+from ledger_db import decode_balance, encode_balance, open_ledger\n+\n+\n+def _post_transfer(conn, transfer_id, source, target, amount):\n+    if conn.execute(\n+        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n+    ).fetchone() is not None:\n+        return \"duplicate\"\n+\n+    accounts = dict(conn.execute(\n+        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n+    ))\n+    if source not in accounts or target not in accounts:\n+        return \"unknown\"\n+\n+    source_balance = decode_balance(accounts[source])\n+    if source_balance < amount:\n+        return \"insufficient\"\n+\n+    if source != target:\n+        target_balance = decode_balance(accounts[target])\n+        conn.executemany(\n+            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n+            ((encode_balance(source_balance - amount), source),\n+             (encode_balance(target_balance + amount), target)),\n+        )\n+    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n+    return \"posted\"\n+\n+\n def post(opening, transfers):\n-    with open_ledger(opening) as conn:\n-        for _, source, target, amount in transfers:\n-            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n-            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n-        return {\n-            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n-            \"statuses\": [\"posted\"] * len(transfers),\n+    with closing(open_ledger(opening)) as conn, conn:\n+        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n+        balances = {\n+            name: decode_balance(balance)\n+            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n         }\n+    return {\"balances\": balances, \"statuses\": statuses}\n",
+          "fileDiff": {
+            "path": "ledger_db.py",
+            "kind": "edit",
+            "patch": "Index: ledger_db.py\n===================================================================\n--- ledger_db.py\tbefore\n+++ ledger_db.py\tafter\n@@ -1,8 +1,25 @@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\n",
+            "additions": 18,
+            "deletions": 1
+          },
+          "diffs": [
+            {
+              "path": "ledger_db.py",
+              "kind": "edit",
+              "patch": "Index: ledger_db.py\n===================================================================\n--- ledger_db.py\tbefore\n+++ ledger_db.py\tafter\n@@ -1,8 +1,25 @@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\n",
+              "additions": 18,
+              "deletions": 1
+            },
+            {
+              "path": "solution.py",
+              "kind": "edit",
+              "patch": "Index: solution.py\n===================================================================\n--- solution.py\tbefore\n+++ solution.py\tafter\n@@ -1,11 +1,40 @@\n-from ledger_db import open_ledger\n+from contextlib import closing\n \n+from ledger_db import decode_balance, encode_balance, open_ledger\n+\n+\n+def _post_transfer(conn, transfer_id, source, target, amount):\n+    if conn.execute(\n+        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n+    ).fetchone() is not None:\n+        return \"duplicate\"\n+\n+    accounts = dict(conn.execute(\n+        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n+    ))\n+    if source not in accounts or target not in accounts:\n+        return \"unknown\"\n+\n+    source_balance = decode_balance(accounts[source])\n+    if source_balance < amount:\n+        return \"insufficient\"\n+\n+    if source != target:\n+        target_balance = decode_balance(accounts[target])\n+        conn.executemany(\n+            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n+            ((encode_balance(source_balance - amount), source),\n+             (encode_balance(target_balance + amount), target)),\n+        )\n+    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n+    return \"posted\"\n+\n+\n def post(opening, transfers):\n-    with open_ledger(opening) as conn:\n-        for _, source, target, amount in transfers:\n-            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n-            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n-        return {\n-            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n-            \"statuses\": [\"posted\"] * len(transfers),\n+    with closing(open_ledger(opening)) as conn, conn:\n+        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n+        balances = {\n+            name: decode_balance(balance)\n+            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n         }\n+    return {\"balances\": balances, \"statuses\": statuses}\n",
+              "additions": 37,
+              "deletions": 8
+            }
+          ]
+        }
+      },
+      "call_ef2c20451a2c4cecb4dd81804dea6024": {
+        "id": "call_ef2c20451a2c4cecb4dd81804dea6024",
+        "name": "run_shell",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "command": "python3 -m unittest discover -s tests"
+        },
+        "fingerprint": "7cf952757b6ab6cbb2aa128386cc421320bd706d7f76298b4566477a6805aeab",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:53.498Z",
+        "updatedAt": "2026-11-26T13:43:53.877Z",
+        "result": {
+          "output": "Команда завершена. Exit code: 0; сигнал: null. Ожидание: 124 мс; лимит: 120000 мс; cleanup: 171 мс. Захват полный.\n.\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+          "isError": false,
+          "details": {
+            "exitCode": 0,
+            "shell": {
+              "reason": "exited",
+              "exitCode": 0,
+              "signal": null,
+              "timeoutMs": 120000,
+              "waitMs": 124,
+              "cleanupMs": 171,
+              "cleanupConfirmed": true,
+              "captureComplete": true,
+              "captureFailed": false,
+              "summary": "Команда завершена. Exit code: 0; сигнал: null. Ожидание: 124 мс; лимит: 120000 мс; cleanup: 171 мс. Захват полный."
+            }
+          },
+          "sandboxed": false
+        }
+      },
+      "call_109032384c20477ea7c54a8233dfafe6": {
+        "id": "call_109032384c20477ea7c54a8233dfafe6",
+        "name": "git_diff",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "scope": "all"
+        },
+        "fingerprint": "c124546aa91bfcf1cd45950b671eaf46a388b5a8230b11ebb7eb578a3fd9fb03",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:43:53.904Z",
+        "updatedAt": "2026-11-26T13:43:54.006Z",
+        "result": {
+          "output": "diff --git a/ledger_db.py b/ledger_db.py\nindex a63d2df..bd4fc73 100644\n--- a/ledger_db.py\n+++ b/ledger_db.py\n@@ -1,8 +1,25 @@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\ndiff --git a/solution.py b/solution.py\nindex e2cf6d5..974db9d 100644\n--- a/solution.py\n+++ b/solution.py\n@@ -1,11 +1,40 @@\n-from ledger_db import open_ledger\n+from contextlib import closing\n+\n+from ledger_db import decode_balance, encode_balance, open_ledger\n+\n+\n+def _post_transfer(conn, transfer_id, source, target, amount):\n+    if conn.execute(\n+        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n+    ).fetchone() is not None:\n+        return \"duplicate\"\n+\n+    accounts = dict(conn.execute(\n+        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n+    ))\n+    if source not in accounts or target not in accounts:\n+        return \"unknown\"\n+\n+    source_balance = decode_balance(accounts[source])\n+    if source_balance < amount:\n+        return \"insufficient\"\n+\n+    if source != target:\n+        target_balance = decode_balance(accounts[target])\n+        conn.executemany(\n+            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n+            ((encode_balance(source_balance - amount), source),\n+             (encode_balance(target_balance + amount), target)),\n+        )\n+    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n+    return \"posted\"\n+\n \n def post(opening, transfers):\n-    with open_ledger(opening) as conn:\n-        for _, source, target, amount in transfers:\n-            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n-            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n-        return {\n-            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n-            \"statuses\": [\"posted\"] * len(transfers),\n+    with closing(open_ledger(opening)) as conn, conn:\n+        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n+        balances = {\n+            name: decode_balance(balance)\n+            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n         }\n+    return {\"balances\": balances, \"statuses\": statuses}\n",
+          "isError": false
+        }
+      },
+      "call_8bc09a01365548b58e56354b12f5f5e2": {
+        "id": "call_8bc09a01365548b58e56354b12f5f5e2",
+        "name": "run_shell",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {
+          "command": "python3 - <<'PY'\nfrom copy import deepcopy\nfrom solution import post\n\nopening = {'a': 5, 'b': 0}\ntransfers = [\n    ['retry', 'a', 'missing', 1], ['retry', 'b', 'a', 1], ['retry', 'a', 'b', 3],\n    ['retry', 'missing', 'missing', 1], ['same', 'a', 'a', 3],\n    ['same', 'a', 'a', 2], ['same', 'b', 'a', 1], ['last', 'b', 'a', 3],\n]\noriginal = deepcopy((opening, transfers))\nassert post(opening, transfers) == {\n    'balances': {'a': 5, 'b': 0},\n    'statuses': ['unknown', 'insufficient', 'posted', 'duplicate', 'insufficient', 'posted', 'duplicate', 'posted'],\n}\nassert (opening, transfers) == original\nassert post({}, []) == {'balances': {}, 'statuses': []}\nlarge = 2**80\nassert post({'a': large + 1, 'b': 2}, [[1, 'a', 'b', large], ['1', 'b', 'a', 1]]) == {\n    'balances': {'a': 2, 'b': large + 1}, 'statuses': ['posted', 'posted'],\n}\nprint('Edge cases passed')\nPY\n",
+          "timeout": 120000
+        },
+        "fingerprint": "297b02309961c7f58c747628f2bf396fbcf9be8ef74b5678dac9c2f288c67599",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:44:04.459Z",
+        "updatedAt": "2026-11-26T13:44:04.796Z",
+        "result": {
+          "output": "Команда завершена. Exit code: 0; сигнал: null. Ожидание: 87 мс; лимит: 120000 мс; cleanup: 202 мс. Захват полный.\nEdge cases passed\n",
+          "isError": false,
+          "details": {
+            "exitCode": 0,
+            "shell": {
+              "reason": "exited",
+              "exitCode": 0,
+              "signal": null,
+              "timeoutMs": 120000,
+              "waitMs": 87,
+              "cleanupMs": 202,
+              "cleanupConfirmed": true,
+              "captureComplete": true,
+              "captureFailed": false,
+              "summary": "Команда завершена. Exit code: 0; сигнал: null. Ожидание: 87 мс; лимит: 120000 мс; cleanup: 202 мс. Захват полный."
+            }
+          },
+          "sandboxed": false
+        }
+      },
+      "call_7026a8ba61354f2996ab98eca9fcbd45": {
+        "id": "call_7026a8ba61354f2996ab98eca9fcbd45",
+        "name": "git_status",
+        "toolSource": {
+          "type": "local"
+        },
+        "input": {},
+        "fingerprint": "5221d712c05c7b41b378e3e1ac990b9e527be56dc437850ef80544dbe5cb2d77",
+        "state": "succeeded",
+        "createdAt": "2026-11-26T13:44:07.844Z",
+        "updatedAt": "2026-11-26T13:44:07.911Z",
+        "result": {
+          "output": " M ledger_db.py\n M solution.py\n",
+          "isError": false
+        }
+      }
+    },
+    "workspaceObservations": {
+      "/arena/TASK.md": {
+        "sha256": "5be7addcc6d59c5cb8fc82627b01ce330cff1cc90c6c6ea2f45d287e2ac30c30",
+        "size": 1626
+      },
+      "/arena/solution.py": {
+        "sha256": "d42fec6b6ee81631d5988a0fefb044a16cc41bfd96bea49fd0adf3c5d4116b3d",
+        "size": 1422
+      },
+      "/arena/ledger_db.py": {
+        "sha256": "527d48e01b683b8a6cc1c1f4543aff4745787200292b71f9f2a604b1b15fbe95",
+        "size": 909
+      },
+      "/arena/tests/test_public.py": {
+        "sha256": "2522108a35293e28226c3aaeef06da9b1da8d83d145dab02f997ae882ffc853b",
+        "size": 287
+      }
+    },
+    "failedCalls": {},
+    "workspaceVersion": 3
+  },
+  "context": {},
+  "id": "35b70514-2f99-40eb-b646-f9d1ce34870f",
+  "title": "Выполни задачу из TASK.md в текущем репозитории. Измени реал...",
+  "titleSource": "auto",
+  "createdAt": "2026-11-26T13:43:04.288Z",
+  "updatedAt": "2026-11-26T13:44:12.459Z",
+  "providerId": "chatgpt",
+  "profileId": "<redacted>",
+  "model": "gpt-6.2-sol",
+  "reasoningEfforts": {
+    "[\"<redacted>\",\"gpt-6.2-sol\"]": "high"
+  },
+  "gitBranch": "bench",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Выполни задачу из TASK.md в текущем репозитории. Измени реализацию, проверь решение штатной командой из задания и кратко сообщи результат. Используй только локальные файлы и инструменты, без поиска в интернете, внешних сервисов и делегирования. Сохрани исходные публичные тесты и TASK.md. Оставь изменения в рабочем дереве."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_cb088bbad15d46e9919b9789dbb1ccf7",
+          "name": "read_file",
+          "input": {
+            "path": "TASK.md"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "call_5f5f7afe2b0b470abbfa8b2eded8bde2",
+          "name": "list_dir",
+          "input": {
+            "path": "."
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "call_d0ecc4859776491a8a26ee3fcdff12be",
+          "name": "git_status",
+          "input": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_cb088bbad15d46e9919b9789dbb1ccf7",
+          "content": "1\t# Задача\n2\t\n3\tРеализуй `post(opening, transfers)` в `solution.py`. Opening — словарь account → неотрицательная\n4\tсумма целых единиц. Перевод — [id, from, to, amount], amount положительный int, аккаунты — строки.\n5\tОбработай переводы по порядку. Если id уже успешно применён, статус \"duplicate\" имеет приоритет.\n6\tИначе если любой аккаунт отсутствует, статус \"unknown\"; иначе если остаток from меньше amount,\n7\tстатус \"insufficient\"; иначе статус \"posted\". Перевод на тот же счёт проверяет достаточность,\n8\tзапоминает успешный id, оставляет остаток прежним. Неуспех не резервирует id. Для хранения используй\n9\tSQLite через `sqlite3` и временный in-memory ledger. Сохрани API `ledger_db.open_ledger(opening)`\n10\tи используй этот helper из solution.py. Этот helper создаёт схему, заполняет счета и возвращает\n11\tоткрытое соединение. Согласованно сохраняй балансы и факт применения перевода.\n12\tВерни {\"balances\": словарь всех счетов, \"statuses\": список статусов}. Входы не меняй.\n13\t\n14\tПубличные проверки запускаются командой `python3 -m unittest discover -s tests`.\n15\t"
+        },
+        {
+          "type": "tool_result",
+          "toolUseId": "call_5f5f7afe2b0b470abbfa8b2eded8bde2",
+          "content": "tests\nsolution.py\nledger_db.py\nTASK.md"
+        },
+        {
+          "type": "tool_result",
+          "toolUseId": "call_d0ecc4859776491a8a26ee3fcdff12be",
+          "content": "Git operation completed.",
+          "isError": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_061bad711647445d8cb9d97bd7d1fa95",
+          "name": "read_file",
+          "input": {
+            "path": "solution.py"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "call_733acfa1377e404a972accd6a08836ff",
+          "name": "read_file",
+          "input": {
+            "path": "ledger_db.py"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "call_d0f0b75cd05a4652bdbd00f915742003",
+          "name": "list_dir",
+          "input": {
+            "path": "tests"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "call_e368db2ab98a4628b4be9e6f030aeab4",
+          "name": "glob",
+          "input": {
+            "pattern": "AGENTS.md"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_061bad711647445d8cb9d97bd7d1fa95",
+          "content": "1\tfrom ledger_db import open_ledger\n2\t\n3\tdef post(opening, transfers):\n4\t    with open_ledger(opening) as conn:\n5\t        for _, source, target, amount in transfers:\n6\t            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n7\t            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n8\t        return {\n9\t            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n10\t            \"statuses\": [\"posted\"] * len(transfers),\n11\t        }\n12\t"
+        },
+        {
+          "type": "tool_result",
+          "toolUseId": "call_733acfa1377e404a972accd6a08836ff",
+          "content": "1\timport sqlite3\n2\t\n3\tdef open_ledger(opening):\n4\t    connection = sqlite3.connect(\":memory:\")\n5\t    with connection:\n6\t        connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n7\t        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n8\t    return connection\n9\t"
+        },
+        {
+          "type": "tool_result",
+          "toolUseId": "call_d0f0b75cd05a4652bdbd00f915742003",
+          "content": "tests/test_public.py"
+        },
+        {
+          "type": "tool_result",
+          "toolUseId": "call_e368db2ab98a4628b4be9e6f030aeab4",
+          "content": "No files matched."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_af3da63bc6914f9abccb0cc8970c7271",
+          "name": "read_file",
+          "input": {
+            "path": "tests/test_public.py"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_af3da63bc6914f9abccb0cc8970c7271",
+          "content": "1\timport unittest\n2\tfrom solution import post\n3\t\n4\tclass PublicTest(unittest.TestCase):\n5\t    def test_example(self):\n6\t        self.assertEqual(post(*[{\"a\": 5, \"b\": 0}, [[\"t\", \"a\", \"b\", 2]]]), {\"balances\": {\"a\": 3, \"b\": 2}, \"statuses\": [\"posted\"]})\n7\t\n8\t\n9\tif __name__ == \"__main__\":\n10\t    unittest.main()\n11\t"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_a60047717f2c492dae2030e7c201f21d",
+          "name": "apply_patch",
+          "input": {
+            "patchText": "*** Begin Patch\n*** Update File: ledger_db.py\n@@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\n*** Update File: solution.py\n@@\n-from ledger_db import open_ledger\n+from contextlib import closing\n+\n+from ledger_db import decode_balance, encode_balance, open_ledger\n+\n+\n+def _post_transfer(conn, transfer_id, source, target, amount):\n+    if conn.execute(\n+        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n+    ).fetchone() is not None:\n+        return \"duplicate\"\n+\n+    accounts = dict(conn.execute(\n+        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n+    ))\n+    if source not in accounts or target not in accounts:\n+        return \"unknown\"\n+\n+    source_balance = decode_balance(accounts[source])\n+    if source_balance < amount:\n+        return \"insufficient\"\n+\n+    if source != target:\n+        target_balance = decode_balance(accounts[target])\n+        conn.executemany(\n+            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n+            ((encode_balance(source_balance - amount), source),\n+             (encode_balance(target_balance + amount), target)),\n+        )\n+    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n+    return \"posted\"\n+\n \n def post(opening, transfers):\n-    with open_ledger(opening) as conn:\n-        for _, source, target, amount in transfers:\n-            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n-            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n-        return {\n-            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n-            \"statuses\": [\"posted\"] * len(transfers),\n+    with closing(open_ledger(opening)) as conn, conn:\n+        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n+        balances = {\n+            name: decode_balance(balance)\n+            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n         }\n+    return {\"balances\": balances, \"statuses\": statuses}\n*** End Patch"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_a60047717f2c492dae2030e7c201f21d",
+          "content": "Updated 2 files:\n- ledger_db.py (edit)\n- solution.py (edit)"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_ef2c20451a2c4cecb4dd81804dea6024",
+          "name": "run_shell",
+          "input": {
+            "command": "python3 -m unittest discover -s tests"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "call_109032384c20477ea7c54a8233dfafe6",
+          "name": "git_diff",
+          "input": {
+            "scope": "all"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_ef2c20451a2c4cecb4dd81804dea6024",
+          "content": "Команда завершена. Exit code: 0; сигнал: null. Ожидание: 124 мс; лимит: 120000 мс; cleanup: 171 мс. Захват полный.\n.\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n",
+          "isError": false
+        },
+        {
+          "type": "tool_result",
+          "toolUseId": "call_109032384c20477ea7c54a8233dfafe6",
+          "content": "diff --git a/ledger_db.py b/ledger_db.py\nindex a63d2df..bd4fc73 100644\n--- a/ledger_db.py\n+++ b/ledger_db.py\n@@ -1,8 +1,25 @@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\ndiff --git a/solution.py b/solution.py\nindex e2cf6d5..974db9d 100644\n--- a/solution.py\n+++ b/solution.py\n@@ -1,11 +1,40 @@\n-from ledger_db import open_ledger\n+from contextlib import closing\n+\n+from ledger_db import decode_balance, encode_balance, open_ledger\n+\n+\n+def _post_transfer(conn, transfer_id, source, target, amount):\n+    if conn.execute(\n+        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n+    ).fetchone() is not None:\n+        return \"duplicate\"\n+\n+    accounts = dict(conn.execute(\n+        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n+    ))\n+    if source not in accounts or target not in accounts:\n+        return \"unknown\"\n+\n+    source_balance = decode_balance(accounts[source])\n+    if source_balance < amount:\n+        return \"insufficient\"\n+\n+    if source != target:\n+        target_balance = decode_balance(accounts[target])\n+        conn.executemany(\n+            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n+            ((encode_balance(source_balance - amount), source),\n+             (encode_balance(target_balance + amount), target)),\n+        )\n+    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n+    return \"posted\"\n+\n \n def post(opening, transfers):\n-    with open_ledger(opening) as conn:\n-        for _, source, target, amount in transfers:\n-            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n-            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n-        return {\n-            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n-            \"statuses\": [\"posted\"] * len(transfers),\n+    with closing(open_ledger(opening)) as conn, conn:\n+        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n+        balances = {\n+            name: decode_balance(balance)\n+            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n         }\n+    return {\"balances\": balances, \"statuses\": statuses}\n",
+          "isError": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_8bc09a01365548b58e56354b12f5f5e2",
+          "name": "run_shell",
+          "input": {
+            "command": "python3 - <<'PY'\nfrom copy import deepcopy\nfrom solution import post\n\nopening = {'a': 5, 'b': 0}\ntransfers = [\n    ['retry', 'a', 'missing', 1], ['retry', 'b', 'a', 1], ['retry', 'a', 'b', 3],\n    ['retry', 'missing', 'missing', 1], ['same', 'a', 'a', 3],\n    ['same', 'a', 'a', 2], ['same', 'b', 'a', 1], ['last', 'b', 'a', 3],\n]\noriginal = deepcopy((opening, transfers))\nassert post(opening, transfers) == {\n    'balances': {'a': 5, 'b': 0},\n    'statuses': ['unknown', 'insufficient', 'posted', 'duplicate', 'insufficient', 'posted', 'duplicate', 'posted'],\n}\nassert (opening, transfers) == original\nassert post({}, []) == {'balances': {}, 'statuses': []}\nlarge = 2**80\nassert post({'a': large + 1, 'b': 2}, [[1, 'a', 'b', large], ['1', 'b', 'a', 1]]) == {\n    'balances': {'a': 2, 'b': large + 1}, 'statuses': ['posted', 'posted'],\n}\nprint('Edge cases passed')\nPY\n",
+            "timeout": 120000
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_8bc09a01365548b58e56354b12f5f5e2",
+          "content": "Команда завершена. Exit code: 0; сигнал: null. Ожидание: 87 мс; лимит: 120000 мс; cleanup: 202 мс. Захват полный.\nEdge cases passed\n",
+          "isError": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_7026a8ba61354f2996ab98eca9fcbd45",
+          "name": "git_status",
+          "input": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_7026a8ba61354f2996ab98eca9fcbd45",
+          "content": " M ledger_db.py\n M solution.py\n",
+          "isError": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Реализовал `post` в `solution.py` с использованием SQLite в памяти через `ledger_db.open_ledger`. Переводы обрабатываются по порядку, а изменения балансов и запись успешных ID сохраняются в одной транзакции.\n\nШтатная команда `python3 -m unittest discover -s tests` прошла: 1 тест. Дополнительно проверил повторные ID, переводы на тот же счёт и большие суммы.\n\n`TASK.md` и публичные тесты не изменены. Правки оставлены в рабочем дереве без коммита."
+        }
+      ]
+    }
+  ],
+  "requestTimings": [
+    {
+      "afterMessage": 16,
+      "elapsedMs": 68173.448193,
+      "status": "completed"
+    }
+  ],
+  "totalTokens": {
+    "inputTokens": 62081,
+    "outputTokens": 2260,
+    "cacheReadTokens": 3584
+  },
+  "contextSnapshot": {
+    "model": "gpt-6.2-sol",
+    "observedInputTokens": 9275,
+    "contextWindow": 475000,
+    "occupiedTokens": 9546,
+    "localTokens": 16604,
+    "connectionId": "[\"chatgpt\",\"<redacted>\",\"https://chatgpt.com/backend-api/codex\"]",
+    "windowSource": "provider",
+    "observedAt": "2026-11-26T13:44:12.433Z",
+    "source": "local_estimate",
+    "status": "estimated"
+  },
+  "totalCost": 0,
+  "costEstimate": {
+    "source": "unknown"
+  },
+  "undoStack": [
+    {
+      "path": "/arena/ledger_db.py",
+      "before": "import sqlite3\n\ndef open_ledger(opening):\n    connection = sqlite3.connect(\":memory:\")\n    with connection:\n        connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n    return connection\n",
+      "after": "import sqlite3\n\n\ndef encode_balance(balance):\n    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n    if balance < 2**63:\n        return balance\n    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n\n\ndef decode_balance(balance):\n    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n\n\ndef open_ledger(opening):\n    connection = sqlite3.connect(\":memory:\")\n    with connection:\n        connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n        connection.executemany(\n            \"INSERT INTO accounts VALUES (?, ?)\",\n            ((name, encode_balance(balance)) for name, balance in opening.items()),\n        )\n    return connection\n",
+      "createdAt": "2026-11-26T13:43:50.039Z"
+    },
+    {
+      "path": "/arena/solution.py",
+      "before": "from ledger_db import open_ledger\n\ndef post(opening, transfers):\n    with open_ledger(opening) as conn:\n        for _, source, target, amount in transfers:\n            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n        return {\n            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n            \"statuses\": [\"posted\"] * len(transfers),\n        }\n",
+      "after": "from contextlib import closing\n\nfrom ledger_db import decode_balance, encode_balance, open_ledger\n\n\ndef _post_transfer(conn, transfer_id, source, target, amount):\n    if conn.execute(\n        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n    ).fetchone() is not None:\n        return \"duplicate\"\n\n    accounts = dict(conn.execute(\n        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n    ))\n    if source not in accounts or target not in accounts:\n        return \"unknown\"\n\n    source_balance = decode_balance(accounts[source])\n    if source_balance < amount:\n        return \"insufficient\"\n\n    if source != target:\n        target_balance = decode_balance(accounts[target])\n        conn.executemany(\n            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n            ((encode_balance(source_balance - amount), source),\n             (encode_balance(target_balance + amount), target)),\n        )\n    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n    return \"posted\"\n\n\ndef post(opening, transfers):\n    with closing(open_ledger(opening)) as conn, conn:\n        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n        balances = {\n            name: decode_balance(balance)\n            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n        }\n    return {\"balances\": balances, \"statuses\": statuses}\n",
+      "createdAt": "2026-11-26T13:43:50.039Z"
+    }
+  ],
+  "fileDiffs": {
+    "call_a60047717f2c492dae2030e7c201f21d": {
+      "path": "ledger_db.py",
+      "kind": "edit",
+      "patch": "Index: ledger_db.py\n===================================================================\n--- ledger_db.py\tbefore\n+++ ledger_db.py\tafter\n@@ -1,8 +1,25 @@\n import sqlite3\n \n+\n+def encode_balance(balance):\n+    # Keep ordinary balances as SQLite integers, and larger ones as exact blobs.\n+    if balance < 2**63:\n+        return balance\n+    return balance.to_bytes((balance.bit_length() + 7) // 8, \"big\")\n+\n+\n+def decode_balance(balance):\n+    return int.from_bytes(balance, \"big\") if isinstance(balance, bytes) else balance\n+\n+\n def open_ledger(opening):\n     connection = sqlite3.connect(\":memory:\")\n     with connection:\n         connection.execute(\"CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER NOT NULL)\")\n-        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", opening.items())\n+        # No type affinity: for example, integer 1 and text '1' are distinct IDs.\n+        connection.execute(\"CREATE TABLE posted_transfers(id PRIMARY KEY)\")\n+        connection.executemany(\n+            \"INSERT INTO accounts VALUES (?, ?)\",\n+            ((name, encode_balance(balance)) for name, balance in opening.items()),\n+        )\n     return connection\n",
+      "additions": 18,
+      "deletions": 1
+    },
+    "call_a60047717f2c492dae2030e7c201f21d:1": {
+      "path": "solution.py",
+      "kind": "edit",
+      "patch": "Index: solution.py\n===================================================================\n--- solution.py\tbefore\n+++ solution.py\tafter\n@@ -1,11 +1,40 @@\n-from ledger_db import open_ledger\n+from contextlib import closing\n \n+from ledger_db import decode_balance, encode_balance, open_ledger\n+\n+\n+def _post_transfer(conn, transfer_id, source, target, amount):\n+    if conn.execute(\n+        \"SELECT 1 FROM posted_transfers WHERE id IS ?\", (transfer_id,)\n+    ).fetchone() is not None:\n+        return \"duplicate\"\n+\n+    accounts = dict(conn.execute(\n+        \"SELECT name, balance FROM accounts WHERE name IN (?, ?)\", (source, target)\n+    ))\n+    if source not in accounts or target not in accounts:\n+        return \"unknown\"\n+\n+    source_balance = decode_balance(accounts[source])\n+    if source_balance < amount:\n+        return \"insufficient\"\n+\n+    if source != target:\n+        target_balance = decode_balance(accounts[target])\n+        conn.executemany(\n+            \"UPDATE accounts SET balance = ? WHERE name = ?\",\n+            ((encode_balance(source_balance - amount), source),\n+             (encode_balance(target_balance + amount), target)),\n+        )\n+    conn.execute(\"INSERT INTO posted_transfers VALUES (?)\", (transfer_id,))\n+    return \"posted\"\n+\n+\n def post(opening, transfers):\n-    with open_ledger(opening) as conn:\n-        for _, source, target, amount in transfers:\n-            conn.execute(\"UPDATE accounts SET balance=balance-? WHERE name=?\", (amount, source))\n-            conn.execute(\"UPDATE accounts SET balance=balance+? WHERE name=?\", (amount, target))\n-        return {\n-            \"balances\": dict(conn.execute(\"SELECT name,balance FROM accounts\")),\n-            \"statuses\": [\"posted\"] * len(transfers),\n+    with closing(open_ledger(opening)) as conn, conn:\n+        statuses = [_post_transfer(conn, *transfer) for transfer in transfers]\n+        balances = {\n+            name: decode_balance(balance)\n+            for name, balance in conn.execute(\"SELECT name, balance FROM accounts\")\n         }\n+    return {\"balances\": balances, \"statuses\": statuses}\n",
+      "additions": 37,
+      "deletions": 8
+    }
+  }
+}

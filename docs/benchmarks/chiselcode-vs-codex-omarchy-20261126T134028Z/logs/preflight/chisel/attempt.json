@@ -1,0 +1,18 @@
+{
+  "status": "completed",
+  "verified": true,
+  "exit": 0,
+  "tokens": {
+    "input": 31745,
+    "output": 238,
+    "cache_read": 0
+  },
+  "tools": 6,
+  "tool_errors": 0,
+  "seconds": 29.043,
+  "logs": [
+    "terminal.log",
+    "session-01.json"
+  ],
+  "probe_ok": true
+}

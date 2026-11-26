@@ -85,6 +85,7 @@
 
 ## Диагностика и исследования
 
+- [ChiselCode и Codex CLI на Omarchy, 26 ноября 2026](../benchmarks/chiselcode-vs-codex-omarchy-20261126T134028Z/README.md) — парный замер GPT-6.2 Sol High, тесты и журналы.
 - [ChiselCode и Codex в Codex Cloud: предварительная проверка GPT-6.2 Sol](../benchmarks/chiselcode-vs-codex-2026-11-17.md).
 - [Live A/B общего системного промпта: результаты и ограничения квоты](reports/system-prompt-live.md).
 
