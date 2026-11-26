@@ -66,9 +66,13 @@ const CatalogEntry = z
       .catch(undefined),
     max_input_tokens: OptionalTokenCount,
     max_output_tokens: OptionalTokenCount,
+    input_modalities: z.array(z.string()).optional().catch(undefined),
   })
   .passthrough();
-type AccountModel = ModelInfo & { reasoningEffort: ReasoningEffortCapability };
+type AccountModel = ModelInfo & {
+  reasoningEffort: ReasoningEffortCapability;
+  toolImages: boolean;
+};
 
 // Match the usable window in the Codex catalog protocol.
 function accountModel(entry: z.infer<typeof CatalogEntry>): AccountModel {
@@ -78,6 +82,7 @@ function accountModel(entry: z.infer<typeof CatalogEntry>): AccountModel {
     window === undefined ? undefined : Math.floor((window * percent) / 100);
   return {
     id: entry.slug,
+    toolImages: entry.input_modalities?.includes("image") === true,
     displayName: entry.display_name,
     contextWindow: contextWindow || undefined,
     maxInputTokens: entry.max_input_tokens,
@@ -153,12 +158,22 @@ export function responsesInput(
             name: names.wire(block.name),
             arguments: JSON.stringify(block.input),
           });
-        else
+        else {
+          const image = request.toolImages?.get(block.toolUseId);
           items.push({
             type: "function_call_output",
             call_id: block.toolUseId,
-            output: block.content,
+            output: image
+              ? [
+                  { type: "input_text", text: block.content },
+                  {
+                    type: "input_image",
+                    image_url: `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString("base64")}`,
+                  },
+                ]
+              : block.content,
           });
+        }
       }
     }
     flush();
@@ -175,7 +190,10 @@ export class ChatGptAdapter implements ProviderAdapter {
   ) {}
   listModels(): Promise<ModelInfo[]> {
     return this.accountModels().then((models) =>
-      models.map(({ reasoningEffort: _effort, ...model }) => model),
+      models.map(
+        ({ reasoningEffort: _effort, toolImages: _toolImages, ...model }) =>
+          model,
+      ),
     );
   }
   private accountModels(): Promise<AccountModel[]> {
@@ -223,6 +241,7 @@ export class ChatGptAdapter implements ProviderAdapter {
     return {
       ...info,
       reasoningEffort: info?.reasoningEffort ?? { reason },
+      toolImages: info?.toolImages === true,
       tokenCounting: "local_estimate" as const,
       parallelToolCalls: true,
     };

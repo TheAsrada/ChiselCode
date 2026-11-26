@@ -37,6 +37,11 @@ import { TurnRunner } from "./turn-runner.js";
 import type { TurnState } from "./turn-state.js";
 export interface RuntimeTools {
   getApprovalMode?(requested?: ApprovalMode): ApprovalMode;
+  takeToolImages?(
+    messages: readonly import("../types/domain.js").ChatMessage[],
+  ): Promise<
+    ReadonlyMap<string, import("../types/domain.js").ToolImage> | undefined
+  >;
   instructionsForTurn?(tools: readonly ToolDefinition[]): string;
   selectForTurn(input?: {
     prompt?: string;
@@ -251,6 +256,8 @@ export class AgentRuntime {
             this.context.options,
             estimated,
           ),
+        undefined,
+        this.tools.takeToolImages,
       );
       for (
         let iteration = 0;

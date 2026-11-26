@@ -110,3 +110,9 @@ git --version
 ## Встроенный навык создания расширений
 
 Начиная с 0.6.33 `/extension-creator` поставляется вместе с `/skill-creator` и `/code-review`: установщики и npm-пакет включают `skills/bundled/*/SKILL.md`. Библиотека обновляет встроенные инструкции, сохраняя `skills/user`. [Создание и включение UI-расширения](ui-mods.md) не требует отдельного SDK рядом с пакетом.
+
+## Браузер для frontend QA
+
+Встроенный [Браузер](browser.md) устанавливает Playwright и Chromium по действию **Установить Chromium** в `/browser` или по команде `/browser install`. Для открытия страниц требуется Linux x64 с разрешёнными непривилегированными user namespaces, `/usr/bin/bwrap` (пакет `bubblewrap`), `/usr/bin/python3` и системными библиотеками Chromium. Для распаковки нужен `/usr/bin/unzip`. На Arch/Omarchy названия пакетов для этих утилит — `bubblewrap`, `python` и `unzip`.
+
+Кэш занимает несколько сотен МиБ и находится в `$XDG_DATA_HOME/chiselcode/cache/browser`, по умолчанию в `~/.local/share/chiselcode/cache/browser`. Обычный запуск ChiselCode и автодополнение работают без загрузки браузера.

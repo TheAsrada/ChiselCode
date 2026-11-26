@@ -67,7 +67,16 @@ export interface ToolExecutionConstraint {
     handler: ToolHandler,
   ): import("../security/permission-policy.js").PermissionDecision;
 }
+export interface ConversationToolOwner {
+  readonly id: string;
+  readonly signal: AbortSignal;
+}
 export interface ToolContext {
+  readonly conversationOwner?: ConversationToolOwner;
+  readonly offerToolImage?: (
+    origin: string,
+    image: import("../types/domain.js").ToolImage,
+  ) => Promise<boolean>;
   readonly extensionActivation?: import("../extensions/activation.js").ExtensionActivation;
   readonly background?: import("../background/binding.js").BackgroundToolBinding;
   readonly backgroundExecution?: object;

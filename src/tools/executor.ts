@@ -39,6 +39,7 @@ export class ToolExecutor {
     private readonly maxInlineTokens = 10_000,
     private readonly toolGuards?: ToolGuardPort,
     private readonly hooks?: import("../extensions/agent-events.js").AgentEventPort,
+    private readonly imageOutput?: import("./image-output.js").ToolImageOutput,
   ) {
     initializeSessionState(context.session);
   }
@@ -90,6 +91,11 @@ export class ToolExecutor {
     const context = {
       ...this.context,
       invocationId: call.id,
+      offerToolImage: this.imageOutput
+        ? (origin: string, image: import("../types/domain.js").ToolImage) =>
+            this.imageOutput?.offer(call.id, origin, image) ??
+            Promise.resolve(false)
+        : undefined,
       signal:
         signal && this.context.signal
           ? AbortSignal.any([signal, this.context.signal])

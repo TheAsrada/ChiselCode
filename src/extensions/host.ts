@@ -507,6 +507,10 @@ export class WorkspaceExtensionScope implements Disposable {
     this.ui.invalidateBindings();
   }
 
+  ownerCleanupFailed(id: string): boolean {
+    return this.cleanupErrors.has(id);
+  }
+
   async setOwnerAvailable(id: string, available: boolean): Promise<void> {
     this.assertUsable();
     const definition = this.definitions.find((item) => item.id === id);

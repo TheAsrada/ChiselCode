@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const names = [
   "approval",
   "chatgpt",
+  "browser-contract",
   "skill-source",
   "auto-compaction",
   "background-owner",

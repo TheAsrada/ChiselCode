@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { BackgroundSettingsStore } from "../background/settings.js";
+import { toggleBrowser } from "../browser/settings.js";
 import { loadGlobalConfig, loadProjectConfig } from "../config/load.js";
 import type {
   BuiltinSettings,
@@ -56,6 +57,7 @@ import {
 import { ExtensionSettingsStore } from "./settings-store.js";
 
 const builtinNames = {
+  "builtin.browser": ["Браузер", "Локальная проверка интерфейсов в Chromium"],
   "builtin.chatgpt": ["ChatGPT", "Подписка, модели и лимиты"],
   "builtin.lsp": [
     "Анализ кода (LSP)",
@@ -146,6 +148,7 @@ interface Options {
   applyUi?: (id: string) => Promise<boolean>;
   canApplyUi?: (id: string) => boolean;
   hasBuiltin?: (id: string) => boolean;
+  builtinRecovery?: (id: string, root?: string) => boolean;
   applyBuiltin?: (id: string) => Promise<void>;
   disableExternal?: (id: string) => Promise<void>;
   enableExternal?: (id: string) => Promise<void>;
@@ -370,8 +373,11 @@ export class ExtensionManagementService {
               ? (global.subagents ?? {})
               : id === "builtin.background"
                 ? (global.backgroundTasks ?? {})
-                : {};
+                : id === "builtin.browser"
+                  ? (global.browser ?? {})
+                  : {};
         const desktopUnavailable = this.options.desktop && id === "builtin.btw";
+        const recovering = this.options.builtinRecovery?.(id, root) === true;
         const available = this.hasBuiltin(id) && !desktopUnavailable;
         return {
           id,
@@ -388,35 +394,41 @@ export class ExtensionManagementService {
             : `ChiselCode ${VERSION}`,
           trusted: true,
           desiredEnabled: enabled,
-          actualState: !effective
-            ? "disabled"
-            : !available
-              ? "unavailable"
-              : root && this.options.scopeReady?.(root)
-                ? "available"
-                : "not_started",
-          state: !effective
-            ? "disabled"
-            : !available
-              ? "saved"
-              : root && this.options.scopeReady?.(root)
-                ? "working"
-                : "saved",
-          actualLabel: !effective
-            ? actualLabel("disabled")
-            : !available
-              ? actualLabel("unavailable")
-              : root && this.options.scopeReady?.(root)
-                ? actualLabel("available")
-                : actualLabel("not_started"),
+          actualState: recovering
+            ? "cleanup_failed"
+            : !effective
+              ? "disabled"
+              : !available
+                ? "unavailable"
+                : root && this.options.scopeReady?.(root)
+                  ? "available"
+                  : "not_started",
+          state: recovering
+            ? "error"
+            : !effective
+              ? "disabled"
+              : !available
+                ? "saved"
+                : root && this.options.scopeReady?.(root)
+                  ? "working"
+                  : "saved",
+          actualLabel: recovering
+            ? actualLabel("cleanup_failed")
+            : !effective
+              ? actualLabel("disabled")
+              : !available
+                ? actualLabel("unavailable")
+                : root && this.options.scopeReady?.(root)
+                  ? actualLabel("available")
+                  : actualLabel("not_started"),
           projectBlocked: enabled && !effective,
-          restartRequired: false,
+          restartRequired: recovering,
           deferredRemoval: false,
           actions:
-            route && available
+            (route || id === "builtin.browser") && available && !recovering
               ? [
                   enabled && effective ? "disable" : "enable",
-                  ...(effective ? ["settings" as const] : []),
+                  ...(route && effective ? ["settings" as const] : []),
                 ]
               : [],
           ...(route ? { settingsRoute: route } : {}),
@@ -893,10 +905,23 @@ export class ExtensionManagementService {
       if (
         !item ||
         item.digest !== input.digest ||
-        !item.settingsRoute ||
+        (!item.settingsRoute && input.id !== "builtin.browser") ||
         !item.actions.includes(input.enabled ? "enable" : "disable")
       )
         conflict();
+      if (input.id === "builtin.browser") {
+        await toggleBrowser(
+          input.path,
+          this.options.configPath,
+          input.enabled,
+          item.projectBlocked,
+          (global) => {
+            if (hash(global.browser ?? {}) !== input.digest) conflict();
+          },
+        );
+        await this.builtinChanged(input.id, input.path);
+        return { id: input.id, restartRequired: false, deferred: false };
+      }
       const id = BuiltinIdSchema.parse(input.id);
       const store = this.store(id, input.path);
       const projectOnly = item.projectBlocked && input.enabled;

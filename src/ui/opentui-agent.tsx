@@ -174,7 +174,12 @@ async function runApplication(
   );
   extensionHost.configureOwnerAvailability(async (id, root) => {
     if (
-      !["builtin.lsp", "builtin.subagents", "builtin.background"].includes(id)
+      ![
+        "builtin.lsp",
+        "builtin.subagents",
+        "builtin.background",
+        "builtin.browser",
+      ].includes(id)
     )
       return (
         id.startsWith("builtin.") ||
@@ -189,6 +194,14 @@ async function runApplication(
   const extensionManagement = new ExtensionManagementService({
     applyUi: (id) => uiRuntime.changed(id),
     hasBuiltin: (id) => extensionHost.hasDefinition(id),
+    builtinRecovery: (id, root) =>
+      extensionHost
+        .readyScopes()
+        .some(
+          (scope) =>
+            (!root || scope.workspaceRoot === root) &&
+            scope.ownerCleanupFailed(id),
+        ),
     applyBuiltin: async (id) => {
       try {
         await extensionHost.refreshOwner(id);

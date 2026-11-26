@@ -54,6 +54,7 @@ export async function createSessionToolRuntime(input: {
   subagentTools?: import("../subagents/service.js").SubagentToolBinding;
   /** An attested UI-owned handler, added to a normal core-scoped execution only. */
   uiTool?: import("../tools/types.js").ToolHandler;
+  imageOutput?: import("../tools/image-output.js").ToolImageOutput;
 }) {
   const {
     root,
@@ -113,6 +114,7 @@ export async function createSessionToolRuntime(input: {
     checkpointWrites = write;
     return write;
   };
+  const invocationLifetime = new AbortController();
   let mcpBinding: McpRuntimeBinding | undefined;
   let extensionBinding:
     | import("../extensions/contracts.js").Disposable
@@ -120,6 +122,7 @@ export async function createSessionToolRuntime(input: {
   let disposal: Promise<void> | undefined;
   const dispose = () =>
     (disposal ??= (async () => {
+      invocationLifetime.abort();
       const failures: unknown[] = [];
       for (const cleanup of [
         () => extensionBinding?.dispose(),
@@ -229,6 +232,17 @@ export async function createSessionToolRuntime(input: {
         agentEvents: input.agentEvents ?? scope.events,
         executionConstraint: input.childPolicy,
         approvalOwner: input.approvalOwner,
+        imageOutput: input.imageOutput,
+        conversationOwner:
+          options.subagentOwner && !input.childPolicy
+            ? {
+                id: options.subagentOwner.conversationId,
+                signal: options.subagentOwner.signal,
+              }
+            : {
+                id: session.id,
+                signal: AbortSignal.any([signal, invocationLifetime.signal]),
+              },
         subagentTools: input.subagentTools,
         background,
         worktrees: scope.services.lookup(worktreeServiceToken),

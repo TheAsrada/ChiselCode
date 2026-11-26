@@ -88,6 +88,8 @@ export class ChildToolPolicy implements ToolExecutionConstraint {
       spec.effect === "read" &&
       ((spec.source.extensionId === "builtin.project" &&
         spec.source.originalName === "manifest") ||
+        (spec.source.extensionId === "builtin.browser" &&
+          ["status", "diagnostics"].includes(spec.source.originalName)) ||
         (spec.source.extensionId === "builtin.lsp" &&
           [
             "status",

@@ -149,3 +149,15 @@ Native LSP catalog probe повторяет только начальную по
 ## Автосохранение Settings
 
 `bun test tests/unit/settings-autosave.test.ts tests/unit/provider-settings.test.ts tests/unit/settings-autosave-runtime.test.tsx` проверяет очередь, ошибки/повтор, защищённые ключи, пустую установку и настоящий OpenTUI с файловым хранилищем. Нативный сценарий включает клавиатуру, мышь, resize, быстрый ввод во время записи, закрытие и повторное открытие. Эти файлы входят в Linux full source; Windows/macOS выполняют их в существующем platform subset без повторения в installed/compiled smoke. Профиль fast включает только очередь и сервис профилей. [Кадры и воспроизведение](../assets/settings-autosave/README.md).
+
+## Браузер для frontend QA
+
+Запустите `bun test tests/unit/browser-contract.test.ts`. Живые сценарии требуют Linux x64 с sandbox, кэш Playwright/Chromium и обычные зависимости OpenTUI. Подготовьте отдельные `XDG_DATA_HOME` и `XDG_CONFIG_HOME`, создайте временный проект и выполните `chisel --cwd <проект> --mode build --allow ext:builtin.browser:install '/browser install'`.
+
+```bash
+bun tests/fixtures/browser-runtime.ts
+CHISEL_BROWSER_CAPTURES=/tmp/chisel-browser-frames bun tests/fixtures/browser-opentui.ts
+python scripts/render-terminal-captures.py /tmp/chisel-browser-frames
+```
+
+Первый fixture проверяет ToolExecutor с настоящим Chromium и локальными серверами. Второй использует настоящий OpenTUI renderer с клавиатурой, мышью и resize. В installed и compiled smoke достаточно проверить запуск `/browser open <разрешённый URL>` с тем же кэшем и завершение браузерных процессов. Скачивание и Chromium fixtures вынесены из fast.

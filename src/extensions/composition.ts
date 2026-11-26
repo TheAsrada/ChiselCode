@@ -4,6 +4,7 @@ import { cancelled } from "../runtime/errors.js";
 import { SubagentService } from "../subagents/service.js";
 import { WorktreeService } from "../worktrees/service.js";
 import { createBackgroundExtension } from "./builtins/background.js";
+import { createBrowserExtension } from "./builtins/browser.js";
 import { btwExtension } from "./builtins/btw.js";
 import { createLspExtension } from "./builtins/lsp.js";
 import { projectExtension } from "./builtins/project.js";
@@ -44,6 +45,7 @@ export function defaultExtensions(
     createWorktreeExtension(worktrees),
     projectExtension,
     createLspExtension(options),
+    createBrowserExtension(options),
     btwExtension,
     ...builtinProviderExtensions,
     createSubagentExtension(subagents),

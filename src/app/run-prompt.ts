@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import { readBrowserPolicy } from "../browser/config.js";
 import {
   loadGlobalConfig,
   loadProjectConfig,
@@ -32,6 +33,7 @@ import {
   resolveProviderRuntime,
 } from "../providers/runtime.js";
 import { SecretRedactor } from "../security/redaction.js";
+import { ToolImageOutput } from "../tools/image-output.js";
 import type { GlobalConfig } from "../types/domain.js";
 import {
   type CapturedModelConfiguration,
@@ -632,7 +634,36 @@ async function runPromptInWorkspace(
     : undefined;
   if (subagents)
     events.onSubagentControls?.(subagentControls(subagents, childOwner));
+  const imageOutput =
+    provider.providerId === "chatgpt" &&
+    global.browser?.imageProfiles.includes(selected.profileId) &&
+    (await provider.getCapabilities?.(model))?.toolImages
+      ? new ToolImageOutput(async (origin) => {
+          if (signal.aborted || !extensionScope.activation("builtin.browser"))
+            return false;
+          try {
+            const [current, policy] = await Promise.all([
+              loadGlobalConfig(options.configPath),
+              readBrowserPolicy(
+                extensionScope.workspaceRoot,
+                options.configPath,
+              ),
+            ]);
+            return (
+              !signal.aborted &&
+              !!extensionScope.activation("builtin.browser") &&
+              policy.enabled &&
+              policy.origins.includes(origin) &&
+              current.browser?.imageProfiles.includes(selected.profileId) ===
+                true
+            );
+          } catch {
+            return false;
+          }
+        })
+      : undefined;
   const tools = await createSessionToolRuntime({
+    imageOutput,
     subagentTools,
     backgroundOwner: { redactor: modelRedactor },
     onBackground: events.onBackground,
@@ -760,6 +791,7 @@ async function runPromptInWorkspace(
         contextManager,
         {
           getApprovalMode: tools.getApprovalMode,
+          takeToolImages: imageOutput?.take.bind(imageOutput),
           instructionsForTurn: (selected) =>
             tools.instructionsForTurn(selected),
           selectForTurn: async (input) => {

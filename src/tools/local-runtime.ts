@@ -43,6 +43,8 @@ export function createLocalToolRuntime(
     toolGuards?: ToolGuardPort;
     agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
     executionConstraint?: import("./types.js").ToolExecutionConstraint;
+    imageOutput?: import("./image-output.js").ToolImageOutput;
+    conversationOwner?: ToolContext["conversationOwner"];
     approvalOwner?: import("./types.js").ToolContext["approvalOwner"];
     background?: import("../background/binding.js").BackgroundToolBinding;
     subagentTools?: import("../subagents/service.js").SubagentToolBinding;
@@ -81,6 +83,7 @@ export function createLocalToolRuntime(
     background: options.background,
     executionConstraint: options.executionConstraint,
     approvalOwner: options.approvalOwner,
+    conversationOwner: options.conversationOwner,
     subagentTools: options.subagentTools,
     worktrees: options.worktrees,
     mode: options.mode,
@@ -110,6 +113,7 @@ export function createLocalToolRuntime(
     options.maxInlineTokens,
     options.toolGuards,
     options.agentEvents,
+    options.imageOutput,
   );
   context.events.agentEvents = options.agentEvents;
   context.events.agentSignal = options.signal;

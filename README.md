@@ -67,6 +67,7 @@ ChiselCode читает проект, ищет причины ошибок, пр
 | Сменить модель или аккаунт | [Выбор модели](docs/model-picker.md) · [Провайдеры](docs/providers.md) |
 | Настроить проект, оформление и разрешения | [Конфигурация](docs/configuration.md) · [Темы](docs/themes.md) · [Разрешения](docs/permissions.md) |
 | Продолжить разговор или использовать помощников | [Сессии](docs/sessions.md) · [Помощники](docs/subagents.md) · [Рабочие копии](docs/worktrees.md) |
+| Проверить локальный интерфейс | [Браузер](docs/browser.md) |
 | Подключить новые возможности | [MCP](docs/mcp.md) · [Навыки](docs/skills.md) · [Расширения](docs/extensions.md) |
 | Исправить проблему | [Решение проблем](docs/troubleshooting.md) |
 | Разрабатывать ChiselCode | [Разработка](docs/development.md) · [Архитектура](docs/architecture.md) |

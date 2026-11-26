@@ -133,7 +133,11 @@ export interface ContextSnapshot {
   status: "observed" | "estimated";
 }
 
+export type ToolImage = Readonly<{ mimeType: "image/png"; bytes: Uint8Array }>;
+
 export interface ProviderRequest {
+  /** Request-only binary data keyed by the ID of a corresponding text result. */
+  toolImages?: ReadonlyMap<string, ToolImage>;
   model: string;
   reasoningEffort?: string;
   system: string;
@@ -192,6 +196,9 @@ export interface ProviderAdapter {
 
 export interface ProjectConfig {
   externalExtensions?: { disabled?: boolean; disabledIds?: string[] };
+  browser?: import("zod").infer<
+    typeof import("../browser/config.js").ProjectBrowserConfigSchema
+  >;
   backgroundTasks?: import("../background/config.js").ProjectBackgroundConfig;
   subagents?: import("../subagents/config.js").ProjectSubagentConfig;
   lsp?: import("../lsp/config.js").ProjectLspConfig;
@@ -215,6 +222,9 @@ export interface ProviderConfig {
 }
 
 export interface GlobalConfig {
+  browser?: import("zod").infer<
+    typeof import("../browser/config.js").BrowserConfigSchema
+  >;
   backgroundTasks?: import("../background/config.js").BackgroundConfig;
   subagents?: import("../subagents/config.js").SubagentConfig;
   lsp?: import("../lsp/config.js").LspConfig;

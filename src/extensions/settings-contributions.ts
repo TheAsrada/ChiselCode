@@ -16,6 +16,13 @@ export function builtinAvailability(
   project?: ProjectConfig,
 ): { enabled: boolean; effective: boolean } {
   switch (id) {
+    case "builtin.browser":
+      return {
+        enabled: global.browser?.enabled !== false,
+        effective:
+          global.browser?.enabled !== false &&
+          project?.browser?.enabled !== false,
+      };
     case "builtin.lsp": {
       const lsp = global.lsp ?? { servers: {} };
       return {

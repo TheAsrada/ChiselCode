@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { ProjectBackgroundConfigSchema } from "../background/config.js";
+import { ProjectBrowserConfigSchema } from "../browser/config.js";
 import { InstructionResolver } from "../context/instructions.js";
 import { ProjectLspConfigSchema } from "../lsp/config.js";
 import { readMcpConfig } from "../mcp/configuration.js";
@@ -28,6 +29,7 @@ const ProjectConfigSchema = z.object({
     })
     .strict()
     .optional(),
+  browser: z.lazy(() => ProjectBrowserConfigSchema).optional(),
   backgroundTasks: ProjectBackgroundConfigSchema.optional(),
   subagents: ProjectSubagentConfigSchema.optional(),
   lsp: z.lazy(() => ProjectLspConfigSchema).optional(),

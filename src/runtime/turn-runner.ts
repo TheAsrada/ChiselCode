@@ -28,6 +28,7 @@ export class TurnRunner {
       estimated: number,
     ) => Promise<{ request: ProviderRequest; estimated: number }>,
     private readonly providerIdleTimeoutMs = PROVIDER_IDLE_TIMEOUT_MS,
+    private readonly takeToolImages?: import("./agent-runtime.js").RuntimeTools["takeToolImages"],
   ) {}
   async run(
     request: ProviderRequest,
@@ -65,6 +66,10 @@ export class TurnRunner {
       });
       if (request.signal?.aborted)
         throw new ProviderError("cancelled", "Provider request cancelled.");
+      if (!prepared.synthetic && this.takeToolImages) {
+        const toolImages = await this.takeToolImages(request.messages);
+        if (toolImages) request = { ...request, toolImages };
+      }
       let preparingTool = false;
       for await (const event of prepared.synthetic
         ? syntheticModelEvents(prepared.synthetic)
