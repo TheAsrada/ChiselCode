@@ -222,8 +222,8 @@ try {
   await until(() => !!node("approval-popup"), "Нет подтверждения viewport");
   await key("y");
   await until(
-    () => ui.captureCharFrame().includes("390 × 844"),
-    "Размер не изменился",
+    () => (label("390 × 844")?.x ?? 0) > 55,
+    "Панель не показала новый viewport",
   );
   await until(
     () => (ui.captureCharFrame().match(/Завершено за/g)?.length ?? 0) >= 3,
