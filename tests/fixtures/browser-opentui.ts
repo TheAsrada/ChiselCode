@@ -214,6 +214,10 @@ try {
     () => ui.captureCharFrame().includes("Заказ · QA"),
     "Страница не открылась",
   );
+  await until(
+    () => (ui.captureCharFrame().match(/Завершено за/g)?.length ?? 0) >= 2,
+    "Открытие страницы не завершилось",
+  );
   await choose("Телефон");
   await until(() => !!node("approval-popup"), "Нет подтверждения viewport");
   await key("y");
@@ -222,10 +226,14 @@ try {
     "Размер не изменился",
   );
   await until(
-    () => (ui.captureCharFrame().match(/Завершено за/g)?.length ?? 0) >= 2,
+    () => (ui.captureCharFrame().match(/Завершено за/g)?.length ?? 0) >= 3,
     "Установка viewport не завершилась",
   );
-  await choose("Снимок");
+  const captureButton = present(label("Снимок"));
+  await act(async () => {
+    await ui.mockMouse.click(captureButton.x + 2, captureButton.y);
+  });
+  await frame();
   await until(() => !!node("approval-popup"), "Нет подтверждения снимка");
   await key("y");
   await until(

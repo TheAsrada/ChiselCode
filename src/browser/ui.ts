@@ -31,6 +31,7 @@ export function registerBrowserUi(
     id: "browser",
     slot: "pane",
     placement: "sidebar",
+    initiallyHidden: true,
     scope: "conversation",
     title: "Браузер",
     order: 30,
@@ -50,14 +51,14 @@ export function registerBrowserUi(
     source: {
       subscribe: (_binding, changed) => service.subscribe(changed),
       async snapshot(binding) {
+        const initial = service.presentation(binding.conversationId);
+        if (!initial.visible)
+          return { revision: initial.revision, state: "ready", visible: false };
         const view = await service.view(binding.conversationId);
-        if (!view.visible)
-          return {
-            revision: view.revision,
-            state: "ready",
-            render: { mode: "hide" },
-          };
-        const { draft, section } = service.presentation(binding.conversationId);
+        const { draft, section, visible, revision } = service.presentation(
+          binding.conversationId,
+        );
+        if (!visible) return { revision, state: "ready", visible: false };
         const url =
           draft ??
           (view.page?.url === "about:blank" ? "" : view.page?.url) ??

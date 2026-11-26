@@ -33,6 +33,7 @@ const metadata = z
     id: UiIdSchema,
     slot: z.enum(["status", "context_section", "menu_entry", "render", "pane"]),
     placement: z.enum(["sidebar", "above_prompt", "below_prompt"]).optional(),
+    initiallyHidden: z.boolean().optional(),
     surfaces: z
       .array(z.enum(UI_SURFACES))
       .min(1)
@@ -490,7 +491,11 @@ export class UiSubscription implements Disposable {
           key,
           extensionId: entry.extensionId,
           descriptor: entry.descriptor,
-          snapshot: { revision: 0, state: "loading" },
+          snapshot: {
+            revision: 0,
+            state: "loading",
+            ...(entry.descriptor.initiallyHidden ? { visible: false } : {}),
+          },
         }),
       );
       if (
@@ -553,6 +558,7 @@ export class UiSubscription implements Disposable {
           snapshotIssue,
           snapshot: {
             revision: current.snapshot.revision,
+            ...(current.snapshot.visible === false ? { visible: false } : {}),
             state: "unavailable",
             label: "Данные недоступны",
             tone: "warning",

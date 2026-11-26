@@ -167,7 +167,12 @@ export class BrowserService {
 
   presentation(id?: string) {
     const owner = id ? this.owners.get(id) : undefined;
-    return { draft: owner?.draft, section: owner?.section ?? "page" };
+    return {
+      draft: owner?.draft,
+      section: owner?.section ?? "page",
+      visible: owner?.visible ?? false,
+      revision: this.revision,
+    };
   }
 
   setPresentation(

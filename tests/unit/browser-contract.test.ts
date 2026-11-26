@@ -11,6 +11,8 @@ import {
 } from "../../src/config/migrate.js";
 import { responsesInput } from "../../src/extensions/builtins/chatgpt/adapter.js";
 import { builtinAvailability } from "../../src/extensions/settings-contributions.js";
+import { ExtensionUiRegistry } from "../../src/extensions/ui.js";
+import type { UiSnapshot } from "../../src/extensions/ui-types.js";
 import { ProviderToolNames } from "../../src/providers/tool-names.js";
 import { ToolImageOutput } from "../../src/tools/image-output.js";
 import type { ProviderRequest } from "../../src/types/domain.js";
@@ -114,4 +116,50 @@ test("ChatGPT subscription encodes a PNG only for the corresponding transient to
   expect(responsesInput(request, names).at(-1)?.output).toBe("2 × 2 PNG");
   expect(JSON.stringify(request.messages)).not.toContain("base64");
   expect(await output.take(request.messages)).toBeUndefined();
+});
+
+test("opt-in browser pane reserves no layout before the first snapshot", async () => {
+  const lifetime = new AbortController();
+  const registry = new ExtensionUiRegistry(".", lifetime.signal, () => {});
+  const snapshot = Promise.withResolvers<UiSnapshot>();
+  registry.register("builtin.browser", {
+    id: "browser",
+    slot: "pane",
+    placement: "sidebar",
+    title: "Browser",
+    scope: "conversation",
+    initiallyHidden: true,
+    source: { snapshot: () => snapshot.promise },
+  });
+  registry.seal();
+  const shown = Promise.withResolvers<void>();
+  const subscription = registry.bind(
+    {
+      conversationId: "test",
+      generation: 1,
+      signal: lifetime.signal,
+      read: {
+        ownerSummary: () => ({
+          background: { active: 0, errors: 0, awaitingApproval: 0 },
+          agents: { active: 0, total: 0, errors: 0 },
+        }),
+        subscribeOwner: () => ({ dispose() {} }),
+      },
+    },
+    (items) => {
+      if (items.length) shown.resolve();
+    },
+  );
+  try {
+    expect(subscription.items).toEqual([]);
+    snapshot.resolve({
+      revision: 1,
+      state: "ready",
+      render: { mode: "replace", content: { type: "text", text: "Browser" } },
+    });
+    await shown.promise;
+    expect(subscription.items[0]?.snapshot.state).toBe("ready");
+  } finally {
+    registry.dispose();
+  }
 });

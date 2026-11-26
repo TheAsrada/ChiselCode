@@ -489,6 +489,8 @@ export interface UiContribution {
     | "render"
     | "pane";
   readonly placement?: "sidebar" | "above_prompt" | "below_prompt";
+  /** This pane reserves no layout before the source has chosen to show it. */
+  readonly initiallyHidden?: boolean;
   readonly surfaces?: readonly (typeof UI_SURFACES)[number][];
   readonly scope: "workspace" | "conversation";
   readonly title: string;
