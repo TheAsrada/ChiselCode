@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { DEFAULT_PROJECT_CONFIG } from "../src/config/load.js";
 import { ContextManager } from "../src/context/context-manager.js";
-import { BASE_SYSTEM_PROMPT } from "../src/core/prompt.js";
+import { baseSystemPromptForModel } from "../src/core/prompts/index.js";
 import {
   contextCollection,
   defaultExtensions,
@@ -67,6 +67,7 @@ export async function runTrial(
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), task.timeout * 1000);
   const metrics = emptyMetrics();
+  const basePrompt = baseSystemPromptForModel(model);
   const report: TrialReport = {
     task: task.id,
     trial,
@@ -77,9 +78,7 @@ export async function runTrial(
     environment: {
       fixture_hash: "",
       chisel_commit: "",
-      base_prompt_sha256: createHash("sha256")
-        .update(BASE_SYSTEM_PROMPT)
-        .digest("hex"),
+      base_prompt_sha256: createHash("sha256").update(basePrompt).digest("hex"),
       agent_mode: task.mode,
       bun: Bun.version,
       platform: process.platform,
@@ -267,7 +266,7 @@ export async function runTrial(
             tools.catalog.instructionsForTurn(selected),
           execute: (calls, signal) => tools.scheduler.execute(calls, signal),
         },
-        BASE_SYSTEM_PROMPT,
+        basePrompt,
         events,
       ).run(session, task.prompt, {
         mode: task.mode,

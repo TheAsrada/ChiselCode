@@ -11,6 +11,8 @@ import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execa } from "execa";
+import { BASE_SYSTEM_PROMPT } from "../../src/core/prompt.js";
+import { GPT_6_2_SYSTEM_PROMPT } from "../../src/core/prompts/gpt-6.2.js";
 import { CredentialStore } from "../../src/security/credentials.js";
 import {
   listen,
@@ -26,7 +28,8 @@ const configPath = join(storage, "chiselcode", "config.json");
 const token = "fixture-chatgpt-access";
 const profileId = "work";
 const originalModel = "gpt-6.1-sol";
-const childModel = "gpt-6-luna";
+const childModel = "gpt-astra-latest";
+const foregroundModel = "gpt-6.2-sol";
 const proof = "Read-only fixture evidence";
 const answer = "Результат ChatGPT сохранён";
 const fixtureVersion = "0.166.0";
@@ -47,7 +50,7 @@ const models = [
   },
   {
     slug: childModel,
-    display_name: "GPT-6 Luna",
+    display_name: "GPT Astra Latest",
     visibility: "list",
     context_window: 272000,
     supported_in_api: false,
@@ -63,10 +66,16 @@ const models = [
 ];
 type RequestBody = {
   model: string;
-  instructions: string;
+  instructions?: string;
   store: boolean;
   tools: { name: string }[];
-  input: { type?: string; call_id?: string; output?: string }[];
+  input: {
+    type?: string;
+    role?: string;
+    content?: string;
+    call_id?: string;
+    output?: string;
+  }[];
 };
 function sse(output: unknown[]) {
   return `data: ${JSON.stringify({ type: "response.completed", response: { status: "completed", output, usage: { input_tokens: 25, output_tokens: 5 } } })}\n\n`;
@@ -116,13 +125,29 @@ const server = createServer(
       const body = JSON.parse(Buffer.concat(chunks).toString()) as RequestBody;
       requests.push(body);
       assert.equal(body.store, false);
-      const child = body.instructions.includes(
-        "Поручение выполняется отдельным помощником.",
-      );
+      const system = body.input[0];
+      const specialized =
+        body.model === childModel || body.model === foregroundModel;
+      if (specialized) {
+        assert.equal(body.instructions, undefined);
+        assert.equal(system?.role, "developer");
+        assert.ok(system.content?.startsWith(GPT_6_2_SYSTEM_PROMPT));
+      } else {
+        assert.ok(body.instructions?.startsWith(BASE_SYSTEM_PROMPT));
+      }
+      const child =
+        system?.content?.includes(
+          "Поручение выполняется отдельным помощником.",
+        ) ?? false;
       const output = body.input.find(
         (item) => item.type === "function_call_output",
       );
       response.setHeader("Content-Type", "text/event-stream");
+      if (body.model === foregroundModel) {
+        assert.equal(child, false);
+        response.end(sse([reply("Профиль GPT-6.2 выбран")]));
+        return;
+      }
       if (!child) {
         if (output) {
           assert.equal(output.call_id, "submit");
@@ -231,7 +256,7 @@ try {
     );
 
   const cli = await invoke(
-    "/agent readonly --model gpt-6-luna Прочитай proof.txt",
+    `/agent readonly --model ${childModel} Прочитай proof.txt`,
   );
   assert.deepEqual(httpErrors, []);
   const dto = JSON.parse(cli.stdout.trim().split("\n").at(-1)!);
@@ -292,11 +317,22 @@ try {
       (body) => body.model === originalModel,
     );
     assert.equal(parentRequests.length, 2);
+    const foreground = await invoke(
+      "--model",
+      foregroundModel,
+      "Проверь профиль модели",
+    );
+    assert.equal(foreground.exitCode, 0, foreground.stderr + foreground.stdout);
+    assert.ok(foreground.stdout.includes("Профиль GPT-6.2 выбран"));
+    assert.equal(
+      requests.filter(({ model }) => model === foregroundModel).length,
+      1,
+    );
     const count = requests.length;
     const failed = await invoke(
       "--profile",
       "disconnected",
-      "/agent readonly --model gpt-6-luna Прочитай proof.txt",
+      `/agent readonly --model ${childModel} Прочитай proof.txt`,
     );
     const [failure] = JSON.parse(failed.stdout.trim().split("\n").at(-1)!)
       .details.children;
@@ -327,7 +363,7 @@ try {
         {
           command,
           input: command.parse(
-            "readonly --model gpt-6-luna Прочитай proof.txt",
+            `readonly --model ${childModel} Прочитай proof.txt`,
           ),
         },
         scope,

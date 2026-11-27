@@ -45,7 +45,9 @@ export async function verifyChatGptModelPicker(configPath: string) {
     );
     await submit("/model");
     await wait(
-      () => frame().includes("GPT-6 Luna") && frame().includes("GPT-6.1 Terra"),
+      () =>
+        frame().includes("GPT Astra Latest") &&
+        frame().includes("GPT-6.1 Terra"),
     );
     assert.ok(frame().includes("ChatGPT | work"));
     assert.ok(frame().includes("Контекст: 475,000"), frame());
@@ -74,10 +76,10 @@ export async function verifyChatGptModelPicker(configPath: string) {
     }
 
     await wait(() => ui.renderer.currentFocusedEditor?.id === "models-search");
-    await act(async () => ui.mockInput.pasteBracketedText("Luna"));
+    await act(async () => ui.mockInput.pasteBracketedText("Astra"));
     await wait(
       () =>
-        frame().includes("GPT-6 Luna") &&
+        frame().includes("GPT Astra Latest") &&
         !frame().includes("GPT-6.1 Terra") &&
         frame().includes("Контекст: 258,400"),
     );
@@ -85,13 +87,13 @@ export async function verifyChatGptModelPicker(configPath: string) {
     await wait(
       () =>
         !ui.renderer.root.findDescendantById("models-popup") &&
-        frame().includes("gpt-6-luna"),
+        frame().includes("gpt-astra-latest"),
     );
     const saved = JSON.parse(await readFile(configPath, "utf8"));
     assert.deepEqual(saved.ui.lastModelSelection, {
       provider: "chatgpt",
       profileId: "work",
-      model: "gpt-6-luna",
+      model: "gpt-astra-latest",
     });
     assert.equal(saved.profiles.work.defaultModel, "gpt-6.1-sol");
     console.log(

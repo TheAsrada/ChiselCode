@@ -734,6 +734,7 @@ async function runPromptInWorkspace(
       await loadProjectInstructions(projectRoot),
       dynamic,
       skills,
+      model,
     );
     // Resolve known credentials before the first transcript checkpoint or model request.
     await tools.refresh();

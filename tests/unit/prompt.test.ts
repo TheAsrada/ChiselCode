@@ -1,9 +1,49 @@
 import { describe, expect, test } from "bun:test";
-import { buildSystemPrompt } from "../../src/core/prompt.js";
+import {
+  BASE_SYSTEM_PROMPT,
+  buildSystemPrompt,
+} from "../../src/core/prompt.js";
+import { GPT_6_2_SYSTEM_PROMPT } from "../../src/core/prompts/gpt-6.2.js";
 import { hostShell, shellGuidance } from "../../src/processes/shell.js";
 import type { Skill } from "../../src/skills/skills.js";
 
 describe("prompt composition", () => {
+  test("selects the GPT-6.2 base only for known IDs and preserves the shared context", () => {
+    const context = { os: "test", cwd: "/project", date: "2026-11-27" };
+    const universal = buildSystemPrompt("PROJECT_RULE", context);
+    const sharedContext = universal.slice(BASE_SYSTEM_PROMPT.length);
+    for (const model of [
+      "gpt-6.2",
+      "gpt-6.2-sol",
+      "gpt-6.2-astra",
+      "gpt-latest",
+      "gpt-sol-latest",
+      "gpt-astra-latest",
+      "gpt-terra-latest",
+      "openai/GPT-6.2-SOL-2026-11-23",
+      "gpt-6-2-astra",
+      "gpt-62-sol",
+    ]) {
+      expect(buildSystemPrompt("PROJECT_RULE", context, [], model)).toBe(
+        GPT_6_2_SYSTEM_PROMPT + sharedContext,
+      );
+    }
+    for (const model of [
+      "gpt-6.1-sol",
+      "gpt-6.2-terra",
+      "gpt-6.20-astra",
+      "gpt-6.2-sol-preview",
+      "gpt-latest-preview",
+      "vendor/my-gpt-6.2-sol",
+      "gpt-5.2-chat-latest",
+      "claude-sonnet",
+    ]) {
+      expect(buildSystemPrompt("PROJECT_RULE", context, [], model)).toBe(
+        universal,
+      );
+    }
+  });
+
   test("main and child prompt identify CMD and do not infer PowerShell from Windows", () => {
     const prompt = buildSystemPrompt("", {
       os: "win32 x64",

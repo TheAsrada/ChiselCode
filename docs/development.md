@@ -105,7 +105,7 @@ bun build ./src/cli.ts --compile --target=bun-windows-x64 --outfile=dist/chisel.
 
 ## Agent evaluation
 
-Системный промпт общий для всех моделей: A/B сравнивает прежнюю и новую общие версии без индивидуальных поправок. [Архитектура промпта и проверяемые контракты](architecture/system-prompt.md). [Результаты частичного live A/B](contributors/reports/system-prompt-live.md) отделяют успешные задачи от прерываний квотой шлюза. Для воспроизводимости запускайте зафиксированные source commits на одной матрице точных model IDs, fixtures и настроек.
+Системный промпт использует универсальную основу или профиль GPT‑6.2 по ID модели. Для A/B сравнивайте один и тот же ID до и после изменения. [Архитектура промпта и проверяемые контракты](architecture/system-prompt.md). [Результаты частичного live A/B](contributors/reports/system-prompt-live.md) отделяют успешные задачи от прерываний квотой шлюза. Для воспроизводимости запускайте зафиксированные source commits на одной матрице точных model IDs, fixtures и настроек.
 
 ```bash
 bun run eval --category all
@@ -116,7 +116,7 @@ bun run eval --live --category coding --model <exact-model-id> --provider anthro
 
 Fixture копируется в отдельный temporary directory на каждый trial и удаляется после grading. Setup failures, runner timeout и исключения инфраструктуры отмечаются `infra_error`. Команды и filesystem graders измеряют итоговое состояние; trajectory grader использует общий RuntimeEvent stream. Отчёты JSON/Markdown создаются в `evals/results/`, baseline хранится отдельно. Точное содержимое fixture фиксируется hash, окружение — commit/platform/Bun/timeout/resource/network metadata. Host harness не ограничивает CPU/RAM и не является sandbox.
 
-Поле задачи `mode` выбирает Plan или Build (по умолчанию Build) и применяется в mock и live runtime. JSON-отчёт содержит `agent_mode` и `base_prompt_sha256`; hash относится к общей основе, не ко всему payload с проектными и tool-инструкциями. Сравнение проверяет совпадение режима, платформы и сетевого режима дополнительно к model/provider/fixture/settings. Отсутствующий `agent_mode` старого отчёта означает Build; hashes основы могут различаться при A/B и выводятся в comparison.
+Поле задачи `mode` выбирает Plan или Build (по умолчанию Build) и применяется в mock и live runtime. JSON-отчёт содержит `agent_mode` и `base_prompt_sha256`; hash вычисляется по базовому тексту выбранной модели, без проектных инструкций и guidance инструментов. Сравнение проверяет совпадение режима, платформы и сетевого режима дополнительно к model/provider/fixture/settings. Отсутствующий `agent_mode` старого отчёта означает Build; hashes основы могут различаться при A/B и выводятся в comparison.
 
 Coding-набор включает live-safe задачи `explain-without-edits`, `plan-without-mutations` и `preserve-owner-with-source-injection`. Они проверяют отсутствие лишних mutations/команд и сохранность чужого файла при текстовой инструкции в исходнике. Оценку полноты объяснений и формулировок ответа эти graders не заменяют.
 

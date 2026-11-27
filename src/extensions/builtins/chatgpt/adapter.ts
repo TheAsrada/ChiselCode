@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isGpt62Model } from "../../../models/gpt-6.2.js";
 import type { ReasoningEffortCapability } from "../../../providers/capabilities.js";
 import {
   normalizeProviderError,
@@ -255,7 +256,7 @@ export class ChatGptAdapter implements ProviderAdapter {
     try {
       const input = responsesInput(request, names);
       // GPT-6.2 caches the system prompt when it leads input as a developer message.
-      const useDeveloperPrompt = /^gpt-6\.2(?:-|$)/.test(request.model);
+      const useDeveloperPrompt = isGpt62Model(request.model);
       if (useDeveloperPrompt)
         input.unshift({
           type: "message",
