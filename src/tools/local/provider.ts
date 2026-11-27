@@ -1,5 +1,4 @@
 import { attestNativeSkillTool } from "../../skills/capability.js";
-import type { LoadedMcpSkill } from "../../skills/mcp.js";
 import { RemoteSkills } from "../../skills/remote.js";
 import { SafeWebHttpClient } from "../../web/http-client.js";
 import { WebLimitsSchema } from "../../web/schema.js";
@@ -11,7 +10,11 @@ import { gitHandlers } from "./git.js";
 import { scratchHandler } from "./scratch.js";
 import { shellHandler } from "./shell.js";
 import { skillSourceHandlers } from "./skill-sources.js";
-import { type SkillsCatalog, skillHandlers } from "./skills.js";
+import {
+  type ActiveSkillReaders,
+  type SkillsCatalog,
+  skillHandlers,
+} from "./skills.js";
 export class LocalToolProvider implements ToolProvider {
   readonly handlers = [
     ...fileHandlers(),
@@ -35,12 +38,12 @@ export class SkillsToolProvider implements ToolProvider {
   constructor(
     skills: SkillsCatalog,
     remote = new RemoteSkills(new SafeWebHttpClient(WebLimitsSchema.parse({}))),
-    mcpSkill?: LoadedMcpSkill,
+    active?: ActiveSkillReaders,
   ) {
     this.handlers = [
       ...skillHandlers(
         typeof skills === "function" ? skills : [...skills],
-        mcpSkill,
+        active,
       ),
       ...skillSourceHandlers(remote),
     ];

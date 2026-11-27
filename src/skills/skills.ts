@@ -21,6 +21,13 @@ import {
   skillsRootDir,
   userSkillsDir,
 } from "../paths/home.js";
+import { clipText } from "../utils/text.js";
+import {
+  invocationFlag,
+  SkillFrontmatterError,
+  skillString,
+  splitFrontmatter,
+} from "./frontmatter.js";
 
 /**
  * Скиллы в духе Claude Code и открытого стандарта Agent Skills
@@ -29,8 +36,8 @@ import {
  * `scripts/`, `references/`, `assets/`.
  *
  * Прогрессивное раскрытие: в системный промпт попадает только каталог
- * (имя + описание ~100 токенов на скилл), полный SKILL.md агент читает
- * сам через load_skill по имени, когда задача совпадает с описанием.
+ * с ограничением по размеру. Агент ищет остальные записи через
+ * search_skills и читает инструкции через load_skill.
  * Вручную скилл вызывается как /имя.
  *
  * Живые источники: ChiselCode Home/skills/bundled и /skills/user.
@@ -75,7 +82,6 @@ export interface SkillLocations {
 
 /** Имя скилла по спеке: латиница/цифры/дефис, без висячих и двойных дефисов. */
 const SKILL_NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-const MAX_SKILLS_PER_DIR = 100;
 const MAX_SKILL_FILE_BYTES = 64 * 1024;
 const SKILL_FILENAME = "SKILL.md";
 export const RESERVED_BUNDLED_SKILL_NAMES = new Set([
@@ -142,11 +148,14 @@ export function loadSkills(
     } catch {
       continue;
     }
-    for (const entry of entries
-      .filter((entry) => !entry.startsWith("."))
-      .sort()
-      .slice(0, MAX_SKILLS_PER_DIR)) {
-      if (entry.startsWith(".")) continue;
+    for (const entry of entries.sort()) {
+      const name = entry.toLowerCase();
+      if (
+        !SKILL_NAME_RE.test(name) ||
+        BUILT_IN_NAMES.has(name) ||
+        found.has(name)
+      )
+        continue;
       const skillDir = join(dir, entry);
       let isDirectory = false;
       try {
@@ -156,25 +165,26 @@ export function loadSkills(
         continue;
       }
       if (!isDirectory) continue;
-      const name = entry.toLowerCase();
-      if (!SKILL_NAME_RE.test(name) || BUILT_IN_NAMES.has(name)) continue;
       if (source === "user" && RESERVED_BUNDLED_SKILL_NAMES.has(name)) {
         diagnostic(
           `Пользовательский скилл «${name}» игнорируется: имя зарезервировано встроенным скиллом.`,
         );
         continue;
       }
-      if (found.has(name)) continue;
       let text: string;
       try {
         const info = lstatSync(join(skillDir, SKILL_FILENAME));
-        if (!info.isFile() || info.isSymbolicLink()) continue;
+        if (!info.isFile() || info.size > MAX_SKILL_FILE_BYTES) continue;
         text = readFileSync(join(skillDir, SKILL_FILENAME), "utf8");
       } catch {
         continue;
       }
       if (Buffer.byteLength(text, "utf8") > MAX_SKILL_FILE_BYTES) continue;
-      const parsed = parseSkillFile(name, text);
+      const parsed = parseSkillFile(name, text, (error) =>
+        diagnostic(
+          `Навык «${name}» из ${join(skillDir, SKILL_FILENAME)} пропущен. ${error}`,
+        ),
+      );
       if (parsed) found.set(name, { ...parsed, source, dir: skillDir });
     }
   }
@@ -310,11 +320,10 @@ function migrateLegacySkills(
       }
       try {
         assertRegularSkillTree(from);
+        const instructions = join(from, SKILL_FILENAME);
         if (
-          !parseSkillFile(
-            name,
-            readFileSync(join(from, SKILL_FILENAME), "utf8"),
-          )
+          lstatSync(instructions).size > MAX_SKILL_FILE_BYTES ||
+          !parseSkillFile(name, readFileSync(instructions, "utf8"))
         ) {
           complete = false;
           diagnostic(
@@ -388,21 +397,9 @@ export interface ParsedSkill {
 export function parseImportedSkill(
   fallbackName: string,
   text: string,
+  onDiagnostic?: SkillLocations["onDiagnostic"],
 ): ParsedSkill | undefined {
-  const { data } = splitFrontmatter(text.replace(/^\uFEFF/, ""));
-  if (
-    typeof data.name !== "string" ||
-    !data.name.trim() ||
-    typeof data.description !== "string" ||
-    !data.description.trim()
-  )
-    return undefined;
-  return parseSkillFile(
-    String(data.name ?? fallbackName)
-      .trim()
-      .toLowerCase(),
-    text,
-  );
+  return parseSkill(fallbackName, text, true, onDiagnostic);
 }
 
 /** Скиллы, доступные как /команды (без `user-invocable: false`). */
@@ -413,7 +410,7 @@ export function invocableSkills<T extends { userInvocable?: boolean }>(
 }
 
 /** Скиллы, доступные модели через каталог и load_skill. */
-export function modelInvocableSkills(skills: Skill[]): Skill[] {
+export function modelInvocableSkills(skills: readonly Skill[]): Skill[] {
   return skills.filter((skill) => skill.disableModelInvocation !== true);
 }
 
@@ -425,150 +422,55 @@ export function modelInvocableSkills(skills: Skill[]): Skill[] {
 export function parseSkillFile(
   dirName: string,
   text: string,
+  onDiagnostic?: SkillLocations["onDiagnostic"],
 ): ParsedSkill | undefined {
-  const normalized = text.replace(/^\uFEFF/, "");
-  const { data, body } = splitFrontmatter(normalized);
-  const instructions = body.trim();
-  if (!instructions) return undefined;
-  const frontName = String(data.name ?? "")
-    .trim()
-    .toLowerCase();
-  const fallbackName = dirName.trim().toLowerCase();
-  // По спеке имя обязано совпадать с папкой: явное расхождение —
-  // malformed-скилл, пропускаем, а не гадаем. Без имени — имя папки.
-  if (frontName && frontName !== fallbackName) return undefined;
-  const name = frontName || fallbackName;
-  if (!SKILL_NAME_RE.test(name)) return undefined;
-  const firstLine = instructions.split("\n", 1)[0]?.trim() ?? "";
-  let description = String(data.description ?? "").trim();
-  if (!description) description = firstLine;
-  if (!description) return undefined;
-  if (description.length > 1024) description = `${description.slice(0, 1023)}…`;
-  const allowedRaw = String(data["allowed-tools"] ?? "").trim();
-  const allowedTools = allowedRaw
-    ? allowedRaw.split(/\s+/).filter(Boolean)
-    : undefined;
-  const invocableRaw = String(data["user-invocable"] ?? "")
-    .trim()
-    .toLowerCase();
-  const userInvocable = invocableRaw === "false" ? false : undefined;
-  const modelInvocationRaw = String(data["disable-model-invocation"] ?? "")
-    .trim()
-    .toLowerCase();
-  const disableModelInvocation =
-    modelInvocationRaw === "true"
-      ? true
-      : modelInvocationRaw === "false"
-        ? false
-        : undefined;
-  return {
-    name,
-    description,
-    instructions,
-    ...(allowedTools?.length ? { allowedTools } : {}),
-    ...(userInvocable === false ? { userInvocable } : {}),
-    ...(disableModelInvocation !== undefined ? { disableModelInvocation } : {}),
-  };
+  return parseSkill(dirName, text, false, onDiagnostic);
 }
 
-interface Frontmatter {
-  data: Record<string, string>;
-  body: string;
-}
-
-/**
- * Минимальный парсер YAML-подмножества из frontmatter: `key: value`
- * (кавычки снимаются), блочные скаляры `>`/`|` и один уровень вложенного
- * маппинга (для `metadata:`). Этого хватает на все поля спеки; полный YAML
- * сюда тащить нечем и незачем.
- */
-export function splitFrontmatter(text: string): Frontmatter {
-  const lines = text.split("\n");
-  const first = lines[0]?.trim() ?? "";
-  if (first !== "---") return { data: {}, body: text };
-  let fence = -1;
-  for (let i = 1; i < lines.length; i += 1) {
-    const line = lines[i]?.trim() ?? "";
-    if (line === "---" || line === "...") {
-      fence = i;
-      break;
-    }
+function parseSkill(
+  dirName: string,
+  text: string,
+  imported: boolean,
+  onDiagnostic?: SkillLocations["onDiagnostic"],
+): ParsedSkill | undefined {
+  try {
+    const { data, body } = splitFrontmatter(text);
+    const frontName = skillString(data, "name").toLowerCase();
+    const frontDescription = skillString(data, "description");
+    const userInvocable = invocationFlag(data, "user-invocable");
+    const disableModelInvocation = invocationFlag(
+      data,
+      "disable-model-invocation",
+    );
+    const allowedTools = skillString(data, "allowed-tools")
+      .split(/\s+/)
+      .filter(Boolean);
+    const fallbackName = dirName.trim().toLowerCase();
+    if (imported && (!frontName || !frontDescription)) return;
+    if (!imported && frontName && frontName !== fallbackName) return;
+    const name = frontName || fallbackName;
+    const instructions = body.trim();
+    if (!SKILL_NAME_RE.test(name) || !instructions) return;
+    const description =
+      frontDescription || instructions.split("\n", 1)[0]?.trim() || "";
+    return {
+      name,
+      description:
+        description.length > 1024
+          ? `${clipText(description, 1023)}…`
+          : description,
+      instructions,
+      ...(allowedTools.length ? { allowedTools } : {}),
+      ...(userInvocable === false ? { userInvocable } : {}),
+      ...(disableModelInvocation === undefined
+        ? {}
+        : { disableModelInvocation }),
+    };
+  } catch (error) {
+    if (!(error instanceof SkillFrontmatterError)) throw error;
+    onDiagnostic?.(error.message);
+    return;
   }
-  if (fence === -1) return { data: {}, body: text };
-  const data: Record<string, string> = {};
-  const head = lines.slice(1, fence);
-  let i = 0;
-  while (i < head.length) {
-    const line = head[i] ?? "";
-    if (!line.trim() || line.trimStart().startsWith("#")) {
-      i += 1;
-      continue;
-    }
-    const match = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line);
-    if (!match?.[1]) {
-      i += 1;
-      continue;
-    }
-    const key = match[1];
-    const rest = (match[2] ?? "").trim();
-    if (/^[>|][+-]?$/.test(rest)) {
-      // Блочный скаляр: забираем все строки с отступом.
-      const chunk: string[] = [];
-      i += 1;
-      while (i < head.length && /^\s+\S/.test(head[i] ?? "")) {
-        chunk.push((head[i] ?? "").replace(/^\s+/, ""));
-        i += 1;
-      }
-      data[key] =
-        rest[0] === ">"
-          ? foldBlock(chunk)
-          : chunk.join("\n").replace(/\n+$/, "");
-      continue;
-    }
-    if (rest === "") {
-      // Возможно вложенный маппинг (metadata:): собираем `sub: value`.
-      const nested: string[] = [];
-      let j = i + 1;
-      while (j < head.length && /^\s+[A-Za-z0-9_-]+\s*:/.test(head[j] ?? "")) {
-        nested.push((head[j] ?? "").trim());
-        j += 1;
-      }
-      if (nested.length > 0) {
-        data[key] = nested.join("\n");
-        i = j;
-        continue;
-      }
-    }
-    data[key] = unquote(rest);
-    i += 1;
-  }
-  return { data, body: lines.slice(fence + 1).join("\n") };
-}
-
-/** Схлопывание `>`-блока: строки в абзац через пробел, пустые — разрыв. */
-function foldBlock(lines: string[]): string {
-  const paragraphs: string[] = [];
-  let current: string[] = [];
-  const flush = (): void => {
-    if (current.length > 0) paragraphs.push(current.join(" "));
-    current = [];
-  };
-  for (const line of lines) {
-    if (!line.trim()) flush();
-    else current.push(line.trim());
-  }
-  flush();
-  return paragraphs.join("\n\n");
-}
-
-function unquote(value: string): string {
-  if (value.length >= 2) {
-    const first = value[0];
-    const last = value[value.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'"))
-      return value.slice(1, -1);
-  }
-  return value;
 }
 
 /**
@@ -620,26 +522,4 @@ export function stripActiveSkillsBlock(text: string): string {
     .slice(end + 1)
     .join("\n")
     .replace(/^\n+/, "");
-}
-
-/**
- * Каталог скиллов для системного промпта (уровень 1 прогрессивного
- * раскрытия): только имя + описание. Тело загружается по имени через load_skill.
- */
-export function skillsCatalogPrompt(skills: Skill[]): string {
-  const available = modelInvocableSkills(skills);
-  if (available.length === 0) return "";
-  const escapeXml = (text: string) =>
-    text
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
-  return [
-    "<available_skills>",
-    ...available.map(
-      (skill) =>
-        `  <skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(skill.description)}</description></skill>`,
-    ),
-    "</available_skills>",
-  ].join("\n");
 }

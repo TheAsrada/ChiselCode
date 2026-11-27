@@ -17,6 +17,8 @@ import {
   skillsRootDir,
   userSkillsDir,
 } from "../../src/paths/home.js";
+import { searchSkills, skillsCatalogPrompt } from "../../src/skills/catalog.js";
+import { splitFrontmatter } from "../../src/skills/frontmatter.js";
 import {
   buildActiveSkillsPrompt,
   expandSkill,
@@ -25,8 +27,6 @@ import {
   modelInvocableSkills,
   parseSkillFile,
   type Skill,
-  skillsCatalogPrompt,
-  splitFrontmatter,
   stripActiveSkillsBlock,
 } from "../../src/skills/skills.js";
 import {
@@ -111,7 +111,7 @@ describe("SKILL.md files", () => {
       "---\nname: x\ndescription: y\nmetadata:\n  author: me\n  version: 1.0\n---\nТело\n",
     );
     expect(data.name).toBe("x");
-    expect(data.metadata).toContain("author: me");
+    expect(data.metadata).toEqual({ author: "me", version: 1 });
     expect(body.trim()).toBe("Тело");
   });
 
@@ -436,4 +436,120 @@ describe("skill completion", () => {
       },
     ]);
   });
+});
+
+test("uses YAML syntax for invocation flags and rejects ambiguous or invalid headers", () => {
+  const parse = (header: string, diagnostics: string[] = []) =>
+    parseSkillFile(
+      "notes",
+      `\uFEFF---\r\n${header}\r\n---\r\nInstructions`,
+      (message) => diagnostics.push(message),
+    );
+  expect(
+    parse(
+      [
+        'description: "Keep # and : in text"',
+        "defaults: &flags { disable-model-invocation: true }",
+        "<<: *flags",
+        "user-invocable: false # hide from the slash menu",
+      ].join("\r\n"),
+    ),
+  ).toMatchObject({
+    description: "Keep # and : in text",
+    disableModelInvocation: true,
+    userInvocable: false,
+  });
+  expect(
+    parse('disable-model-invocation: "true"')?.disableModelInvocation,
+  ).toBe(true);
+  for (const header of [
+    "disable-model-invocation: true\ndisable-model-invocation: false",
+    "disable-model-invocation: [true]",
+    "disable-model-invocation: maybe",
+    "user-invocable:",
+    "user-invocable: { flag: false }",
+    "description: [",
+    "- disable-model-invocation: true",
+  ]) {
+    const diagnostics: string[] = [];
+    expect(parse(header, diagnostics)).toBeUndefined();
+    expect(diagnostics).toHaveLength(1);
+  }
+  expect(
+    parseSkillFile("notes", "---\ndisable-model-invocation: true\n"),
+  ).toBeUndefined();
+  expect(
+    parse("description: |-\n  Ревью\n  ---\n  Подробнее")?.description,
+  ).toBe("Ревью\n---\nПодробнее");
+});
+
+test("validates every local candidate and reports invalid frontmatter without losing later skills", async () => {
+  const home = await mkdtemp(join(tmpdir(), "chisel-full-skills-"));
+  try {
+    const root = join(home, "skills", "user");
+    await mkdir(root, { recursive: true });
+    for (let index = 0; index < 102; index++)
+      await writeFile(join(root, `a-${index}`), "Not a skill directory");
+    for (const [name, header] of [
+      ["bad-flags", "disable-model-invocation: [true]\n"],
+      ["zzz-valid", "disable-model-invocation: true # manual only\n"],
+    ]) {
+      const dir = join(root, name ?? "");
+      await mkdir(dir);
+      await writeFile(join(dir, "SKILL.md"), `---\n${header}---\nInstructions`);
+    }
+    const diagnostics: string[] = [];
+    const skills = loadSkills(undefined, {
+      homeDir: home,
+      bundledSourceDir: "",
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+    expect(skills.map(({ name }) => name)).toEqual(["zzz-valid"]);
+    expect(skills[0]?.disableModelInvocation).toBe(true);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toContain("bad-flags");
+    expect(diagnostics[0]).toContain("disable-model-invocation");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("bounds the encoded prompt and searches beyond the preview, with stable pages and visibility", () => {
+  const description = `${"🙂<&".repeat(130)} ZEBRA протокол`;
+  const skills: Skill[] = Array.from({ length: 104 }, (_, index) => ({
+    ...skill("private instructions"),
+    name: `a-${String(index).padStart(3, "0")}`,
+    description,
+  }));
+  skills.push({ ...skill("body"), name: "bundled", source: "bundled" });
+  skills.push({
+    ...skill("body"),
+    name: "manual",
+    description,
+    disableModelInvocation: true,
+  });
+  skills.push({
+    ...skill("body"),
+    name: "z-model",
+    description,
+    userInvocable: false,
+  });
+  const catalog = skillsCatalogPrompt(skills);
+  expect(Buffer.byteLength(catalog)).toBeLessThanOrEqual(8192);
+  expect(catalog).toContain("search_skills");
+  expect(catalog).toContain("<name>bundled</name>");
+  expect(catalog).toContain("&lt;&amp;");
+  expect(catalog).not.toContain("private instructions");
+  expect(catalog).not.toContain("z-model");
+  const first = searchSkills(skills, "  ｚｅｂｒａ ПРОТОКОЛ  ", 0);
+  expect(first.total).toBe(105);
+  expect(first.skills).toHaveLength(12);
+  expect(first.nextOffset).toBe(12);
+  expect(first.skills[0]?.description).not.toContain("ZEBRA");
+  const last = searchSkills(skills, "zebra протокол", 96);
+  expect(last.skills.at(-1)?.name).toBe("z-model");
+  expect(last.nextOffset).toBeUndefined();
+  expect(searchSkills(skills, "manual", 0).total).toBe(0);
+  expect(searchSkills(skills, "zzz-missing", 0).skills).toEqual([]);
+  expect(searchSkills(skills, "", 1000).skills).toEqual([]);
 });

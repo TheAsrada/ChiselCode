@@ -19,6 +19,7 @@ import { ToolCatalog } from "./catalog.js";
 import { EditingService } from "./editing/service.js";
 import { ToolExecutor } from "./executor.js";
 import { LocalToolProvider, SkillsToolProvider } from "./local/provider.js";
+import type { ActiveSkillReaders } from "./local/skills.js";
 import { ToolScheduler } from "./scheduler.js";
 import type { ToolContext } from "./types.js";
 export function createLocalToolRuntime(
@@ -48,7 +49,7 @@ export function createLocalToolRuntime(
     approvalOwner?: import("./types.js").ToolContext["approvalOwner"];
     background?: import("../background/binding.js").BackgroundToolBinding;
     subagentTools?: import("../subagents/service.js").SubagentToolBinding;
-    mcpSkill?: import("../skills/mcp.js").LoadedMcpSkill;
+    activeSkills?: ActiveSkillReaders;
     skillsCatalog?: () => readonly Skill[];
     remoteSkills?: RemoteSkills;
     worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
@@ -76,7 +77,7 @@ export function createLocalToolRuntime(
     ...new SkillsToolProvider(
       options.skillsCatalog ?? skills,
       options.remoteSkills,
-      options.mcpSkill,
+      options.activeSkills,
     ).handlers,
   ])
     catalog.register(handler);

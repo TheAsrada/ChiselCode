@@ -1907,6 +1907,7 @@ async function runApplication(
             approvalMode: turnApprovalMode,
             interactive: true,
             mcpSkillCommand: remoteCommand,
+            invokedSkill: skill,
             uiSnapshot: {
               observe: () => {
                 if (

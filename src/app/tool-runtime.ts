@@ -16,7 +16,7 @@ import type { ApprovalMode } from "../security/approval-mode.js";
 import { SecretRedactor } from "../security/redaction.js";
 import type { projectSessionStore } from "../sessions/project-store.js";
 import { RemoteSkills } from "../skills/remote.js";
-import { loadSkills } from "../skills/skills.js";
+import { loadSkills, type Skill } from "../skills/skills.js";
 import { createLocalToolRuntime } from "../tools/local-runtime.js";
 import type { GlobalConfig, ProjectConfig, Session } from "../types/domain.js";
 import { createWebToolProvider } from "../web/provider.js";
@@ -55,6 +55,7 @@ export async function createSessionToolRuntime(input: {
   subagentTools?: import("../subagents/service.js").SubagentToolBinding;
   /** An attested UI-owned handler, added to a normal core-scoped execution only. */
   uiTool?: import("../tools/types.js").ToolHandler;
+  invokedSkill?: () => Skill | undefined;
   mcpSkillName?: string;
   mcpSkillApproval?: string;
   imageOutput?: import("../tools/image-output.js").ToolImageOutput;
@@ -230,7 +231,7 @@ export async function createSessionToolRuntime(input: {
         events,
         extensionActivation: input.extensionActivation,
         skillsCatalog: () => loadSkills(root),
-        mcpSkill,
+        activeSkills: { mcp: mcpSkill, local: input.invokedSkill },
         remoteSkills: new RemoteSkills(web.http),
         mode,
         approvalMode,

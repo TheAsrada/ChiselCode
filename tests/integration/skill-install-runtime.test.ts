@@ -406,6 +406,11 @@ test("a direct HTTPS SKILL.md installs only that file and respects its registere
     expect(
       (await env.call("load_skill", { name: "ui-design" })).output,
     ).toContain("Read references/guide.md");
+    expect(
+      JSON.parse(
+        (await env.call("search_skills", { query: "ui-design" })).output,
+      ),
+    ).toMatchObject({ total: 1, skills: [{ name: "ui-design" }] });
   } finally {
     await env.close();
   }
@@ -419,7 +424,7 @@ test("a single root skill can be selected by its frontmatter name, and invocatio
     env.api.files.set(
       "SKILL.md",
       Buffer.from(
-        "---\nname: root-design\ndescription: Root skill.\ndisable-model-invocation: true\nuser-invocable: false\nallowed-tools: run_shell\n---\nDo not execute during installation.",
+        "---\nname: root-design\ndescription: Root skill.\ndisable-model-invocation: true # manual only\nuser-invocable: false # hide from command menu\nallowed-tools: run_shell\n---\nDo not execute during installation.",
       ),
     );
     const result = await env.call("install_skill", {

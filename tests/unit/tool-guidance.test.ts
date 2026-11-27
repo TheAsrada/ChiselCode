@@ -236,11 +236,13 @@ test("native skill and shell guidance follows Build, Plan and the selected reade
   const plan = catalog.selectForTurn();
   expect(plan.map((tool) => tool.name)).toEqual([
     "load_skill",
+    "search_skills",
     "inspect_skills",
   ]);
   const instructions = catalog.instructionsForTurn(plan);
   expect(instructions).toContain("Use inspect_skills");
   expect(instructions).toContain("Use load_skill");
+  expect(instructions).toContain("Use nextOffset");
   expect(instructions).not.toContain("install_skill");
   expect(instructions).not.toContain("run_shell");
   expect(catalog.instructionsForTurn(build)).toBe(instructions);

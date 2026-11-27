@@ -38,6 +38,7 @@ import {
   mcpSkillPrompt,
   type parseMcpSkillCommand,
 } from "../skills/mcp.js";
+import type { Skill } from "../skills/skills.js";
 import { ToolImageOutput } from "../tools/image-output.js";
 import type { GlobalConfig } from "../types/domain.js";
 import {
@@ -144,6 +145,8 @@ export interface RunOptions {
   interactive?: boolean;
   /** Core TUI dispatch may wrap the input with active local skills. */
   mcpSkillCommand?: ReturnType<typeof parseMcpSkillCommand>;
+  /** Snapshot from explicit local slash dispatch. Never derived from prompt text. */
+  invokedSkill?: Skill;
   /** Shared across TUI turns/tabs of a project; headless runs own their manager. */
   mcpManager?: McpConnectionManager;
   /** Live user network configuration; repository restrictions are always reapplied. */
@@ -676,7 +679,9 @@ async function runPromptInWorkspace(
     .filter((message) => message.role === "user")
     .flatMap((message) => message.content)
     .find((block) => block.type === "text" && mcpSkillFromPrompt(block.text));
+  let invokedSkill: Skill | undefined;
   const tools = await createSessionToolRuntime({
+    invokedSkill: () => invokedSkill,
     mcpSkillName: remoteCommand?.name,
     mcpSkillApproval:
       historicalSkill?.type === "text"
@@ -814,10 +819,19 @@ async function runPromptInWorkspace(
         {
           getApprovalMode: tools.getApprovalMode,
           takeToolImages: imageOutput?.take.bind(imageOutput),
-          instructionsForTurn: (selected) =>
-            tools.instructionsForTurn(selected),
+          instructionsForTurn: (selected) => {
+            const guidance = tools.instructionsForTurn(selected);
+            if (
+              !invokedSkill ||
+              !selected.some(({ name }) => name === "load_skill")
+            )
+              return guidance;
+            return `${guidance}\nThe user invoked /${invokedSkill.name} in this request. If its instructions refer to supporting files, use load_skill with name "${invokedSkill.name}" and a relative path.`;
+          },
           selectForTurn: async (input) => {
             await tools.refresh();
+            // AgentRuntime processes the previous request's pending calls before selection.
+            invokedSkill = options.invokedSkill;
             return tools.catalog.selectForTurn(input);
           },
           execute: (calls, signal) =>

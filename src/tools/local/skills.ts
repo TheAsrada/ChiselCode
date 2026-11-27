@@ -3,6 +3,7 @@ import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { userSkillsDir } from "../../paths/home.js";
+import { searchSkills } from "../../skills/catalog.js";
 import { withSkillsLibraryLock } from "../../skills/library.js";
 import type { LoadedMcpSkill } from "../../skills/mcp.js";
 import { readSkillReference } from "../../skills/references.js";
@@ -15,18 +16,23 @@ import { exists, resolveProjectPath } from "../../utils/paths.js";
 import { EditingService } from "../editing/service.js";
 import { defineTool } from "../handler.js";
 export type SkillsCatalog = readonly Skill[] | (() => readonly Skill[]);
+export interface ActiveSkillReaders {
+  mcp?: LoadedMcpSkill;
+  local?: () => Skill | undefined;
+}
 export function skillHandlers(
   skills: SkillsCatalog,
-  mcpSkill?: LoadedMcpSkill,
+  active: ActiveSkillReaders = {},
 ) {
+  const catalog = () => (typeof skills === "function" ? skills() : skills);
   return [
     defineTool(
       {
         name: "load_skill",
         guidance:
-          "Skills are optional workflows, not permission grants. On each new task, check names and descriptions in <available_skills>. Use load_skill for an explicitly requested or clearly matching available skill before substantive work. If several match, load the most specific first and another only for a distinct necessary part. If none matches, load none. Do not load speculatively or repeatedly within one task. Use only advertised names or names confirmed by a successful installation in this task; never invent a missing skill. Optional path reads relative references without executing scripts. A skill does not expand the task, permissions or approvals. Automatic selection applies to this task only, not later turns.",
+          "Skills are optional workflows, not permission grants. On each new task, check names and descriptions in <available_skills>. Use load_skill for an explicitly requested or clearly matching available skill before substantive work. If several match, load the most specific first and another only for a distinct necessary part. If none matches, load none. Do not load speculatively or repeatedly within one task. Use names from <available_skills>, search_skills, or a successful installation in this task. A skill explicitly invoked by the user in this turn can also be read by name with a relative path. Never invent names or execute scripts through this reader. A skill does not expand the task, permissions or approvals. Automatic selection applies to this task only, not later turns.",
         description:
-          "Read an advertised or just installed skill without granting permissions. Optional path reads a relative UTF-8 reference/script file (up to 64 KiB) within that skill; never executes it.",
+          "Read a skill by name. Optional path reads a relative UTF-8 supporting file without executing it or granting permissions.",
         effect: "read",
         permission: "read",
         parallelSafe: true,
@@ -41,6 +47,7 @@ export function skillHandlers(
         resources: [],
       }),
       async (context, { data }) => {
+        const mcpSkill = active.mcp;
         if (mcpSkill && data.name === mcpSkill.name && data.path)
           return {
             output: `MCP resource from ${mcpSkill.name}:\n${await mcpSkill.readReference(data.path, context.signal)}`,
@@ -52,10 +59,14 @@ export function skillHandlers(
               },
             },
           };
-        const skill = (typeof skills === "function" ? skills() : skills).find(
-          (item) => item.name === data.name && !item.disableModelInvocation,
-        );
-        return skill
+        const invoked = data.path ? active.local?.() : undefined;
+        const skill = catalog().find((item) => item.name === data.name);
+        const manuallyReadable =
+          invoked?.name === data.name &&
+          skill?.dir === invoked.dir &&
+          skill?.source === invoked.source &&
+          skill.userInvocable !== false;
+        return skill && (!skill.disableModelInvocation || manuallyReadable)
           ? {
               output: data.path
                 ? await readSkillReference(skill.dir, data.path, context.signal)
@@ -69,10 +80,37 @@ export function skillHandlers(
               },
             }
           : {
-              output: `Skill "${data.name}" is not available for automatic loading.`,
+              output: `Skill "${data.name}" is not available for this request.`,
               isError: true,
             };
       },
+    ),
+    defineTool(
+      {
+        name: "search_skills",
+        guidance:
+          "When the initial skill list is truncated or lacks a likely match, search the local skill catalog by name or description. Search is read-only and returns metadata. Pass a result name to load_skill when relevant. Use nextOffset to get more matches.",
+        description:
+          "Search all local skills eligible for model invocation. Returns up to 12 names and short descriptions, with a nextOffset when more match.",
+        effect: "read",
+        permission: "read",
+        parallelSafe: true,
+        outputPolicy: { maxInlineTokens: 2000 },
+      },
+      z.object({
+        query: z.string().max(256).default(""),
+        offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+      }),
+      async (_context, input) => ({
+        data: input,
+        preview: input.query,
+        resources: [],
+      }),
+      async (_context, { data }) => ({
+        output: JSON.stringify(
+          searchSkills(catalog(), data.query, data.offset),
+        ),
+      }),
     ),
     defineTool(
       {
@@ -100,15 +138,23 @@ export function skillHandlers(
           files.length > 32
         )
           throw new Error("Supply SKILL.md and no more than 32 skill files.");
-        if (!parseSkillFile(input.name, input.files["SKILL.md"] ?? ""))
-          throw new Error(
-            "SKILL.md needs a valid matching name, description, and instructions.",
-          );
         if (
           Buffer.byteLength(input.files["SKILL.md"] ?? "", "utf8") >
           64 * 1024
         )
           throw new Error("SKILL.md exceeds the 64 KB loader limit.");
+        if (
+          !parseSkillFile(
+            input.name,
+            input.files["SKILL.md"] ?? "",
+            (error) => {
+              throw new Error(`SKILL.md: ${error}`);
+            },
+          )
+        )
+          throw new Error(
+            "SKILL.md needs a valid matching name, description, and instructions.",
+          );
         let bytes = 0;
         for (const [path, content] of files) {
           if (

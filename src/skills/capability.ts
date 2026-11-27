@@ -22,8 +22,9 @@ export function nativeSkillGuidance(handler: ToolHandler): string | undefined {
 }
 export function isNativeSkillReader(handler: ToolHandler): boolean {
   return (
-    nativeTools.get(handler)?.name === "load_skill" &&
-    handler.spec.name === "load_skill" &&
+    nativeTools.get(handler)?.name === handler.spec.name &&
+    (handler.spec.name === "load_skill" ||
+      handler.spec.name === "search_skills") &&
     handler.spec.source?.type === "skill" &&
     handler.spec.effect === "read" &&
     handler.spec.permission === "read"

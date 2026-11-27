@@ -82,7 +82,13 @@ export function validateSkillPackage(
     instructions.byteLength > SKILL_PACKAGE_LIMITS.instructionsBytes
   )
     throw new Error("Нужен SKILL.md не больше 64 KiB.");
-  const metadata = parseImportedSkill(fallbackName, utf8(instructions));
+  const metadata = parseImportedSkill(
+    fallbackName,
+    utf8(instructions),
+    (error) => {
+      throw new Error(`SKILL.md: ${error}`);
+    },
+  );
   if (!metadata || isReservedSkillName(metadata.name))
     throw new Error(
       "SKILL.md содержит некорректное или зарезервированное имя навыка.",

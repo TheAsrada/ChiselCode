@@ -1,5 +1,5 @@
+import { skillsCatalogPrompt } from "../skills/catalog.js";
 import type { Skill } from "../skills/skills.js";
-import { skillsCatalogPrompt } from "../skills/skills.js";
 import type { ToolDefinition } from "../types/domain.js";
 import { baseSystemPromptForModel } from "./prompts/index.js";
 

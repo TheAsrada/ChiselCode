@@ -306,6 +306,19 @@ test("readonly ceiling is enforced by the real executor for direct handlers; liv
     });
     expect(skill.isError).not.toBe(true);
     expect(skill.output).toBe("SKILL_REFERENCE_ONLY");
+    const search = runtime.catalog.get("search_skills");
+    const forgedSearch = { ...search, spec: { ...search.spec } };
+    policy.seal([forgedSearch]);
+    expect(policy.allows(forgedSearch)).toBe(false);
+    const found = await runtime.executor.execute({
+      id: "find-skill",
+      name: "search_skills",
+      input: { query: "audit" },
+    });
+    expect(JSON.parse(found.output)).toEqual({
+      total: 1,
+      skills: [{ name: "audit", description: "Read-only audit" }],
+    });
     expect(
       runtime.catalog.instructionsForTurn(runtime.catalog.selectForTurn()),
     ).not.toContain("SKILL_REFERENCE_ONLY");
@@ -342,7 +355,7 @@ test("readonly ceiling is enforced by the real executor for direct handlers; liv
     expect(await readFile(join(root, "source.txt"), "utf8")).toBe(
       "real bytes\n",
     );
-    expect(tools).toBe(2);
+    expect(tools).toBe(3);
     const mutable = new ChildToolPolicy(
       "coding",
       root,
