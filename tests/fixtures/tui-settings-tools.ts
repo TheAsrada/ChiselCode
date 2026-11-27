@@ -255,7 +255,16 @@ try {
       () => !!ui.renderer.root.findDescendantById("skills-panel"),
       "Нет навыков в compiled Settings",
     );
-    assert.ok(ui.captureCharFrame().includes("/skill-creator"));
+    await until(
+      () => ui.captureCharFrame().includes("/notes:review"),
+      "Нет MCP-навыка в compiled Settings",
+    );
+    await click("skills-search");
+    await paste("skill-creator");
+    await until(
+      () => ui.captureCharFrame().includes("/skill-creator"),
+      "Нет встроенного навыка в compiled Settings",
+    );
     assert.equal(
       ui.renderer.root.findDescendantById("skills-popup"),
       undefined,
