@@ -2494,6 +2494,7 @@ function OpenTuiScreen({
         !uiFocus
       }
       draft={draft}
+      onAddPhoto={onSubmitPhotos ? showPhotos : undefined}
       photoControls={
         onSubmitPhotos && (
           <DraftPhotos
@@ -2503,7 +2504,6 @@ function OpenTuiScreen({
             palette={palette}
             pending={photoPending}
             error={photos ? undefined : photoError}
-            onAdd={showPhotos}
             onOpen={(index) => setPhotos({ index })}
             onRemove={removePhoto}
           />

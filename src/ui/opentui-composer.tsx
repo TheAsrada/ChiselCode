@@ -5,6 +5,7 @@ import type React from "react";
 import type { CommandDescriptor } from "../commands/slash.js";
 import type { Palette } from "./appearance.js";
 import { UiPaneRegion, UiSurface } from "./opentui-composition.js";
+import { AddPhotoButton } from "./opentui-photos.js";
 import { OpenTuiPrompt } from "./opentui-prompt.js";
 import { terminalLine } from "./terminal-text.js";
 import type { TuiViewState } from "./tui-controller.js";
@@ -24,6 +25,7 @@ export function OpenTuiComposer({
   editorFocused,
   draft,
   photoControls,
+  onAddPhoto,
   view,
   onToggleMode,
   openPermissions,
@@ -51,6 +53,7 @@ export function OpenTuiComposer({
   editorFocused: boolean;
   draft: string;
   photoControls?: React.ReactNode;
+  onAddPhoto?: () => void;
   view: TuiViewState;
   onToggleMode(): void;
   openPermissions(): void;
@@ -64,6 +67,10 @@ export function OpenTuiComposer({
   defaultModel?: string;
   canCancel: boolean;
 }) {
+  const photoAction = composerWidth >= 22 ? onAddPhoto : undefined;
+  const compactPhotoAction = composerWidth < 48;
+  const hintWidth =
+    composerWidth - (photoAction ? (compactPhotoAction ? 5 : 11) : 0);
   const composer = (
     <UiSurface name="Composer" preserveNative>
       <UiSurface name="AbovePrompt" />
@@ -136,25 +143,32 @@ export function OpenTuiComposer({
           />
         </OpenTuiPrompt>
         <UiSurface name="StatusLine">
-          <box height={1} flexDirection="row" flexShrink={0}>
+          <box height={1} flexDirection="row" flexShrink={0} gap={1}>
             <UiSurface name="PromptHints">
-              <text fg={palette.muted} height={1} width={composerWidth}>
+              <text fg={palette.muted} height={1} width={hintWidth}>
                 {terminalLine(
                   !home && height < 10
                     ? `${view.agentMode === "plan" ? "Plan" : "Build"} | F4 | Enter`
                     : view.busy && canCancel
                       ? "Enter в очередь | Ctrl+C остановить | Ctrl+Tab вкладки"
-                      : composerWidth >= 77
+                      : hintWidth >= 77
                         ? "Enter отправить | Shift+Enter строка | Shift+Tab режим | F4 разрешения"
-                        : composerWidth >= 45
+                        : hintWidth >= 45
                           ? "Enter отправить | Shift+Tab режим | F4 разрешения"
-                          : composerWidth >= 30
+                          : hintWidth >= 30
                             ? "Shift+Tab режим · F4"
                             : "Enter · F4 доступ",
-                  composerWidth,
+                  hintWidth,
                 )}
               </text>
             </UiSurface>
+            {photoAction && (
+              <AddPhotoButton
+                compact={compactPhotoAction}
+                palette={palette}
+                onPress={photoAction}
+              />
+            )}
           </box>
         </UiSurface>
       </box>

@@ -215,6 +215,25 @@ function PhotoButton({
   );
 }
 
+export function AddPhotoButton({
+  compact,
+  palette,
+  onPress,
+}: {
+  compact: boolean;
+  palette: Palette;
+  onPress(): void;
+}) {
+  return (
+    <PhotoButton
+      id="photo-attach"
+      label={compact ? "Фото" : "Фото · F10"}
+      palette={palette}
+      onPress={onPress}
+    />
+  );
+}
+
 export function DraftPhotos({
   images,
   width,
@@ -222,7 +241,6 @@ export function DraftPhotos({
   palette,
   pending,
   error,
-  onAdd,
   onOpen,
   onRemove,
 }: {
@@ -232,29 +250,25 @@ export function DraftPhotos({
   palette: Palette;
   pending: boolean;
   error?: string;
-  onAdd(): void;
   onOpen(index: number): void;
   onRemove(id: string): void;
 }) {
   const graphics = usePhotoGraphics();
+  if (!images.length && !pending && !error) return null;
   const compact = width < 54 || height < 20;
   const shown = compact
     ? 0
     : Math.min(images.length, Math.max(1, Math.floor((width - 3) / 23)));
   return (
     <box flexDirection="column" width="100%" flexShrink={0}>
-      <box flexDirection="row" height={1} gap={2} paddingLeft={1}>
-        <PhotoButton
-          id="photo-attach"
-          label={terminalLine("Фото · F10", width - 1)}
-          palette={palette}
-          onPress={onAdd}
-        />
-        {images.length > 0 && width >= 22 && (
-          <text fg={palette.muted}>{`${images.length} прикреплено`}</text>
-        )}
-        {pending && width >= 36 && <text fg={palette.muted}>Читаю фото…</text>}
-      </box>
+      {(images.length > 0 || pending) && (
+        <text fg={palette.muted} height={1} paddingLeft={1}>
+          {terminalLine(
+            pending ? "Читаю фото…" : `${images.length} прикреплено`,
+            Math.max(1, width - 1),
+          )}
+        </text>
+      )}
       {shown > 0 && (
         <box flexDirection="row" gap={1} paddingLeft={1} marginBottom={1}>
           {images.slice(0, shown).map((image, index) => (
