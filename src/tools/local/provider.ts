@@ -38,7 +38,10 @@ export class SkillsToolProvider implements ToolProvider {
     mcpSkill?: LoadedMcpSkill,
   ) {
     this.handlers = [
-      ...skillHandlers(skills, mcpSkill),
+      ...skillHandlers(
+        typeof skills === "function" ? skills : [...skills],
+        mcpSkill,
+      ),
       ...skillSourceHandlers(remote),
     ];
     for (const handler of this.handlers) {

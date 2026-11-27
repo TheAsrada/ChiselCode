@@ -83,11 +83,8 @@ export function OpenTuiSkills({
     let detach: (() => void) | undefined;
     try {
       detach = actions.subscribe?.(changed);
-      changed();
-      void actions
-        .refresh?.(abort.signal, refreshRequest > 0)
-        .then(changed)
-        .catch(() => {});
+      if (detach) changed();
+      void actions.refresh?.(abort.signal, refreshRequest > 0).catch(() => {});
     } catch {
       changed();
     }
@@ -225,7 +222,10 @@ export function OpenTuiSkills({
     {
       id: "skills-refresh",
       label: "Обновить каталог",
-      run: () => setRefreshRequest((value) => value + 1),
+      run: () => {
+        refresh((value) => value + 1);
+        setRefreshRequest((value) => value + 1);
+      },
     },
   ];
   const navigation = useMenuNavigation(
