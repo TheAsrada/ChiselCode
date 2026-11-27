@@ -17,6 +17,8 @@
 
 Ключи создаются в [консоли Anthropic](https://console.anthropic.com), [кабинете OpenAI](https://platform.openai.com/api-keys) или [кабинете AgentRouter](https://agentrouter.org/console/token). Совместимый сервис выдаёт собственные параметры.
 
+API-ключи из Claude Code, Codex CLI и OpenCode можно сохранить в профилях через [Центр переноса](migration.md). Выбор профиля и вход по подписке выполняются в «Подключениях».
+
 ## Встроенные сервисы
 
 | ID | Сервис | Переменная ключа | Модель по умолчанию | Базовый адрес |

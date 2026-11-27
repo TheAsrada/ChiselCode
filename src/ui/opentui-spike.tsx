@@ -21,6 +21,10 @@ import {
   splitSlashCommand,
 } from "../commands/slash.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
+import type {
+  MigrationActions,
+  MigrationInventory,
+} from "../migration/contracts.js";
 import { type AgentMode, nextAgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalRequest } from "../security/approval.js";
 import {
@@ -71,6 +75,7 @@ import {
 import { OpenTuiEffort, type OpenTuiEffortActions } from "./opentui-effort.js";
 import { OpenTuiExtensionDetails } from "./opentui-extension-details.js";
 import { OpenTuiMcp } from "./opentui-mcp.js";
+import { migrationTotal, OpenTuiMigration } from "./opentui-migration.js";
 import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiMotion, useMotion } from "./opentui-motion.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
@@ -246,6 +251,7 @@ function OpenTuiScreen({
   initialSettingsOpen = false,
   onboarding = false,
   onStartupIntroAccepted,
+  migrationActions,
   onSetupComplete,
   onInitialSettingsComplete,
   skillsActions,
@@ -287,6 +293,7 @@ function OpenTuiScreen({
   initialSettingsOpen?: boolean;
   onboarding?: boolean;
   onStartupIntroAccepted?: () => Promise<void>;
+  migrationActions?: MigrationActions;
   onSetupComplete?: () => void;
   onInitialSettingsComplete?: () => void;
   skillsActions?: OpenTuiSkillsActions;
@@ -363,6 +370,23 @@ function OpenTuiScreen({
   const [setupPending, setSetupPending] = useState(initialSettingsOpen);
   const { enabled: motionEnabled } = useMotion();
   const [introAccepted, setIntroAccepted] = useState(false);
+  const [initialMigration, setInitialMigration] =
+    useState<MigrationInventory>();
+  const [manualMigration, setManualMigration] = useState(false);
+  const [startupMigrationOpened, setStartupMigrationOpened] = useState(false);
+  useEffect(() => {
+    if (!onStartupIntroAccepted || !migrationActions) return;
+    let current = true;
+    void migrationActions.inspect().then(
+      (inventory) => {
+        if (current) setInitialMigration(inventory);
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [migrationActions, onStartupIntroAccepted]);
   const introReady = useRef(false);
   const [startupNotice, setStartupNotice] = useState<string>();
   const [homeReveal, setHomeReveal] = useState(false);
@@ -380,6 +404,8 @@ function OpenTuiScreen({
   }, [introAccepted]);
   const introVisible =
     setupPending && !!onStartupIntroAccepted && !introAccepted;
+  const startupMigration = setupPending && startupMigrationOpened;
+  const migrationOpen = startupMigration || manualMigration;
   const [capturedSettingsActions, setCapturedSettingsActions] = useState(
     () => getSettingsActions?.() ?? settingsActions,
   );
@@ -454,6 +480,7 @@ function OpenTuiScreen({
   }, [focusBinding]);
   const extensionActive = !!view.extensionView && !approval;
   const modalOverlay = !!(
+    migrationOpen ||
     worktrees ||
     pickerOpen ||
     projects ||
@@ -529,6 +556,7 @@ function OpenTuiScreen({
       ? `agents:${controller?.conversationId}:${controller?.currentGeneration}`
       : `sidebar:${controller?.conversationId}:${controller?.currentGeneration}`;
   const sideOwner = `side:${controller?.conversationId}:${controller?.currentGeneration}`;
+  const overlayOwner = migrationOpen ? "migration" : "dialog";
   const inputOwner = approval
     ? "approval"
     : commandFeedbackActive
@@ -540,7 +568,7 @@ function OpenTuiScreen({
           : extensionActive
             ? `extension-view:${controller?.conversationId}:${controller?.currentGeneration}`
             : otherOverlay
-              ? "dialog"
+              ? overlayOwner
               : backgroundPanelActive
                 ? `background:${controller?.conversationId}:${controller?.currentGeneration}`
                 : backgroundActiveView
@@ -936,6 +964,7 @@ function OpenTuiScreen({
       !worktrees &&
       !pickerOpen &&
       !settingsOpen &&
+      !migrationOpen &&
       !skillsOpen &&
       !mcpActions &&
       !effortActions &&
@@ -959,6 +988,7 @@ function OpenTuiScreen({
     worktrees,
     pickerOpen,
     settingsOpen,
+    migrationOpen,
     skillsOpen,
     mcpActions,
     modelsActions,
@@ -1018,6 +1048,7 @@ function OpenTuiScreen({
       approval ||
       pickerOpen ||
       settingsOpen ||
+      migrationOpen ||
       skillsOpen ||
       mcpActions ||
       effortActions ||
@@ -1058,6 +1089,7 @@ function OpenTuiScreen({
       approval ||
       pickerOpen ||
       settingsOpen ||
+      migrationOpen ||
       skillsOpen ||
       mcpActions ||
       effortActions ||
@@ -1078,6 +1110,7 @@ function OpenTuiScreen({
       approval ||
       pickerOpen ||
       settingsOpen ||
+      migrationOpen ||
       skillsOpen ||
       mcpActions ||
       effortActions ||
@@ -1109,6 +1142,7 @@ function OpenTuiScreen({
       approval ||
       pickerOpen ||
       settingsOpen ||
+      migrationOpen ||
       skillsOpen ||
       mcpActions ||
       effortActions ||
@@ -1132,10 +1166,18 @@ function OpenTuiScreen({
         (!motionEnabled || introReady.current) &&
         key.eventType === "press" &&
         !key.repeated
-      )
+      ) {
+        setStartupMigrationOpened(
+          !!migrationActions &&
+            (!initialMigration ||
+              !!initialMigration.unavailable.length ||
+              Object.values(initialMigration.counts).some(migrationTotal)),
+        );
         setIntroAccepted(true);
+      }
       return;
     }
+    if (inputOwner === "migration") return;
     if (effortActions && !approval && !isCtrlC(key)) return;
     if (
       inputOwner.startsWith("ui-widget:") &&
@@ -1289,6 +1331,7 @@ function OpenTuiScreen({
       (worktrees ||
         pickerOpen ||
         settingsOpen ||
+        migrationOpen ||
         skillsOpen ||
         mcpActions ||
         effortActions ||
@@ -1350,6 +1393,7 @@ function OpenTuiScreen({
       pickerOpen ||
       projects ||
       settingsOpen ||
+      migrationOpen ||
       skillsOpen ||
       mcpActions ||
       effortActions ||
@@ -1574,6 +1618,7 @@ function OpenTuiScreen({
       skillsOpen ||
       mcpActions ||
       settingsOpen ||
+      migrationOpen ||
       pickerOpen ||
       projects ||
       worktrees ||
@@ -1612,7 +1657,7 @@ function OpenTuiScreen({
     if (
       !view.projectPath &&
       getProjectActions &&
-      !/^\/(settings|model|effort|skills|update|resume|clear|cwd|permissions|plan|build|mcp|compact)(\s|$)/.test(
+      !/^\/(settings|model|effort|skills|update|resume|import|clear|cwd|permissions|plan|build|mcp|compact)(\s|$)/.test(
         value,
       )
     ) {
@@ -1626,6 +1671,14 @@ function OpenTuiScreen({
       editor.current?.setText("");
       setDraft("");
     };
+    if (migrationActions && value === "/import") {
+      clearInput();
+      editor.current?.blur();
+      setManualMigration(true);
+      controller?.setOverlay("migration");
+      controller?.setFocus("modal");
+      return;
+    }
     if (value === "/worktree" && getWorktreeActions && view.projectPath) {
       clearInput();
       openWorktrees();
@@ -1761,6 +1814,28 @@ function OpenTuiScreen({
     clearInput();
   };
 
+  const migrationDialog =
+    migrationOpen && migrationActions ? (
+      <OpenTuiMigration
+        actions={migrationActions}
+        initialInventory={startupMigration ? initialMigration : undefined}
+        width={width}
+        height={height}
+        palette={palette}
+        onboarding={startupMigration}
+        active={!approval}
+        onClose={() => {
+          if (startupMigration) {
+            setStartupMigrationOpened(false);
+            return;
+          }
+          setManualMigration(false);
+          controller?.setOverlay();
+          controller?.setFocus("composer");
+          setFocus("editor");
+        }}
+      />
+    ) : undefined;
   const settingsDialog = settingsOpen ? (
     <OpenTuiSettings
       actions={capturedSettingsActions}
@@ -1966,7 +2041,7 @@ function OpenTuiScreen({
             }}
           />
         )}
-        {settingsDialog}
+        {migrationDialog ?? settingsDialog}
         {uiOverflow && !approval && (
           <OpenTuiStatusOverflow
             items={statuses}
@@ -2781,7 +2856,7 @@ function OpenTuiScreen({
             onClose={closeWorktrees}
           />
         )}
-        {settingsDialog}
+        {migrationDialog ?? settingsDialog}
         {uiOverflow && !approval && (
           <OpenTuiStatusOverflow
             items={statuses}

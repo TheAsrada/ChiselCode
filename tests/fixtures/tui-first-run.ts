@@ -13,6 +13,11 @@ const directory = await realpath(
   await mkdtemp(join(tmpdir(), "chisel-first-run-")),
 );
 for (const name of [
+  "HOME",
+  "USERPROFILE",
+  "CODEX_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "OPENCODE_CONFIG_DIR",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
   "APPDATA",
@@ -20,6 +25,7 @@ for (const name of [
 ])
   process.env[name] = join(directory, "home");
 delete process.env.OPENAI_API_KEY;
+delete process.env.OPENCODE_CONFIG;
 const cwd = join(directory, "Проект");
 await mkdir(cwd);
 const configPath = join(directory, "config.json");

@@ -170,6 +170,7 @@ jobs:
           tests/unit/project-navigation.test.ts tests/unit/opentui-projects.test.tsx tests/unit/model-preference.test.ts
           tests/unit/runtime-environment.test.ts tests/integration/project-startup.test.ts
           tests/unit/session-history.test.ts tests/unit/opentui-sessions.test.tsx
+          tests/integration/migration.test.ts
           tests/integration/session-resume.test.ts
           tests/unit/opentui-update.test.tsx tests/unit/opentui-sidebar.test.tsx
           tests/unit/opentui-background.test.tsx tests/unit/opentui-subagents.test.tsx

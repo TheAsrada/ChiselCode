@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  lstat,
   mkdir,
   open,
   readdir,
@@ -294,9 +295,18 @@ export class ProjectSessionStore {
     return next;
   }
   async save(session: Session): Promise<void> {
+    await this.writeSession(session, false);
+  }
+  async insertImported(session: Session): Promise<boolean> {
+    return this.writeSession(session, true);
+  }
+  private async writeSession(
+    session: Session,
+    insertOnly: boolean,
+  ): Promise<boolean> {
     assertSessionId(session.id);
     initializeSessionState(session);
-    session.updatedAt = new Date().toISOString();
+    if (!insertOnly) session.updatedAt = new Date().toISOString();
     if (!session.titleSource) session.titleSource = "auto";
     await mkdir(this.directory, { recursive: true });
     const { projectPath: _projectPath, ...fields } = session;
@@ -306,7 +316,15 @@ export class ProjectSessionStore {
       title: session.title || "Без названия",
     });
     await this.list();
-    await withLock(this.indexPath, async (assertOwned) => {
+    return withLock(this.indexPath, async (assertOwned) => {
+      if (insertOnly) {
+        try {
+          await lstat(this.file(session.id));
+          return false;
+        } catch (error) {
+          if (!isMissing(error)) throw error;
+        }
+      }
       let prior: z.infer<typeof persistedSessionSchema> | undefined;
       try {
         prior = persistedSessionSchema.parse(
@@ -328,7 +346,7 @@ export class ProjectSessionStore {
         backgroundTasks: prior?.backgroundTasks ?? persisted.backgroundTasks,
       });
       recomputeSessionSpend(merged);
-      merged.updatedAt = new Date().toISOString();
+      if (!insertOnly) merged.updatedAt = new Date().toISOString();
       const { projectPath: _mergedPath, ...mergedFields } = merged;
       persisted = persistedSessionSchema.parse({
         ...mergedFields,
@@ -353,6 +371,7 @@ export class ProjectSessionStore {
       session.totalTokens = { ...merged.totalTokens };
       session.totalCost = merged.totalCost;
       session.costEstimate = merged.costEstimate;
+      return true;
     });
   }
   /** A process patch owns only its narrow receipt; no messages, spend or raw logs. */

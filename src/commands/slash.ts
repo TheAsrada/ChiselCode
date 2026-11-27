@@ -15,6 +15,10 @@ export const SLASH_COMMANDS = [
     name: "/settings",
     description: "подключение, оформление и разрешения",
   },
+  {
+    name: "/import",
+    description: "перенести данные из Claude Code, Codex CLI или OpenCode",
+  },
   { name: "/model", description: "сменить модель" },
   {
     name: "/effort",

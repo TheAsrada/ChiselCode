@@ -22,6 +22,8 @@ export function chiselHomeDir(): string {
 export const skillsRootDir = (): string => join(chiselHomeDir(), "skills");
 export const bundledSkillsDir = (): string => join(skillsRootDir(), "bundled");
 export const userSkillsDir = (): string => join(skillsRootDir(), "user");
+export const userInstructionsDir = (): string =>
+  join(chiselHomeDir(), "instructions");
 export const sessionsRootDir = (): string => join(chiselHomeDir(), "sessions");
 export const sessionProjectsDir = (): string =>
   join(sessionsRootDir(), "projects");

@@ -54,6 +54,8 @@ import { UiExtensionRuntime } from "../extensions/ui-runtime.js";
 import { McpController } from "../mcp/controller.js";
 import { McpConnectionManager } from "../mcp/manager.js";
 import { McpConfigStore } from "../mcp/storage.js";
+import type { MigrationActions } from "../migration/contracts.js";
+import { createMigrationActions } from "../migration/service.js";
 import {
   isModelRequestActive,
   type SideQueryRecord,
@@ -407,6 +409,29 @@ async function runApplication(
       : preferences.activeOptions;
   };
   const modelCatalog = new ModelCatalogController(options.configPath);
+  const migration = createMigrationActions(options.configPath);
+  let migrating: ReturnType<MigrationActions["run"]> | undefined;
+  let scanning: ReturnType<MigrationActions["inspect"]> | undefined;
+  const migrationActions: MigrationActions = {
+    inspect: () =>
+      (scanning ??= migration.inspect().finally(() => {
+        scanning = undefined;
+      })),
+    run: (selection) => {
+      if (migrating) return migrating;
+      migrating = migration
+        .run(selection)
+        .then(async (result) => {
+          preferences.config = await loadGlobalConfig(options.configPath);
+          modelCatalog.invalidate();
+          return result;
+        })
+        .finally(() => {
+          migrating = undefined;
+        });
+      return migrating;
+    },
+  };
   const warmModelCapabilities = (controller: TuiController) =>
     modelCatalog.warm(controller);
   warmModelCapabilities(workspace.home);
@@ -2236,6 +2261,7 @@ async function runApplication(
         },
         getMcpActions: (root) =>
           getMcpController(root ?? currentController().snapshot.projectPath),
+        migrationActions,
         initialSettingsOpen: setupRequired || setupOnly,
         onboarding: setupRequired && !setupOnly,
         onStartupIntroAccepted:
@@ -2299,6 +2325,7 @@ async function runApplication(
     abort.abort();
     workspace.cancelAll();
     await workspace.waitForRuns();
+    await migrating?.catch(() => {});
     const cleanup = async (dispose: () => unknown | Promise<unknown>) => {
       try {
         await dispose();
