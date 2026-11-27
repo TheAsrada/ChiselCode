@@ -33,6 +33,11 @@ import {
   resolveProviderRuntime,
 } from "../providers/runtime.js";
 import { SecretRedactor } from "../security/redaction.js";
+import {
+  mcpSkillFromPrompt,
+  mcpSkillPrompt,
+  type parseMcpSkillCommand,
+} from "../skills/mcp.js";
 import { ToolImageOutput } from "../tools/image-output.js";
 import type { GlobalConfig } from "../types/domain.js";
 import {
@@ -137,6 +142,8 @@ export interface RunOptions {
   };
   /** Internal TUI composition; a headless run never sets this. */
   interactive?: boolean;
+  /** Core TUI dispatch may wrap the input with active local skills. */
+  mcpSkillCommand?: ReturnType<typeof parseMcpSkillCommand>;
   /** Shared across TUI turns/tabs of a project; headless runs own their manager. */
   mcpManager?: McpConnectionManager;
   /** Live user network configuration; repository restrictions are always reapplied. */
@@ -662,7 +669,19 @@ async function runPromptInWorkspace(
           }
         })
       : undefined;
+  const remoteCommand = options.mcpSkillCommand;
+  const historicalSkill = session.messages
+    .slice()
+    .reverse()
+    .filter((message) => message.role === "user")
+    .flatMap((message) => message.content)
+    .find((block) => block.type === "text" && mcpSkillFromPrompt(block.text));
   const tools = await createSessionToolRuntime({
+    mcpSkillName: remoteCommand?.name,
+    mcpSkillApproval:
+      historicalSkill?.type === "text"
+        ? mcpSkillFromPrompt(historicalSkill.text)
+        : undefined,
     imageOutput,
     subagentTools,
     backgroundOwner: { redactor: modelRedactor },
@@ -723,6 +742,8 @@ async function runPromptInWorkspace(
     )
       onToolResult(event.name ?? "", event.result, event.invocationId);
   });
+  if (tools.mcpSkill && remoteCommand)
+    prompt = mcpSkillPrompt(tools.mcpSkill, remoteCommand.args, prompt);
   let result: AgentResult | undefined;
   let runtimeFailure: unknown;
   let runtimeFailed = false;

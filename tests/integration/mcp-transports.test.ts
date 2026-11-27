@@ -846,3 +846,50 @@ test("HTTP failures reconnect with a bounded budget and never replay a mutation"
   );
   expect(mutations).toBe(2);
 });
+
+test("MCP Skills discovers metadata lazily and binds verified file reads to its connection", async () => {
+  const { manager } = await setup(stdio(["skills"]));
+  await manager.startSkills();
+  expect(manager.skills().map(({ name }) => name)).toEqual(["test:review"]);
+  expect(
+    manager
+      .logs("test")
+      .filter(({ message }) => message === "skill request: list"),
+  ).toHaveLength(2);
+  expect(
+    manager.logs("test").some(({ message }) => message.includes("skill://")),
+  ).toBe(false);
+
+  const skill = await manager.loadSkill("test:review");
+  expect(skill.instructions).toContain("$ARGUMENTS");
+  expect(
+    manager
+      .logs("test")
+      .some(({ message }) => message.includes("checklist.md")),
+  ).toBe(false);
+  await expect(
+    skill.readReference("references/checklist.md"),
+  ).resolves.toContain("verify compatibility");
+  await expect(skill.readReference("../SKILL.md")).rejects.toThrow(
+    "относительный путь",
+  );
+  await expect(skill.readReference("missing.md")).rejects.toThrow("манифесте");
+  await manager.disconnect("test");
+  expect(manager.skills()).toEqual([]);
+  await expect(skill.readReference("references/checklist.md")).rejects.toThrow(
+    "изменилось",
+  );
+  await expect(manager.loadSkill("test:review")).rejects.toThrow("недоступен");
+}, 15000);
+
+test("a changed MCP skill body is rejected without disconnecting regular tools", async () => {
+  const { manager } = await setup(stdio(["skills-changed"]));
+  await manager.startSkills();
+  await expect(manager.loadSkill("test:review")).rejects.toThrow(
+    "не совпадает",
+  );
+  expect(manager.status("test")?.state).toBe("connected");
+  expect(
+    manager.tools("test").some(({ tool }) => tool.name === "get_note"),
+  ).toBe(true);
+}, 15000);

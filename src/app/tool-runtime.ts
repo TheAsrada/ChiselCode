@@ -8,6 +8,7 @@ import { McpConnectionManager } from "../mcp/manager.js";
 import { McpRuntimeBinding } from "../mcp/runtime.js";
 import { McpConfigStore } from "../mcp/storage.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
+import { RuntimeError } from "../runtime/errors.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
 import { scheduleScratchSweep } from "../scratch/workspace.js";
 import { ApprovalGate, type ApprovalResolver } from "../security/approval.js";
@@ -54,6 +55,8 @@ export async function createSessionToolRuntime(input: {
   subagentTools?: import("../subagents/service.js").SubagentToolBinding;
   /** An attested UI-owned handler, added to a normal core-scoped execution only. */
   uiTool?: import("../tools/types.js").ToolHandler;
+  mcpSkillName?: string;
+  mcpSkillApproval?: string;
   imageOutput?: import("../tools/image-output.js").ToolImageOutput;
 }) {
   const {
@@ -75,7 +78,10 @@ export async function createSessionToolRuntime(input: {
   );
   const mcp =
     !input.childPolicy &&
-    (global.mcp || config.mcp || options.mcpManager?.list().length)
+    (input.mcpSkillName ||
+      global.mcp ||
+      config.mcp ||
+      options.mcpManager?.list().length)
       ? (options.mcpManager ??
         new McpConnectionManager(
           new McpConfigStore(root, { globalPath: options.configPath }),
@@ -142,9 +148,15 @@ export async function createSessionToolRuntime(input: {
         );
     })());
   try {
+    if (input.mcpSkillName && !mcp)
+      throw new RuntimeError("MCP_SERVER_UNAVAILABLE", "MCP-навык недоступен.");
+    const mcpSkill = input.mcpSkillName
+      ? await mcp?.loadSkill(input.mcpSkillName, signal)
+      : undefined;
     const gate = new ApprovalGate(
       config,
       {
+        mcpSkill: mcpSkill?.name ?? input.mcpSkillApproval,
         autoApprove: !input.childPolicy && Boolean(options.yes),
         approvalMode,
         allowBypassPermissions: () =>
@@ -218,6 +230,7 @@ export async function createSessionToolRuntime(input: {
         events,
         extensionActivation: input.extensionActivation,
         skillsCatalog: () => loadSkills(root),
+        mcpSkill,
         remoteSkills: new RemoteSkills(web.http),
         mode,
         approvalMode,
@@ -264,6 +277,7 @@ export async function createSessionToolRuntime(input: {
       ...tools,
       backgrounds,
       skills,
+      mcpSkill,
       sanitize,
       saveCheckpoint,
       dispose,

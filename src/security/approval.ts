@@ -3,7 +3,10 @@ import type { FileDiff, ProjectConfig, ToolName } from "../types/domain.js";
 import type { WebConfig } from "../web/schema.js";
 import type { ApprovalModeInput } from "./approval-mode.js";
 import type { NetworkRequest } from "./network-policy.js";
-import { PermissionPolicy } from "./permission-policy.js";
+import {
+  PermissionPolicy,
+  requiresMcpSkillApproval,
+} from "./permission-policy.js";
 
 const MUTATING_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "write_file",
@@ -76,6 +79,8 @@ export interface ApprovalOptions {
   approvalMode?: ApprovalModeInput;
   /** User setting, never granted by project instructions or a session record. */
   allowBypassPermissions?: boolean | (() => boolean);
+  /** A server-supplied workflow is never an approval for host execution. */
+  mcpSkill?: string;
   autoApprove: boolean;
   allowedTools: Set<ToolName>;
   nonInteractive: boolean;
@@ -119,7 +124,15 @@ export class ApprovalGate {
           return current === "allow" ? "approved" : "denied";
       }
       const decision = await waiting(
-        this.resolver.requestApproval(request, options.signal),
+        this.resolver.requestApproval(
+          this.options.mcpSkill && requiresMcpSkillApproval(options.effect)
+            ? {
+                ...request,
+                preview: `Навык /${this.options.mcpSkill} (MCP)\n${request.preview}`,
+              }
+            : request,
+          options.signal,
+        ),
         options.signal,
       );
       cancelled(options.signal);

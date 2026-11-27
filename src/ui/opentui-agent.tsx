@@ -1,4 +1,5 @@
 import { automationDispatcher } from "../app/run-automation.js";
+import { parseMcpSkillCommand } from "../skills/mcp.js";
 /** @jsxImportSource @opentui/react */
 
 import { randomUUID } from "node:crypto";
@@ -523,6 +524,7 @@ async function runApplication(
     extensionHost,
     abort.signal,
     uiRuntime,
+    (root) => getMcpController(root).manager,
   );
   if (initialRoot) void commandActions.load(initialRoot);
   const navigationBase = await navigationDirectory();
@@ -897,7 +899,31 @@ async function runApplication(
     return {
       load: () => {
         assertOwner();
-        return loadSkills(controller.snapshot.projectPath);
+        return [
+          ...loadSkills(controller.snapshot.projectPath),
+          ...getMcpController(controller.snapshot.projectPath).manager.skills(),
+        ];
+      },
+      subscribe: (changed) => {
+        assertOwner();
+        return commandActions.watchSkills(
+          controller.snapshot.projectPath,
+          changed,
+        );
+      },
+      refresh: (signal, force) => {
+        assertOwner();
+        return getMcpController(
+          controller.snapshot.projectPath,
+        ).manager.startSkills(signal, force);
+      },
+      inspect: async (name, signal) => {
+        assertOwner();
+        const loaded = await getMcpController(
+          controller.snapshot.projectPath,
+        ).manager.loadSkill(name, signal, true);
+        assertOwner();
+        return loaded.instructions;
       },
       activeNames: () => {
         assertOwner();
@@ -929,6 +955,12 @@ async function runApplication(
     };
   };
   const skillsActions: OpenTuiSkillsActions = {
+    subscribe: (changed) =>
+      getSkillsActions().subscribe?.(changed) ?? (() => {}),
+    refresh: (signal, force) =>
+      getSkillsActions().refresh?.(signal, force) ?? Promise.resolve(),
+    inspect: (name, signal) =>
+      getSkillsActions().inspect?.(name, signal) ?? Promise.resolve(""),
     load: () => getSkillsActions().load(),
     activeNames: () => getSkillsActions().activeNames(),
     toggle: (name) => getSkillsActions().toggle(name),
@@ -1128,7 +1160,7 @@ async function runApplication(
           return;
         }
       }
-      if (parsed && !skill && !prepared) {
+      if (parsed && !skill && !prepared && !parseMcpSkillCommand(input)) {
         if (snapshot?.error) controller.append(snapshot.error, "error");
         const hint = suggestSimilarCommand(
           input,
@@ -1842,12 +1874,13 @@ async function runApplication(
         }
         const availableSkills = loadSkills(item.root);
         const parsed = splitSlashCommand(input);
+        const remoteCommand = parseMcpSkillCommand(input);
         const skill = parsed
           ? invocableSkills(availableSkills).find(
               (skill) => `/${skill.name}` === parsed.name,
             )
           : undefined;
-        if (parsed && !skill) {
+        if (parsed && !skill && !remoteCommand) {
           controller.append("Скилл больше не доступен.", "error");
           return;
         }
@@ -1873,6 +1906,7 @@ async function runApplication(
             mode: turnMode,
             approvalMode: turnApprovalMode,
             interactive: true,
+            mcpSkillCommand: remoteCommand,
             uiSnapshot: {
               observe: () => {
                 if (

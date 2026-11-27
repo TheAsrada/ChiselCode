@@ -14,6 +14,7 @@ import { admitWorkspace } from "../projects/admission.js";
 import { getProviderCatalog } from "../providers/catalog.js";
 import type { ApprovalResolver } from "../security/approval.js";
 import { projectSessionStore } from "../sessions/project-store.js";
+import { parseMcpSkillCommand } from "../skills/mcp.js";
 import { invocableSkills, loadSkills } from "../skills/skills.js";
 import { runSideQueryCommand } from "./model-command.js";
 import { captureModelConfiguration } from "./model-runtime.js";
@@ -27,7 +28,7 @@ export async function runSlashCommand(
   resolver: ApprovalResolver,
 ): Promise<{ exitCode: number } | undefined> {
   const head = splitSlashCommand(input);
-  if (!head) return;
+  if (!head || parseMcpSkillCommand(input)) return;
   const acceptedAt = Date.now();
   const { root } = await admitWorkspace(
     options.launcher && !options.cwd

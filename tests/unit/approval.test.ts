@@ -253,3 +253,36 @@ describe("ApprovalGate", () => {
     ).toBe("unavailable");
   });
 });
+
+test("MCP skill requires a named approval for local execution even with Bypass and an explicit tool allow", async () => {
+  const previews: string[] = [];
+  const gate = new ApprovalGate(
+    config,
+    {
+      mcpSkill: "github:review",
+      approvalMode: "bypassPermissions",
+      allowBypassPermissions: true,
+      autoApprove: true,
+      allowedTools: new Set(["run_shell"]),
+      nonInteractive: false,
+    },
+    {
+      async requestApproval(request) {
+        previews.push(request.preview);
+        return "denied";
+      },
+    },
+  );
+  const request = {
+    tool: "run_shell",
+    command: "bun test",
+    preview: "bun test",
+  };
+  expect(gate.policy.decide(request, "process")).toBe("ask");
+  expect(await gate.resolve(request, { effect: "process" })).toBe("denied");
+  expect(previews).toEqual(["Навык /github:review (MCP)\nbun test"]);
+  expect(
+    gate.policy.decide({ ...request, command: "rm -rf build" }, "process"),
+  ).toBe("deny");
+  expect(gate.policy.decide(request, "process", "dontAsk")).toBe("deny");
+});

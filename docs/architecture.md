@@ -31,6 +31,7 @@ flowchart LR
 | Темы и движение | [Темы](architecture/themes.md) · [Анимации](architecture/interface-motion.md) |
 | Сводки инструментов | [Действия в чате](architecture/tool-actions.md) |
 | Настройки MCP и навыков | [Встраивание в Settings](architecture/settings-tools.md) |
+| Навыки из MCP | [Каталог, ресурсы и запуск](architecture/mcp-skills.md) |
 | Установка внешних навыков | [Источники, snapshot и публикация](architecture/skill-installation.md) |
 | Web | [Поисковые сервисы](architecture/web-search.md) · [Сетевые границы runtime](architecture/runtime.md#native-web) |
 | Анализ кода | [LSP](architecture/lsp.md) · [Меню и наследование](architecture/lsp-menu.md) |

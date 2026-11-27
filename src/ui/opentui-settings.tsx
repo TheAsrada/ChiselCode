@@ -7,6 +7,7 @@ import { lspSettings } from "../extensions/builtins/lsp.js";
 import { subagentsSettings } from "../extensions/builtins/subagents.js";
 import type { ManagedExtension } from "../extensions/management.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
+import type { SkillCatalogItem } from "../skills/mcp.js";
 import type { Skill } from "../skills/skills.js";
 import { ThemeCatalog } from "../themes/catalog.js";
 import {
@@ -106,7 +107,7 @@ export function OpenTuiSettings({
   active?: boolean;
   getMcpActions?: () => OpenTuiMcpActions;
   skillsActions?: OpenTuiSkillsActions;
-  onChooseSkill?: (skill: Skill) => void;
+  onChooseSkill?: (skill: SkillCatalogItem) => void;
   onCreateSkill?: () => void;
   onEditSkill?: (skill: Skill) => void;
   onChooseProject?(): void;

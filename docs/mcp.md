@@ -1,8 +1,8 @@
-# MCP: внешние инструменты
+# MCP: внешние инструменты и навыки
 
 [Документация](README.md) · [Разрешения](permissions.md) · [CLI](cli.md)
 
-MCP подключает к агенту инструменты других сервисов: поиск в GitHub, запросы к базе данных, работу с мониторингом или браузером. Инструменты проходят через обычные режимы, подтверждения, отмену и историю ChiselCode. Подключать их удобнее в `/mcp`; редактировать JSON для обычной настройки не нужно.
+MCP подключает к агенту инструменты других сервисов: поиск в GitHub, запросы к базе данных, работу с мониторингом или браузером. Инструменты проходят через обычные режимы, подтверждения, отмену и историю ChiselCode. Настраивайте подключения в `/mcp`. Серверы со Skills over MCP также добавляют [навыки в общую библиотеку](skills.md#навыки-из-mcp).
 
 ## Настройки → Инструменты → MCP
 
@@ -130,4 +130,12 @@ MCP использует версию `mcp.schemaVersion: 1` внутри сущ
 
 Credentials используют существующее `credentials.enc` и абстракцию `CredentialStorage`; raw tokens не записываются в MCP config. Файл шифруется AES-256-GCM, но пока не заменяет native OS keychain и не защищает от доступа под вашей учётной записью.
 
-Сейчас поддерживаются tools, notifications списка, прогресс и отмена через stdio и Streamable HTTP. Capabilities resources, prompts и tasks обнаруживаются для будущего расширения; их выбор/исполнение, OAuth browser flow, elicitation и MCP Apps ещё не доступны. Legacy SSE-only endpoint не поддерживается. Основа использует официальный [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), без отдельного JSON-RPC executor.
+Через stdio и Streamable HTTP поддерживаются tools, уведомления списка, прогресс, отмена и Skills over MCP. Для навыков поддерживается чтение ресурсов по манифесту. Общий каталог ресурсов, MCP prompts, tasks, OAuth browser flow, elicitation и MCP Apps пока недоступны. Legacy SSE-only endpoint не поддерживается. Основа использует официальный [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk), без отдельного JSON-RPC executor.
+
+## Как сервер публикует навыки
+
+ChiselCode обнаруживает расширение `io.modelcontextprotocol/skills` вместе с capability `resources`. Сервер реализует `skills/list` с пагинацией `nextCursor`, `skills/get` по URI и `resources/read` для каждого файла. В каждой записи передайте URI файла `SKILL.md`, полную YAML-шапку как JSON-объект и манифест всех файлов с URI, размером в байтах и SHA-256 вида `sha256:<hex>`. Динамические навыки с `resources: "dynamic"` пропускаются. Текст должен быть в UTF-8. [Спецификация Skills over MCP](https://modelcontextprotocol.io/extensions/skills/overview).
+
+Если сервер публикует `skill://review/SKILL.md` с `name: review`, а пользователь подключил его с ID `github`, команда будет `/github:review`. ID берётся из локальной настройки подключения. Одинаковые имена у разных серверов получают разные префиксы. Если один сервер объявляет одно имя для разных URI, спорное имя пропускается и в журнале подключения появляется предупреждение.
+
+[Файловая структура и жизненный цикл каталога](architecture/mcp-skills.md).

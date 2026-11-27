@@ -48,6 +48,7 @@ export function createLocalToolRuntime(
     approvalOwner?: import("./types.js").ToolContext["approvalOwner"];
     background?: import("../background/binding.js").BackgroundToolBinding;
     subagentTools?: import("../subagents/service.js").SubagentToolBinding;
+    mcpSkill?: import("../skills/mcp.js").LoadedMcpSkill;
     skillsCatalog?: () => readonly Skill[];
     remoteSkills?: RemoteSkills;
     worktrees?: import("../worktrees/service.js").WorktreeWorkspacePort;
@@ -75,6 +76,7 @@ export function createLocalToolRuntime(
     ...new SkillsToolProvider(
       options.skillsCatalog ?? skills,
       options.remoteSkills,
+      options.mcpSkill,
     ).handlers,
   ])
     catalog.register(handler);

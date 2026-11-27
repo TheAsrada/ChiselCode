@@ -1,10 +1,10 @@
-import type { Skill } from "../skills/skills.js";
+import type { SkillCatalogItem } from "../skills/mcp.js";
 
 /** Preparing a workflow keeps the task in the composer until the user sends it. */
 export function skillCommandDraft(
   name: string,
   draft: string,
-  skills: readonly Skill[],
+  skills: readonly SkillCatalogItem[],
 ): string {
   const command = draft.split(/\s/, 1)[0] ?? "";
   const previous = skills.some(

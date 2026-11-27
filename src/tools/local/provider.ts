@@ -1,4 +1,5 @@
 import { attestNativeSkillTool } from "../../skills/capability.js";
+import type { LoadedMcpSkill } from "../../skills/mcp.js";
 import { RemoteSkills } from "../../skills/remote.js";
 import { SafeWebHttpClient } from "../../web/http-client.js";
 import { WebLimitsSchema } from "../../web/schema.js";
@@ -34,9 +35,10 @@ export class SkillsToolProvider implements ToolProvider {
   constructor(
     skills: SkillsCatalog,
     remote = new RemoteSkills(new SafeWebHttpClient(WebLimitsSchema.parse({}))),
+    mcpSkill?: LoadedMcpSkill,
   ) {
     this.handlers = [
-      ...skillHandlers(typeof skills === "function" ? skills : [...skills]),
+      ...skillHandlers(skills, mcpSkill),
       ...skillSourceHandlers(remote),
     ];
     for (const handler of this.handlers) {

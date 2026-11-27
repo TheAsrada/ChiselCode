@@ -8,15 +8,23 @@ import type {
 } from "../extensions/host.js";
 import { abortable, safeDiagnostic } from "../extensions/lifecycle.js";
 import type { UiExtensionRuntime } from "../extensions/ui-runtime.js";
-import { invocableSkills, loadSkills, type Skill } from "../skills/skills.js";
+import type { McpConnectionManager } from "../mcp/manager.js";
+import type { SkillCatalogItem } from "../skills/mcp.js";
+import { invocableSkills, loadSkills } from "../skills/skills.js";
 
 export interface WorkspaceCommandSnapshot {
   readonly projection: CommandProjection;
-  readonly skills: readonly Skill[];
+  readonly skills: readonly SkillCatalogItem[];
   readonly scope?: WorkspaceExtensionScope;
   readonly error?: string;
 }
 export interface WorkspaceCommandsPort {
+  watchSkills?(root: string | undefined, changed: () => void): () => void;
+  discoverSkills?(
+    root: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  current?(root: string): WorkspaceCommandSnapshot;
   subscribeUi?(changed: () => void): () => void;
   uiScopes?(
     root: string,
@@ -37,7 +45,24 @@ export class WorkspaceCommands implements WorkspaceCommandsPort {
     private readonly host: ExtensionHost,
     private readonly signal?: AbortSignal,
     private readonly uiRuntime?: UiExtensionRuntime,
+    private readonly mcpManager?: (
+      root: string | undefined,
+    ) => McpConnectionManager,
   ) {}
+  watchSkills(root: string | undefined, changed: () => void): () => void {
+    const manager = this.mcpManager?.(root);
+    if (!manager) return () => {};
+    let last = JSON.stringify(manager.skills());
+    return manager.subscribe(() => {
+      const next = JSON.stringify(manager.skills());
+      if (last === next) return;
+      last = next;
+      changed();
+    });
+  }
+  async discoverSkills(root: string | undefined, signal?: AbortSignal) {
+    await this.mcpManager?.(root).startSkills(signal);
+  }
   subscribeUi(changed: () => void) {
     return this.uiRuntime?.subscribe(changed) ?? (() => {});
   }
@@ -68,7 +93,10 @@ export class WorkspaceCommands implements WorkspaceCommandsPort {
   }
   /** UI-only reads never wait for activation; dispatch still awaits a fresh ready scope. */
   current(root: string): WorkspaceCommandSnapshot {
-    const skills = loadSkills(root);
+    const skills = [
+      ...loadSkills(root),
+      ...(this.mcpManager?.(root).skills() ?? []),
+    ];
     const scope = this.scopes.get(root);
     try {
       return {
@@ -95,7 +123,10 @@ export class WorkspaceCommands implements WorkspaceCommandsPort {
     root: string,
     operation?: AbortSignal,
   ): Promise<WorkspaceCommandSnapshot> {
-    const skills = loadSkills(root);
+    const skills = [
+      ...loadSkills(root),
+      ...(this.mcpManager?.(root).skills() ?? []),
+    ];
     const base = composeCommandProjection(invocableSkills(skills));
     try {
       const signal =

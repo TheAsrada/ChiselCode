@@ -1,4 +1,5 @@
 import type { AgentEventHandlers } from "../core/agent-loop.js";
+import { MCP_SKILL_INPUT_HEADER, mcpSkillFromPrompt } from "../skills/mcp.js";
 import { stripActiveSkillsBlock } from "../skills/skills.js";
 import type { ChatPresentationPort } from "../types/chat-presentation.js";
 import type { Session, ToolExecutionResult } from "../types/domain.js";
@@ -251,9 +252,16 @@ export function replaySessionIntoTranscript(
   for (const [index, message] of tail.entries()) {
     for (const block of message.content) {
       if (block.type === "text") {
+        const visible =
+          message.role === "user" && mcpSkillFromPrompt(block.text)
+            ? block.text.slice(
+                block.text.indexOf(MCP_SKILL_INPUT_HEADER) +
+                  MCP_SKILL_INPUT_HEADER.length,
+              )
+            : block.text;
         const text =
           message.role === "user"
-            ? stripActiveSkillsBlock(block.text).trim()
+            ? stripActiveSkillsBlock(visible).trim()
             : block.text.trim();
         if (text)
           target.append(text, message.role === "user" ? "user" : "assistant");

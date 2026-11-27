@@ -285,3 +285,118 @@ test("headless CLI completes a real MCP call with valid model wire names and no 
     server.stop(true);
   }
 }, 15_000);
+
+test("a namespaced CLI command sends verified skill instructions and reads only the active MCP skill's reference", async () => {
+  const root = await setup();
+  const messages: string[] = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: async (request) => {
+      if (new URL(request.url).pathname.endsWith("/models"))
+        return Response.json({ data: [{ id: "smoke-model" }] });
+      const body = (await request.json()) as { messages: unknown[] };
+      messages.push(JSON.stringify(body.messages));
+      const first = messages.length === 1;
+      const choice = first
+        ? {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "read-checklist",
+                  type: "function",
+                  function: {
+                    name: "load_skill",
+                    arguments: JSON.stringify({
+                      name: "github:review",
+                      path: "references/checklist.md",
+                    }),
+                  },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          }
+        : {
+            index: 0,
+            delta: { content: "Review completed" },
+            finish_reason: "stop",
+          };
+      return new Response(
+        `data: ${JSON.stringify({ id: "skill-smoke", object: "chat.completion.chunk", choices: [choice] })}\n\ndata: [DONE]\n\n`,
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    },
+  });
+  try {
+    await mkdir(join(root, "chiselcode"));
+    await writeFile(
+      join(root, "chiselcode", "config.json"),
+      JSON.stringify({
+        schemaVersion: 2,
+        defaultProfileId: "skills",
+        profiles: {
+          skills: {
+            providerId: "openai-compatible",
+            baseUrl: `${server.url}v1`,
+            defaultModel: "smoke-model",
+          },
+        },
+        mcp: {
+          schemaVersion: 1,
+          servers: {
+            github: {
+              transport: {
+                type: "stdio",
+                command: process.execPath,
+                args: [resolve("tests/fixtures/mcp-server.ts"), "skills"],
+              },
+            },
+          },
+        },
+      }),
+    );
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        resolve("src/cli.ts"),
+        "--cwd",
+        root,
+        "--mode",
+        "plan",
+        "--json",
+        "--no-pause",
+        "/github:review PR 42",
+      ],
+      {
+        env: {
+          ...process.env,
+          XDG_CONFIG_HOME: root,
+          XDG_DATA_HOME: root,
+          APPDATA: root,
+          LOCALAPPDATA: root,
+          OPENAI_API_KEY: "fixture-provider-key",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(code, out + err).toBe(0);
+    expect(out).toContain("Review completed");
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toContain("MCP-навык /github:review");
+    expect(messages[0]).toContain("Review the changes for PR 42");
+    expect(messages[0]).not.toContain("verify compatibility");
+    expect(messages[1]).toContain("MCP resource from github:review");
+    expect(messages[1]).toContain("verify compatibility and tests");
+  } finally {
+    server.stop(true);
+  }
+}, 15000);

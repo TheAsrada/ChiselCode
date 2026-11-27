@@ -29,6 +29,14 @@ import type {
 } from "./credentials.js";
 import type { McpRedactor } from "./redaction.js";
 import { McpSdkClient } from "./sdk-client.js";
+import {
+  invalidMcpSkill,
+  MCP_SKILLS_EXTENSION,
+  type McpSkillEntry,
+  McpSkillGetResult,
+  McpSkillListResult,
+  parseMcpSkillEntry,
+} from "./skills.js";
 import { type McpServerEntry, mcpProcessDirectory } from "./storage.js";
 
 /** SDK error cleanup and application cancellation must await the same close. */
@@ -163,6 +171,10 @@ class SdkMcpConnection implements McpConnection {
         resources: Boolean(capabilities?.resources),
         prompts: Boolean(capabilities?.prompts),
         tasks: Boolean(capabilities?.tasks),
+        ...(capabilities?.resources &&
+        capabilities.extensions?.[MCP_SKILLS_EXTENSION]
+          ? { skills: true }
+          : {}),
       },
     };
   }
@@ -176,6 +188,47 @@ class SdkMcpConnection implements McpConnection {
     ).tools;
     this.discovered = new Map(tools.map((tool) => [tool.name, tool]));
     return tools;
+  }
+  async listSkills(signal?: AbortSignal): Promise<McpSkillEntry[]> {
+    const skills: McpSkillEntry[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 16; page++) {
+      const result = await this.client.request(
+        { method: "skills/list", params: cursor ? { cursor } : {} },
+        McpSkillListResult,
+        { signal, timeout: this.entry.config.startupTimeoutMs },
+      );
+      for (const item of result.skills) {
+        const entry = parseMcpSkillEntry(item);
+        if (entry) skills.push(entry);
+      }
+      cursor = result.nextCursor;
+      if (!cursor) return skills;
+      if (cursors.has(cursor)) break;
+      cursors.add(cursor);
+    }
+    throw invalidMcpSkill(
+      "Каталог MCP-навыков превышает лимит страниц или содержит повторяющийся курсор.",
+    );
+  }
+  async getSkill(uri: string, signal?: AbortSignal): Promise<McpSkillEntry> {
+    const { skill } = await this.client.request(
+      { method: "skills/get", params: { uri } },
+      McpSkillGetResult,
+      { signal, timeout: this.entry.config.callTimeoutMs },
+    );
+    const entry = parseMcpSkillEntry(skill);
+    if (!entry || entry.uri !== uri)
+      throw invalidMcpSkill("Сервер вернул неверный манифест MCP-навыка.");
+    return entry;
+  }
+  async readSkillResource(uri: string, signal?: AbortSignal) {
+    const { contents } = await this.client.readResource(
+      { uri },
+      { signal, timeout: this.entry.config.callTimeoutMs, cacheMode: "bypass" },
+    );
+    return contents;
   }
   async callTool(
     name: string,

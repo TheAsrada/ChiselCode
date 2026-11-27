@@ -27,6 +27,14 @@ chisel --cwd ./my-project --resume <session-id> "Продолжи анализ"
 
 Флаг `--resume` ищет ID в текущем проекте или `--cwd`. Для выбора между проектами откройте `/resume` в интерактивном режиме: [поиск и восстановление сессий](sessions.md).
 
+### Запустить MCP-навык
+
+```bash
+chisel --mode plan "/github:review PR 42"
+```
+
+Здесь `github` — ID настроенного сервера, а `review` — имя опубликованного навыка. Кавычки сохраняют команду и аргументы как одну задачу. [Подключение и просмотр навыков](skills.md#навыки-из-mcp).
+
 ## Флаги запроса
 
 Для локальных пакетов расширений: `chisel extensions inspect/install/update/enable/disable/versions/rollback/remove/status/recover`. Эти команды не запускают внешний JS или модель. Установка по умолчанию выключена без доверия; [точные flags, ZIP и restart](extensions.md) описаны отдельно. Tarball приложения/SDK не является ZIP пакетом расширения.

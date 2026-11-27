@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { userSkillsDir } from "../../paths/home.js";
 import { withSkillsLibraryLock } from "../../skills/library.js";
+import type { LoadedMcpSkill } from "../../skills/mcp.js";
 import { readSkillReference } from "../../skills/references.js";
 import {
   isReservedSkillName,
@@ -14,7 +15,10 @@ import { exists, resolveProjectPath } from "../../utils/paths.js";
 import { EditingService } from "../editing/service.js";
 import { defineTool } from "../handler.js";
 export type SkillsCatalog = readonly Skill[] | (() => readonly Skill[]);
-export function skillHandlers(skills: SkillsCatalog) {
+export function skillHandlers(
+  skills: SkillsCatalog,
+  mcpSkill?: LoadedMcpSkill,
+) {
   return [
     defineTool(
       {
@@ -37,6 +41,17 @@ export function skillHandlers(skills: SkillsCatalog) {
         resources: [],
       }),
       async (context, { data }) => {
+        if (mcpSkill && data.name === mcpSkill.name && data.path)
+          return {
+            output: `MCP resource from ${mcpSkill.name}:\n${await mcpSkill.readReference(data.path, context.signal)}`,
+            details: {
+              skill: {
+                name: mcpSkill.name,
+                source: "mcp",
+                serverId: mcpSkill.serverId,
+              },
+            },
+          };
         const skill = (typeof skills === "function" ? skills() : skills).find(
           (item) => item.name === data.name && !item.disableModelInvocation,
         );

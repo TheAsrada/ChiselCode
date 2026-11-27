@@ -11,6 +11,14 @@ import {
 } from "./network-policy.js";
 import { analyzeShell, commandMatches, simpleCommand } from "./shell-policy.js";
 export type PermissionDecision = "allow" | "ask" | "deny";
+export function requiresMcpSkillApproval(effect?: string): boolean {
+  return (
+    effect === "process" ||
+    effect === "git_write" ||
+    effect === "delegation" ||
+    effect === "external"
+  );
+}
 export class PermissionPolicy {
   constructor(
     private readonly config: ProjectConfig,
@@ -37,6 +45,20 @@ export class PermissionPolicy {
     request: ApprovalRequest,
     effect: string,
     approvalMode = this.approvalMode,
+  ): PermissionDecision {
+    const decision = this.configuredDecision(request, effect, approvalMode);
+    if (
+      this.options.mcpSkill &&
+      requiresMcpSkillApproval(effect) &&
+      decision !== "deny"
+    )
+      return approvalMode === "dontAsk" ? "deny" : "ask";
+    return decision;
+  }
+  private configuredDecision(
+    request: ApprovalRequest,
+    effect: string,
+    approvalMode: ApprovalMode,
   ): PermissionDecision {
     if (request.network && effect !== "external_read") {
       const network = this.decide(request, "external_read", approvalMode);

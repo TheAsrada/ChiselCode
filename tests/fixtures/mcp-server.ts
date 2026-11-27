@@ -2,6 +2,7 @@ import { appendFileSync } from "node:fs";
 import { inputRequired, McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
+import { registerReviewSkill } from "./mcp-skills.js";
 
 const mode = process.argv[2];
 if (mode === "slow-start") {
@@ -39,6 +40,12 @@ if (mode === "malformed") {
       name: "Chisel MCP integration fixture",
       version: "1.0.0",
     });
+    if (mode === "skills" || mode === "skills-changed")
+      registerReviewSkill(server, {
+        changed: mode === "skills-changed",
+        onRequest: (method) =>
+          process.stderr.write(`skill request: ${method}\n`),
+      });
     if (mode === "large-schema")
       server.registerTool(
         "get_huge_schema",

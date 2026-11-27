@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import { useEffect, useMemo, useState } from "react";
+import type { SkillCatalogItem } from "../skills/mcp.js";
 import type { Skill } from "../skills/skills.js";
 import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { MenuActions, useMenuNavigation } from "./menu-navigation.js";
@@ -15,7 +16,10 @@ import { terminalLine } from "./terminal-text.js";
 import { SKILL_MARK } from "./theme.js";
 
 export interface OpenTuiSkillsActions {
-  load(): Skill[];
+  load(): SkillCatalogItem[];
+  subscribe?(changed: () => void): () => void;
+  refresh?(signal: AbortSignal, force: boolean): Promise<void>;
+  inspect?(name: string, signal: AbortSignal): Promise<string>;
   activeNames(): string[];
   toggle(name: string): void;
   editSource?(name: string): string;
@@ -28,11 +32,18 @@ function readCatalog(actions: OpenTuiSkillsActions) {
       error: "",
     };
   } catch (cause) {
-    return { skills: [] as Skill[], error: String(cause) };
+    return { skills: [] as SkillCatalogItem[], error: String(cause) };
   }
 }
 
-function invocationLabel(skill: Skill): string {
+function sourceLabel(skill: SkillCatalogItem): string {
+  if (skill.source === "mcp") return `MCP · ${skill.serverId}`;
+  return skill.source === "bundled" ? "Встроенный" : "Пользовательский";
+}
+
+function invocationLabel(skill: SkillCatalogItem): string {
+  if (skill.source === "mcp")
+    return skill.userInvocable ? "Вручную" : "Только просмотр";
   if (skill.userInvocable === false)
     return skill.disableModelInvocation ? "Вызов отключён" : "Только агент";
   return skill.disableModelInvocation ? "Вручную" : "Автовыбор";
@@ -57,11 +68,34 @@ export function OpenTuiSkills({
   height: number;
   palette?: Palette;
   onClose: () => void;
-  onChoose?: (skill: Skill) => void;
+  onChoose?: (skill: SkillCatalogItem) => void;
   onCreate?: () => void;
   onEdit?: (skill: Skill) => void;
 }) {
   const [revision, refresh] = useState(0);
+  const [refreshRequest, setRefreshRequest] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const abort = new AbortController();
+    const changed = () => {
+      if (!abort.signal.aborted) refresh((value) => value + 1);
+    };
+    let detach: (() => void) | undefined;
+    try {
+      detach = actions.subscribe?.(changed);
+      changed();
+      void actions
+        .refresh?.(abort.signal, refreshRequest > 0)
+        .then(changed)
+        .catch(() => {});
+    } catch {
+      changed();
+    }
+    return () => {
+      abort.abort();
+      detach?.();
+    };
+  }, [actions, enabled, refreshRequest]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Explicit refresh invalidates the filesystem catalog.
   const { skills, error: loadError } = useMemo(
     () => readCatalog(actions),
@@ -91,16 +125,35 @@ export function OpenTuiSkills({
   const filtered = useMemo(() => {
     const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     return skills.filter((skill) => {
+      if (page === "pin" && skill.source === "mcp") return false;
       const haystack =
-        `${skill.name} ${skill.description} ${skill.source === "bundled" ? "встроенный" : "пользовательский"}`.toLocaleLowerCase();
+        `${skill.name} ${skill.description} ${sourceLabel(skill)}`.toLocaleLowerCase();
       return words.every((word) => haystack.includes(word));
     });
-  }, [skills, query]);
+  }, [skills, query, page]);
   const index = Math.max(
     0,
     filtered.findIndex((skill) => skill.name === selectedName),
   );
   const current = filtered[index];
+  const remoteName = current?.source === "mcp" ? current.name : undefined;
+  const [remoteInstructions, setRemoteInstructions] = useState<{
+    name: string;
+    text: string;
+  }>();
+  useEffect(() => {
+    if (!enabled || !instructions || !remoteName || !actions.inspect) return;
+    const abort = new AbortController();
+    setRemoteInstructions(undefined);
+    const show = (text: string) => {
+      if (!abort.signal.aborted)
+        setRemoteInstructions({ name: remoteName, text });
+    };
+    void actions
+      .inspect(remoteName, abort.signal)
+      .then(show, (cause) => show(String(cause)));
+    return () => abort.abort();
+  }, [actions, enabled, instructions, remoteName]);
   const canCreate = skills.some(
     (skill) => skill.name === "skill-creator" && skill.userInvocable !== false,
   );
@@ -166,13 +219,13 @@ export function OpenTuiSkills({
       label: "Изменить",
       disabled: !canEdit,
       run: () => {
-        if (current && onEdit) run(() => onEdit(current));
+        if (current?.source === "user" && onEdit) run(() => onEdit(current));
       },
     },
     {
       id: "skills-refresh",
       label: "Обновить каталог",
-      run: () => refresh((value) => value + 1),
+      run: () => setRefreshRequest((value) => value + 1),
     },
   ];
   const navigation = useMenuNavigation(
@@ -298,7 +351,7 @@ export function OpenTuiSkills({
       </box>
       {roomy && (
         <text fg={palette.muted} height={1}>
-          Агент сам подбирает подходящий навык
+          Локальные навыки и навыки MCP
         </text>
       )}
       <box
@@ -379,12 +432,11 @@ export function OpenTuiSkills({
               {embedded && (
                 <>
                   <text fg={palette.muted}>
-                    {current.source === "bundled"
-                      ? "Встроенный"
-                      : "Пользовательский"}{" "}
-                    · {invocationLabel(current)}
+                    {sourceLabel(current)} · {invocationLabel(current)}
                     {"\n"}
-                    {terminalSafeText(current.dir)}
+                    {current.source === "mcp"
+                      ? ""
+                      : terminalSafeText(current.dir)}
                   </text>
                   <text fg={palette.text} marginBottom={1}>
                     {terminalSafeText(current.description)}
@@ -392,7 +444,13 @@ export function OpenTuiSkills({
                 </>
               )}
               <text fg={palette.text} selectable>
-                {terminalSafeText(current.instructions)}
+                {terminalSafeText(
+                  current.source === "mcp"
+                    ? remoteInstructions?.name === current.name
+                      ? remoteInstructions.text
+                      : "Загружаю инструкции MCP…"
+                    : current.instructions,
+                )}
               </text>
             </TerminalScrollbox>
           </box>
@@ -507,12 +565,9 @@ export function OpenTuiSkills({
                     <strong>{current.name}</strong>
                   </text>
                   <text fg={palette.muted} height={1}>
-                    {current.source === "bundled"
-                      ? "Встроенный"
-                      : "Пользовательский"}{" "}
-                    | {invocationLabel(current)}
+                    {sourceLabel(current)} | {invocationLabel(current)}
                   </text>
-                  {embedded && (
+                  {embedded && current.source !== "mcp" && (
                     <text fg={palette.muted} height={1}>
                       {terminalLine(
                         current.dir,
@@ -533,7 +588,8 @@ export function OpenTuiSkills({
                       {page === "pin"
                         ? "Для постоянных правил. Закреплённые инструкции добавляются к каждому сообщению этой вкладки."
                         : current.userInvocable === false
-                          ? current.disableModelInvocation
+                          ? current.source === "mcp" ||
+                            current.disableModelInvocation
                             ? "Вызов этого навыка отключён в его настройках."
                             : "Этот навык доступен агенту. Опишите задачу обычным сообщением."
                           : "Примените к одному сообщению. После выбора можно добавить задачу и отправить её."}

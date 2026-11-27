@@ -37,6 +37,7 @@ import {
 } from "./security/approval-mode.js";
 import { CredentialStore } from "./security/credentials.js";
 import { projectSessionStore } from "./sessions/project-store.js";
+import { parseMcpSkillCommand } from "./skills/mcp.js";
 import {
   completeInteractiveExit,
   type InteractiveExitReason,
@@ -156,7 +157,7 @@ program
     }
     const { exitCode } = await runPrompt(
       prompt,
-      options,
+      { ...options, mcpSkillCommand: parseMcpSkillCommand(prompt) },
       nonInteractiveResolver,
     );
     process.exitCode = exitCode;

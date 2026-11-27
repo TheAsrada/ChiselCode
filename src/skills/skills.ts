@@ -406,7 +406,9 @@ export function parseImportedSkill(
 }
 
 /** Скиллы, доступные как /команды (без `user-invocable: false`). */
-export function invocableSkills(skills: Skill[]): Skill[] {
+export function invocableSkills<T extends { userInvocable?: boolean }>(
+  skills: readonly T[],
+): T[] {
   return skills.filter((skill) => skill.userInvocable !== false);
 }
 
@@ -573,7 +575,10 @@ function unquote(value: string): string {
  * Подставляет аргументы в инструкции. `$ARGUMENTS` заменяется как есть;
  * если плейсхолдера нет, аргументы дописываются с новой строки.
  */
-export function expandSkill(skill: Skill, args: string): string {
+export function expandSkill(
+  skill: { instructions: string },
+  args: string,
+): string {
   const trimmed = args.trim();
   if (skill.instructions.includes("$ARGUMENTS"))
     return skill.instructions.split("$ARGUMENTS").join(trimmed);

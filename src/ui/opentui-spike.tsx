@@ -609,47 +609,57 @@ function OpenTuiScreen({
     if (otherOverlay) controller?.hideAgent();
   }, [otherOverlay, controller]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: project and panel changes reload the shared command projection.
+  const slashInput = isSlashInput(draft);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Opening the library also refreshes local skills.
   useEffect(() => {
-    let active = true;
+    const abort = new AbortController();
     const origin = controller;
     const generation = origin?.currentGeneration;
     const root = view.projectPath;
-    setCommandProjection(composeCommandProjection());
-    if (commandActions && root) {
+    const current = () =>
+      !abort.signal.aborted &&
+      (generation === undefined || origin?.isCurrent(generation));
+    const publish = () => {
+      if (!current()) return;
+      try {
+        setCommandProjection(
+          (root && commandActions?.current?.(root)?.projection) ||
+            composeCommandProjection(
+              skillsActions ? invocableSkills(skillsActions.load()) : [],
+            ),
+        );
+      } catch {
+        setCommandProjection(composeCommandProjection());
+      }
+    };
+    publish();
+    const detach = commandActions?.watchSkills?.(root, publish);
+    if (root && commandActions)
       void commandActions
-        .load(root)
+        .load(root, abort.signal)
         .then((snapshot) => {
-          if (
-            !active ||
-            (generation !== undefined && !origin?.isCurrent(generation))
-          )
-            return;
+          if (!current()) return;
           setCommandProjection(snapshot.projection);
           if (snapshot.error) origin?.append(snapshot.error, "error");
         })
         .catch(() => {
-          if (active)
+          if (current())
             origin?.append("Не удалось загрузить команды проекта.", "error");
         });
-      return () => {
-        active = false;
-      };
-    }
-    try {
-      setCommandProjection(
-        composeCommandProjection(
-          skillsActions ? invocableSkills(skillsActions.load()) : [],
-        ),
-      );
-    } catch {
-      // The library popup presents discovery failures without breaking the composer.
-      setCommandProjection(composeCommandProjection());
-    }
     return () => {
-      active = false;
+      abort.abort();
+      detach?.();
     };
   }, [commandActions, skillsActions, controller, view.projectPath, skillsOpen]);
+
+  useEffect(() => {
+    if (!slashInput) return;
+    const abort = new AbortController();
+    void commandActions
+      ?.discoverSkills?.(view.projectPath, abort.signal)
+      .catch(() => {});
+    return () => abort.abort();
+  }, [commandActions, slashInput, view.projectPath]);
   const [expanded, setExpanded] = useState(
     controller?.presentation.expanded ?? false,
   );

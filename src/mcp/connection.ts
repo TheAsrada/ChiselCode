@@ -1,6 +1,8 @@
 import type { Tool } from "@modelcontextprotocol/client";
 import type { JsonObject } from "../types/domain.js";
 
+import type { McpSkillEntry } from "./skills.js";
+
 export type McpConnectionState =
   | "disconnected"
   | "connecting"
@@ -14,6 +16,7 @@ export interface McpCapabilities {
   resources: boolean;
   prompts: boolean;
   tasks: boolean;
+  skills?: boolean;
 }
 export interface McpConnectionInfo {
   protocolVersion: string;
@@ -53,6 +56,12 @@ export interface McpConnection {
     signal?: AbortSignal,
     onProgress?: (progress: McpProgress) => void,
   ): Promise<McpCallResult>;
+  listSkills?(signal?: AbortSignal): Promise<McpSkillEntry[]>;
+  getSkill?(uri: string, signal?: AbortSignal): Promise<McpSkillEntry>;
+  readSkillResource?(
+    uri: string,
+    signal?: AbortSignal,
+  ): Promise<readonly { uri: string; text?: string; blob?: string }[]>;
   close(): Promise<void>;
 }
 export interface McpConnectionCallbacks {

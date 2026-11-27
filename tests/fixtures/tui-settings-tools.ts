@@ -7,6 +7,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import { z } from "zod";
 import { runOpenTuiAgent } from "../../src/ui/opentui-agent.js";
+import { registerReviewSkill } from "./mcp-skills.js";
 import { menuAction } from "./menu-navigation.js";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -26,11 +27,13 @@ const { createMcpHandler, McpServer } = await import(
   "@modelcontextprotocol/server"
 );
 let toolCalls = 0;
+let lastModelRequest = "";
 const handler = createMcpHandler(() => {
   const server = new McpServer({
     name: "Документация проекта",
     version: "1.0.0",
   });
+  registerReviewSkill(server);
   server.registerTool(
     "get_note",
     {
@@ -49,17 +52,49 @@ const handler = createMcpHandler(() => {
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
-  fetch: (request) =>
-    new URL(request.url).pathname === "/unavailable"
-      ? new Response("Maintenance", { status: 418 })
-      : handler.fetch(request),
+  fetch: async (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/unavailable")
+      return new Response("Maintenance", { status: 418 });
+    if (path === "/v1/models")
+      return Response.json({ data: [{ id: "fixture-model" }] });
+    if (path === "/v1/chat/completions") {
+      lastModelRequest = await request.text();
+      const chunk = {
+        id: "mcp-skill-fixture",
+        object: "chat.completion.chunk",
+        choices: [
+          {
+            index: 0,
+            delta: { content: "Проверка MCP завершена" },
+            finish_reason: "stop",
+          },
+        ],
+      };
+      return new Response(
+        `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
+        {
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      );
+    }
+    return handler.fetch(request);
+  },
 });
 const configPath = join(storage, "config.json");
+process.env.OPENAI_API_KEY = "local-fixture-key";
 await writeFile(
   configPath,
   JSON.stringify({
     schemaVersion: 2,
-    profiles: {},
+    defaultProfileId: "fixture",
+    profiles: {
+      fixture: {
+        providerId: "openai-compatible",
+        baseUrl: `${server.url}v1`,
+        defaultModel: "fixture-model",
+      },
+    },
     ui: { theme },
     web: { enabled: false },
     lsp: { enabled: true, servers: {} },
@@ -404,6 +439,32 @@ try {
     await until(
       () => !!ui.renderer.root.findDescendantById("skills-popup"),
       "Команда навыков потеряла диалог",
+    );
+    await click("skills-search");
+    await paste("notes:review");
+    await until(
+      () => ui.captureCharFrame().includes("/notes:review"),
+      "Нет MCP-навыка в общей библиотеке",
+    );
+    await capture("mcp-skill");
+    await menuAction(ui, "skills-actions", "skills-instructions-action");
+    await until(
+      () => ui.captureCharFrame().includes("Review the changes"),
+      "Нет проверенных инструкций MCP",
+    );
+    await capture("mcp-skill-instructions");
+    await key("ESCAPE");
+    await click("skills-search");
+    await key("RETURN");
+    await until(
+      () => ui.renderer.currentFocusedEditor?.plainText === "/notes:review ",
+      "Выбор MCP-навыка не подготовил команду",
+    );
+    await paste("PR 42");
+    await key("RETURN");
+    await until(
+      () => lastModelRequest.includes("Review the changes for PR 42"),
+      "OpenTUI не передал проверенные инструкции модели",
     );
     assert.equal(
       toolCalls,

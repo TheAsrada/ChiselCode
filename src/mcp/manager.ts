@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Tool } from "@modelcontextprotocol/client";
 import { RuntimeError } from "../runtime/errors.js";
+import type { LoadedMcpSkill, McpSkillSummary } from "../skills/mcp.js";
 import { isReadEffect } from "../tools/effects.js";
 import { canonicalInput } from "../tools/invocation.js";
 import type { JsonObject } from "../types/domain.js";
@@ -19,6 +20,13 @@ import {
 import { mcpError } from "./errors.js";
 import { McpRedactor } from "./redaction.js";
 import type { McpPermissions } from "./schema.js";
+import {
+  invalidMcpSkill,
+  type McpSkillEntry,
+  mcpSkillFile,
+  mcpSkillInstructions,
+  verifiedMcpSkillText,
+} from "./skills.js";
 import type { McpConfigStore, McpServerEntry } from "./storage.js";
 import {
   type McpConnectionFactory,
@@ -61,6 +69,8 @@ interface ServerRecord {
   generation: number;
   retryTimer?: ReturnType<typeof setTimeout>;
   refresh?: Promise<void>;
+  skills?: Map<string, McpSkillEntry>;
+  skillsLoading?: Promise<void>;
 }
 export class McpConnectionManager {
   readonly redactor = new McpRedactor();
@@ -271,6 +281,175 @@ export class McpConnectionManager {
         .map((record) => this.connect(record.entry.id, signal).catch(() => {})),
     );
   }
+  skills(): McpSkillSummary[] {
+    return [...this.records.values()].flatMap((record) => {
+      if (record.status.state !== "connected" || !record.skills) return [];
+      const serverId = record.entry.id;
+      return [...record.skills].map(([name, entry]) => ({
+        source: "mcp" as const,
+        serverId,
+        name: `${serverId}:${name}`,
+        description: this.redactor.text(entry.frontmatter.description),
+        userInvocable: entry.frontmatter["user-invocable"] !== false,
+      }));
+    });
+  }
+  async startSkills(signal?: AbortSignal, refresh = false): Promise<void> {
+    await this.startEnabled(signal);
+    signal?.throwIfAborted();
+    await Promise.all(
+      [...this.records.values()].map((record) =>
+        this.waitForConnection(this.discoverSkills(record, refresh), signal),
+      ),
+    );
+  }
+  private discoverSkills(record: ServerRecord, refresh = false): Promise<void> {
+    const connection = record.connection;
+    if (
+      record.status.state !== "connected" ||
+      !record.status.info?.capabilities.skills ||
+      !connection?.listSkills
+    )
+      return Promise.resolve();
+    if (record.skillsLoading) return record.skillsLoading;
+    if (record.skills && !refresh) return Promise.resolve();
+    const task = connection
+      .listSkills(AbortSignal.timeout(record.entry.config.startupTimeoutMs))
+      .then(
+        (entries) => {
+          if (
+            record.connection !== connection ||
+            record.status.state !== "connected"
+          )
+            return;
+          const byName = new Map<string, McpSkillEntry>();
+          const ambiguous = new Set<string>();
+          for (const entry of entries) {
+            const name = entry.frontmatter.name;
+            if (this.redactor.text(name) !== name) continue;
+            const previous = byName.get(name);
+            if (previous && previous.uri !== entry.uri) ambiguous.add(name);
+            byName.set(name, entry);
+          }
+          for (const name of ambiguous) byName.delete(name);
+          if (ambiguous.size)
+            this.log(
+              record,
+              "warn",
+              `Пропущены MCP-навыки с повторяющимися именами: ${[...ambiguous].join(", ")}.`,
+            );
+          record.skills = byName;
+          this.changed();
+        },
+        () => {
+          if (
+            record.connection !== connection ||
+            record.status.state !== "connected"
+          )
+            return;
+          record.skills = undefined;
+          this.log(
+            record,
+            "warn",
+            "Не удалось получить каталог MCP-навыков. Обновите каталог в /skills.",
+          );
+          this.changed();
+        },
+      )
+      .finally(() => {
+        if (record.skillsLoading === task) record.skillsLoading = undefined;
+      });
+    record.skillsLoading = task;
+    return task;
+  }
+  async loadSkill(
+    name: string,
+    signal?: AbortSignal,
+    inspect = false,
+  ): Promise<LoadedMcpSkill> {
+    const [serverId = "", skillName = ""] = name.split(":");
+    await this.reload();
+    const record = this.records.get(serverId);
+    if (
+      !record?.entry.trusted ||
+      !record.entry.config.enabled ||
+      this.paused.has(serverId)
+    )
+      throw new RuntimeError(
+        "MCP_SERVER_UNAVAILABLE",
+        `Сервер «${serverId}» недоступен для вызова навыка. Проверьте подключение в /mcp.`,
+      );
+    await this.connect(serverId, signal);
+    await this.waitForConnection(this.discoverSkills(record), signal);
+    const listed = record.skills?.get(skillName);
+    const connection = record.connection;
+    if (
+      !listed ||
+      (!inspect && listed.frontmatter["user-invocable"] === false) ||
+      !connection?.getSkill ||
+      !connection.readSkillResource
+    )
+      throw new RuntimeError(
+        "MCP_SERVER_UNAVAILABLE",
+        `Навык /${name} недоступен. Проверьте каталог в /skills.`,
+      );
+    const assertOrigin = () => {
+      if (
+        this.records.get(serverId) !== record ||
+        record.connection !== connection ||
+        record.status.state !== "connected"
+      )
+        throw new RuntimeError(
+          "MCP_SERVER_UNAVAILABLE",
+          "Подключение MCP-навыка изменилось.",
+        );
+    };
+    const readResource = connection.readSkillResource.bind(connection);
+    try {
+      const entry = await connection.getSkill(listed.uri, signal);
+      assertOrigin();
+      if (
+        entry.frontmatter.name !== skillName ||
+        (!inspect && entry.frontmatter["user-invocable"] === false)
+      )
+        throw invalidMcpSkill(
+          "MCP-навык изменился. Обновите каталог и повторите вызов.",
+        );
+      const read = async (
+        path: string | undefined,
+        readSignal?: AbortSignal,
+      ) => {
+        assertOrigin();
+        const file = mcpSkillFile(entry, path);
+        const contents = await readResource(file.uri, readSignal);
+        assertOrigin();
+        return verifiedMcpSkillText(file, contents);
+      };
+      const instructions = mcpSkillInstructions(
+        entry,
+        await read(undefined, signal),
+      );
+      return {
+        name,
+        serverId,
+        instructions: this.redactor.text(instructions),
+        readReference: async (path, readSignal) => {
+          try {
+            return this.redactor.text(await read(path, readSignal));
+          } catch (error) {
+            throw mcpError(
+              error,
+              this.redactor,
+              "MCP_PROTOCOL_ERROR",
+              readSignal,
+            );
+          }
+        },
+      };
+    } catch (error) {
+      throw mcpError(error, this.redactor, "MCP_PROTOCOL_ERROR", signal);
+    }
+  }
   async connect(
     id: string,
     signal?: AbortSignal,
@@ -403,6 +582,7 @@ export class McpConnectionManager {
         `Подключено. Протокол ${info.protocolVersion}; инструментов: ${record.tools.length}.`,
       );
       this.changed();
+      void this.discoverSkills(record);
     } catch (error) {
       const typed = mcpError(
         error,
@@ -641,6 +821,8 @@ export class McpConnectionManager {
     record.retryTimer = undefined;
     const connection = record.connection;
     record.connection = undefined;
+    record.skills = undefined;
+    record.skillsLoading = undefined;
     record.tools = [];
     record.status.toolsCount = 0;
     if (reset)
