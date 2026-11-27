@@ -2,6 +2,7 @@ import { lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { builtinDefinitions } from "../providers/definitions/index.js";
+import { openai } from "../providers/definitions/openai.js";
 import { resolveEndpoint } from "../providers/endpoint.js";
 import {
   SKILL_PACKAGE_LIMITS,
@@ -175,11 +176,11 @@ async function connections(source: MigrationSource, locations: Locations) {
       ? [
           connection(
             source,
-            "openai",
-            "openai",
+            openai.id,
+            openai.id,
             auth.OPENAI_API_KEY,
             undefined,
-            !settings.model_provider || settings.model_provider === "openai"
+            !settings.model_provider || settings.model_provider === openai.id
               ? settings.model
               : undefined,
           ),

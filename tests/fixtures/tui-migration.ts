@@ -275,8 +275,8 @@ try {
   await act(async () => ui.mockInput.pressEnter());
   await ready("Импортировать · 16");
   if (capturePath) await act(async () => Bun.sleep(900));
-  await act(async () => ui.mockInput.pressEnter());
   const started = performance.now();
+  await act(async () => ui.mockInput.pressEnter());
   await ready("%");
   await ready("Перенос завершён", started + 6500);
   assert.ok(performance.now() - started >= 4900);
