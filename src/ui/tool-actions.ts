@@ -217,6 +217,7 @@ export function groupToolActions(
   return rows;
 }
 export interface ActionTarget {
+  photos?: readonly import("../media/image-attachment.js").ImageAttachment[];
   id: string;
   group?: ActionGroup;
   action?: ToolAction;
@@ -337,7 +338,11 @@ export function actionTargets(
 ): ActionTarget[] {
   return rows.flatMap((row): ActionTarget[] => {
     const group = row.actionGroup;
-    if (!group) return row.sideOperationId ? [{ id: row.sideOperationId }] : [];
+    if (!group) {
+      if (row.images?.length)
+        return [{ id: `photos-${row.id}`, photos: row.images }];
+      return row.sideOperationId ? [{ id: row.sideOperationId }] : [];
+    }
     const targets: ActionTarget[] = [{ id: group.id, group }];
     if (!state.expanded.has(group.id)) return targets;
     const limit = state.limits.get(group.id) ?? ACTION_PAGE;

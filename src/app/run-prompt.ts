@@ -16,6 +16,7 @@ import {
 } from "../extensions/composition.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { ExtensionLifecycleError } from "../extensions/lifecycle.js";
+import { protectImages } from "../media/image-attachment.js";
 import { shellGuidance } from "../processes/shell.js";
 import { admitWorkspace } from "../projects/admission.js";
 import { resolveCredential } from "../providers/auth.js";
@@ -121,6 +122,8 @@ export interface RunEventHandlers {
 }
 
 export interface RunOptions {
+  /** Explicitly attached by the terminal composer. */
+  images?: readonly import("../media/image-attachment.js").ImageAttachment[];
   /** Internal foreground action; does not submit a user message or request an answer. */
   compactOnly?: boolean;
   /** Core submit snapshot, including an explicit Auto. */
@@ -717,9 +720,9 @@ async function runPromptInWorkspace(
   if (
     !session.messages.length &&
     session.titleSource !== "user" &&
-    prompt.trim()
+    (prompt.trim() || options.images?.length)
   ) {
-    session.title = sessionTitleForPrompt(sanitize(prompt));
+    session.title = sessionTitleForPrompt(sanitize(prompt) || "Фото");
     session.titleSource = "auto";
   }
 
@@ -841,9 +844,12 @@ async function runPromptInWorkspace(
         eventBus,
       );
 
+      const liveCapabilities = await provider.getCapabilities?.(model);
       const capabilities = {
         ...capturedModel.capabilities,
-        ...(await provider.getCapabilities?.(model)),
+        ...liveCapabilities,
+        imageInput:
+          liveCapabilities?.imageInput ?? capturedModel.capabilities.imageInput,
       };
       const turnModel =
         options.capturedModel ??
@@ -855,20 +861,27 @@ async function runPromptInWorkspace(
               reasoningEffortKey(selected.profileId, model)
             ],
         );
-      result = await runtime.run(session, sanitize(prompt), {
-        capabilities,
-        reasoningEffort: turnModel.reasoningEffort,
-        workspaceRoot: projectRoot,
-        client: options.interactive ? "opentui" : "cli",
-        uiSnapshot: options.uiSnapshot,
-        mode,
-        approvalMode,
-        signal,
-        onCheckpoint: saveCheckpoint,
-        onSessionUsage: events.onSessionUsage,
-        contextProviders: contextCollection(extensionScope, sanitize),
-        agentEvents: extensionScope.events,
-      });
+      if (options.images?.length) protectImages(options.images);
+      result = await runtime.run(
+        session,
+        options.images?.length
+          ? { text: sanitize(prompt), images: options.images }
+          : sanitize(prompt),
+        {
+          capabilities,
+          reasoningEffort: turnModel.reasoningEffort,
+          workspaceRoot: projectRoot,
+          client: options.interactive ? "opentui" : "cli",
+          uiSnapshot: options.uiSnapshot,
+          mode,
+          approvalMode,
+          signal,
+          onCheckpoint: saveCheckpoint,
+          onSessionUsage: events.onSessionUsage,
+          contextProviders: contextCollection(extensionScope, sanitize),
+          agentEvents: extensionScope.events,
+        },
+      );
     }
   } catch (error) {
     runtimeFailed = true;

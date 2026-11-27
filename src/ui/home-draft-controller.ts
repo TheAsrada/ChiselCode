@@ -19,7 +19,7 @@ export class HomeDraftController extends TuiPresentationController {
     super(root, mode, approvalMode, undefined, "dialog");
   }
   selectProject(ref: WorkspaceRef): void {
-    const draft = this.snapshot.draft;
+    const { draft, draftImages } = this.snapshot;
     const model = this.snapshot.modelSelection,
       capabilities = this.snapshot.modelCapabilities,
       reasoningEfforts = this.snapshot.reasoningEfforts;
@@ -27,6 +27,7 @@ export class HomeDraftController extends TuiPresentationController {
     this.switchSession(undefined, ref.root);
     this.selection = ref;
     this.setDraft(draft);
+    if (draftImages) this.setDraftImages(draftImages);
     this.setReasoningEfforts(reasoningEfforts);
     if (model && capabilities) this.setModelCapabilities(model, capabilities);
     Object.assign(this.presentation.history, history);

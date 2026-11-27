@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { imageLabel } from "../../../media/image-attachment.js";
 import { isGpt62Model } from "../../../models/gpt-6.2.js";
 import type { ReasoningEffortCapability } from "../../../providers/capabilities.js";
 import {
   normalizeProviderError,
   ProviderError,
 } from "../../../providers/errors.js";
+import { loadImageInputs } from "../../../providers/image-input.js";
 import { parseToolArguments } from "../../../providers/tool-arguments.js";
 import { ProviderToolNames } from "../../../providers/tool-names.js";
 import type {
@@ -84,6 +86,7 @@ function accountModel(entry: z.infer<typeof CatalogEntry>): AccountModel {
   return {
     id: entry.slug,
     toolImages: entry.input_modalities?.includes("image") === true,
+    imageInput: entry.input_modalities?.includes("image"),
     displayName: entry.display_name,
     contextWindow: contextWindow || undefined,
     maxInputTokens: entry.max_input_tokens,
@@ -133,24 +136,36 @@ const CODEX_CATALOG_VERSION = "0.166.0";
 export function responsesInput(
   request: ProviderRequest,
   names: ProviderToolNames,
+  images?: ReadonlyMap<string, string>,
 ) {
   return request.messages.flatMap((message) => {
     const items: Record<string, unknown>[] = [];
-    let text: string[] = [];
+    let parts: Record<string, unknown>[] = [];
     const flush = () => {
-      if (text.length)
-        items.push({
-          role: message.role,
-          content: text.map((value) => ({
-            type: message.role === "assistant" ? "output_text" : "input_text",
-            text: value,
-          })),
-        });
-      text = [];
+      if (parts.length) items.push({ role: message.role, content: parts });
+      parts = [];
     };
     for (const block of message.content) {
-      if (block.type === "text") text.push(block.text);
-      else {
+      if (block.type === "text")
+        parts.push({
+          type: message.role === "assistant" ? "output_text" : "input_text",
+          text: block.text,
+        });
+      else if (block.type === "image") {
+        const data = images?.get(block.image.id);
+        if (message.role === "user")
+          parts.push(
+            data
+              ? {
+                  type: "input_image",
+                  image_url: `data:${block.image.mimeType};base64,${data}`,
+                }
+              : {
+                  type: "input_text",
+                  text: `[Фото недоступно в запросе: ${imageLabel(block.image)}]`,
+                },
+          );
+      } else {
         flush();
         if (block.type === "tool_use")
           items.push({
@@ -254,7 +269,11 @@ export class ChatGptAdapter implements ProviderAdapter {
     ]);
     const names = new ProviderToolNames(request.tools, request.messages);
     try {
-      const input = responsesInput(request, names);
+      const input = responsesInput(
+        request,
+        names,
+        await loadImageInputs(request.messages, signal),
+      );
       // GPT-6.2 caches the system prompt when it leads input as a developer message.
       const useDeveloperPrompt = isGpt62Model(request.model);
       if (useDeveloperPrompt)

@@ -55,6 +55,14 @@ export function modelInfo(
   const top = record(model.top_provider);
   const limit = record(model.limit);
   const fallback = catalogModelLimits(providerId, model.id);
+  const modalities =
+    model.input_modalities ?? record(model.architecture).input_modalities;
+  const imageSupport = record(record(model.capabilities).image_input).supported;
+  const imageInput = Array.isArray(modalities)
+    ? modalities.includes("image")
+    : typeof imageSupport === "boolean"
+      ? imageSupport
+      : undefined;
   const contextWindow = positive(
     top.context_length,
     model.contextWindow,
@@ -82,6 +90,7 @@ export function modelInfo(
   );
   return {
     id: model.id,
+    ...(imageInput === undefined ? {} : { imageInput }),
     displayName:
       typeof model.name === "string"
         ? model.name

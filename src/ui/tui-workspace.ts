@@ -104,6 +104,7 @@ export class TuiWorkspace {
     projectPath?: string,
     mode: AgentMode = DEFAULT_AGENT_MODE,
     approvalMode: ApprovalMode = DEFAULT_APPROVAL_MODE,
+    private readonly onClose?: (tab: TuiController) => void,
   ) {
     this.home = new HomeDraftController(projectPath, mode, approvalMode);
   }
@@ -266,6 +267,7 @@ export class TuiWorkspace {
       this.execution(tab.controller).closeBlocked
     )
       return false;
+    this.onClose?.(tab.controller);
     this.subscriptions.get(tab.key)?.();
     this.subscriptions.delete(tab.key);
     this.execution(tab.controller).dispose();

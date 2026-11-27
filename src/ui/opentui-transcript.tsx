@@ -1,5 +1,7 @@
 /** @jsxImportSource @opentui/react */
+import type { ScrollBoxRenderable } from "@opentui/core";
 import React from "react";
+import type { ImageAttachment } from "../media/image-attachment.js";
 import type { ChatCard as CardData } from "../types/chat-presentation.js";
 import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { diffViewForWidth } from "./file-diff-preview.js";
@@ -8,6 +10,7 @@ import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { UiSurface } from "./opentui-composition.js";
 import { FileDiffCard } from "./opentui-file-diff.js";
 import { FormattedMessage } from "./opentui-message.js";
+import { MessagePhotos, usePhotoGraphics } from "./opentui-photos.js";
 import { ToolActions } from "./opentui-tool-actions.js";
 import { terminalLine, terminalSafeText } from "./terminal-text.js";
 import {
@@ -53,6 +56,9 @@ export function OpenTuiTranscript({
   actionPresentation,
   onActionSelect,
   focusedActionId,
+  photoViewport,
+  focusedPhotoId,
+  onOpenPhotos,
 }: {
   entries: readonly TranscriptEntry[];
   onOpenSide?(operationId: string): void;
@@ -74,7 +80,11 @@ export function OpenTuiTranscript({
   actionPresentation?: ActionPresentation;
   onActionSelect?(target: ActionTarget): void;
   focusedActionId?: string;
+  photoViewport?: React.RefObject<ScrollBoxRenderable | null>;
+  focusedPhotoId?: string;
+  onOpenPhotos?(images: readonly ImageAttachment[], index: number): void;
 }) {
+  const photoGraphics = usePhotoGraphics();
   const fallback = React.useRef(createActionPresentation());
   const [, refresh] = React.useState(0);
   const actions = actionPresentation ?? fallback.current;
@@ -197,16 +207,33 @@ export function OpenTuiTranscript({
                 paddingLeft={1}
                 paddingRight={1}
                 marginTop={1}
+                flexDirection="column"
               >
-                <text fg={palette.accent}>
-                  {">"}{" "}
-                  <span fg={palette.text}>
-                    {terminalSafeText(
-                      entry.text.replace(/^[>\u276f]\s*/, ""),
-                      20_000,
-                    )}
-                  </span>
-                </text>
+                {entry.text && (
+                  <text fg={palette.accent}>
+                    {">"}{" "}
+                    <span fg={palette.text}>
+                      {terminalSafeText(
+                        entry.text.replace(/^[>\u276f]\s*/, ""),
+                        20_000,
+                      )}
+                    </span>
+                  </text>
+                )}
+                {!!entry.images?.length && (
+                  <MessagePhotos
+                    id={`photos-${entry.id}`}
+                    width={Math.max(1, Math.min(104, contentWidth) - 2)}
+                    palette={palette}
+                    images={entry.images}
+                    focus={focusedPhotoId === `photos-${entry.id}`}
+                    graphics={photoGraphics}
+                    viewport={photoViewport}
+                    onOpen={(index) => {
+                      if (entry.images) onOpenPhotos?.(entry.images, index);
+                    }}
+                  />
+                )}
               </box>
             );
           if (!diff && entry.tone === "tool")

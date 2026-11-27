@@ -11,6 +11,7 @@ import {
 } from "../background/contracts.js";
 import { ToolResultStore } from "../context/tool-result-store.js";
 import type { ContextCompactionRecord } from "../context/types.js";
+import type { ImageAttachment } from "../media/image-attachment.js";
 import {
   aggregateSpend,
   childSpend,
@@ -74,6 +75,7 @@ export interface TranscriptEntry {
   text: string;
   tone: TranscriptTone;
   fileDiff?: FileDiff;
+  images?: readonly ImageAttachment[];
   sideOperationId?: string;
   chatCard?: OwnedChatCard;
   toolAction?: ToolAction;
@@ -154,6 +156,7 @@ export interface TuiViewState {
   toolActivity?: string;
   compaction?: { id: string };
   draft: string;
+  draftImages?: readonly ImageAttachment[];
   focus: "composer" | "transcript" | "sidebar" | "modal";
   overlay?: string;
   busy?: boolean;
@@ -307,6 +310,7 @@ export class TuiPresentationController implements TuiTranscript {
     text: string,
     tone: TranscriptTone = "assistant",
     fileDiff?: FileDiff,
+    images?: readonly ImageAttachment[],
   ): void {
     if (this.feedbackMode === "dialog") {
       this.appendCommandFeedback(text, tone, fileDiff);
@@ -315,7 +319,13 @@ export class TuiPresentationController implements TuiTranscript {
     this.update({
       transcript: [
         ...this.withStreaming(),
-        { id: this.serial++, text, tone, fileDiff },
+        {
+          id: this.serial++,
+          text,
+          tone,
+          fileDiff,
+          ...(images?.length && { images }),
+        },
       ],
       streaming: "",
     });
@@ -532,6 +542,7 @@ export class TuiPresentationController implements TuiTranscript {
       tone?: TranscriptTone;
       fileDiff?: FileDiff;
       chatCard?: OwnedChatCard;
+      images?: readonly ImageAttachment[];
       toolAction?: ToolAction;
       toolBoundary?: string;
     }>,
@@ -565,6 +576,11 @@ export class TuiPresentationController implements TuiTranscript {
       compaction: undefined,
     });
     this.renderer?.clear();
+  }
+
+  setDraftImages(draftImages: readonly ImageAttachment[]): void {
+    this.draftRevision++;
+    this.update({ draftImages });
   }
 
   setDraft(draft: string): void {

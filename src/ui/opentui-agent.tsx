@@ -1,4 +1,5 @@
 import { automationDispatcher } from "../app/run-automation.js";
+import { type ImageAttachment, readImage } from "../media/image-attachment.js";
 import { parseMcpSkillCommand } from "../skills/mcp.js";
 /** @jsxImportSource @opentui/react */
 
@@ -117,8 +118,8 @@ import type { OpenTuiSkillsActions } from "./opentui-skills.js";
 import { OpenTuiSpike } from "./opentui-spike.js";
 import { settingsDraft } from "./provider-settings.js";
 import {
-  loadApplicationDraft,
-  loadTerminalDraft,
+  loadApplicationComposerDraft,
+  loadTerminalComposerDraft,
   saveTerminalDraft,
 } from "./terminal-drafts.js";
 import { toolTranscriptHandlers } from "./tool-transcript.js";
@@ -138,6 +139,7 @@ export async function runOpenTuiAgent(
   setupOnly = false,
   extensions?: readonly ChiselExtension[],
   rendererFactory: typeof createCliRenderer = createCliRenderer,
+  clipboard?: import("@opentui/core").ClipboardService,
 ): Promise<InteractiveExitReason> {
   return withOwnedExtensionHost(
     extensions ?? (await applicationExtensions(options)),
@@ -149,6 +151,7 @@ export async function runOpenTuiAgent(
         setupOnly,
         host,
         rendererFactory,
+        clipboard,
       ),
   );
 }
@@ -160,6 +163,7 @@ async function runApplication(
   setupOnly: boolean,
   extensionHost: ExtensionHost,
   rendererFactory: typeof createCliRenderer,
+  clipboard?: import("@opentui/core").ClipboardService,
 ): Promise<InteractiveExitReason> {
   const preferences = {
     activeOptions: { ...options, resume: undefined } as RunOptions,
@@ -252,10 +256,27 @@ async function runApplication(
     autoApprove: projectConfig.autoApprove,
     allowBypassPermissions: bypassAvailable,
   });
+  const closingDrafts = new Set<Promise<void>>();
   const workspace = new TuiWorkspace(
     initialRoot,
     options.mode ?? DEFAULT_AGENT_MODE,
     initialApprovalMode,
+    (controller) => {
+      const { projectPath, sessionId, draft, draftImages } =
+        controller.snapshot;
+      if (!sessionId || draftImages === undefined) return;
+      const save = saveTerminalDraft(projectPath, sessionId, draft, {
+        images: draftImages,
+      });
+      closingDrafts.add(save);
+      void save
+        .catch((error) =>
+          workspace.controller.appendNotice(safeDiagnostic(error), "error"),
+        )
+        .finally(() => {
+          closingDrafts.delete(save);
+        });
+    },
   );
   extensionHost.configureAutomations(
     (scope) =>
@@ -291,7 +312,7 @@ async function runApplication(
     workspace.openSession(initialSession);
   }
   const restoredDraft = workspace.controller.snapshot.projectPath
-    ? await loadTerminalDraft(
+    ? await loadTerminalComposerDraft(
         workspace.controller.snapshot.projectPath,
         workspace.controller.snapshot.sessionId,
       ).catch((cause) => {
@@ -301,7 +322,7 @@ async function runApplication(
         );
         return undefined;
       })
-    : await loadApplicationDraft().catch((cause) => {
+    : await loadApplicationComposerDraft().catch((cause) => {
         workspace.home.append(
           `Не удалось восстановить черновик: ${String(cause)}`,
           "error",
@@ -309,9 +330,12 @@ async function runApplication(
         return undefined;
       });
   if (restoredDraft !== undefined) {
-    workspace.controller.setDraft(restoredDraft);
-    workspace.controller.presentation.history.value = restoredDraft;
-    workspace.controller.presentation.history.cursor = restoredDraft.length;
+    workspace.controller.setDraft(restoredDraft.text);
+    if (restoredDraft.images.length)
+      workspace.controller.setDraftImages(restoredDraft.images);
+    workspace.controller.presentation.history.value = restoredDraft.text;
+    workspace.controller.presentation.history.cursor =
+      restoredDraft.text.length;
   }
   workspace.controller.setApprovalMode(initialApprovalMode);
   if (options.mode) workspace.controller.setAgentMode(options.mode);
@@ -447,7 +471,8 @@ async function runApplication(
     exitOnCtrlC: false,
     exitSignals: [],
   });
-  const scrollbackDetachments = new Map<TuiController, () => void>();
+  let scrollback: { controller: TuiController; detach(): void } | undefined;
+  let hasScrollback = false;
   const openingRoots = new Set<string>();
   const closingScopes = new Set<Promise<void>>();
   const closingRoots = new Set<string>();
@@ -491,19 +516,25 @@ async function runApplication(
     }
   };
   const syncScrollback = () => {
-    if (!classic) return;
-    for (const tab of workspace.tabs) {
-      if (!scrollbackDetachments.has(tab.controller))
-        scrollbackDetachments.set(
-          tab.controller,
-          attachTranscriptScrollback(tab.controller, renderer, () =>
-            extensionHost.themes.palette(
-              currentTheme,
-              preferences.config.ui?.accent,
-            ),
-          ),
-        );
-    }
+    if (!classic || renderer.isDestroyed) return;
+    const selected = workspace.tabs.find(
+      (tab) => tab.key === workspace.activeKey,
+    )?.controller;
+    if (scrollback?.controller === selected) return;
+    scrollback?.detach();
+    scrollback = undefined;
+    if (hasScrollback) renderer.resetSplitFooterForReplay();
+    if (!selected) return;
+    hasScrollback = true;
+    scrollback = {
+      controller: selected,
+      detach: attachTranscriptScrollback(selected, renderer, () =>
+        extensionHost.themes.palette(
+          currentTheme,
+          preferences.config.ui?.accent,
+        ),
+      ),
+    };
   };
   const projectOpener = new ProjectOpenService(
     async (ref) => {
@@ -996,6 +1027,10 @@ async function runApplication(
     turnApprovalMode = target.snapshot.approvalMode,
     turnModelOptions = { ...modelOptions(target) },
     onCommandResult?: (result: ToolExecutionResult) => void,
+    photoSubmission?: {
+      images: readonly ImageAttachment[];
+      accepted(): boolean;
+    },
   ): Promise<void> => {
     let resultAttached = false;
     try {
@@ -1021,7 +1056,7 @@ async function runApplication(
       }
       const submittedSelection = target.snapshot.modelSelection;
       const submittedModel = capturedModel;
-      const promptModel =
+      let promptModel =
         submittedModel &&
         submittedSelection &&
         turnModelOptions.reasoningEffort &&
@@ -1110,6 +1145,37 @@ async function runApplication(
         } else await executeOperation(controller, item);
         return;
       }
+      if (photoSubmission) {
+        const capabilities = submittedSelection
+          ? await modelCatalog.capabilities(submittedSelection)
+          : submittedModel?.capabilities;
+        if (!submittedModel || capabilities?.imageInput !== true)
+          throw new Error(
+            "Модель не подтвердила поддержку фото. Выберите модель с поддержкой изображений.",
+          );
+        for (const image of photoSubmission.images) {
+          try {
+            await readImage(image);
+          } catch {
+            throw new Error(
+              "Одно из фото недоступно. Уберите его и прикрепите снова.",
+            );
+          }
+        }
+        if (
+          abort.signal.aborted ||
+          !controller.isCurrent(originGeneration) ||
+          !photoSubmission.accepted()
+        )
+          return;
+        promptModel = Promise.resolve(
+          withModelCapabilities(
+            submittedModel,
+            capabilities,
+            turnModelOptions.reasoningEffort,
+          ),
+        );
+      }
       let snapshot:
         | import("./workspace-commands.js").WorkspaceCommandSnapshot
         | undefined;
@@ -1197,7 +1263,7 @@ async function runApplication(
         controller.setSessionTitle(
           prepared?.command.executionPolicy === "side_query"
             ? "Побочный вопрос"
-            : clipText(input.split("\n", 1)[0] ?? input, 120),
+            : clipText(input.split("\n", 1)[0] || "Фото", 120),
         );
         homeOperationTarget = {
           generation: originGeneration,
@@ -1440,6 +1506,7 @@ async function runApplication(
               kind: "prompt",
               capturedModel: promptModel,
               input,
+              ...(photoSubmission && { images: photoSubmission.images }),
               root: originRoot,
               mode: turnMode,
               approvalMode: turnApprovalMode,
@@ -1452,7 +1519,7 @@ async function runApplication(
         execution.pendingOperations.push(item);
         controller.setBusy(true);
         controller.append(
-          `В очереди: ${execution.pendingOperations.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input}`,
+          `В очереди: ${execution.pendingOperations.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input || "Фото"}`,
           "info",
         );
         return;
@@ -1513,7 +1580,24 @@ async function runApplication(
     controller.startRequest(item.kind === "prompt" ? "waiting" : "tool");
     controller.setRunningMode(turnMode);
     controller.setRunningApprovalMode(turnApprovalMode);
-    if (!quiet) controller.append(`> ${input}`, "user");
+    if (!quiet)
+      controller.append(
+        input ? `> ${input}` : "",
+        "user",
+        undefined,
+        item.kind === "prompt" ? item.images : undefined,
+      );
+    if (
+      item.kind === "prompt" &&
+      controller.snapshot.modelCapabilities?.imageInput !== true &&
+      !item.images?.length
+    ) {
+      if (controller.snapshot.transcript.some((entry) => entry.images?.length))
+        controller.append(
+          "Выбранная модель получает подписи к прежним фото.",
+          "info",
+        );
+    }
     const tools = toolTranscriptHandlers(() => controller);
     const presentedToolResults = new Set<string>();
     // Install the owner before any provider callback can complete the request.
@@ -1901,6 +1985,7 @@ async function runApplication(
               : preferences.activeOptions),
             ...turnModelOptions,
             capturedModel: await item.capturedModel,
+            images: item.images,
             cwd: controller.snapshot.projectPath,
             resume: controller.snapshot.sessionId,
             mode: turnMode,
@@ -2316,7 +2401,13 @@ async function runApplication(
               }
             : undefined,
         onSetupComplete: setupOnly ? shutdown : undefined,
+        clipboard,
         onSubmit: submit,
+        onSubmitPhotos: (input, origin, images, accepted) =>
+          submit(input, origin, undefined, undefined, undefined, undefined, {
+            images,
+            accepted,
+          }),
         uiRedactor,
         onUiTool: submitUiTool,
         initialTheme: currentTheme,
@@ -2376,7 +2467,7 @@ async function runApplication(
         { applicationId: workspace.home.draftId },
         undefined,
         workspace.home.snapshot.draft,
-        { closed: true },
+        { closed: true, images: workspace.home.snapshot.draftImages },
       ),
     );
     await cleanup(() =>
@@ -2390,11 +2481,14 @@ async function runApplication(
               },
               controller.snapshot.sessionId,
               controller.snapshot.draft,
+              { images: controller.snapshot.draftImages },
             ),
           ),
       ),
     );
-    await cleanup(() => Promise.allSettled([...closingScopes]));
+    await cleanup(() =>
+      Promise.allSettled([...closingScopes, ...closingDrafts]),
+    );
     await cleanup(() => root.unmount());
     await cleanup(() => updater.dispose());
     for (const controller of mcpProjects.values()) {
@@ -2402,7 +2496,7 @@ async function runApplication(
       await cleanup(() => controller.manager.dispose());
     }
     await cleanup(detachWorkspace);
-    for (const detach of scrollbackDetachments.values()) await cleanup(detach);
+    if (scrollback) await cleanup(scrollback.detach);
     await cleanup(() => workspace.dispose());
     await cleanup(() => renderer.destroy());
     await cleanup(() => saves.pending);

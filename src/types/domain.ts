@@ -77,7 +77,23 @@ export interface ToolResultContent {
   isError?: boolean;
 }
 
-export type ChatContent = TextContent | ToolUseContent | ToolResultContent;
+export type ImageContent = {
+  type: "image";
+  image: import("../media/image-attachment.js").ImageAttachment;
+};
+export type ChatContent =
+  | TextContent
+  | ImageContent
+  | ToolUseContent
+  | ToolResultContent;
+
+export function isUserRequest(message: ChatMessage): boolean {
+  return (
+    message.role === "user" &&
+    message.content.length > 0 &&
+    message.content.every(({ type }) => type === "text" || type === "image")
+  );
+}
 export type MessageRole = "user" | "assistant";
 
 export interface ChatMessage {
@@ -100,6 +116,7 @@ export interface ToolDefinition {
 }
 
 export interface ModelInfo {
+  imageInput?: boolean;
   id: string;
   displayName?: string;
   contextWindow?: number;

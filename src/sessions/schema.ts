@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BackgroundReceiptSchema } from "../background/contracts.js";
+import { ImageAttachmentSchema } from "../media/image-attachment.js";
 import { ModelSpendSchema, SessionUsageSchema } from "../models/schema.js";
 import { ChildReceiptSchema } from "../subagents/schema.js";
 import {
@@ -246,6 +247,7 @@ export const SideQueryRecordSchema = z.object({
 });
 const contentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("image"), image: ImageAttachmentSchema }),
   z.object({
     type: z.literal("tool_use"),
     id: z.string(),

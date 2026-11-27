@@ -1,5 +1,12 @@
-import { BoxRenderable, type CliRenderer, TextRenderable } from "@opentui/core";
+import {
+  BoxRenderable,
+  type CliRenderer,
+  ImageRenderable,
+  resolveImageRenderProtocol,
+  TextRenderable,
+} from "@opentui/core";
 import stringWidth from "string-width";
+import { imageLabel, readImage } from "../media/image-attachment.js";
 import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
 import { diffColors, diffPreviewText } from "./file-diff-preview.js";
 import { terminalSafeText } from "./terminal-text.js";
@@ -12,6 +19,7 @@ import {
 import type {
   TranscriptEntry,
   TuiPresentationController as TuiController,
+  TuiViewState,
 } from "./tui-controller.js";
 
 const COMMIT_BATCH = 64;
@@ -22,7 +30,18 @@ export function attachTranscriptScrollback(
   renderer: Pick<
     CliRenderer,
     "writeToScrollback" | "resetSplitFooterForReplay"
-  >,
+  > &
+    Partial<
+      Pick<
+        CliRenderer,
+        | "createScrollbackSurface"
+        | "capabilities"
+        | "resolution"
+        | "terminalHeight"
+        | "footerHeight"
+        | "isDestroyed"
+      >
+    >,
   palette: () => Palette = () => THEMES[DEFAULT_THEME],
 ): () => void {
   let lastId = -1;
@@ -31,7 +50,12 @@ export function attachTranscriptScrollback(
   let previousSession = controller.snapshot.sessionId;
   let initialized = false;
 
-  return controller.subscribe((state) => {
+  let revision = 0;
+  let attached = true;
+  let drawing = false;
+  let fallback: number | undefined;
+  const update = (state: TuiViewState) => {
+    if (renderer.isDestroyed) return;
     if (
       initialized &&
       ((previousSession !== undefined && state.sessionId !== previousSession) ||
@@ -42,11 +66,13 @@ export function attachTranscriptScrollback(
     ) {
       renderer.resetSplitFooterForReplay();
       lastId = -1;
+      revision++;
     }
     initialized = true;
     previousSession = state.sessionId;
     previousCount = state.transcript.length;
     previousFirstId = state.transcript[0]?.id;
+    if (drawing) return;
 
     const pending: TranscriptEntry[] = [];
     const rows = groupToolActions(state.transcript);
@@ -76,8 +102,43 @@ export function attachTranscriptScrollback(
           : entry,
       );
     }
-    for (let index = 0; index < pending.length; index += COMMIT_BATCH) {
+    const graphics =
+      renderer.createScrollbackSurface &&
+      resolveImageRenderProtocol(
+        "auto",
+        renderer.capabilities ?? null,
+        !!renderer.resolution,
+      ) !== "blocks";
+    for (let index = 0; index < pending.length; ) {
+      const entry = pending[index];
+      if (graphics && entry?.images?.length && fallback !== entry.id) {
+        const current = revision;
+        drawing = true;
+        void writePhotoScrollback(
+          renderer,
+          entry,
+          palette(),
+          () => attached && !renderer.isDestroyed && revision === current,
+        )
+          .then((written) => {
+            if (revision !== current || !attached) return;
+            if (written) lastId = entry.id;
+            else fallback = entry.id;
+          })
+          .finally(() => {
+            drawing = false;
+            if (attached) update(controller.snapshot);
+          });
+        return;
+      }
       const batch = pending.slice(index, index + COMMIT_BATCH);
+      if (graphics) {
+        const nextPhoto = batch.findIndex(
+          (row, offset) => offset > 0 && row.images?.length,
+        );
+        if (nextPhoto > 0) batch.length = nextPhoto;
+      }
+      index += batch.length;
       renderer.writeToScrollback(({ width, renderContext }) => {
         const root = new BoxRenderable(renderContext, {
           width,
@@ -201,7 +262,76 @@ export function attachTranscriptScrollback(
       });
       lastId = batch.at(-1)?.id ?? lastId;
     }
-  });
+  };
+  const detach = controller.subscribe(update);
+  return () => {
+    attached = false;
+    detach();
+  };
+}
+
+async function writePhotoScrollback(
+  renderer: Partial<
+    Pick<
+      CliRenderer,
+      "createScrollbackSurface" | "terminalHeight" | "footerHeight"
+    >
+  >,
+  entry: TranscriptEntry,
+  palette: Palette,
+  current: () => boolean,
+): Promise<boolean> {
+  const first = entry.images?.[0];
+  const available =
+    (renderer.terminalHeight ?? 0) - (renderer.footerHeight ?? 0);
+  if (!first || available < 7 || !renderer.createScrollbackSurface)
+    return false;
+  const bytes = await readImage(first).catch(() => undefined);
+  if (!current() || !bytes) return false;
+  let surface: ReturnType<CliRenderer["createScrollbackSurface"]> | undefined;
+  try {
+    surface = renderer.createScrollbackSurface({ startOnNewLine: true });
+    const width = Math.min(surface.width, 52);
+    const height = Math.min(
+      7,
+      available - 2,
+      Math.max(3, Math.round((width * first.height) / first.width / 2)),
+    );
+    const captionWidth = Math.max(1, surface.width - 2);
+    const text = entry.text
+      ? scrollbackRows({ ...entry, images: undefined }, captionWidth)
+      : [];
+    const captions = scrollbackRows({ ...entry, text: "" }, captionWidth);
+    if (text.length + captions.length + height > available) return false;
+    const addText = (lines: string[]) => {
+      if (lines.length)
+        surface!.root.add(
+          new TextRenderable(surface!.renderContext, {
+            content: lines.join("\n"),
+            width: surface!.width,
+            height: lines.length,
+            fg: palette.text,
+          }),
+        );
+    };
+    addText(text);
+    const preview = new ImageRenderable(surface.renderContext, {
+      source: bytes,
+      width,
+      height,
+    });
+    surface.root.add(preview);
+    addText(captions);
+    await preview.loadPromise;
+    if (!preview.image || !current()) return false;
+    surface.render();
+    surface.commitRows(0, surface.height, { trailingNewline: true });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    surface?.destroy();
+  }
 }
 
 function scrollbackColor(
@@ -235,7 +365,15 @@ export function scrollbackRows(
 ): string[] {
   const diff = entry.fileDiff;
   if (diff) return diffPreviewText(diff, width);
-  const content = terminalSafeText(entry.text, 20_000);
+  const content = terminalSafeText(
+    [
+      entry.text,
+      ...(entry.images ?? []).map((image) => `Фото · ${imageLabel(image)}`),
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    20_000,
+  );
   const rows: string[] = [];
   const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
   for (const line of content.split("\n")) {

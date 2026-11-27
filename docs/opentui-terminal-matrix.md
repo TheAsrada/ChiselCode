@@ -2,6 +2,10 @@
 
 Use the `opentui-terminal-<runner>` artifacts from the latest CI run on `main`. The artifacts contain the compiled `chisel` CLI and `opentui-spike` probe for that platform. The probe needs no API key. These checks must run in real terminals; the CI smoke uses an in-memory terminal.
 
+## Фото в чате
+
+В Kitty и Foot прикрепите скриншот из буфера, затем JPEG по пути с пробелом. Проверьте превью в черновике, отправленном сообщении и полном просмотре. Прокрутите фото за пределы ленты и обратно, измените размер окна, переключите вкладку и повторите после `/resume`. Проверьте оба экранных режима. На текстовом терминале ожидаются подписи с именем и разрешением. В SSH проверьте выбор существующего файла на стороне `chisel`. Для результатов укажите версии терминала и ChiselCode и фактический протокол OpenTUI. [Сценарий пользователя](interactive.md#фото-в-сообщениях).
+
 ## Windows
 
 Unzip `opentui-terminal-windows-latest`. In **Windows Terminal PowerShell** and then in **classic conhost PowerShell** (select **Windows Console Host** as the default terminal application in Windows settings, then launch `powershell.exe` from Start), run:

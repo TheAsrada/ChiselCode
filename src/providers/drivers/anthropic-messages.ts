@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { imageLabel } from "../../media/image-attachment.js";
 import { enterpriseFetch } from "../../network/fetch.js";
 import type {
   ChatContent,
@@ -15,6 +16,7 @@ import { ToolNameSchema } from "../../types/domain.js";
 import type { ModelCapabilities, TokenCountRequest } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
+import { loadImageInputs } from "../image-input.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import {
   type AnthropicStreamBlock,
@@ -39,6 +41,7 @@ export interface AnthropicAdapterOptions {
   reasoningEffort?: Record<string, { levels: Effort[]; defaultLevel?: Effort }>;
   nativeTokenCounting?: boolean;
   allowModelMetadata?: boolean;
+  imageInputModels?: string[];
   maxRetries?: number;
   timeoutMs?: number;
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -93,7 +96,10 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
           model: request.model,
           max_tokens: maxTokens,
           system: request.system,
-          messages: toAnthropicMessages(wireRequest.messages),
+          messages: toAnthropicMessages(
+            wireRequest.messages,
+            await loadImageInputs(wireRequest.messages, request.signal),
+          ),
           tools: toAnthropicTools(wireRequest.tools),
           ...(adaptive ? { thinking: { type: "adaptive" } } : {}),
           ...(request.reasoningEffort !== undefined
@@ -325,6 +331,11 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         },
         adaptiveThinking: !native && declared !== undefined,
         ...catalogModelLimits(this.providerId, model),
+        imageInput:
+          this.options.imageInputModels?.includes(model) ||
+          (native && /^claude-(?:3[-.5]|(?:haiku|sonnet|opus)-4)/.test(model))
+            ? true
+            : undefined,
         tokenCounting: this.options.nativeTokenCounting
           ? ("provider" as const)
           : ("local_estimate" as const),
@@ -369,7 +380,10 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         {
           model: request.model,
           system: request.system,
-          messages: toAnthropicMessages(names.messages(request.messages)),
+          messages: toAnthropicMessages(
+            names.messages(request.messages),
+            await loadImageInputs(request.messages, request.signal),
+          ),
           tools: toAnthropicTools(names.tools(request.tools)),
         },
         { signal: request.signal, timeout: 5000, maxRetries: 0 },
@@ -410,17 +424,37 @@ function toAnthropicTools(tools: ToolDefinition[]): Anthropic.Tool[] {
 
 function toAnthropicMessages(
   messages: ChatMessage[],
+  images: ReadonlyMap<string, string>,
 ): Anthropic.MessageParam[] {
   return messages.map((message) => ({
     role: message.role,
-    content: message.content.map(toAnthropicContent),
+    content: message.content.map((block) => toAnthropicContent(block, images)),
   })) as unknown as Anthropic.MessageParam[];
 }
 
-function toAnthropicContent(content: ChatContent): Anthropic.ContentBlockParam {
+function toAnthropicContent(
+  content: ChatContent,
+  images: ReadonlyMap<string, string>,
+): Anthropic.ContentBlockParam {
   switch (content.type) {
     case "text":
       return { type: "text", text: content.text };
+    case "image": {
+      const data = images.get(content.image.id);
+      return data
+        ? {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: content.image.mimeType,
+              data,
+            },
+          }
+        : {
+            type: "text",
+            text: `[Фото недоступно в запросе: ${imageLabel(content.image)}]`,
+          };
+    }
     case "tool_use":
       return {
         type: "tool_use",
@@ -479,6 +513,10 @@ function formatAnthropicError(error: unknown): string {
 const optionsSchema = z
   .object({
     reasoningEffort: reasoningEffortOptions(effortLevels),
+    imageInputModels: z
+      .array(z.string().trim().min(1).max(200))
+      .max(200)
+      .optional(),
     authMode: z.enum(["api-key", "bearer"]).optional(),
     adaptiveThinking: z.boolean().optional(),
     nativeTokenCounting: z.boolean().optional(),

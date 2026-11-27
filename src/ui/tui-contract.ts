@@ -1,3 +1,4 @@
+import type { ImageAttachment } from "../media/image-attachment.js";
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -36,7 +37,12 @@ export interface TuiTranscript {
   upsertToolAction?(
     update: import("./tool-actions.js").ToolActionUpdate,
   ): boolean;
-  append(line: string, tone?: TranscriptTone, fileDiff?: FileDiff): void;
+  append(
+    line: string,
+    tone?: TranscriptTone,
+    fileDiff?: FileDiff,
+    images?: readonly ImageAttachment[],
+  ): void;
   upsertCard?(extensionId: string, card: ChatCard): void;
   setToolActivity(text?: string): void;
   appendToLast(text: string): void;
@@ -45,6 +51,7 @@ export interface TuiTranscript {
       text: string;
       tone?: TranscriptTone;
       fileDiff?: FileDiff;
+      images?: readonly ImageAttachment[];
       chatCard?: OwnedChatCard;
       toolAction?: import("./tool-actions.js").ToolAction;
       toolBoundary?: string;

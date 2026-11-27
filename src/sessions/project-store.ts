@@ -31,7 +31,7 @@ import { ScratchWorkspace } from "../scratch/workspace.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { ChildReceipt } from "../subagents/contracts.js";
 import { ChildReceiptSchema } from "../subagents/schema.js";
-import type { Session } from "../types/domain.js";
+import { isUserRequest, type Session } from "../types/domain.js";
 import { clipText } from "../utils/text.js";
 import { replaceSessionFile } from "./atomic.js";
 import { withLock } from "./lock.js";
@@ -203,13 +203,7 @@ export class SessionProjectRegistry {
 }
 
 function toSummary(session: Session): SessionSummary {
-  const last = [...session.messages]
-    .reverse()
-    .find(
-      (message) =>
-        message.role === "user" &&
-        message.content.some((item) => item.type === "text"),
-    );
+  const last = [...session.messages].reverse().find(isUserRequest);
   return {
     id: session.id,
     title: session.title ?? "Без названия",
@@ -229,9 +223,8 @@ function toSummary(session: Session): SessionSummary {
     lastUserMessage: last
       ? clipText(
           last.content
-            .filter((item) => item.type === "text")
-            .map((item) => item.text)
-            .join(" "),
+            .flatMap((item) => (item.type === "text" ? [item.text] : []))
+            .join(" ") || "Фото",
           300,
         )
       : undefined,

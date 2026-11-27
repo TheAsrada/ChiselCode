@@ -2,6 +2,7 @@ import type { CapturedCommandModel } from "../app/model-command.js";
 import type { PreparedExtensionCommand } from "../app/run-command.js";
 import type { RunOptions } from "../app/run-prompt.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
+import { discardImage } from "../media/image-attachment.js";
 import type { AgentMode } from "../runtime/agent-mode.js";
 import type { ApprovalMode } from "../security/approval-mode.js";
 import type { ToolExecutionResult } from "../types/domain.js";
@@ -10,6 +11,7 @@ import type { TuiPresentationController as TuiController } from "./tui-controlle
 
 export interface QueuedTabPrompt {
   kind: "prompt";
+  images?: readonly import("../media/image-attachment.js").ImageAttachment[];
   capturedModel?: Promise<
     import("../app/model-runtime.js").CapturedModelConfiguration | undefined
   >;
@@ -93,13 +95,17 @@ export class TuiTabExecution {
 
   cancel(): void {
     this.controller.stopRequestActivity();
-    for (const item of this.pendingOperations)
-      if (item.kind !== "prompt")
+    for (const item of this.pendingOperations) {
+      if (item.kind === "prompt") {
+        for (const image of item.images ?? [])
+          void discardImage(image).catch(() => {});
+      } else
         item.onResult?.({
           output: "Queued command cancelled.",
           isError: true,
           errorCode: "CANCELLED",
         });
+    }
     this.pendingOperations.length = 0;
     for (const submission of this.pendingSubmissions) submission.abort();
     this.pendingSubmissions.clear();

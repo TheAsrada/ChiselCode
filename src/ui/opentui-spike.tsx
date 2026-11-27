@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
+import { resolve } from "node:path";
 import type {
   BoxRenderable,
   ClipboardService,
@@ -21,6 +22,13 @@ import {
   splitSlashCommand,
 } from "../commands/slash.js";
 import type { OpenTuiMcpActions } from "../mcp/controller.js";
+import {
+  discardImage,
+  IMAGE_LIMIT,
+  IMAGE_TOTAL_BYTES,
+  type ImageAttachment,
+  importImage,
+} from "../media/image-attachment.js";
 import type {
   MigrationActions,
   MigrationInventory,
@@ -58,7 +66,11 @@ import { OpenTuiAgentDetails } from "./opentui-agent-details.js";
 import { OpenTuiApproval } from "./opentui-approval.js";
 import { OpenTuiBackgroundDetails } from "./opentui-background-details.js";
 import { OpenTuiBackgroundTasks } from "./opentui-background-tasks.js";
-import { OpenTuiClipboard, useClipboardComposer } from "./opentui-clipboard.js";
+import {
+  OpenTuiClipboard,
+  useClipboardActions,
+  useClipboardComposer,
+} from "./opentui-clipboard.js";
 import { OpenTuiCommandFeedback } from "./opentui-command-feedback.js";
 import { ContextCompactionMessage } from "./opentui-compaction.js";
 import { OpenTuiComposer } from "./opentui-composer.js";
@@ -80,6 +92,7 @@ import { OpenTuiModels, type OpenTuiModelsActions } from "./opentui-models.js";
 import { OpenTuiMotion, useMotion } from "./opentui-motion.js";
 import { OpenTuiHome, SessionTabs } from "./opentui-navigation.js";
 import { OpenTuiPermissions } from "./opentui-permissions.js";
+import { DraftPhotos, PhotosDialog } from "./opentui-photos.js";
 import {
   OpenTuiProjects,
   type OpenTuiProjectsActions,
@@ -234,6 +247,7 @@ function OpenTuiScreen({
   onModeChange,
   approvalResolver,
   onSubmit,
+  onSubmitPhotos,
   onUiTool,
   uiRedactor,
   sessionPicker,
@@ -276,6 +290,12 @@ function OpenTuiScreen({
   onModeChange?: (mode: SidebarMode) => void;
   approvalResolver?: TuiApprovalResolver;
   onSubmit?: (prompt: string, origin?: TuiController) => Promise<void>;
+  onSubmitPhotos?(
+    text: string,
+    origin: TuiController,
+    images: readonly ImageAttachment[],
+    accepted: () => boolean,
+  ): Promise<void>;
   onUiTool?: UiToolSubmit;
   uiRedactor?: import("../security/redaction.js").SecretRedactor;
   sessionPicker?: OpenTuiSessionsActions;
@@ -321,6 +341,16 @@ function OpenTuiScreen({
   const agentLoad = useRef(0);
   const nextId = React.useRef(1);
   const [draft, setDraft] = useState(controller?.snapshot.draft ?? "");
+  const [photos, setPhotos] = useState<{
+    images?: readonly ImageAttachment[];
+    index?: number;
+  }>();
+  const [photoPending, setPhotoPending] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
+  const photoRead = useRef<AbortController | undefined>(undefined);
+  const photoSubmit = useRef(false);
+  const clipboardActions = useClipboardActions();
+  useEffect(() => () => photoRead.current?.abort(), []);
   const [lines, setLines] = useState([
     { id: 0, text: "ChiselCode | OpenTUI compatibility probe" },
   ]);
@@ -480,6 +510,7 @@ function OpenTuiScreen({
   }, [focusBinding]);
   const extensionActive = !!view.extensionView && !approval;
   const modalOverlay = !!(
+    photos ||
     migrationOpen ||
     worktrees ||
     pickerOpen ||
@@ -556,7 +587,11 @@ function OpenTuiScreen({
       ? `agents:${controller?.conversationId}:${controller?.currentGeneration}`
       : `sidebar:${controller?.conversationId}:${controller?.currentGeneration}`;
   const sideOwner = `side:${controller?.conversationId}:${controller?.currentGeneration}`;
-  const overlayOwner = migrationOpen ? "migration" : "dialog";
+  const overlayOwner = photos
+    ? "photos"
+    : migrationOpen
+      ? "migration"
+      : "dialog";
   const inputOwner = approval
     ? "approval"
     : commandFeedbackActive
@@ -723,7 +758,10 @@ function OpenTuiScreen({
       ? transcriptTargets.find((target) => target.id === transcriptTargetId)
       : undefined;
   const focusedSideId =
-    focusedTarget && !focusedTarget.group && !focusedTarget.action
+    focusedTarget &&
+    !focusedTarget.photos &&
+    !focusedTarget.group &&
+    !focusedTarget.action
       ? focusedTarget.id
       : undefined;
   const focusedActionId =
@@ -738,7 +776,9 @@ function OpenTuiScreen({
   }, [focus, focusedActionId]);
   const activateTranscriptTarget = () => {
     if (!focusedTarget) return;
-    if (focusedSideId) controller?.openSide(focusedSideId);
+    if (focusedTarget.photos)
+      setPhotos({ images: focusedTarget.photos, index: 0 });
+    else if (focusedSideId) controller?.openSide(focusedSideId);
     else controller?.activateAction(focusedTarget);
   };
   useLayoutEffect(() => {
@@ -1136,36 +1176,125 @@ function OpenTuiScreen({
     void updater.check();
   };
 
-  useClipboardComposer(() => {
-    if (commandFeedbackActive) return null;
+  const closePhotos = () => {
+    photoRead.current?.abort();
+    setPhotos(undefined);
+    setPhotoError(undefined);
+  };
+  const addPhoto = async (
+    source:
+      | string
+      | Uint8Array
+      | ((signal: AbortSignal) => Promise<Uint8Array>),
+    parentSignal?: AbortSignal,
+    close = false,
+  ) => {
+    if (!controller || !onSubmitPhotos || photoRead.current) return;
+    const previous = controller.snapshot.draftImages ?? [];
+    if (previous.length >= IMAGE_LIMIT) {
+      setPhotoError(`Можно прикрепить до ${IMAGE_LIMIT} фото.`);
+      return;
+    }
+    const read = new AbortController();
+    photoRead.current = read;
+    const generation = controller.currentGeneration;
+    const signal = AbortSignal.any([
+      read.signal,
+      controller.ownerSignal,
+      ...(parentSignal ? [parentSignal] : []),
+    ]);
+    setPhotoPending(true);
+    setPhotoError(undefined);
+    let image: ImageAttachment | undefined;
+    try {
+      image = await importImage(
+        typeof source === "function" ? await source(signal) : source,
+        signal,
+      );
+      if (signal.aborted || !controller.isCurrent(generation)) return;
+      const existing = controller.snapshot.draftImages ?? [];
+      if (
+        existing.reduce((size, item) => size + item.size, image.size) >
+        IMAGE_TOTAL_BYTES
+      )
+        throw new Error("Общий размер фото превышает 20 МиБ.");
+      controller.setDraftImages([...existing, image]);
+      image = undefined;
+      if (close) closePhotos();
+    } catch (error) {
+      if (!signal.aborted)
+        setPhotoError(
+          error instanceof Error
+            ? error.message
+            : "Не удалось прикрепить фото.",
+        );
+    } finally {
+      if (image) void discardImage(image).catch(() => {});
+      photoRead.current = undefined;
+      setPhotoPending(false);
+    }
+  };
+  const removePhoto = (id: string) => {
+    if (!controller) return;
+    const images = controller.snapshot.draftImages ?? [];
+    const removed = images.find((image) => image.id === id);
+    controller.setDraftImages(images.filter((image) => image.id !== id));
+    if (removed) void discardImage(removed).catch(() => {});
+    setPhotoError(undefined);
+  };
+  const showPhotos = () => {
     if (
-      sideActive ||
-      agentActive ||
-      backgroundActiveView ||
-      backgroundPanelActive ||
-      extensionActive ||
-      uiOverflow ||
-      sidebarFocused
-    )
-      return null;
-    if (
-      approval ||
-      pickerOpen ||
-      settingsOpen ||
-      migrationOpen ||
-      skillsOpen ||
-      mcpActions ||
-      effortActions ||
-      modelsActions ||
-      permissionsOpen ||
-      updateOpen
-    )
-      return null;
-    setFocus("editor");
-    controller?.setFocus("composer");
-    editor.current?.focus();
-    return editor.current;
-  });
+      onSubmitPhotos &&
+      !approval &&
+      !otherOverlay &&
+      !sideActive &&
+      !agentActive &&
+      !backgroundActiveView &&
+      !backgroundPanelActive
+    ) {
+      setPhotoError(undefined);
+      setPhotos({});
+    }
+  };
+
+  useClipboardComposer(
+    () => {
+      if (commandFeedbackActive || photos) return null;
+      if (
+        sideActive ||
+        agentActive ||
+        backgroundActiveView ||
+        backgroundPanelActive ||
+        extensionActive ||
+        uiOverflow ||
+        sidebarFocused
+      )
+        return null;
+      if (
+        approval ||
+        pickerOpen ||
+        settingsOpen ||
+        migrationOpen ||
+        skillsOpen ||
+        mcpActions ||
+        effortActions ||
+        modelsActions ||
+        permissionsOpen ||
+        updateOpen
+      )
+        return null;
+      setFocus("editor");
+      controller?.setFocus("composer");
+      editor.current?.focus();
+      return editor.current;
+    },
+    (target) =>
+      !!onSubmitPhotos &&
+      !approval &&
+      !otherOverlay &&
+      target === editor.current,
+    (bytes, signal) => addPhoto(bytes, signal),
+  );
 
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== inputOwner || commandFeedbackActive) return;
@@ -1187,7 +1316,13 @@ function OpenTuiScreen({
       }
       return;
     }
-    if (inputOwner === "migration") return;
+    if (inputOwner === "migration" || inputOwner === "photos") return;
+    if (key.name === "f10" && !approval && !otherOverlay && onSubmitPhotos) {
+      key.preventDefault();
+      key.stopPropagation();
+      showPhotos();
+      return;
+    }
     if (effortActions && !approval && !isCtrlC(key)) return;
     if (
       inputOwner.startsWith("ui-widget:") &&
@@ -1639,8 +1774,13 @@ function OpenTuiScreen({
       view.commandFeedback
     )
       return;
-    const value = command ?? editor.current?.plainText.trim();
-    if (!value) return;
+    const value = command ?? editor.current?.plainText.trim() ?? "";
+    const images =
+      !command && !isSlashInput(value)
+        ? controller?.snapshot.draftImages
+        : undefined;
+    if (!value && !images?.length) return;
+    if (!command && (photoRead.current || photoSubmit.current)) return;
     if (value === "/exit") return onExit();
     if (!command && selectedSuggestion && value !== selectedSuggestion.name) {
       acceptSuggestion();
@@ -1808,6 +1948,37 @@ function OpenTuiScreen({
       controller?.setOverlay("mcp");
       controller?.setFocus("modal");
       clearInput();
+      return;
+    }
+    if (images?.length && controller && onSubmitPhotos) {
+      const revision = controller.currentDraftRevision;
+      const generation = controller.currentGeneration;
+      photoSubmit.current = true;
+      setPhotoError(undefined);
+      let accepted = false;
+      void onSubmitPhotos(value, controller, images, () => {
+        if (
+          !controller.isCurrent(generation) ||
+          controller.currentDraftRevision !== revision
+        )
+          return false;
+        controller.setDraftImages([]);
+        accepted = true;
+        photoSubmit.current = false;
+        clearInput();
+        return true;
+      })
+        .catch((error) => {
+          if (controller.isCurrent(generation))
+            setPhotoError(
+              error instanceof Error
+                ? error.message
+                : "Не удалось отправить фото.",
+            );
+        })
+        .finally(() => {
+          if (!accepted) photoSubmit.current = false;
+        });
       return;
     }
     if (onSubmit)
@@ -2283,6 +2454,7 @@ function OpenTuiScreen({
       height={height}
       promptFocused={
         !commandFeedbackActive &&
+        !photos &&
         !pickerOpen &&
         focus === "editor" &&
         !skillsOpen &&
@@ -2301,6 +2473,7 @@ function OpenTuiScreen({
       }
       editorFocused={
         !commandFeedbackActive &&
+        !photos &&
         !pickerOpen &&
         focus === "editor" &&
         !skillsOpen &&
@@ -2321,6 +2494,21 @@ function OpenTuiScreen({
         !uiFocus
       }
       draft={draft}
+      photoControls={
+        onSubmitPhotos && (
+          <DraftPhotos
+            images={view.draftImages ?? []}
+            width={composerWidth}
+            height={height}
+            palette={palette}
+            pending={photoPending}
+            error={photos ? undefined : photoError}
+            onAdd={showPhotos}
+            onOpen={(index) => setPhotos({ index })}
+            onRemove={removePhoto}
+          />
+        )
+      }
       view={view}
       onToggleMode={() => {
         if (!sideActive && !agentActive && !approval && !otherOverlay)
@@ -2554,6 +2742,13 @@ function OpenTuiScreen({
                         >
                           {controller ? (
                             <OpenTuiTranscript
+                              photoViewport={transcript}
+                              focusedPhotoId={
+                                focusedTarget?.photos && focusedTarget.id
+                              }
+                              onOpenPhotos={(images, index) =>
+                                setPhotos({ images, index })
+                              }
                               onOpenSide={(id) => controller?.openSide(id)}
                               onCardAction={(action, extensionId) => {
                                 if (controller)
@@ -3087,6 +3282,47 @@ function OpenTuiScreen({
                       ),
                     )
                 : undefined
+            }
+          />
+        )}
+        {photos && !approval && (
+          <PhotosDialog
+            width={width}
+            height={height}
+            palette={palette}
+            images={photos.images ?? view.draftImages ?? []}
+            index={photos.index}
+            active={inputOwner === "photos"}
+            pending={photoPending}
+            error={photoError}
+            onClose={closePhotos}
+            onSelect={(index) => setPhotos({ ...photos, index })}
+            onRemove={photos.images ? undefined : removePhoto}
+            onFile={
+              photos.images
+                ? undefined
+                : (path) => {
+                    const bare = path.match(/^"(.+)"$|^'(.+)'$/);
+                    void addPhoto(
+                      resolve(
+                        view.projectPath ?? process.cwd(),
+                        bare?.[1] ?? bare?.[2] ?? path,
+                      ),
+                      undefined,
+                      true,
+                    );
+                  }
+            }
+            onClipboard={
+              photos.images || !clipboardActions
+                ? undefined
+                : () => {
+                    void addPhoto(
+                      (signal) => clipboardActions.readPhoto(signal),
+                      undefined,
+                      true,
+                    );
+                  }
             }
           />
         )}

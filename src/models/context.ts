@@ -1,5 +1,6 @@
 import { requestTokens } from "../context/tokenizer.js";
 import { frozenClone } from "../extensions/lifecycle.js";
+import { imageLabel } from "../media/image-attachment.js";
 import type { ChatMessage, Session } from "../types/domain.js";
 import { utf8Prefix } from "../utils/text.js";
 import {
@@ -45,6 +46,8 @@ export function captureConversation(
     const chunks: string[] = [];
     for (const item of message.content) {
       if (item.type === "text") chunks.push(item.text);
+      if (item.type === "image")
+        chunks.push(`[Фото в истории: ${imageLabel(item.image)}]`);
       if (item.type === "tool_use") {
         const invocation = session?.runtime?.invocations[item.id];
         const source = invocation?.toolSource;

@@ -1,3 +1,4 @@
+import { imageLabel } from "../media/image-attachment.js";
 import type { ChatMessage } from "../types/domain.js";
 import type { StructuredSummary } from "./types.js";
 export function emptySummary(): StructuredSummary {
@@ -48,6 +49,10 @@ export function summarize(
               summary.relevantArchitecture.push(line.slice(0, 1000));
           }
         }
+      } else if (item.type === "image") {
+        summary.importantReferences.push(
+          `Фото в истории: ${imageLabel(item.image)}`,
+        );
       } else if (item.type === "tool_use") {
         const path =
           typeof item.input.path === "string" ? item.input.path : undefined;

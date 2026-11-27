@@ -13,6 +13,11 @@ import {
   type Selection,
   stripAnsiSequences,
 } from "@opentui/core";
+import {
+  IMAGE_BYTES,
+  IMAGE_PIXELS,
+  IMAGE_TYPES,
+} from "../media/image-attachment.js";
 import { isCtrlC } from "./terminal-keys.js";
 
 /** Paste stays text, even when the terminal forwards Windows line endings. */
@@ -43,7 +48,9 @@ export function createTerminalClipboard(
   return createClipboard({
     host: createHostClipboard({
       timeoutMs: 1500,
-      maxReadBytes: 4 * 1024 * 1024,
+      maxReadBytes: IMAGE_BYTES,
+      maxImagePixels: IMAGE_PIXELS,
+      maxConversionBytes: IMAGE_PIXELS * 4,
       maxWriteBytes: 4 * 1024 * 1024,
     }),
     terminal: {
@@ -72,6 +79,8 @@ export class TerminalClipboardController {
   private readonly writes = new Set<AbortController>();
   private writeQueue = Promise.resolve();
   private fallback?: () => EditBufferRenderable | null;
+  private photoTarget?: (editor: EditBufferRenderable) => boolean;
+  private onPhoto?: (bytes: Uint8Array, signal: AbortSignal) => Promise<void>;
 
   constructor(
     private readonly renderer: CliRenderer,
@@ -85,11 +94,39 @@ export class TerminalClipboardController {
     return this.clipboard;
   }
 
-  registerComposer(resolve: () => EditBufferRenderable | null): () => void {
+  registerComposer(
+    resolve: () => EditBufferRenderable | null,
+    photoTarget?: (editor: EditBufferRenderable) => boolean,
+    onPhoto?: (bytes: Uint8Array, signal: AbortSignal) => Promise<void>,
+  ): () => void {
     this.fallback = resolve;
+    this.photoTarget = photoTarget;
+    this.onPhoto = onPhoto;
     return () => {
-      if (this.fallback === resolve) this.fallback = undefined;
+      if (this.fallback !== resolve) return;
+      this.fallback = undefined;
+      this.photoTarget = undefined;
+      this.onPhoto = undefined;
+      this.cancelReads();
     };
+  }
+
+  async readPhoto(signal: AbortSignal): Promise<Uint8Array> {
+    if (this.remote())
+      throw new Error("В SSH укажите путь к изображению на удалённой машине.");
+    await this.writeQueue;
+    const result = await this.service().read({
+      preferredTypes: IMAGE_TYPES,
+      signal,
+    });
+    signal.throwIfAborted();
+    if (result.status !== "read")
+      throw new Error(
+        result.status === "limit-exceeded"
+          ? "Изображение из буфера превышает допустимый размер."
+          : "В буфере нет доступного изображения. Укажите путь к файлу.",
+      );
+    return result.representation.bytes;
   }
 
   attach(): () => void {
@@ -246,8 +283,11 @@ export class TerminalClipboardController {
     try {
       await this.writeQueue;
       if (abort.signal.aborted) return;
+      const acceptPhoto = this.photoTarget?.(editor) ? this.onPhoto : undefined;
       const result = await this.service().read({
-        preferredTypes: ["text/plain"],
+        preferredTypes: acceptPhoto
+          ? [...IMAGE_TYPES, "text/plain"]
+          : ["text/plain"],
         signal: abort.signal,
       });
       if (
@@ -258,12 +298,27 @@ export class TerminalClipboardController {
       )
         return;
       if (result.status === "read") {
+        if (
+          acceptPhoto &&
+          result.representation.mimeType.startsWith("image/")
+        ) {
+          await acceptPhoto(result.representation.bytes, abort.signal);
+          return;
+        }
+        if (result.representation.bytes.length > 4 * 1024 * 1024) {
+          this.notice("Текст в буфере слишком большой. Вставьте его частями.");
+          return;
+        }
         this.renderer.keyInput.processPaste(result.representation.bytes, {
           kind: "text",
           mimeType: result.representation.mimeType,
         });
       } else if (result.status === "limit-exceeded")
-        this.notice("Текст в буфере слишком большой. Вставьте его частями.");
+        this.notice(
+          acceptPhoto
+            ? "Содержимое буфера превышает допустимый размер."
+            : "Текст в буфере слишком большой. Вставьте его частями.",
+        );
       else if (result.status !== "empty" && result.status !== "cancelled")
         this.notice(
           "Не удалось прочитать буфер. Попробуйте Ctrl+Shift+V в терминале.",

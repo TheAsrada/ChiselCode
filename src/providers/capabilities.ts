@@ -30,6 +30,7 @@ export interface ModelCapabilities {
   tokenCounting: "provider" | "local_estimate" | "unsupported";
   parallelToolCalls?: boolean;
   nativeCompaction?: boolean;
+  imageInput?: boolean;
   toolImages?: boolean;
 }
 export type TokenCountRequest = Pick<

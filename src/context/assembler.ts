@@ -1,5 +1,9 @@
 import { RuntimeError } from "../runtime/errors.js";
-import type { ChatMessage, Session } from "../types/domain.js";
+import {
+  type ChatMessage,
+  isUserRequest,
+  type Session,
+} from "../types/domain.js";
 import { partitionTranscript } from "./partition.js";
 import { summaryText } from "./summary.js";
 
@@ -34,18 +38,13 @@ export function assembleMessages(session: Session) {
   const tail = orderToolResults(
     session.messages.slice(checkpoint?.throughMessageIndex ?? 0),
   );
-  const hasNewerUserRequest = tail.some(
-    (message) =>
-      message.role === "user" &&
-      message.content.length > 0 &&
-      message.content.every((item) => item.type === "text"),
-  );
+  const hasNewerUserRequest = tail.some(isUserRequest);
   if (
     pinnedIndex !== undefined &&
     (!checkpoint ||
       pinnedIndex >= checkpoint.throughMessageIndex ||
-      pinned?.role !== "user" ||
-      pinned.content.some((item) => item.type !== "text"))
+      !pinned ||
+      !isUserRequest(pinned))
   )
     throw new RuntimeError(
       "PROTOCOL_ERROR",

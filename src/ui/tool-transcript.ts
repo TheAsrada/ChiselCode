@@ -152,8 +152,8 @@ export function replaySessionIntoTranscript(
       else entries.push(entry);
       return true;
     },
-    append: (text, tone, fileDiff) => {
-      entries.push({ text, tone, fileDiff });
+    append: (text, tone, fileDiff, images) => {
+      entries.push({ text, tone, fileDiff, ...(images?.length && { images }) });
     },
     upsertCard: (extensionId, card) => {
       const index = entries.findIndex(
@@ -250,6 +250,10 @@ export function replaySessionIntoTranscript(
   const start = session.messages.length - tail.length;
   if (start === 0) appendTimings(0);
   for (const [index, message] of tail.entries()) {
+    const images = message.content.flatMap((block) =>
+      block.type === "image" ? [block.image] : [],
+    );
+    const userText: string[] = [];
     for (const block of message.content) {
       if (block.type === "text") {
         const visible =
@@ -263,8 +267,11 @@ export function replaySessionIntoTranscript(
           message.role === "user"
             ? stripActiveSkillsBlock(visible).trim()
             : block.text.trim();
-        if (text)
+        if (text && message.role === "user" && images.length)
+          userText.push(text);
+        else if (text)
           target.append(text, message.role === "user" ? "user" : "assistant");
+      } else if (block.type === "image") {
       } else if (block.type === "tool_use") {
         const legacy = /^ext:(.+):([^:]+)$/.exec(block.name);
         const invocation = session.runtime?.invocations[block.id];
@@ -380,6 +387,8 @@ export function replaySessionIntoTranscript(
           appendToolResult(target, name, restoredResult);
       }
     }
+    if (message.role === "user" && images.length)
+      target.append(userText.join("\n"), "user", undefined, images);
     appendTimings(start + index + 1);
   }
   for (const receipt of children) {

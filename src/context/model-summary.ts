@@ -1,3 +1,4 @@
+import { imageLabel } from "../media/image-attachment.js";
 import { cancelled } from "../runtime/errors.js";
 import { StructuredSummarySchema } from "../sessions/schema.js";
 import type { ChatMessage, StreamEvent, TokenUsage } from "../types/domain.js";
@@ -23,6 +24,8 @@ export function summaryConversation(messages: ChatMessage[]): string {
         .map((item) => {
           if (item.type === "text")
             return `[${message.role}]: ${message.role === "user" ? item.text : preview(item.text, 12_000)}`;
+          if (item.type === "image")
+            return `[Photo in history: ${imageLabel(item.image)}]`;
           if (item.type === "tool_use") {
             return `[Tool call ${item.id}]: ${item.name} ${preview(JSON.stringify(item.input), 4000)}`;
           }

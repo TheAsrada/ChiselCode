@@ -1,3 +1,4 @@
+import { imageLabel } from "../media/image-attachment.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
@@ -7,6 +8,7 @@ import type {
   Session,
   ToolDefinition,
 } from "../types/domain.js";
+import { isUserRequest } from "../types/domain.js";
 import { assembleMessages } from "./assembler.js";
 import { contextBudget } from "./budget.js";
 import { observedToolReferences, planCompaction } from "./compactor.js";
@@ -37,7 +39,24 @@ export interface ContextBuildRequest {
 function effectiveMessages(
   input: ContextBuildRequest,
 ): ContextFrame["messages"] {
-  const messages = assembleMessages(input.session);
+  const messages = assembleMessages(input.session).map((message) => {
+    if (
+      input.capabilities.imageInput ||
+      !message.content.some((block) => block.type === "image")
+    )
+      return message;
+    return {
+      ...message,
+      content: message.content.map((block) =>
+        block.type === "image"
+          ? {
+              type: "text" as const,
+              text: `[Ранее прикреплено: ${imageLabel(block.image)}]`,
+            }
+          : block,
+      ),
+    };
+  });
   return input.requestContext
     ? [
         {
@@ -259,12 +278,7 @@ export class ContextManager {
             currentRequest: session.messages
               .slice(candidate.throughMessageIndex)
               .reverse()
-              .find(
-                (message) =>
-                  message.role === "user" &&
-                  message.content.length > 0 &&
-                  message.content.every((item) => item.type === "text"),
-              ),
+              .find(isUserRequest),
             targetTokens,
             signal: input.signal,
             onUsage: async (usage) => {

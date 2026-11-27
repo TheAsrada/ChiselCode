@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Session } from "../types/domain.js";
+import { isUserRequest, type Session } from "../types/domain.js";
 import { partitionTranscript } from "./partition.js";
 import { summarize } from "./summary.js";
 import { estimateTokens } from "./tokenizer.js";
@@ -60,11 +60,7 @@ export function planCompaction(
   let latestUser = -1;
   for (let index = session.messages.length - 1; index >= 0; index--) {
     const message = session.messages[index];
-    if (
-      message?.role === "user" &&
-      message.content.length > 0 &&
-      message.content.every((item) => item.type === "text")
-    ) {
+    if (message && isUserRequest(message)) {
       latestUser = index;
       break;
     }

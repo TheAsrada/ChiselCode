@@ -1,4 +1,4 @@
-import { type RunOptions } from "../commands/run.js";
+import type { RunOptions } from "../commands/run.js";
 import { loadProjectConfig } from "../config/load.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
 import { abortable } from "../extensions/lifecycle.js";
@@ -7,7 +7,7 @@ import {
   WorkspaceAdmissionError,
 } from "../projects/admission.js";
 import { DirectoryBrowser } from "../projects/navigation.js";
-import { ProjectOpenService } from "../projects/opening.js";
+import type { ProjectOpenService } from "../projects/opening.js";
 import type { ApplicationPaths } from "../projects/paths.js";
 import {
   isPrivatePath,
@@ -23,9 +23,12 @@ import { projectSessionStore } from "../sessions/project-store.js";
 import type { Session } from "../types/domain.js";
 import type { OpenTuiProjectsActions } from "./opentui-projects.js";
 import type { OpenTuiSessionsActions } from "./opentui-sessions.js";
-import { loadTerminalDraft, saveTerminalDraft } from "./terminal-drafts.js";
+import {
+  loadTerminalComposerDraft,
+  saveTerminalDraft,
+} from "./terminal-drafts.js";
 import type { TuiPresentationController as TuiController } from "./tui-controller.js";
-import { TuiWorkspace } from "./tui-workspace.js";
+import type { TuiWorkspace } from "./tui-workspace.js";
 
 export function createWorkspaceNavigation({
   currentController,
@@ -108,6 +111,7 @@ export function createWorkspaceNavigation({
                   { applicationId: workspace.home.draftId },
                   undefined,
                   owner.snapshot.draft,
+                  { images: owner.snapshot.draftImages },
                 )
             : undefined,
         );
@@ -121,22 +125,30 @@ export function createWorkspaceNavigation({
         const draftOwner = workspace.home,
           draftGeneration = draftOwner.currentGeneration;
         const draftRevision = draftOwner.currentDraftRevision;
-        if (!draftOwner.snapshot.draft) {
-          const draft = await loadTerminalDraft(ref.root).catch((cause) => {
-            if (draftOwner.isCurrent(draftGeneration))
-              draftOwner.append(
-                `Не удалось восстановить черновик: ${String(cause)}`,
-                "error",
-              );
-            return undefined;
-          });
+        if (
+          !draftOwner.snapshot.draft &&
+          !draftOwner.snapshot.draftImages?.length
+        ) {
+          const draft = await loadTerminalComposerDraft(ref.root).catch(
+            (cause) => {
+              if (draftOwner.isCurrent(draftGeneration))
+                draftOwner.append(
+                  `Не удалось восстановить черновик: ${String(cause)}`,
+                  "error",
+                );
+              return undefined;
+            },
+          );
           if (
             draft !== undefined &&
             draftOwner.isCurrent(draftGeneration) &&
             draftOwner.currentDraftRevision === draftRevision &&
-            !draftOwner.snapshot.draft
-          )
-            draftOwner.setDraft(draft);
+            !draftOwner.snapshot.draft &&
+            !draftOwner.snapshot.draftImages?.length
+          ) {
+            draftOwner.setDraft(draft.text);
+            if (draft.images.length) draftOwner.setDraftImages(draft.images);
+          }
         }
       },
     };
@@ -222,7 +234,7 @@ export function createWorkspaceNavigation({
     const restoredController = controller;
     const restoredGeneration = controller.currentGeneration;
     const restoredRevision = controller.currentDraftRevision;
-    const draft = await loadTerminalDraft(
+    const draft = await loadTerminalComposerDraft(
       session.projectPath,
       session.id,
     ).catch((cause) => {
@@ -236,9 +248,12 @@ export function createWorkspaceNavigation({
       draft !== undefined &&
       controller.isCurrent(restoredGeneration) &&
       controller.currentDraftRevision === restoredRevision &&
-      !controller.snapshot.draft
-    )
-      controller.setDraft(draft);
+      !controller.snapshot.draft &&
+      !controller.snapshot.draftImages?.length
+    ) {
+      controller.setDraft(draft.text);
+      if (draft.images.length) controller.setDraftImages(draft.images);
+    }
     persistExecutionModes(controller);
     await restoreSubagentControls(controller, session);
     warmModelCapabilities(controller);

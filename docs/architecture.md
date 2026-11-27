@@ -28,6 +28,7 @@ flowchart LR
 | Программно подключённые расширения | [Внутренний API](architecture/linked-extensions.md) |
 | Внешние ESM-пакеты | [Загрузка и доверие](architecture/external-extensions.md) · [Установка и версии](architecture/extension-packages.md) |
 | Представления и настройки расширений | [UI contributions](architecture/ui-contributions.md) · [Настройки](architecture/extension-settings.md) · [Карточки чата](architecture/extension-chat.md) |
+| Фото в черновике, истории и запросе | [Вложения](architecture/photo-attachments.md) |
 | Темы и движение | [Темы](architecture/themes.md) · [Анимации](architecture/interface-motion.md) |
 | Сводки инструментов | [Действия в чате](architecture/tool-actions.md) |
 | Настройки MCP и навыков | [Встраивание в Settings](architecture/settings-tools.md) |

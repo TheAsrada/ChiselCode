@@ -23,6 +23,7 @@ export function OpenTuiComposer({
   promptFocused,
   editorFocused,
   draft,
+  photoControls,
   view,
   onToggleMode,
   openPermissions,
@@ -49,6 +50,7 @@ export function OpenTuiComposer({
   promptFocused: boolean;
   editorFocused: boolean;
   draft: string;
+  photoControls?: React.ReactNode;
   view: TuiViewState;
   onToggleMode(): void;
   openPermissions(): void;
@@ -88,13 +90,14 @@ export function OpenTuiComposer({
             )}
           </text>
         ))}
+        {photoControls}
         <OpenTuiPrompt
           compact={!home && height < 10}
           reveal={reveal}
           palette={palette}
           width={composerWidth}
           focused={promptFocused}
-          hasDraft={!!draft.trim()}
+          hasDraft={!!draft.trim() || !!view.draftImages?.length}
           busy={view.busy}
           model={
             view.modelSelection?.model ?? view.usage?.model ?? defaultModel

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { z } from "zod";
+import { imageLabel } from "../../media/image-attachment.js";
 import { enterpriseFetch } from "../../network/fetch.js";
 import type {
   ChatContent,
@@ -18,6 +19,7 @@ import type {
 } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
 import { normalizeProviderError, ProviderError } from "../errors.js";
+import { loadImageInputs } from "../image-input.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import {
   normalizeStreamError,
@@ -94,6 +96,7 @@ export interface OpenAIAdapterOptions {
   includeUsage?: boolean;
   tokenLimitFallback?: boolean;
   allowModelMetadata?: boolean;
+  imageInputModels?: string[];
   reasoningEffort?: Record<string, { levels: Effort[]; defaultLevel?: Effort }>;
 }
 
@@ -152,7 +155,11 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
           ? { reasoning_effort: request.reasoningEffort as Effort }
           : {}),
         stream: true,
-        messages: toOpenAIMessages(request.system, request.messages),
+        messages: toOpenAIMessages(
+          request.system,
+          request.messages,
+          await loadImageInputs(request.messages, request.signal),
+        ),
         ...(request.tools.length
           ? { tools: toOpenAITools(request.tools) }
           : {}),
@@ -359,7 +366,7 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
   }
 
   async getCapabilities(model: string): Promise<ModelCapabilities> {
-    let limits = catalogModelLimits(this.providerId, model);
+    let limits: Partial<ModelInfo> = catalogModelLimits(this.providerId, model);
     if (this.options.allowModelMetadata !== false) {
       this.metadata ??= this.client.models
         .list({ timeout: 5000, maxRetries: 0 })
@@ -382,6 +389,16 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       ).replace(/\/$/, "") === "https://api.openai.com/v1";
     return {
       ...limits,
+      imageInput:
+        limits.imageInput ??
+        (this.options.imageInputModels?.includes(model) ||
+        (native &&
+          (nativeEffort.has(model) ||
+            /^(gpt-4o(?:-mini)?|gpt-4\.1(?:-mini|-nano)?)(?:-\d{4}-\d{2}-\d{2})?$/.test(
+              model,
+            )))
+          ? true
+          : undefined),
       tokenCounting: "local_estimate" as const,
       reasoningEffort: Object.hasOwn(this.options.reasoningEffort ?? {}, model)
         ? this.options.reasoningEffort?.[model]
@@ -435,6 +452,7 @@ function toOpenAITools(
 function toOpenAIMessages(
   system: string,
   messages: ChatMessage[],
+  images: ReadonlyMap<string, string>,
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: system },
@@ -483,8 +501,29 @@ function toOpenAIMessages(
         content: tool.content,
       });
     }
-    if (message.role === "user" && text)
-      result.push({ role: "user", content: text });
+    if (message.role !== "user") continue;
+    if (message.content.some((block) => block.type === "image")) {
+      const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+      for (const block of message.content) {
+        if (block.type === "text") parts.push(block);
+        if (block.type !== "image") continue;
+        const data = images.get(block.image.id);
+        parts.push(
+          data
+            ? {
+                type: "image_url",
+                image_url: {
+                  url: `data:${block.image.mimeType};base64,${data}`,
+                },
+              }
+            : {
+                type: "text",
+                text: `[Фото недоступно в запросе: ${imageLabel(block.image)}]`,
+              },
+        );
+      }
+      result.push({ role: "user", content: parts });
+    } else if (text) result.push({ role: "user", content: text });
   }
   return result;
 }
@@ -524,6 +563,10 @@ function formatOpenAIError(error: unknown): string {
 const optionsSchema = z
   .object({
     reasoningEffort: reasoningEffortOptions(effortLevels),
+    imageInputModels: z
+      .array(z.string().trim().min(1).max(200))
+      .max(200)
+      .optional(),
     includeUsage: z.boolean().optional(),
     tokenLimitFallback: z.boolean().default(true),
   })

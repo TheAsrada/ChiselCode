@@ -35,8 +35,13 @@ function excerpts(session: Session) {
       index,
       role: message.role === "user" ? "ВЫ" : "АССИСТЕНТ",
       text: message.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
+        .flatMap((block) =>
+          block.type === "text"
+            ? [block.text]
+            : block.type === "image"
+              ? [`[Фото · ${block.image.name}]`]
+              : [],
+        )
         .join(" "),
     }))
     .filter((message) => message.text)

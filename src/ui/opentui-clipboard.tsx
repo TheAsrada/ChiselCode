@@ -72,11 +72,21 @@ export function OpenTuiClipboard({
 /** A popup owns paste while open; otherwise paste can restore composer focus. */
 export function useClipboardComposer(
   resolve: () => EditBufferRenderable | null,
+  photoTarget?: (editor: EditBufferRenderable) => boolean,
+  onPhoto?: (bytes: Uint8Array, signal: AbortSignal) => Promise<void>,
 ): void {
   const controller = useContext(ClipboardContext);
   const current = useEffectEvent(resolve);
+  const target = useEffectEvent(
+    (editor: EditBufferRenderable) => photoTarget?.(editor) === true,
+  );
+  const attach = useEffectEvent(
+    async (bytes: Uint8Array, signal: AbortSignal) => {
+      await onPhoto?.(bytes, signal);
+    },
+  );
   useLayoutEffect(
-    () => controller?.registerComposer(() => current()),
+    () => controller?.registerComposer(() => current(), target, attach),
     [controller],
   );
 }

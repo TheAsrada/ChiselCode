@@ -7,6 +7,12 @@ import {
   boundedJson,
   packageDirectory,
 } from "../extensions/packages/storage.js";
+import {
+  IMAGE_LIMIT,
+  type ImageAttachment,
+  ImageAttachmentSchema,
+  protectImages,
+} from "../media/image-attachment.js";
 import { CredentialStore } from "../security/credentials.js";
 import { withLock } from "../sessions/lock.js";
 
@@ -17,6 +23,7 @@ const DraftSchema = z.strictObject({
   pid: z.number().int().positive().optional(),
   updatedAt: z.number().optional(),
   closed: z.boolean().optional(),
+  images: z.array(ImageAttachmentSchema).max(IMAGE_LIMIT).optional(),
 });
 export type TerminalDraftIdentity = string | { applicationId: string };
 const revisions = new Map<string, number>();
@@ -33,17 +40,17 @@ const identity = (root: TerminalDraftIdentity, sessionId?: string) =>
     )
     .digest("hex");
 /** A composer is UI state, never model history. Content stays in protected storage. */
-export async function loadTerminalDraft(
+export async function loadTerminalComposerDraft(
   root: TerminalDraftIdentity,
   sessionId?: string,
-): Promise<string | undefined> {
+): Promise<ComposerDraft | undefined> {
   const key = identity(root, sessionId),
     path = join(await packageDirectory(".terminal-drafts"), `${key}.json`);
   return withLock(path, async () => {
     try {
-      const data = DraftSchema.parse(await boundedJson(path, 1024));
+      const data = DraftSchema.parse(await boundedJson(path, 8192));
       revisions.set(key, data.revision);
-      return restoredText(await new CredentialStore().get(data.reference));
+      return readDraft(data);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         revisions.set(key, 0);
@@ -53,12 +60,34 @@ export async function loadTerminalDraft(
     }
   });
 }
+export interface ComposerDraft {
+  text: string;
+  images: readonly ImageAttachment[];
+}
+
+async function readDraft(
+  data: z.infer<typeof DraftSchema>,
+): Promise<ComposerDraft | undefined> {
+  const text = restoredText(await new CredentialStore().get(data.reference));
+  return text === undefined && !data.images?.length
+    ? undefined
+    : { text: text ?? "", images: data.images ?? [] };
+}
+
+export async function loadTerminalDraft(
+  root: TerminalDraftIdentity,
+  sessionId?: string,
+): Promise<string | undefined> {
+  return (await loadTerminalComposerDraft(root, sessionId))?.text;
+}
+
 export async function saveTerminalDraft(
   root: TerminalDraftIdentity,
   sessionId: string | undefined,
   text: string,
-  options: { closed?: boolean } = {},
+  options: { closed?: boolean; images?: readonly ImageAttachment[] } = {},
 ): Promise<void> {
+  protectImages(options.images ?? []);
   const key = identity(root, sessionId),
     path = join(await packageDirectory(".terminal-drafts"), `${key}.json`);
   if (text.length > 256000)
@@ -67,7 +96,7 @@ export async function saveTerminalDraft(
     let revision = 0;
     let priorReference: string | undefined;
     try {
-      const previous = DraftSchema.parse(await boundedJson(path, 1024));
+      const previous = DraftSchema.parse(await boundedJson(path, 8192));
       revision = previous.revision;
       priorReference = previous.reference;
     } catch (error) {
@@ -80,7 +109,7 @@ export async function saveTerminalDraft(
         { applicationId: randomUUID() },
         undefined,
         text,
-        { closed: true },
+        { closed: true, images: options.images },
       );
       throw new Error(
         "Черновик изменён другим экземпляром. Оба текста сохранены отдельно.",
@@ -101,6 +130,7 @@ export async function saveTerminalDraft(
               closed: options.closed ?? false,
             }),
         updatedAt: Date.now(),
+        ...(options.images?.length ? { images: options.images } : {}),
       },
       assertOwned,
     );
@@ -113,7 +143,9 @@ export async function saveTerminalDraft(
 }
 
 /** Restore a closed instance by copying its text into a new, independently owned UUID. */
-export async function loadApplicationDraft(): Promise<string | undefined> {
+export async function loadApplicationComposerDraft(): Promise<
+  ComposerDraft | undefined
+> {
   const directory = await packageDirectory(".terminal-drafts");
   const candidates: Array<z.infer<typeof DraftSchema>> = [];
   for (const name of (await readdir(directory))
@@ -121,7 +153,7 @@ export async function loadApplicationDraft(): Promise<string | undefined> {
     .slice(-500)) {
     try {
       const data = DraftSchema.parse(
-        await boundedJson(join(directory, name), 1024),
+        await boundedJson(join(directory, name), 8192),
       );
       if (!data.applicationId || !data.pid) continue;
       if (!data.closed) {
@@ -140,7 +172,9 @@ export async function loadApplicationDraft(): Promise<string | undefined> {
   const latest = candidates.sort(
     (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0),
   )[0];
-  return latest
-    ? restoredText(await new CredentialStore().get(latest.reference))
-    : undefined;
+  return latest ? readDraft(latest) : undefined;
+}
+
+export async function loadApplicationDraft(): Promise<string | undefined> {
+  return (await loadApplicationComposerDraft())?.text;
 }

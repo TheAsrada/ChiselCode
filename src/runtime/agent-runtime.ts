@@ -81,7 +81,12 @@ export class AgentRuntime {
   ) {}
   async run(
     session: Session,
-    input: string | { text: string },
+    input:
+      | string
+      | {
+          text: string;
+          images?: readonly import("../media/image-attachment.js").ImageAttachment[];
+        },
     options: RuntimeOptions = {},
   ): Promise<AgentResult> {
     initializeSessionState(session);
@@ -219,6 +224,16 @@ export class AgentRuntime {
           "SUBAGENT_RECOVERY_REQUIRED",
           "История помощника содержит незавершённые инструменты; автоматическое выполнение отключено.",
         );
+      const images = typeof input === "string" ? [] : (input.images ?? []);
+      const imageCapabilities = images.length
+        ? (options.capabilities ??
+          (await this.provider.getCapabilities?.(session.model)))
+        : undefined;
+      if (images.length && imageCapabilities?.imageInput !== true)
+        throw new RuntimeError(
+          "PROVIDER_FAILURE",
+          "Модель не подтвердила поддержку фото. Выберите другую модель.",
+        );
       const pending = await executePending();
       if (pending) return pending;
       let text = typeof input === "string" ? input : input.text;
@@ -233,13 +248,17 @@ export class AgentRuntime {
         ).text;
         input = text;
       }
-      if (text.trim())
+      if (text.trim() || images.length)
         session.messages.push({
           role: "user",
-          content: [{ type: "text", text }],
+          content: [
+            ...(text.trim() ? [{ type: "text" as const, text }] : []),
+            ...images.map((image) => ({ type: "image" as const, image })),
+          ],
         });
       await checkpoint();
-      const capabilities = options.capabilities ??
+      const capabilities = imageCapabilities ??
+        options.capabilities ??
         (await this.provider.getCapabilities?.(session.model)) ?? {
           tokenCounting: "local_estimate" as const,
         };
