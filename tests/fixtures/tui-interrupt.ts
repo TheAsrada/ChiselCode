@@ -20,6 +20,8 @@ for (const key of [
   process.env[key] = storage;
 process.env.OPENAI_API_KEY = "offline-interrupt-fixture";
 const prompts: string[] = [];
+const interruptPreview = Promise.withResolvers<void>();
+let retryCalls = 0;
 const chunk = (content: string, finish: string | null = null) =>
   `data: ${JSON.stringify({ id: "interrupt", choices: [{ index: 0, delta: { content }, finish_reason: finish }] })}\n\n`;
 const server = Bun.serve({
@@ -36,8 +38,26 @@ const server = Bun.serve({
     const encoder = new TextEncoder();
     return new Response(
       new ReadableStream({
-        start(controller) {
-          if (prompt.includes("Останови")) {
+        async start(controller) {
+          if (prompt.includes("Повтори")) {
+            if (++retryCalls === 1) {
+              controller.enqueue(
+                encoder.encode(chunk("Текст повторного ответа")),
+              );
+              await interruptPreview.promise;
+              controller.enqueue(
+                encoder.encode('data: {"error":{"code":"server_error"}}\n\n'),
+              );
+            } else {
+              controller.enqueue(
+                encoder.encode(
+                  chunk("Текст повторного ответа готов", "stop") +
+                    "data: [DONE]\n\n",
+                ),
+              );
+            }
+            controller.close();
+          } else if (prompt.includes("Останови")) {
             // An open stream, rather than a resolved/mock provider request.
             controller.enqueue(
               encoder.encode(chunk(`Частичный ответ ${prompts.length}`)),
@@ -52,7 +72,7 @@ const server = Bun.serve({
           }
         },
       }),
-      { headers: { "Content-Type": "text/event-stream" } },
+      { headers: { "Content-Type": "text/event-stream", "Retry-After": "0" } },
     );
   },
 });
@@ -189,10 +209,39 @@ try {
     !JSON.stringify(saved.messages).includes("Этот запрос должен исчезнуть"),
   );
   assert.equal(prompts.length, 3);
+  await send("Повтори после временного сбоя");
+  await until(
+    () => setup.captureCharFrame().includes("Текст повторного ответа"),
+    "Preview missing before retry",
+  );
+  await capture("retry-preview");
+  interruptPreview.resolve();
+  await until(async () => {
+    const persisted = await store.load(summary.id);
+    return (
+      setup.captureCharFrame().includes("Текст повторного ответа готов") &&
+      persisted.messages.some(
+        ({ role, content }) =>
+          role === "assistant" &&
+          content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text === "Текст повторного ответа готов",
+          ),
+      )
+    );
+  }, "Retry did not replace preview and save the completed answer");
+  assert.equal(
+    setup.captureCharFrame().match(/Текст повторного ответа/g)?.length,
+    1,
+  );
+  assert.equal(retryCalls, 2);
+  await capture("retry-completed");
   await send("/exit");
   await application;
   console.log("Terminal interrupt verified");
 } finally {
+  interruptPreview.resolve();
   process.emit("SIGTERM");
   await application;
   setup.renderer.destroy();

@@ -57,6 +57,8 @@ export interface RuntimeOptions {
   reasoningEffort?: string;
   workspaceRoot?: string;
   client?: RuntimeIdentity["client"];
+  /** Only for consumers that discard text on provider_response_recovery. */
+  previewProviderText?: boolean;
   uiSnapshot?: UiSnapshotPort;
   agentEvents?: import("../extensions/agent-events.js").AgentEventPort;
   /** Child history is view-only after a crash; unknown mutations never replay. */
@@ -123,6 +125,7 @@ export class AgentRuntime {
       options.onSessionUsage,
     );
     let finalText = "";
+    let textBeforeRequest = "";
     let overflowRecovered = false;
     let emptyRetried = false;
     let responseRecoveries = 0;
@@ -138,6 +141,8 @@ export class AgentRuntime {
       this.events.emit({ type: "turn_state", state: value });
     const streamed = this.events.subscribe((event) => {
       if (event.type === "provider_text_delta") finalText += event.text ?? "";
+      if (event.type === "provider_response_recovery")
+        finalText = textBeforeRequest;
     });
     const executePending = async (): Promise<AgentResult | undefined> => {
       const pending = partitionTranscript(session.messages).find(
@@ -329,7 +334,7 @@ export class AgentRuntime {
         await checkpoint();
         await state("calling_provider");
         let response: import("./turn-runner.js").AssistantTurn;
-        const textBeforeRequest = finalText;
+        textBeforeRequest = finalText;
         try {
           response = await runner.run(
             {
@@ -342,6 +347,7 @@ export class AgentRuntime {
               signal: options.signal,
             },
             frame.estimatedInputTokens,
+            options.previewProviderText,
           );
           finalText =
             textBeforeRequest +

@@ -872,6 +872,8 @@ async function runPromptInWorkspace(
           reasoningEffort: turnModel.reasoningEffort,
           workspaceRoot: projectRoot,
           client: options.interactive ? "opentui" : "cli",
+          // The terminal owner consumes provider_response_recovery to discard its preview.
+          previewProviderText: !!options.uiSnapshot,
           uiSnapshot: options.uiSnapshot,
           mode,
           approvalMode,

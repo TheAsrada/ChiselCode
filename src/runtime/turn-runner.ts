@@ -38,6 +38,7 @@ export class TurnRunner {
   async run(
     request: ProviderRequest,
     estimatedInputTokens: number,
+    previewText = false,
   ): Promise<AssistantTurn> {
     const started = performance.now();
     let observedUsage: TokenUsage | undefined;
@@ -76,12 +77,21 @@ export class TurnRunner {
         if (toolImages) request = { ...request, toolImages };
       }
       let preparingTool = false;
+      let hasPreview = false;
       for await (const event of prepared.synthetic
         ? syntheticModelEvents(prepared.synthetic)
         : retryProviderStream(this.provider, request, {
             idleTimeoutMs: this.providerIdleTimeoutMs,
+            previewText: previewText && !filterText,
             onRetry: async (failure, waitMs) => {
               preparingTool = false;
+              if (hasPreview) {
+                hasPreview = false;
+                await this.events.emit({
+                  type: "provider_response_recovery",
+                  errorCode: failure.code,
+                });
+              }
               await this.events.emit({
                 type: "provider_request_retrying",
                 errorCode: failure.code,
@@ -109,12 +119,13 @@ export class TurnRunner {
           continue;
         }
         preparingTool = false;
-        if (event.type === "text_delta" && !filterText)
+        if (event.type === "text_delta" && !filterText) {
+          hasPreview = previewText;
           await this.events.emit({
             type: "provider_text_delta",
             text: event.text,
           });
-        else if (event.type === "thinking_start")
+        } else if (event.type === "thinking_start")
           await this.events.emit({ type: "provider_thinking_delta" });
         else if (event.type === "thinking_delta")
           await this.events.emit({

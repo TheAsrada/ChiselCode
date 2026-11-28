@@ -97,10 +97,12 @@ export async function* retryProviderStream(
   {
     idleTimeoutMs = PROVIDER_IDLE_TIMEOUT_MS,
     deadlineMs = PROVIDER_REQUEST_DEADLINE_MS,
+    previewText = false,
     onRetry,
   }: {
     idleTimeoutMs?: number;
     deadlineMs?: number;
+    previewText?: boolean;
     onRetry?: (
       failure: ProviderFailureEvent,
       waitMs: number,
@@ -151,7 +153,11 @@ export async function* retryProviderStream(
             break;
           }
           if (event.type === "turn_complete") usage = event.usage;
-          if (event.type === "thinking_start" || event.type === "tool_delta")
+          if (
+            event.type === "thinking_start" ||
+            event.type === "tool_delta" ||
+            (previewText && event.type === "text_delta")
+          )
             yield event;
           else {
             // Stage response content so append-only consumers see each answer once.
