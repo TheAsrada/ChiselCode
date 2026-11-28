@@ -28,7 +28,7 @@ function requirePlatform() {
   if (!platformSupported())
     throw new RuntimeError(
       "BROWSER_UNAVAILABLE",
-      "Browser runtime is available on Linux x64.",
+      "Chromium доступен на Linux x64.",
     );
 }
 
@@ -55,7 +55,7 @@ export async function loadChromium() {
   if ((await browserInstallState()) !== "ready")
     throw new RuntimeError(
       "BROWSER_RUNTIME_MISSING",
-      "Open /browser and choose «Установить Chromium», or run /browser install in Build.",
+      "Выберите «Установить Chromium» в панели «Браузер» или выполните /browser install в Build.",
     );
   try {
     const moduleUrl = pathToFileURL(
@@ -69,7 +69,7 @@ export async function loadChromium() {
   } catch {
     throw new RuntimeError(
       "BROWSER_RUNTIME_MISSING",
-      "Playwright cache is unreadable. Remove the pinned cache directory and run /browser install.",
+      "Не удалось прочитать кэш Playwright. Удалите каталог этой версии из кэша и выполните /browser install.",
     );
   }
 }

@@ -16,10 +16,12 @@ import type {
   UiActionUse,
 } from "../extensions/ui-types.js";
 import { DEFAULT_THEME, type Palette, THEMES } from "./appearance.js";
+import type { ExtensionFeedback } from "./tui-controller.js";
 
 export type Composition = {
   binding?: string;
   items: readonly OwnedUiContribution[];
+  feedback?: Readonly<Record<string, ExtensionFeedback>>;
   palette: Palette;
   dispatch?(
     key: string,

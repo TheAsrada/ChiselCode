@@ -127,7 +127,7 @@ Linux выбран базовой средой ради скорости и ра
 - Crash-тесты пакетов действительно завершают отдельный процесс. После его выхода давность только его изолированного lock задаётся через `utimes`: две проверки atomic commit boundary больше не ждут по 30 секунд. Само stale recovery не подменяется; production lock не меняется.
 - Проверки Plan/readonly, SSRF/redirects, 429/deadline, cancellation/cleanup, atomic writes/conflicts, CAS/trust, migrations, compaction и истории остаются в исходных test files. Полные файлы и расширенные fixtures доступны отдельно; быстрый профиль не объявляется полным покрытием.
 
-Сценарий `extension-commands-tui.test.ts` проверяет настоящий picker при задержанной активации: отмена не открывает ошибку, не создаёт беседу и освобождает неиспользуемый scope. После повторного выбора проверяются отмена очереди и поздний callback своей вкладки. Совместное ожидание активации и сохранение чужого запроса при отмене отдельно остаются в `extensions-lifecycle.test.ts`; гонка A → B и deadline с cleanup — в `project-admission.test.ts`. Проверки не требуют прежней немедленной смены root до завершения допуска.
+Сценарий `extension-commands-tui.test.ts` проверяет отдельное окно результата, отсутствие карточки ручной команды в чате и её результата в `chatPresentations`, разрешения и открытие Browser во время другой команды. Он также проверяет отмену настоящего picker при задержанной активации, освобождение scope, отмену очереди и поздний callback своей вкладки. Совместное ожидание активации и сохранение чужого запроса при отмене покрывает `extensions-lifecycle.test.ts`. Гонку A → B и deadline с cleanup покрывает `project-admission.test.ts`.
 
 ## Навигация меню
 
@@ -167,4 +167,4 @@ CHISEL_BROWSER_CAPTURES=/tmp/chisel-browser-frames bun tests/fixtures/browser-op
 python scripts/render-terminal-captures.py /tmp/chisel-browser-frames
 ```
 
-Первый fixture проверяет ToolExecutor с настоящим Chromium и локальными серверами. Второй использует настоящий OpenTUI renderer с клавиатурой, мышью и resize. В installed и compiled smoke достаточно проверить запуск `/browser open <разрешённый URL>` с тем же кэшем и завершение браузерных процессов. Скачивание и Chromium fixtures вынесены из fast.
+Первый fixture проверяет ToolExecutor с настоящим Chromium и локальными серверами. Второй использует настоящий OpenTUI renderer с клавиатурой, мышью и resize. Он проверяет отказ доступа внутри панели, подтверждения для разрешённой страницы, снимок и чистую ленту чата. В installed и compiled smoke достаточно проверить запуск `/browser open <разрешённый URL>` с тем же кэшем и завершение браузерных процессов. Скачивание и Chromium fixtures вынесены из fast.

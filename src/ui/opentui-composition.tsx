@@ -206,13 +206,14 @@ export function UiPaneRegion({
             palette={context.palette}
             onSelect={() => context.togglePane?.(item.key)}
           />
-          {!collapsed.has(item.key) &&
-            (item.snapshot.state === "ready" &&
-            item.snapshot.render?.content ? (
-              <TerminalScrollbox
-                maxHeight={placement === "sidebar" ? undefined : 10}
-                minHeight={0}
-              >
+          {!collapsed.has(item.key) && (
+            <TerminalScrollbox
+              maxHeight={placement === "sidebar" ? undefined : 10}
+              minHeight={0}
+            >
+              <PaneFeedback itemKey={item.key} />
+              {item.snapshot.state === "ready" &&
+              item.snapshot.render?.content ? (
                 <Element
                   instance={`pane:${item.key}`}
                   node={item.snapshot.render.content}
@@ -220,16 +221,40 @@ export function UiPaneRegion({
                   native={null}
                   values={{}}
                 />
-              </TerminalScrollbox>
-            ) : (
-              <text fg={context.palette.muted}>
-                {item.snapshot.state === "loading"
-                  ? "Загрузка…"
-                  : "Данные недоступны"}
-              </text>
-            ))}
+              ) : (
+                <text fg={context.palette.muted}>
+                  {item.snapshot.state === "loading"
+                    ? "Загрузка…"
+                    : "Данные недоступны"}
+                </text>
+              )}
+            </TerminalScrollbox>
+          )}
         </box>
       ))}
+    </box>
+  );
+}
+
+function PaneFeedback({ itemKey }: { itemKey: string }) {
+  const { feedback, palette } = useContext(Context);
+  const item = feedback?.[itemKey];
+  if (!item) return null;
+  const failed = item.tone === "error";
+  const [first, ...rest] = item.message?.split("\n") ?? [];
+  const useSummary =
+    item.tone === "info" && first?.startsWith(`${item.title} · `);
+  const message = useSummary ? rest.join("\n") : item.message;
+  return (
+    <box
+      id={`extension-feedback-${itemKey}`}
+      paddingX={1}
+      flexDirection="column"
+    >
+      <text fg={failed ? palette.red : palette.accent}>
+        {failed ? `Ошибка · ${item.title}` : useSummary ? first : item.title}
+      </text>
+      {message && <text fg={palette.text}>{message}</text>}
     </box>
   );
 }

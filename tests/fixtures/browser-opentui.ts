@@ -89,6 +89,8 @@ const address = () =>
     "extension-builtin.browser/browser-address/pane:builtin.browser/browser",
   );
 const prompt = () => node("prompt-editor");
+const browserFeedback = () =>
+  node("extension-feedback-builtin.browser/browser");
 function present<T>(item: T | undefined): T {
   assert.ok(item);
   return item;
@@ -191,6 +193,24 @@ try {
     present(address()).x > present(prompt()).x + 55,
     "Панель должна располагаться справа от чата",
   );
+  await command("/browser unsupported");
+  await until(
+    () =>
+      !!browserFeedback() &&
+      ui.captureCharFrame().includes("Ошибка · Команда браузера"),
+    "Ошибка аргументов не показана в панели",
+  );
+  assert.ok(!node("command-feedback-popup"));
+  await command("/browser open http://127.0.0.1:1/");
+  await until(
+    () =>
+      !!browserFeedback() &&
+      ui.captureCharFrame().includes("в browser.origins"),
+    "Отказ доступа не показан в панели",
+  );
+  assert.ok(!node("approval-popup"));
+  assert.doesNotMatch(ui.captureCharFrame(), /> \/browser|Завершено за/);
+  await capture("error");
   const input = present(address());
   await act(async () => {
     await ui.mockMouse.click(input.x + 1, input.y);
@@ -214,20 +234,13 @@ try {
     () => ui.captureCharFrame().includes("Заказ · QA"),
     "Страница не открылась",
   );
-  await until(
-    () => (ui.captureCharFrame().match(/Завершено за/g)?.length ?? 0) >= 2,
-    "Открытие страницы не завершилось",
-  );
+  await until(() => !!label("Обновить"), "Открытие страницы не завершилось");
   await choose("Телефон");
   await until(() => !!node("approval-popup"), "Нет подтверждения viewport");
   await key("y");
   await until(
     () => (label("390 × 844")?.x ?? 0) > 55,
     "Панель не показала новый viewport",
-  );
-  await until(
-    () => (ui.captureCharFrame().match(/Завершено за/g)?.length ?? 0) >= 3,
-    "Установка viewport не завершилась",
   );
   const captureButton = present(label("Снимок"));
   await act(async () => {
@@ -240,6 +253,11 @@ try {
     () => ui.captureCharFrame().includes("capture.png"),
     "Нет снимка",
   );
+  assert.doesNotMatch(
+    ui.captureCharFrame(),
+    /> \/browser|Завершено за|Действие интерфейса/,
+  );
+  assert.ok(!node("command-feedback-popup"));
   await capture("wide");
   await act(async () => ui.renderer.resize(72, 34));
   await until(

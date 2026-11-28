@@ -106,6 +106,7 @@ async function runExtensionCommandOwned(
     captured?: CapturedCommandModel;
     service?: ModelRequestService;
     recordPresentation?: boolean;
+    onToolInvocation?(invocationId: string): void;
   } = {},
 ): Promise<{ session: Session; result: ToolExecutionResult }> {
   scope.assertUsable();
@@ -457,6 +458,7 @@ async function runExtensionCommandOwned(
           );
         // Capture input before waiting/refresh; the model/tool fingerprint sees this same value.
         const call = { id: randomUUID(), name, input: structuredClone(input) };
+        modelOptions.onToolInvocation?.(call.id);
         const work = (async () => {
           let result: ToolExecutionResult;
           try {

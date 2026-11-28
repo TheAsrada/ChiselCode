@@ -22,6 +22,8 @@ Prepare получает новый readonly объект с `workspaceRoot/sess
 
 `ctx.commands.register` захватывает metadata, parser, policy и callback. Автодополнение не выполняет callback. `foreground` получает invocation-bound `model` и `tools.execute(name,args)`. Own tools задавайте полным canonical именем. Поддерживаемые builtin operations ограничены текущим port: worktrees create/list/status/diff/apply/remove; subagents submit_readonly/submit_coding/list/status/result/wait/cancel; Background Tasks list/status/read_output/wait/stop/recover; LSP status/diagnostics/definition/references/symbols/restart. Process start Background Tasks идёт через `run_shell`.
 
+Возвращайте короткий итог или понятную ошибку в `output`. В текущем OpenTUI результат ручной команды открывается отдельно от ленты агента. Если задан `chat.view`, окно использует текст карточек и сводку. **Tab** выбирает действие карточки, **Enter** выполняет выбранное действие. CLI без OpenTUI возвращает прежний результат в текстовом или JSON-формате.
+
 Прямых WorktreeService/SubagentService/BackgroundTaskService нет. Foreign external tools и произвольные cwd/PID/session не доступны. Обычные tools calls считаются, проходят live policy и child ceilings. Readonly child не получает process от доверия расширению.
 
 Для `ext:builtin.subagents:submit_readonly` и `ext:builtin.subagents:submit_coding` используйте тип `SubagentSubmitInput` из `chiselcode/extension-sdk`. Опциональный `model` принимает точный ID модели для подключения беседы. Если пакет зависит от этого поля, добавьте `"subagents.modelOverride"` в `requires` manifest. Без поля помощник наследует модель владельца.

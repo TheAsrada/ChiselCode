@@ -98,6 +98,16 @@ export function OpenTuiComposer({
           </text>
         ))}
         {photoControls}
+        {view.extensionActivity && (
+          <text
+            id="extension-activity"
+            fg={palette.muted}
+            height={1}
+            flexShrink={0}
+          >
+            {terminalLine(view.extensionActivity, composerWidth)}
+          </text>
+        )}
         <OpenTuiPrompt
           compact={!home && height < 10}
           reveal={reveal}
@@ -105,7 +115,7 @@ export function OpenTuiComposer({
           width={composerWidth}
           focused={promptFocused}
           hasDraft={!!draft.trim() || !!view.draftImages?.length}
-          busy={view.busy}
+          busy={view.busy && view.requestStartedAt !== undefined}
           model={
             view.modelSelection?.model ?? view.usage?.model ?? defaultModel
           }

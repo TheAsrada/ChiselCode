@@ -125,6 +125,17 @@ const extension: ChiselExtension = {
   id: "fixture.commands",
   async activate(ctx) {
     activations++;
+    ctx.ui.registerView({
+      id: "report-details",
+      title: "Подробности отчёта",
+      scope: "conversation",
+      page: () => ({
+        revision: 1,
+        state: "ready",
+        summary: "Проверено без запроса к модели",
+        rows: [],
+      }),
+    });
     ctx.chat.register({
       id: "report",
       render: (value) => {
@@ -140,6 +151,7 @@ const extension: ChiselExtension = {
               description: result.output,
               status: { label: "Готово", tone: "success" },
               detail: "Проверка завершена",
+              target: { type: "extension_view", viewId: "report-details" },
             },
           ],
         };
@@ -380,6 +392,13 @@ async function idle() {
     "Operation did not finish",
   );
 }
+const node = (id: string) => setup.renderer.root.findDescendantById(id);
+const feedback = () => node("command-feedback-popup");
+async function closeFeedback() {
+  await until(() => !!feedback(), "Команда не показала отдельный результат");
+  await act(async () => setup.mockInput.pressEnter());
+  await until(() => !feedback(), "Окно результата не закрылось");
+}
 let application: ReturnType<typeof runOpenTuiAgent> | undefined;
 try {
   await act(async () => {
@@ -450,13 +469,14 @@ try {
   assert.equal(activations, 1);
   assert.equal(cleanups, 0);
   assert.ok(!setup.renderer.root.findDescendantById("welcome"));
+  await closeFeedback();
   await send("/report");
   const reportIdentity = JSON.stringify(["fixture.commands", "report"]);
   await until(
-    () =>
-      !!setup.renderer.root.findDescendantById(`chat-card-${reportIdentity}`),
-    "Расширение не отобразило собственную карточку",
+    () => !!feedback() && setup.captureCharFrame().includes("Отчёт расширения"),
+    "Расширение не показало свой результат в отдельном окне",
   );
+  assert.ok(!node(`chat-card-${reportIdentity}`));
   await idle();
   assert.ok(setup.captureCharFrame().includes("Отчёт расширения"));
   assert.ok(setup.captureCharFrame().includes("Файлы проекта проверены"));
@@ -491,19 +511,38 @@ try {
     reportInvocation?.result?.presentation?.view.cards?.[0]?.title,
     "Отчёт расширения",
   );
-  assert.equal(
-    reportSession.chatPresentations?.[0]?.presentation.extensionId,
-    "fixture.commands",
+  assert.equal(reportSession.chatPresentations?.length ?? 0, 0);
+  await act(async () => {
+    setup.mockInput.pressTab();
+  });
+  await until(
+    () => setup.captureCharFrame().includes("Открыть · Enter"),
+    "Действие карточки недоступно в окне результата",
   );
+  await act(async () => setup.mockInput.pressEnter());
+  await until(
+    () =>
+      !!node("extension-details-popup") &&
+      setup.captureCharFrame().includes("Проверено без запроса к модели"),
+    "Результат не открыл представление своего расширения",
+  );
+  await act(async () => setup.mockInput.pressEscape());
+  await until(
+    () => !node("extension-details-popup"),
+    "Подробности не закрылись",
+  );
+  assert.ok(!setup.captureCharFrame().includes("Файлы проекта проверены"));
   assert.equal(modelCalls, 0);
   await send("/peek bad");
   await until(
-    () => setup.captureCharFrame().includes("неверные аргументы"),
+    () =>
+      !!feedback() && setup.captureCharFrame().includes("Неверные аргументы"),
     "Parse diagnostic was not rendered",
   );
   assert.equal(peeks, 1);
-  assert.ok(setup.captureCharFrame().includes("неверные аргументы"));
+  await closeFeedback();
   await send("/Peek");
+  await closeFeedback();
   assert.equal(peeks, 1);
   assert.equal(modelCalls, 0);
   await send("/change denied");
@@ -520,11 +559,13 @@ try {
     "initial\n",
   );
   assert.ok(setup.captureCharFrame().includes("PERMISSION_DENIED"));
+  await closeFeedback();
   assert.equal(modelCalls, 0);
   await send("/permissions acceptEdits");
   await send("/change changed");
   await until(() => changes === 2, "Write command did not dispatch");
   await idle();
+  await closeFeedback();
   assert.equal(
     await readFile(join(firstRoot, "note.txt"), "utf8"),
     "changed\n",
@@ -557,19 +598,27 @@ try {
     setup.captureCharFrame().includes("MODE_RESTRICTION"),
     setup.captureCharFrame(),
   );
+  await closeFeedback();
   await send("/build");
   await send("/permissions dontAsk");
   await send("/empty");
   await idle();
+  await closeFeedback();
   assert.equal(emptyWrites, 0);
   await send("/recover");
-  await idle();
+  await until(
+    () =>
+      !!feedback() && setup.captureCharFrame().includes("PERMISSION_DENIED"),
+    "Результат отклонённого инструмента не показан в окне команды",
+  );
   assert.ok(setup.captureCharFrame().includes("PERMISSION_DENIED"));
   assert.ok(!setup.captureCharFrame().includes("FALSE_SUCCESS"));
+  await closeFeedback();
   await send("/fail");
-  await idle();
+  await until(() => !!feedback(), "Ошибка callback не показана");
   assert.ok(!setup.captureCharFrame().includes("fixture-secret"));
   assert.ok(setup.captureCharFrame().includes("fixture.commands"));
+  await closeFeedback();
   await send("/large");
   await until(async () => {
     persisted = await store.load(sessions[0]?.id ?? "");
@@ -608,9 +657,22 @@ try {
       await readFile(join(artifactDirectory, artifacts[0] ?? ""), "utf8")
     ).includes("fixture-secret"),
   );
+  await closeFeedback();
 
   await send("/pause mixed");
   await until(() => waits.has("mixed"), "Command did not become active");
+  assert.ok(node("extension-activity"));
+  assert.doesNotMatch(setup.captureCharFrame(), /> \/pause mixed|Завершено за/);
+  const browserAddress =
+    "extension-builtin.browser/browser-address/pane:builtin.browser/browser";
+  await send("/browser");
+  await until(() => !!node(browserAddress), "Браузер ждал завершения команды");
+  assert.equal(waits.get("mixed")?.signal.aborted, false);
+  await send("/browser");
+  await until(
+    () => !node(browserAddress),
+    "Повторный /browser не скрыл панель",
+  );
   // Only ordinary prompts need this fixture provider key. All commands above ran without one.
   process.env.OPENAI_API_KEY = "fixture-offline-model-key";
   await send("queued prompt");
@@ -627,6 +689,7 @@ try {
     "Queued command did not run behind prompt",
   );
   await idle();
+  await closeFeedback();
   assert.equal(
     executionOrder.at(-1),
     "peek:plan",
@@ -671,6 +734,7 @@ try {
     "No skill collision diagnostic",
   );
   await rm(skill, { recursive: true });
+  await closeFeedback();
 
   await send("/build");
   await send("/pause first-tab");
@@ -708,9 +772,11 @@ try {
   });
   await frame();
   await idle();
+  await closeFeedback();
   await send("/feedback ordinary");
   await until(() => feedbacks === 1, "Feedback callback did not finish");
   await idle();
+  await closeFeedback();
   assert.equal(feedbacks, 1);
   assert.equal(modelCalls, 1);
 

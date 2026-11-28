@@ -1,6 +1,6 @@
 import { backgroundActive } from "../background/contracts.js";
 import type { WorkspaceExtensionScope } from "../extensions/host.js";
-import { frozenClone } from "../extensions/lifecycle.js";
+import { frozenClone, safeDiagnostic } from "../extensions/lifecycle.js";
 import { coreUiTarget } from "../extensions/ui-core.js";
 import {
   type UiActionUse,
@@ -13,7 +13,11 @@ import type { SecretRedactor } from "../security/redaction.js";
 import { subagentActive } from "../subagents/contracts.js";
 import type { ChatCard } from "../types/chat-presentation.js";
 import type { JsonObject, ToolExecutionResult } from "../types/domain.js";
-import type { TuiPresentationController as TuiController } from "./tui-controller.js";
+import { extensionResultFeedback } from "./chat-presentation.js";
+import type {
+  ExtensionFeedback,
+  TuiPresentationController as TuiController,
+} from "./tui-controller.js";
 import { UiSubscriptions } from "./ui-subscriptions.js";
 
 export type UiToolSubmit = (
@@ -72,7 +76,7 @@ export class ExtensionUiBinding {
       const key = `${scope.workspaceRoot}/${diagnostic.id}`;
       if (notices.has(key)) continue;
       notices.add(key);
-      controller.appendNotice(
+      controller.showCommandFeedback(
         `Расширение ${diagnostic.name ?? diagnostic.id}: ${diagnostic.reason ?? "данные недоступны"} Встроенные возможности доступны.`,
         "error",
       );
@@ -171,10 +175,14 @@ export class ExtensionUiBinding {
         presentation,
       );
     } catch {
-      if (this.live())
-        this.controller.setExtensionNotice(
-          "Обработчик интерфейса завершился с ошибкой.",
-        );
+      const pane = this.subscription.items.some(
+        (item) => item.key === key && item.descriptor.slot === "pane",
+      );
+      this.report(key, pane, {
+        title: "Действие недоступно",
+        message: "Обработчик интерфейса завершился с ошибкой.",
+        tone: "error",
+      });
     }
   }
   async dispatch(
@@ -187,9 +195,10 @@ export class ExtensionUiBinding {
     if (!this.live()) return;
     const use = frozenClone(UiActionUseSchema.parse(raw));
     if (Buffer.byteLength(JSON.stringify(use)) > 8192) return;
-    const snapshot = this.subscription.items.find(
+    const contribution = this.subscription.items.find(
       (item) => item.key === key,
-    )?.snapshot;
+    );
+    const snapshot = contribution?.snapshot;
     const page =
       this.controller.snapshot.extensionView?.key === key
         ? this.controller.snapshot.extensionView.page
@@ -219,9 +228,15 @@ export class ExtensionUiBinding {
       return;
     const action = this.subscription.action(key, use, revision, fromView);
     if (!action) {
-      this.controller.setExtensionNotice("Действие устарело или недоступно.");
+      this.report(key, contribution?.descriptor.slot === "pane" && !fromView, {
+        title: "Действие недоступно",
+        message: "Обновите представление и повторите действие.",
+        tone: "error",
+      });
       return;
     }
+    const inPane = contribution?.descriptor.slot === "pane" && !fromView;
+    const pending = { title: `${action.label}…`, tone: "pending" } as const;
     const extensionId = key.slice(0, key.lastIndexOf("/"));
     const identity = `${key}/${use.id}/${JSON.stringify(use.args ?? {})}`;
     if (this.pending.has(identity)) return;
@@ -250,11 +265,15 @@ export class ExtensionUiBinding {
         if (target && this.live()) adapters[target]();
       } else if (this.submit) {
         if (JSON.stringify(use.args ?? {}).includes("[секрет скрыт]")) {
-          this.controller.setExtensionNotice(
-            "Аргументы содержат скрытый секрет. Выполните действие через обычный ввод команды.",
-          );
+          this.report(key, inPane, {
+            title: action.label,
+            message:
+              "Аргументы содержат скрытый секрет. Выполните действие через обычный ввод команды.",
+            tone: "error",
+          });
           return;
         }
+        if (inPane) this.controller.setExtensionFeedback(key, pending);
         // Once accepted into the ordinary owner queue, closing this view is not cancellation.
         const result = await this.submit(
           this.controller,
@@ -264,21 +283,60 @@ export class ExtensionUiBinding {
           use.args ?? {},
           this.subscription.scopeFor(key),
         );
-        if (this.live() && this.controller.snapshot.extensionView?.key === key)
-          this.controller.setExtensionNotice(
-            result.isError
-              ? "Действие завершилось с ошибкой. Итог сохранён в чате."
-              : "Действие выполнено. Итог сохранён в чате.",
+        if (
+          !inPane ||
+          this.controller.snapshot.extensionFeedback?.[key] === pending
+        )
+          this.report(
+            key,
+            inPane,
+            extensionResultFeedback(action.label, result),
           );
       } else
-        this.controller.setExtensionNotice("Выполнение действия недоступно.");
-    } catch {
-      if (this.live())
-        this.controller.setExtensionNotice(
-          "Не удалось выполнить действие. Проверьте разрешения и доступность возможности.",
-        );
+        this.report(key, inPane, {
+          title: "Выполнение действия недоступно",
+          tone: "error",
+        });
+    } catch (error) {
+      if (
+        !inPane ||
+        action.type !== "tool" ||
+        !this.controller.snapshot.extensionFeedback?.[key] ||
+        this.controller.snapshot.extensionFeedback[key] === pending
+      )
+        this.report(key, inPane, {
+          title: action.label,
+          tone: "error",
+          message: safeDiagnostic(
+            error instanceof Error ? error.message : "Действие не выполнено.",
+          ),
+        });
     } finally {
       this.pending.delete(identity);
+    }
+  }
+  private report(
+    key: string,
+    inPane: boolean,
+    feedback: ExtensionFeedback,
+  ): void {
+    if (
+      !this.controller.isCurrent(this.generation) ||
+      this.controller.ownerSignal.aborted
+    )
+      return;
+    if (inPane) this.controller.setExtensionFeedback(key, feedback);
+    else {
+      const text = [feedback.title, feedback.message]
+        .filter(Boolean)
+        .join("\n\n");
+      if (this.controller.snapshot.extensionView?.key === key)
+        this.controller.setExtensionNotice(text);
+      else
+        this.controller.showCommandFeedback(
+          text,
+          feedback.tone === "error" ? "error" : "info",
+        );
     }
   }
   async open(key: string): Promise<void> {

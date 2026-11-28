@@ -1,16 +1,15 @@
 /** @jsxImportSource @opentui/react */
 
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { Palette } from "./appearance.js";
 import { DialogAction, OpenTuiDialog } from "./opentui-dialog.js";
 import { capturedInputOwner, useUiKeyboard } from "./overlay-input.js";
 import { TerminalScrollbox } from "./terminal-decoration.js";
 import { isCtrlC } from "./terminal-keys.js";
-import { terminalSafeText } from "./terminal-text.js";
-import type { TuiViewState } from "./tui-controller.js";
+import { terminalLine, terminalSafeText } from "./terminal-text.js";
+import type { CommandFeedbackAction, TuiViewState } from "./tui-controller.js";
 
-/** Home feedback is owned by its project and disappears when dismissed. */
 export function OpenTuiCommandFeedback({
   feedback,
   owner,
@@ -18,6 +17,7 @@ export function OpenTuiCommandFeedback({
   height,
   palette,
   onClose,
+  onAction,
 }: {
   feedback: NonNullable<TuiViewState["commandFeedback"]>;
   owner: string;
@@ -25,16 +25,30 @@ export function OpenTuiCommandFeedback({
   height: number;
   palette: Palette;
   onClose(): void;
+  onAction(action: CommandFeedbackAction): void;
 }) {
   const scroll = useRef<ScrollBoxRenderable>(null);
+  const [selected, select] = useState(0);
+  const actions = feedback.entries.flatMap((entry) => entry.actions ?? []);
+  const action = actions[selected - 1];
+  const activate = () => {
+    onClose();
+    if (action) onAction(action);
+  };
+  const failed = feedback.entries.some(
+    (entry) => entry.tone === "error" || entry.tone === "warn",
+  );
   useUiKeyboard((key) => {
     if (capturedInputOwner(key) !== owner) return;
     key.preventDefault();
     key.stopPropagation();
     if (key.repeated || key.eventType === "release") return;
-    if (key.name === "escape" || key.name === "return" || isCtrlC(key))
-      onClose();
-    else if (key.name === "up") scroll.current?.scrollBy(-1);
+    if (key.name === "escape" || isCtrlC(key)) onClose();
+    else if (key.name === "return") activate();
+    else if (key.name === "tab" && actions.length) {
+      const count = actions.length + 1;
+      select((index) => (index + (key.shift ? count - 1 : 1)) % count);
+    } else if (key.name === "up") scroll.current?.scrollBy(-1);
     else if (key.name === "down") scroll.current?.scrollBy(1);
     else if (key.name === "pageup")
       scroll.current?.scrollBy(-Math.max(1, height - 6));
@@ -54,8 +68,12 @@ export function OpenTuiCommandFeedback({
       maxHeight={20}
       maxWidth={88}
     >
-      <text height={1} flexShrink={0} fg={palette.yellow}>
-        Ошибка команды
+      <text
+        height={1}
+        flexShrink={0}
+        fg={failed ? palette.yellow : palette.accent}
+      >
+        {failed ? "Ошибка команды" : "Результат команды"}
       </text>
       <TerminalScrollbox ref={scroll} flexGrow={1} minHeight={0} width="100%">
         {feedback.entries.map((entry) => (
@@ -75,10 +93,19 @@ export function OpenTuiCommandFeedback({
       </TerminalScrollbox>
       <DialogAction
         id="command-feedback-close"
-        label={width >= 40 ? "Закрыть · Enter / Esc" : "Закрыть · Esc"}
+        label={terminalLine(
+          action
+            ? `${action.action.label} · Enter${actions.length > 1 ? " / Tab" : ""}`
+            : actions.length && width >= 40
+              ? "Закрыть · Esc / Tab к действиям"
+              : width >= 40
+                ? "Закрыть · Enter / Esc"
+                : "Закрыть · Esc",
+          Math.min(80, width - 6),
+        )}
         palette={palette}
         primary
-        onSelect={onClose}
+        onSelect={activate}
       />
     </OpenTuiDialog>
   );

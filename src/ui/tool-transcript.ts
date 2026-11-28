@@ -202,23 +202,31 @@ export function replaySessionIntoTranscript(
     group.push(timing);
     timings.set(timing.afterMessage, group);
   }
+  // Legacy chatPresentations were written by standalone commands.
+  const localTasks = new Set(
+    Object.entries(session.runtime?.invocations ?? {}).flatMap(([id, tool]) => {
+      const task = tool.result?.details?.backgroundTask;
+      return !names.has(id) && task && typeof task === "object" && "id" in task
+        ? [task.id]
+        : [];
+    }),
+  );
   const presentations = new Map<
     number,
     NonNullable<Session["chatPresentations"]>
   >();
-  const savedPresentations = [
-    ...(session.chatPresentations ?? []),
-    ...Object.values(session.backgroundTasks ?? {}).flatMap((receipt) =>
-      receipt.presentation
-        ? [
-            {
-              afterMessage: receipt.afterMessage,
-              presentation: receipt.presentation,
-            },
-          ]
-        : [],
-    ),
-  ];
+  const savedPresentations = Object.values(
+    session.backgroundTasks ?? {},
+  ).flatMap((receipt) =>
+    receipt.presentation && !localTasks.has(receipt.id)
+      ? [
+          {
+            afterMessage: receipt.afterMessage,
+            presentation: receipt.presentation,
+          },
+        ]
+      : [],
+  );
   for (const record of savedPresentations) {
     const group = presentations.get(record.afterMessage) ?? [];
     group.push(record);

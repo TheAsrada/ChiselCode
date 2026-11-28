@@ -87,6 +87,6 @@ export function requireOrigin(
   if (origin && !policy.origins.includes(origin))
     throw new RuntimeError(
       "BROWSER_ACCESS_DENIED",
-      `Add ${origin} to browser.origins in the user config; project settings may narrow access.`,
+      `Добавьте ${origin} в browser.origins в настройках пользователя. Проверьте ограничения проекта.`,
     );
 }

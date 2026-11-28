@@ -25,6 +25,7 @@ import {
   prepareUiToolInvocation,
 } from "../app/ui-tool.js";
 import { runWorktreeInspection } from "../app/worktree-inspection.js";
+import { browserPaneId } from "../browser/ui.js";
 import { type RunOptions, runPrompt } from "../commands/run.js";
 import { resolveSlashCommand, splitSlashCommand } from "../commands/slash.js";
 import {
@@ -39,6 +40,10 @@ import {
   updateGlobalConfig,
 } from "../config/load.js";
 import { backgroundServiceToken } from "../extensions/builtins/background.js";
+import {
+  browserId,
+  browserServiceToken,
+} from "../extensions/builtins/browser.js";
 import { subagentServiceToken } from "../extensions/builtins/subagents.js";
 import {
   applicationExtensions,
@@ -103,9 +108,9 @@ import { WebSettingsStore } from "../web/settings.js";
 import { DEFAULT_THEME, THEMES, type ThemeName } from "./appearance.js";
 import { createApplicationSettingsActions } from "./application-settings-actions.js";
 import {
-  appendChatPresentation,
   extensionCommandLabel,
-  resultChatPresentation,
+  extensionResultActions,
+  extensionResultFeedback,
 } from "./chat-presentation.js";
 import { suggestSimilarCommand } from "./commands.js";
 import type { InteractiveExitReason } from "./interactive-exit.js";
@@ -1214,25 +1219,45 @@ async function runApplication(
       let prepared:
         | import("../app/run-command.js").PreparedExtensionCommand
         | undefined;
+      const browser =
+        descriptor?.source.type === "extension" &&
+        descriptor.source.extensionId === browserId &&
+        descriptor.source.name === "browser"
+          ? snapshot?.scope?.services.lookup(browserServiceToken)
+          : undefined;
+      const browserPane = `${browserId}/${browserPaneId}`;
+      let invalidArguments: string | undefined;
       if (descriptor?.source.type === "extension" && snapshot?.scope) {
         const command = snapshot.scope.commands.get(descriptor.source.name);
         try {
           prepared = { command, input: command.parse(parsed?.args ?? "") };
         } catch {
-          controller.append(
-            `${extensionCommandLabel(command)}: неверные аргументы.${command.usage ? ` Использование: ${safeDiagnostic(command.usage)}` : ""}`,
-            "error",
-          );
-          return;
+          invalidArguments = `Неверные аргументы.${command.usage ? ` Использование: ${safeDiagnostic(command.usage)}` : ""}`;
+          if (!browser) {
+            controller.showCommandFeedback(
+              `${extensionCommandLabel(command)}\n\n${invalidArguments}`,
+              "error",
+            );
+            return;
+          }
         }
       }
-      if (parsed && !skill && !prepared && !parseMcpSkillCommand(input)) {
-        if (snapshot?.error) controller.append(snapshot.error, "error");
+      if (
+        parsed &&
+        !skill &&
+        !prepared &&
+        !browser &&
+        !parseMcpSkillCommand(input)
+      ) {
+        if (snapshot?.error) {
+          controller.showCommandFeedback(snapshot.error, "error");
+          return;
+        }
         const hint = suggestSimilarCommand(
           input,
           snapshot?.projection ?? invocableSkills([...availableSkills]),
         );
-        controller.append(
+        controller.showCommandFeedback(
           `Неизвестная команда ${safeDiagnostic(parsed.name)}${hint ? ` | возможно, ${hint}` : ""}`,
           "warn",
         );
@@ -1261,9 +1286,13 @@ async function runApplication(
         // A late home submission owns a new conversation, not the screen selected in the meantime.
         if (selectedTab) workspace.select(selectedTab);
         controller.setSessionTitle(
-          prepared?.command.executionPolicy === "side_query"
-            ? "Побочный вопрос"
-            : clipText(input.split("\n", 1)[0] || "Фото", 120),
+          browser
+            ? "Браузер"
+            : prepared?.command.executionPolicy === "side_query"
+              ? "Побочный вопрос"
+              : prepared
+                ? extensionCommandLabel(prepared.command)
+                : clipText(input.split("\n", 1)[0] || "Фото", 120),
         );
         homeOperationTarget = {
           generation: originGeneration,
@@ -1277,6 +1306,47 @@ async function runApplication(
           generation: controller.currentGeneration,
           names: new Set(selectedSkills),
         });
+      }
+      let reportBrowser: ((result: ToolExecutionResult) => void) | undefined;
+      if (browser) {
+        const args = parsed?.args.trim();
+        try {
+          const visible = browser.setPanel(
+            { id: controller.conversationId, signal: controller.ownerSignal },
+            args ? true : undefined,
+          );
+          if (visible) controller.uiCollapsedPanes.delete(browserPane);
+        } catch (error) {
+          controller.showCommandFeedback(
+            `Браузер\n\n${safeDiagnostic(error instanceof Error ? error.message : String(error))}`,
+            "error",
+          );
+          return;
+        }
+        if (!args) return;
+        if (invalidArguments) {
+          controller.setExtensionFeedback(browserPane, {
+            title: "Команда браузера",
+            message: invalidArguments,
+            tone: "error",
+          });
+          return;
+        }
+        const title =
+          args === "install" ? "Установка Chromium" : "Открытие страницы";
+        const pending = { title: `${title}…`, tone: "pending" } as const;
+        const generation = controller.currentGeneration;
+        controller.setExtensionFeedback(browserPane, pending);
+        reportBrowser = (result) => {
+          if (
+            controller.isCurrent(generation) &&
+            controller.snapshot.extensionFeedback?.[browserPane] === pending
+          )
+            controller.setExtensionFeedback(
+              browserPane,
+              extensionResultFeedback(title, result),
+            );
+        };
       }
       if (parsed?.name === "/tasks" && !parsed.args.trim()) {
         controller.showBackground();
@@ -1314,17 +1384,16 @@ async function runApplication(
             },
             selected.input,
           );
-          if (origin.isCurrent(generation)) {
-            const presentation = resultChatPresentation(result);
-            if (presentation && !result.isError && !result.requiresApproval)
-              appendChatPresentation(origin, presentation);
-            else
-              origin.append(result.output, result.isError ? "error" : "info");
-          }
+          if (origin.isCurrent(generation))
+            showExtensionResult(
+              origin,
+              extensionCommandLabel(selected.command),
+              result,
+            );
         } catch (error) {
           if (origin.isCurrent(generation))
-            origin.append(
-              error instanceof Error ? error.message : String(error),
+            origin.showCommandFeedback(
+              `${extensionCommandLabel(selected.command)}\n\n${safeDiagnostic(error instanceof Error ? error.message : String(error))}`,
               "error",
             );
         }
@@ -1479,7 +1548,7 @@ async function runApplication(
         prepared && snapshot?.scope
           ? {
               kind: "command",
-              onResult: onCommandResult,
+              onResult: reportBrowser ?? onCommandResult,
               input,
               prepared,
               capturedModel: capturedModel
@@ -1518,10 +1587,15 @@ async function runApplication(
       if (execution.activeRun) {
         execution.pendingOperations.push(item);
         controller.setBusy(true);
-        controller.append(
-          `В очереди: ${execution.pendingOperations.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input || "Фото"}`,
-          "info",
-        );
+        if (item.kind === "prompt")
+          controller.append(
+            `В очереди: ${execution.pendingOperations.length} | ${AGENT_MODE_LABELS[turnMode]} | ${APPROVAL_MODE_LABELS[turnApprovalMode]} | ${input || "Фото"}`,
+            "info",
+          );
+        else if (!item.onResult)
+          controller.setExtensionActivity(
+            `В очереди · ${extensionCommandLabel(item.prepared.command)}`,
+          );
         return;
       }
       await executeOperation(controller, item);
@@ -1534,6 +1608,20 @@ async function runApplication(
         });
     }
   };
+  function showExtensionResult(
+    controller: TuiController,
+    title: string,
+    result: ToolExecutionResult,
+  ): void {
+    if (result.errorCode === "CANCELLED") return;
+    const feedback = extensionResultFeedback(title, result);
+    controller.showCommandFeedback(
+      [feedback.title, feedback.message].filter(Boolean).join("\n\n"),
+      feedback.tone === "error" ? "error" : "info",
+      undefined,
+      extensionResultActions(result),
+    );
+  }
   const executeOperation = async (
     controller: TuiController,
     item: QueuedTabOperation,
@@ -1551,7 +1639,7 @@ async function runApplication(
         });
       return;
     }
-    const quiet = item.kind !== "prompt" && item.quiet === true;
+    const local = item.kind === "command" || item.kind === "ui_tool";
     const execution = workspace.execution(controller);
     const {
       input,
@@ -1577,16 +1665,23 @@ async function runApplication(
       controller.ownerSignal,
     ]);
     controller.conversation.begin(item.kind === "prompt" ? input : undefined);
-    controller.startRequest(item.kind === "prompt" ? "waiting" : "tool");
-    controller.setRunningMode(turnMode);
-    controller.setRunningApprovalMode(turnApprovalMode);
-    if (!quiet)
+    if (local) {
+      controller.setBusy(true);
+      if (!item.onResult)
+        controller.setExtensionActivity(
+          `Выполняется · ${extensionCommandLabel(item.prepared.command)}`,
+        );
+    } else {
+      controller.startRequest(item.kind === "prompt" ? "waiting" : "tool");
+      controller.setRunningMode(turnMode);
+      controller.setRunningApprovalMode(turnApprovalMode);
       controller.append(
         input ? `> ${input}` : "",
         "user",
         undefined,
         item.kind === "prompt" ? item.images : undefined,
       );
+    }
     if (
       item.kind === "prompt" &&
       controller.snapshot.modelCapabilities?.imageInput !== true &&
@@ -1599,7 +1694,6 @@ async function runApplication(
         );
     }
     const tools = toolTranscriptHandlers(() => controller);
-    const presentedToolResults = new Set<string>();
     // Install the owner before any provider callback can complete the request.
     const work = Promise.resolve().then(async () => {
       let status: "completed" | "failed" | "cancelled" | "approval_required" =
@@ -1724,6 +1818,22 @@ async function runApplication(
           return;
         }
         if (item.kind !== "prompt") {
+          let worktreeOpened = false;
+          const heading =
+            item.kind === "ui_tool"
+              ? "Действие расширения"
+              : extensionCommandLabel(item.prepared.command);
+          const report = (result: ToolExecutionResult) => {
+            if (item.onResult) {
+              item.onResult(result);
+              item.onResult = undefined;
+            } else if (
+              result.isError ||
+              !worktreeOpened ||
+              item.prepared.command.source.extensionId !== "builtin.worktrees"
+            )
+              showExtensionResult(controller, heading, result);
+          };
           const snapshot = await commandActions.load(item.root, signal);
           const descriptor =
             item.kind === "ui_tool"
@@ -1741,19 +1851,14 @@ async function runApplication(
                   item.prepared.command.source.extensionId ||
                 descriptor.source.name !== item.prepared.command.name)
           ) {
-            controller.append(
-              snapshot.error ??
+            report({
+              output:
+                snapshot.error ??
                 "Команда больше не принадлежит выбранному расширению.",
-              "error",
-            );
+              isError: true,
+            });
             return;
           }
-          const heading =
-            item.kind === "ui_tool"
-              ? "Действие интерфейса"
-              : extensionCommandLabel(item.prepared.command);
-          if (!quiet) controller.append(heading, "tool");
-          controller.setToolActivity(heading);
           const outcome = await runExtensionCommand(
             item.prepared,
             item.scope,
@@ -1817,6 +1922,7 @@ async function runApplication(
                 );
                 if (existing) {
                   workspace.select(existing.key);
+                  worktreeOpened = true;
                   return;
                 }
                 openingRoots.add(descriptor.path);
@@ -1861,13 +1967,8 @@ async function runApplication(
                     signal.aborted
                   )
                     throw new Error("Worktree opening cancelled.");
-                  const tab = workspace.openSession(session);
-                  tab.append(
-                    descriptor.kind === "origin"
-                      ? `Основной проект: ${descriptor.label}\n${descriptor.path}`
-                      : `Рабочая копия: ${descriptor.label}\nID: ${descriptor.id}\nBase: ${descriptor.base}\n${descriptor.path}\nDetached HEAD · файлы и Session изолированы`,
-                    "info",
-                  );
+                  workspace.openSession(session);
+                  worktreeOpened = true;
                 } finally {
                   openingRoots.delete(descriptor.path);
                   releaseUnusedScopes();
@@ -1882,33 +1983,12 @@ async function runApplication(
               onEvent: (event) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
-                if (quiet) {
-                  if (event.type === "checkpoint_saved")
-                    controller.setSessionId(event.sessionId);
-                  return;
-                }
-                controller.trackToolEvent(event);
                 if (event.type === "checkpoint_saved")
                   controller.setSessionId(event.sessionId);
-                if (event.type === "tool_progress" && !event.invocationId)
-                  controller.setToolActivity(
-                    `${event.name ?? "MCP"} · ${event.text ?? "Выполняется"}`,
-                  );
               },
-              onToolStart: (name, input, source, invocationId) => {
-                if (
-                  !quiet &&
-                  controller.isCurrent(requestGeneration) &&
-                  !signal.aborted
-                )
-                  tools.onToolStart?.(name, input, source, invocationId);
-              },
-              onToolResult: (name, result, invocationId) => {
+              onToolResult: (_name, result) => {
                 if (!controller.isCurrent(requestGeneration) || signal.aborted)
                   return;
-                if (result.presentation)
-                  presentedToolResults.add(JSON.stringify(result.presentation));
-                if (!quiet) tools.onToolResult?.(name, result, invocationId);
                 if (result.diffs?.length || result.fileDiff)
                   for (const tab of workspace.tabs)
                     tab.controller.refreshGitChanges();
@@ -1918,11 +1998,18 @@ async function runApplication(
             {
               service: modelService,
               captured: item.capturedModel,
-              recordPresentation: !quiet,
+              recordPresentation: false,
+              onToolInvocation: (id) => {
+                if (controller.isCurrent(requestGeneration))
+                  controller.trackExtensionTool(id);
+              },
             },
           );
-          item.onResult?.(outcome.result);
-          item.onResult = undefined;
+          if (
+            item.onResult ||
+            (!signal.aborted && controller.isCurrent(requestGeneration))
+          )
+            report(outcome.result);
           status =
             signal.aborted || outcome.result.errorCode === "CANCELLED"
               ? "cancelled"
@@ -1934,26 +2021,6 @@ async function runApplication(
           if (!controller.isCurrent(requestGeneration) || signal.aborted)
             return;
           controller.setSessionUsage(outcome.session);
-          if (quiet) return;
-          const presentation = resultChatPresentation(outcome.result);
-          if (
-            presentation &&
-            !outcome.result.isError &&
-            !outcome.result.requiresApproval
-          ) {
-            if (!presentedToolResults.has(JSON.stringify(presentation)))
-              appendChatPresentation(controller, presentation);
-          } else if (
-            !presentation ||
-            outcome.result.isError ||
-            outcome.result.requiresApproval
-          )
-            controller.append(
-              outcome.result.output,
-              outcome.result.isError || outcome.result.requiresApproval
-                ? "error"
-                : "info",
-            );
           return;
         }
         const availableSkills = loadSkills(item.root);
@@ -2156,13 +2223,27 @@ async function runApplication(
           );
       } catch (error) {
         status = signal.aborted ? "cancelled" : "failed";
-        if (!signal.aborted && controller.isCurrent(requestGeneration))
-          controller.append(
-            item.kind === "command"
-              ? `${extensionCommandLabel(item.prepared.command)}: ${safeDiagnostic(error instanceof Error ? error.message : "Command failed.")}`
-              : String(error),
-            "error",
-          );
+        if (!signal.aborted && controller.isCurrent(requestGeneration)) {
+          if (!local) controller.append(String(error), "error");
+          else {
+            const result = {
+              output: safeDiagnostic(
+                error instanceof Error ? error.message : String(error),
+              ),
+              isError: true,
+              errorCode: "TOOL_EXECUTION_FAILURE",
+            } satisfies ToolExecutionResult;
+            if (item.onResult) {
+              item.onResult(result);
+              item.onResult = undefined;
+            } else
+              showExtensionResult(
+                controller,
+                extensionCommandLabel(item.prepared.command),
+                result,
+              );
+          }
+        }
       } finally {
         if (item.kind !== "prompt") {
           item.onResult?.({
@@ -2180,9 +2261,12 @@ async function runApplication(
         execution.abort = undefined;
         execution.approvalResolver.cancel("foreground");
         if (controller.isCurrent(requestGeneration)) {
-          controller.finishRequest(status, elapsedMs);
-          controller.setRunningMode();
-          controller.setRunningApprovalMode();
+          if (!local) {
+            controller.finishRequest(status, elapsedMs);
+            controller.setRunningMode();
+            controller.setRunningApprovalMode();
+          }
+          controller.setExtensionActivity();
           controller.setBusy(execution.pendingOperations.length > 0);
           persistExecutionModes(controller);
         }
@@ -2343,7 +2427,6 @@ async function runApplication(
               return new Promise<ToolExecutionResult>((resolve) => {
                 const operation: QueuedTabOperation = {
                   kind: "command",
-                  quiet: true,
                   input: `/worktree ${action}`,
                   prepared: {
                     command,

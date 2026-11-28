@@ -27,8 +27,6 @@ export interface QueuedTabCommand
   kind: "command" | "ui_tool";
   prepared: PreparedExtensionCommand;
   capturedModel?: CapturedCommandModel;
-  /** Native manager renders the outcome itself; no duplicate transcript/presentation. */
-  quiet?: boolean;
   scope: WorkspaceExtensionScope;
   /** Optional Settings waiter; the operation still belongs to this conversation. */
   onResult?(result: ToolExecutionResult): void;
@@ -37,7 +35,6 @@ export interface QueuedTabCompact
   extends Omit<QueuedTabPrompt, "kind" | "capturedModel"> {
   kind: "compact";
   onResult?(result: ToolExecutionResult): void;
-  quiet?: false;
 }
 export type QueuedTabOperation =
   | QueuedTabPrompt

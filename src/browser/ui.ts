@@ -9,6 +9,7 @@ const tool = (id: string, label: string, target = id): UiAction => ({
   type: "tool",
   tool: target,
 });
+export const browserPaneId = "browser";
 
 export function registerBrowserUi(
   ctx: ExtensionContext,
@@ -27,8 +28,12 @@ export function registerBrowserUi(
     )
       service.setPresentation(binding.conversationId, { section: args.page });
   });
+  ctx.ui.on("hide", (binding, event) => {
+    if (event.type === "press")
+      service.setPresentation(binding.conversationId, { visible: false });
+  });
   ctx.ui.register({
-    id: "browser",
+    id: browserPaneId,
     slot: "pane",
     placement: "sidebar",
     initiallyHidden: true,
@@ -36,11 +41,11 @@ export function registerBrowserUi(
     title: "Браузер",
     order: 30,
     actions: [
-      tool("open", "Открыть адрес"),
-      tool("install", "Установить Chromium"),
+      tool("open", "Открытие страницы"),
+      tool("install", "Установка Chromium"),
       tool("navigate", "Навигация"),
-      tool("screenshot", "Сделать снимок"),
-      tool("panel", "Закрыть панель"),
+      tool("screenshot", "Снимок"),
+      { id: "hide", label: "Скрыть панель", type: "event", eventId: "hide" },
       {
         id: "section",
         label: "Диагностика",
@@ -54,11 +59,26 @@ export function registerBrowserUi(
         const initial = service.presentation(binding.conversationId);
         if (!initial.visible)
           return { revision: initial.revision, state: "ready", visible: false };
-        const view = await service.view(binding.conversationId);
+        const view = await service
+          .view(binding.conversationId)
+          .catch(() => undefined);
         const { draft, section, visible, revision } = service.presentation(
           binding.conversationId,
         );
         if (!visible) return { revision, state: "ready", visible: false };
+        if (!view)
+          return {
+            revision,
+            state: "ready",
+            render: {
+              mode: "replace",
+              content: {
+                type: "text",
+                text: "Не удалось прочитать состояние браузера. Проверьте настройки расширения.",
+                tone: "error",
+              },
+            },
+          };
         const url =
           draft ??
           (view.page?.url === "about:blank" ? "" : view.page?.url) ??
@@ -98,14 +118,15 @@ export function registerBrowserUi(
                   type: "text",
                   text: state,
                   bold: true,
-                  tone: view.error ? "error" : undefined,
+                  tone:
+                    view.runtime === "recovery_required" ? "error" : undefined,
                 },
                 ...(view.error
                   ? [
                       {
                         type: "text" as const,
                         text: view.error,
-                        tone: "error" as const,
+                        tone: "warning" as const,
                       },
                     ]
                   : []),
@@ -129,22 +150,22 @@ export function registerBrowserUi(
                       disabled: !url || view.busy || view.runtime !== "ready",
                       action: { id: "open", args: { url } },
                     },
-                    ...(view.runtime === "missing"
-                      ? [
-                          {
-                            type: "button" as const,
-                            label: "Установить Chromium",
-                            action: { id: "install" },
-                          },
-                        ]
-                      : []),
                     {
                       type: "button",
                       label: "Скрыть",
-                      action: { id: "panel" },
+                      action: { id: "hide" },
                     },
                   ],
                 },
+                ...(view.runtime === "missing"
+                  ? [
+                      {
+                        type: "button" as const,
+                        label: "Установить Chromium",
+                        action: { id: "install" },
+                      },
+                    ]
+                  : []),
                 ...(view.page
                   ? [
                       ...(url === view.page.url

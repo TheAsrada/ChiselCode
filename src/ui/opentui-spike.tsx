@@ -675,11 +675,15 @@ function OpenTuiScreen({
         .then((snapshot) => {
           if (!current()) return;
           setCommandProjection(snapshot.projection);
-          if (snapshot.error) origin?.append(snapshot.error, "error");
+          if (snapshot.error)
+            origin?.showCommandFeedback(snapshot.error, "error");
         })
         .catch(() => {
           if (current())
-            origin?.append("Не удалось загрузить команды проекта.", "error");
+            origin?.showCommandFeedback(
+              "Не удалось загрузить команды проекта.",
+              "error",
+            );
         });
     return () => {
       abort.abort();
@@ -837,11 +841,12 @@ function OpenTuiScreen({
     !contextOnly &&
     !sidebarDrawer &&
     width >= 100 &&
-    layout.feedWidth - extensionPaneWidth(width) >= 48 &&
+    layout.feedWidth - extensionPaneWidth(layout.feedWidth) >= 42 &&
     hasExtensionPane;
   const textWidth = Math.max(
     1,
-    layout.feedWidth - (dockExtensionPane ? extensionPaneWidth(width) : 0),
+    layout.feedWidth -
+      (dockExtensionPane ? extensionPaneWidth(layout.feedWidth) : 0),
   );
   const composerWidth = home
     ? Math.max(1, Math.min(86, textWidth - 4))
@@ -2590,6 +2595,7 @@ function OpenTuiScreen({
         drafts: controller?.uiFormDrafts,
         paneState: controller?.uiCollapsedPanes,
         items: view.uiContributions ?? [],
+        feedback: view.extensionFeedback,
         palette,
         interactive:
           inputOwner === "main" || inputOwner.startsWith("ui-widget:"),
@@ -2883,7 +2889,7 @@ function OpenTuiScreen({
                 <UiPaneRegion
                   key={controller?.conversationId}
                   placement="sidebar"
-                  width={width}
+                  width={layout.feedWidth}
                 />
               )}
               {showSidebar && (
@@ -3031,11 +3037,17 @@ function OpenTuiScreen({
         )}
         {commandFeedbackActive && view.commandFeedback && controller && (
           <OpenTuiCommandFeedback
+            key={view.commandFeedback.id}
             feedback={view.commandFeedback}
             owner={feedbackOwner}
             width={width}
             height={height}
             palette={palette}
+            onAction={({ action, extensionId }) => {
+              void (uiBinding
+                ? uiBinding.chat(action.target, action.action, extensionId)
+                : dispatchCoreChat(controller, action.target, action.action));
+            }}
             onClose={() => {
               const id = view.commandFeedback?.id;
               if (id !== undefined) controller.dismissCommandFeedback(id);

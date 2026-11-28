@@ -229,6 +229,13 @@ const idle = async () =>
     () => !setup.captureCharFrame().includes("Enter в очередь"),
     "Operation remained busy",
   );
+const closeCommandResult = async () => {
+  const popup = () =>
+    setup.renderer.root.findDescendantById("command-feedback-popup");
+  await until(() => !!popup(), "Нет отдельного результата команды");
+  await key("RETURN");
+  await until(() => !popup(), "Результат команды не закрылся");
+};
 const captures = process.env.CHISEL_CAPTURE_DIR;
 const capture = async (state: string) => {
   if (!captures) return;
@@ -326,6 +333,7 @@ try {
       "Create incomplete",
     );
     await idle();
+    await closeCommandResult();
   }
   const [a, b] = await records();
   assert.ok(a && b);
@@ -335,7 +343,7 @@ try {
   for (const tree of [a, b]) {
     await send(`/worktree open ${tree.id}`);
     await until(
-      () => setup.captureCharFrame().includes(`Рабочая копия: ${tree.label}`),
+      () => setup.captureCharFrame().includes(tree.label),
       "Open did not select managed root",
     );
     await idle();
@@ -392,6 +400,7 @@ try {
   );
   await idle();
   await capture("active-remove-refusal-120x40");
+  await closeCommandResult();
   await send("/permissions default");
   await frame();
   await send(`/worktree apply ${a.id}`);
@@ -402,6 +411,7 @@ try {
     "Apply failed",
   );
   await idle();
+  await closeCommandResult();
   await send(`/worktree apply ${b.id}`);
   await until(
     () => setup.captureCharFrame().includes("WORKTREE_CONFLICT"),
@@ -409,6 +419,7 @@ try {
   );
   await idle();
   await capture("conflict-120x40");
+  await closeCommandResult();
   await send("/btw Что изолировано в рабочей копии?");
   await until(
     () => setup.captureCharFrame().includes("Побочный вопрос продолжает"),
@@ -470,6 +481,7 @@ try {
     "Closed dirty tree not preserved",
   );
   await idle();
+  await closeCommandResult();
   await send("/exit");
   await application;
   await waitForLspProcessExit(pids);

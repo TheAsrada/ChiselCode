@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { execa } from "execa";
 import { act } from "react";
@@ -309,7 +309,7 @@ try {
   await until(
     () =>
       !t.renderer.root.findDescendantById("worktrees-popup") &&
-      t.captureCharFrame().includes("Рабочая копия: Новая аналитика"),
+      t.captureCharFrame().includes("Новая аналитика"),
     "Managed root not opened",
   );
   await send("/permissions acceptEdits");
@@ -407,7 +407,7 @@ try {
   await until(
     () =>
       !t.renderer.root.findDescendantById("worktrees-popup") &&
-      t.captureCharFrame().includes("Основной проект:"),
+      t.captureCharFrame().includes(basename(root)),
     "Origin navigation failed",
   );
   await openManager();

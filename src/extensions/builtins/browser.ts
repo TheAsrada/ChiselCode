@@ -11,8 +11,11 @@ import type {
   ToolSpec,
 } from "../../tools/types.js";
 import type { ChiselExtension } from "../contracts.js";
+import { createServiceToken } from "../services.js";
 
 export const browserId = "builtin.browser";
+export const browserServiceToken =
+  createServiceToken<BrowserService>("browser.workspace");
 const ns = `ext:${browserId}:`;
 const empty = z.object({}).strict();
 const tab = z.object({
@@ -147,6 +150,7 @@ export function createBrowserExtension(
       if (!(await policy()).enabled) return;
       const service = new BrowserService(ctx.workspaceRoot, options.configPath);
       ctx.add(service);
+      ctx.services.provide(browserServiceToken, service);
       ctx.chat.register({
         id: "operation",
         render(value) {

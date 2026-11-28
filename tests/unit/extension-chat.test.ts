@@ -206,7 +206,7 @@ test("card revisions are scoped to the extension and leave the main stream and d
   controller.dispose();
 });
 
-test("saved command cards replay after an extension is absent without changing provider messages", async () => {
+test("legacy standalone command cards stay outside the restored transcript", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-chat-replay-"));
   const variable =
     process.platform === "win32" ? "LOCALAPPDATA" : "XDG_DATA_HOME";
@@ -231,10 +231,10 @@ test("saved command cards replay after an extension is absent without changing p
     expect(restored.messages).toEqual(session.messages);
     const controller = new TuiController(root);
     replaySessionIntoTranscript(controller, restored);
-    expect(controller.snapshot.transcript[1]?.chatCard).toEqual({
-      extensionId: "vendor/report",
-      card: report,
-    });
+    expect(controller.snapshot.transcript).toHaveLength(1);
+    expect(restored.chatPresentations?.[0]?.presentation.view.cards).toEqual([
+      report,
+    ]);
     expect(
       controller.snapshot.transcript.some((item) =>
         item.text.includes("[extension]"),

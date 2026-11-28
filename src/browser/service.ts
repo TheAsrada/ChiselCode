@@ -177,7 +177,7 @@ export class BrowserService {
 
   setPresentation(
     id: string | undefined,
-    update: { draft?: string; section?: Owner["section"] },
+    update: { draft?: string; section?: Owner["section"]; visible?: boolean },
   ) {
     const owner = id ? this.owners.get(id) : undefined;
     if (!owner || owner.closing) return;
@@ -187,8 +187,14 @@ export class BrowserService {
 
   async toggle(identity: ConversationToolOwner) {
     await this.policy();
+    return this.setPanel(identity);
+  }
+
+  setPanel(identity: ConversationToolOwner, visible?: boolean) {
+    if (this.disposed)
+      throw new RuntimeError("BROWSER_ACCESS_DENIED", "Браузер отключён.");
     const owner = this.owner(identity);
-    owner.visible = !owner.visible;
+    owner.visible = visible ?? !owner.visible;
     this.changed();
     return owner.visible;
   }

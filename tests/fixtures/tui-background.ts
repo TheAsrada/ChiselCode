@@ -352,6 +352,26 @@ try {
   );
   await capture("ordinary-tui-120x40-background-main");
   assert.equal(await readFile(join(root, "launches.txt"), "utf8"), "one\n");
+  const mark = "MANUAL_EXTENSION_TASK";
+  await send(`/tasks start echo ${mark}`);
+  const feedback = () =>
+    ui.renderer.root.findDescendantById("command-feedback-popup");
+  await until(() => !!feedback(), "Нет результата ручного запуска");
+  await key("return");
+  await until(() => !feedback(), "Окно результата не закрылось");
+  assert.ok(
+    !ui.captureCharFrame().includes(mark),
+    "Ручной процесс попал в чат",
+  );
+  await send("/tasks");
+  await until(
+    () =>
+      !!ui.renderer.root.findDescendantById("background-tasks-popup") &&
+      ui.captureCharFrame().includes(mark),
+    "Ручная задача отсутствует в списке",
+  );
+  assert.equal(calls, 2, "Ручная команда обратилась к модели");
+  await key("escape");
   await send("/exit");
   await application;
   console.log(

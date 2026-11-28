@@ -58,8 +58,43 @@ export function extensionCommandLabel(command: {
   source: { extensionId: string };
 }): string {
   return terminalLine(
-    command.chat?.title ??
-      `[extension] /${command.name} · ${command.source.extensionId}`,
+    command.chat?.title ?? `/${command.name} · ${command.source.extensionId}`,
     500,
+  );
+}
+
+export function extensionResultFeedback(
+  title: string,
+  result: ToolExecutionResult,
+): import("./tui-controller.js").ExtensionFeedback {
+  const failed = result.isError || result.requiresApproval;
+  const presentation = failed ? undefined : resultChatPresentation(result);
+  const message = presentation
+    ? [
+        ...(presentation.view.cards ?? []).map(chatCardText),
+        presentation.view.summary,
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    : result.output;
+  return {
+    title,
+    message: terminalSafeText(message, 20_000) || undefined,
+    tone: failed ? "error" : "info",
+  };
+}
+
+export function extensionResultActions(
+  result: ToolExecutionResult,
+): import("./tui-controller.js").CommandFeedbackAction[] | undefined {
+  if (result.isError || result.requiresApproval) return;
+  const presentation = resultChatPresentation(result);
+  return presentation?.view.cards?.flatMap((card) =>
+    [
+      ...(card.target
+        ? [{ label: "Открыть", action: "open" as const, target: card.target }]
+        : []),
+      ...(card.actions ?? []),
+    ].map((action) => ({ extensionId: presentation.extensionId, action })),
   );
 }

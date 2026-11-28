@@ -83,6 +83,17 @@ export interface TranscriptEntry {
   toolBoundary?: string;
 }
 
+export interface ExtensionFeedback {
+  title: string;
+  message?: string;
+  tone: "info" | "error" | "pending";
+}
+
+export interface CommandFeedbackAction {
+  extensionId: string;
+  action: NonNullable<ChatCard["actions"]>[number];
+}
+
 export interface TuiViewState {
   lspMenuRequest?: number;
   uiContributions?: readonly import("../extensions/ui-types.js").OwnedUiContribution[];
@@ -150,7 +161,14 @@ export interface TuiViewState {
   worktree?: Session["worktree"];
   projectPath?: string;
   projectPicker?: { id: number; message?: string };
-  commandFeedback?: { id: number; entries: readonly TranscriptEntry[] };
+  commandFeedback?: {
+    id: number;
+    entries: readonly (TranscriptEntry & {
+      actions?: CommandFeedbackAction[];
+    })[];
+  };
+  extensionActivity?: string;
+  extensionFeedback?: Readonly<Record<string, ExtensionFeedback>>;
   transcript: readonly TranscriptEntry[];
   streaming: string;
   toolActivity?: string;
@@ -250,6 +268,7 @@ export class TuiPresentationController implements TuiTranscript {
     return this.draftRevision;
   }
   private compactionNotices = new Set<string>();
+  private localToolInvocations = new Set<string>();
   private gitSource = new GitChangesSource();
   private state: TuiViewState;
 
@@ -339,7 +358,16 @@ export class TuiPresentationController implements TuiTranscript {
   ): void {
     // Successful local actions already update their UI; home keeps no success log.
     if (tone !== "error" && tone !== "warn") return;
-    const entry = { id: this.serial++, text, tone, fileDiff };
+    this.showCommandFeedback(text, tone, fileDiff);
+  }
+
+  showCommandFeedback(
+    text: string,
+    tone: TranscriptTone,
+    fileDiff?: FileDiff,
+    actions?: CommandFeedbackAction[],
+  ): void {
+    const entry = { id: this.serial++, text, tone, fileDiff, actions };
     this.update({
       commandFeedback: {
         id: entry.id,
@@ -351,6 +379,16 @@ export class TuiPresentationController implements TuiTranscript {
   dismissCommandFeedback(id: number): void {
     if (this.state.commandFeedback?.id !== id) return;
     this.update({ commandFeedback: undefined });
+  }
+
+  setExtensionActivity(extensionActivity?: string): void {
+    this.update({ extensionActivity });
+  }
+
+  setExtensionFeedback(key: string, feedback: ExtensionFeedback): void {
+    this.update({
+      extensionFeedback: { ...this.state.extensionFeedback, [key]: feedback },
+    });
   }
 
   appendNotice(text: string, tone: TranscriptTone = "info"): void {
@@ -468,6 +506,10 @@ export class TuiPresentationController implements TuiTranscript {
       });
   }
 
+  trackExtensionTool(invocationId: string): void {
+    this.localToolInvocations.add(invocationId);
+  }
+
   /** Progress updates the original task card without committing the main stream. */
   upsertCard(extensionId: string, card: ChatCard): void {
     if (this.ownerSignal.aborted) return;
@@ -568,8 +610,11 @@ export class TuiPresentationController implements TuiTranscript {
   clear(): void {
     this.presentation.actions = createActionPresentation();
     this.compactionNotices.clear();
+    this.localToolInvocations.clear();
     this.update({
       commandFeedback: undefined,
+      extensionActivity: undefined,
+      extensionFeedback: undefined,
       transcript: [],
       streaming: "",
       toolActivity: undefined,
@@ -870,6 +915,7 @@ export class TuiPresentationController implements TuiTranscript {
     this.presentation.actions = createActionPresentation();
     this.generation++;
     this.compactionNotices.clear();
+    this.localToolInvocations.clear();
     this.presentation.windowEnd = undefined;
     this.presentation.expanded = false;
     this.presentation.expandedDiffIds.clear();
@@ -893,8 +939,25 @@ export class TuiPresentationController implements TuiTranscript {
       draft: "",
       focus: "composer",
     };
-    if (session && "messages" in session)
-      this.conversation.restore(session as Session);
+    if (session && "messages" in session) {
+      const loaded = session as Session;
+      this.conversation.restore(loaded);
+      const modelInvocations = new Set(
+        loaded.messages.flatMap((message) =>
+          message.content.flatMap((block) =>
+            block.type === "tool_use" ? [block.id] : [],
+          ),
+        ),
+      );
+      for (const invocationId of [
+        ...Object.keys(loaded.runtime?.invocations ?? {}),
+        ...Object.values(loaded.children ?? {}).map(
+          ({ child }) => child.invocationId,
+        ),
+      ])
+        if (!modelInvocations.has(invocationId))
+          this.trackExtensionTool(invocationId);
+    }
     this.renderer?.clear();
     this.notify();
     this.refreshGitChanges();
@@ -944,7 +1007,10 @@ export class TuiPresentationController implements TuiTranscript {
         (a, b) => a.ordinal - b.ordinal,
       ),
     });
-    if (event.presentation?.extensionId === "builtin.background") {
+    if (
+      event.presentation?.extensionId === "builtin.background" &&
+      !this.localToolInvocations.has(event.task.invocationId)
+    ) {
       if (event.task.foreground) {
         const card = event.presentation.view.cards?.[0];
         if (card)
@@ -1386,7 +1452,8 @@ export class TuiPresentationController implements TuiTranscript {
     }
     if (
       event.presentation &&
-      event.presentation.extensionId === event.child.extensionId
+      event.presentation.extensionId === event.child.extensionId &&
+      !this.localToolInvocations.has(event.child.invocationId)
     )
       appendChatPresentation(this, event.presentation);
   }
