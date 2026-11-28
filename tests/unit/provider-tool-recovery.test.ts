@@ -11,6 +11,7 @@ import {
   type RuntimeOptions,
 } from "../../src/runtime/agent-runtime.js";
 import { RuntimeEventBus } from "../../src/runtime/events.js";
+import { retryProviderStream } from "../../src/runtime/provider-stream.js";
 import { TurnRunner } from "../../src/runtime/turn-runner.js";
 import { ApprovalGate } from "../../src/security/approval.js";
 import { createSession } from "../../src/sessions/store.js";
@@ -841,3 +842,48 @@ for (const scenario of [
     expect(setup.session.runtime?.invocations).toEqual({});
   }, 2500);
 }
+
+test("the shared deadline aborts an active retry and preserves the previous provider code", async () => {
+  let calls = 0;
+  let aborted = false;
+  const provider: ProviderAdapter = {
+    providerId: "deadline-fixture",
+    async *streamChat({ signal }) {
+      if (++calls === 1) {
+        yield {
+          type: "error",
+          code: "unavailable",
+          upstreamCode: "server_error",
+          retryAfterMs: 0,
+          message: "busy",
+        };
+        return;
+      }
+      await new Promise<void>((resolve) =>
+        signal?.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            resolve();
+          },
+          { once: true },
+        ),
+      );
+    },
+  };
+  const events = await Array.fromAsync(
+    retryProviderStream(
+      provider,
+      { model: "fixture", system: "", messages: [], tools: [] },
+      { deadlineMs: 150 },
+    ),
+  );
+  expect(calls).toBe(2);
+  expect(aborted).toBe(true);
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    type: "error",
+    code: "timeout",
+    upstreamCode: "server_error",
+  });
+});

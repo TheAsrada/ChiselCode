@@ -159,8 +159,10 @@ export async function* retryProviderStream(
           }
         }
       } catch (error) {
-        if (error instanceof RuntimeError && !signal.aborted) throw error;
-        failure = normalizeProviderError(error, request.signal);
+        if (!signal.aborted) {
+          if (error instanceof RuntimeError) throw error;
+          failure = normalizeProviderError(error);
+        }
       }
       if (request.signal?.aborted) failure = cancel();
       else if (signal.aborted || performance.now() >= deadline)
