@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ContextManager } from "../context/context-manager.js";
 import { partitionTranscript } from "../context/partition.js";
 import type { ContextCollectionPort } from "../extensions/contracts.js";
-import { ProviderError } from "../providers/errors.js";
+import { ProviderError, providerErrorDiagnostic } from "../providers/errors.js";
 import {
   type ApprovalMode,
   approvalModeInstructions,
@@ -465,7 +465,12 @@ export class AgentRuntime {
         status: isCancelled ? "cancelled" : "failed",
         text: finalText,
         session,
-        error: error instanceof Error ? error.message : String(error),
+        error:
+          error instanceof ProviderError
+            ? providerErrorDiagnostic(error)
+            : error instanceof Error
+              ? error.message
+              : String(error),
         errorCode:
           error instanceof ProviderError
             ? error.code === "context_overflow"

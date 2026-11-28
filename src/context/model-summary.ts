@@ -1,5 +1,10 @@
 import { imageLabel } from "../media/image-attachment.js";
+import {
+  isProviderAccessError,
+  providerErrorFromEvent,
+} from "../providers/errors.js";
 import { cancelled } from "../runtime/errors.js";
+import { retryProviderStream } from "../runtime/provider-stream.js";
 import { StructuredSummarySchema } from "../sessions/schema.js";
 import type { ChatMessage, StreamEvent, TokenUsage } from "../types/domain.js";
 import { emptySummary } from "./summary.js";
@@ -39,7 +44,7 @@ export function summaryConversation(messages: ChatMessage[]): string {
     .join("\n\n");
 }
 
-/** Same configured model, no tools, no UI text deltas, one bounded auxiliary request. */
+/** Same configured model, no tools, no UI text deltas, one bounded auxiliary response. */
 export const modelSummarizer: ContextSummarizer = async (input) => {
   cancelled(input.signal);
   const window = input.contextWindow;
@@ -66,26 +71,36 @@ export const modelSummarizer: ContextSummarizer = async (input) => {
     window - maxTokens - Math.ceil(window * 0.05),
   );
   if (requestTokens(SYSTEM, messages, []) > inputLimit) return;
-  const timeout = AbortSignal.timeout(60_000);
-  const signal = input.signal
-    ? AbortSignal.any([input.signal, timeout])
-    : timeout;
   let completed: Extract<StreamEvent, { type: "turn_complete" }> | undefined;
   let usage: TokenUsage | undefined;
   let failed = false;
+  let accessFailure: ReturnType<typeof providerErrorFromEvent> | undefined;
   try {
-    for await (const event of input.provider.streamChat({
-      model: input.model,
-      system: SYSTEM,
-      messages,
-      tools: [],
-      maxTokens,
-      signal,
-      purpose: "context_summary",
-    })) {
+    for await (const event of retryProviderStream(
+      input.provider,
+      {
+        model: input.model,
+        system: SYSTEM,
+        messages,
+        tools: [],
+        maxTokens,
+        signal: input.signal,
+        purpose: "context_summary",
+      },
+      {
+        deadlineMs: 60_000,
+        onRetry: async (failure) => {
+          if (failure.usage) await input.onUsage(failure.usage);
+        },
+      },
+    )) {
       cancelled(input.signal);
       if (event.type === "error" || event.type === "tool_call") failed = true;
-      if (event.type === "error" && event.usage) usage = event.usage;
+      if (event.type === "error") {
+        usage = event.usage ?? usage;
+        const failure = providerErrorFromEvent(event);
+        if (isProviderAccessError(failure)) accessFailure = failure;
+      }
       if (event.type === "turn_complete") {
         if (completed) failed = true;
         else {
@@ -96,6 +111,7 @@ export const modelSummarizer: ContextSummarizer = async (input) => {
     }
     cancelled(input.signal);
     if (usage) await input.onUsage(usage);
+    if (accessFailure) throw accessFailure;
     if (
       failed ||
       !completed ||
@@ -119,8 +135,9 @@ export const modelSummarizer: ContextSummarizer = async (input) => {
     )
       return;
     return summary;
-  } catch {
+  } catch (error) {
     cancelled(input.signal);
+    if (isProviderAccessError(error)) throw error;
     return;
   }
 };

@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import { abortable } from "../extensions/lifecycle.js";
 import { addTokenUsage, emptySpend } from "../models/accounting.js";
 import { StreamingModelRedactor } from "../models/redaction.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
 import type { ProviderDefinition } from "../providers/contracts.js";
 import { estimateProviderCost } from "../providers/cost.js";
-import { normalizeProviderError, ProviderError } from "../providers/errors.js";
+import {
+  normalizeProviderError,
+  ProviderError,
+  providerErrorEvent,
+} from "../providers/errors.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { SecretRedactor } from "../security/redaction.js";
 import type {
@@ -80,7 +83,7 @@ export class ChildAccounting {
   }
 }
 
-/** Same production driver. One controlled retry layer, including compaction requests. */
+/** Account for each physical request made by the common runtime. */
 export function childProvider(input: {
   adapter: ProviderAdapter;
   definition: ProviderDefinition;
@@ -100,123 +103,89 @@ export function childProvider(input: {
       )),
       tokenCounting: "local_estimate",
     }),
-    // Local counting avoids an unbounded auxiliary SDK request; accounting remains estimated.
     async *streamChat(raw) {
-      let last: unknown;
-      for (let retry = 0; retry < 3; retry++) {
-        cancelled(input.signal);
-        await input.beforeRequest();
-        const request: ProviderRequest = {
-          ...raw,
-          signal: raw.signal
-            ? AbortSignal.any([input.signal, raw.signal])
-            : input.signal,
-          transport: {
-            maxRetries: 0,
-            compatibilityRetries: false,
-            validateTerminal: true,
-          },
-        };
-        const attempt = await input.accounting.start(request);
-        const redaction = new StreamingModelRedactor(input.redactor);
-        let usage: TokenUsage | undefined;
-        let observed = false;
-        let delivered = false;
-        let terminal:
-          | Extract<StreamEvent, { type: "turn_complete" }>
-          | undefined;
-        let error: Extract<StreamEvent, { type: "error" }> | undefined;
-        try {
-          for await (const event of input.adapter.streamChat(request)) {
-            if (event.type === "turn_complete") {
-              usage = event.usage;
-              observed = event.usageObserved !== false;
-            }
-            if (event.type === "error" && event.usage) usage = event.usage;
-            if (request.signal?.aborted)
-              throw new ProviderError("cancelled", "Запрос помощника отменён.");
-            if (event.type === "thinking_delta") continue;
-            if (event.type === "error") {
-              error = event;
-              break;
-            }
-            if (event.type === "text_delta") {
-              delivered = true;
-              const text = redaction.push(event.text);
-              if (text) yield { type: "text_delta", text };
-            } else if (event.type === "turn_complete") {
-              if (terminal)
-                throw new ProviderError(
-                  "transport",
-                  "Повторное финальное сообщение провайдера.",
-                );
-              terminal = {
-                ...event,
-                message: input.redactor.value(event.message),
-              };
-            } else if (event.type === "tool_call") {
-              yield {
-                type: "tool_call",
-                call: input.redactor.value(event.call),
-              };
-            }
-          }
-          if (error) {
-            last = new ProviderError(
-              error.code ?? "transport",
-              input.redactor.text(error.message),
-            );
+      cancelled(input.signal);
+      await input.beforeRequest();
+      const request: ProviderRequest = {
+        ...raw,
+        signal: raw.signal
+          ? AbortSignal.any([input.signal, raw.signal])
+          : input.signal,
+        transport: {
+          ...raw.transport,
+          maxRetries: 0,
+          compatibilityRetries: false,
+          validateTerminal: true,
+        },
+      };
+      const attempt = await input.accounting.start(request);
+      const redaction = new StreamingModelRedactor(input.redactor);
+      let usage: TokenUsage | undefined;
+      let terminal: Extract<StreamEvent, { type: "turn_complete" }> | undefined;
+      try {
+        for await (const event of input.adapter.streamChat(request)) {
+          if (
+            event.type === "turn_complete" ||
+            (event.type === "error" && event.usage)
+          )
+            usage = event.usage;
+          cancelled(request.signal);
+          if (event.type === "error") {
             await input.accounting.complete(
               attempt,
               usage,
               false,
               input.definition,
             );
-            if (
-              !delivered &&
-              retry < 2 &&
-              error.status &&
-              (error.status === 429 || error.status >= 500)
-            ) {
-              const wait = error.retryAfterMs ?? 250 * 2 ** retry;
-              await delay(wait, undefined, { signal: request.signal });
-              continue;
-            }
-            const partial = redaction.flush();
-            if (partial) yield { type: "text_delta", text: partial };
-            yield { ...error, message: input.redactor.text(error.message) };
+            yield { ...event, message: input.redactor.text(event.message) };
             return;
           }
-          const tail = redaction.flush();
-          if (tail) yield { type: "text_delta", text: tail };
-          await input.accounting.complete(
-            attempt,
-            usage,
-            observed,
-            input.definition,
-          );
-          if (terminal) yield terminal;
-          return;
-        } catch (error) {
-          const tail = redaction.flush();
-          if (tail && !input.signal.aborted)
-            yield { type: "text_delta", text: tail };
-          await input.accounting.complete(
-            attempt,
-            usage,
-            observed,
-            input.definition,
-          );
-          if (error instanceof RuntimeError) throw error;
-          const failure = normalizeProviderError(error, request.signal);
-          last = failure;
-          throw new ProviderError(
-            failure.code,
-            input.redactor.text(failure.message),
-          );
+          if (event.type === "thinking_delta") continue;
+          if (event.type === "text_delta") {
+            const text = redaction.push(event.text);
+            if (text) yield { type: "text_delta", text };
+          } else if (event.type === "turn_complete") {
+            if (terminal)
+              throw new ProviderError(
+                "transport",
+                "Повторное финальное сообщение провайдера.",
+              );
+            terminal = {
+              ...event,
+              message: input.redactor.value(event.message),
+            };
+          } else if (event.type === "tool_call") {
+            yield { type: "tool_call", call: input.redactor.value(event.call) };
+          }
         }
+        const tail = redaction.flush();
+        if (tail) yield { type: "text_delta", text: tail };
+        await input.accounting.complete(
+          attempt,
+          usage,
+          !!terminal && terminal.usageObserved !== false,
+          input.definition,
+        );
+        if (terminal) yield terminal;
+      } catch (error) {
+        await input.accounting.complete(
+          attempt,
+          usage,
+          false,
+          input.definition,
+        );
+        if (error instanceof RuntimeError) throw error;
+        const failure = normalizeProviderError(error, request.signal);
+        failure.message = input.redactor.text(failure.message);
+        yield providerErrorEvent(failure, usage);
+      } finally {
+        await input.accounting.complete(
+          attempt,
+          usage,
+          false,
+          input.definition,
+        );
       }
-      throw last ?? new ProviderError("transport", "Сервис модели недоступен.");
     },
   };
 }

@@ -5,6 +5,7 @@ import type { ReasoningEffortCapability } from "../../../providers/capabilities.
 import {
   normalizeProviderError,
   ProviderError,
+  providerErrorEvent,
 } from "../../../providers/errors.js";
 import { loadImageInputs } from "../../../providers/image-input.js";
 import { parseToolArguments } from "../../../providers/tool-arguments.js";
@@ -18,6 +19,7 @@ import type {
 } from "../../../types/domain.js";
 import {
   type ChatGptTransport,
+  chatGptResponseError,
   readChatGptJson,
   responseEvents,
 } from "./transport.js";
@@ -341,26 +343,7 @@ export class ChatGptAdapter implements ProviderAdapter {
           if (item.data?.type === "reasoning") yield { type: "thinking_start" };
           if (item.data?.type === "function_call") yield { type: "tool_delta" };
         } else if (event.type === "response.failed" || event.type === "error") {
-          const failed = z
-            .object({
-              error: z.object({ code: z.string().optional() }).nullish(),
-            })
-            .safeParse(event.response ?? event);
-          const code = failed.success ? failed.data.error?.code : undefined;
-          throw new ProviderError(
-            code === "context_length_exceeded"
-              ? "context_overflow"
-              : code === "usage_limit_reached" || code === "rate_limit_exceeded"
-                ? "rate_limit"
-                : code === "model_not_found"
-                  ? "model_not_found"
-                  : "unavailable",
-            code === "context_length_exceeded"
-              ? "Превышено окно контекста ChatGPT."
-              : code === "usage_limit_reached" || code === "rate_limit_exceeded"
-                ? "Лимит подписки ChatGPT исчерпан."
-                : "ChatGPT не завершил ответ. Повторите запрос.",
-          );
+          throw chatGptResponseError(event.response ?? event, response.headers);
         } else if (event.type === "response.incomplete") {
           throw new ProviderError(
             "output_truncated",
@@ -450,19 +433,15 @@ export class ChatGptAdapter implements ProviderAdapter {
         throw new ProviderError(
           "transport",
           "Поток ChatGPT оборвался до завершения ответа.",
+          undefined,
+          true,
         );
     } catch (error) {
       const failure =
         signal.aborted && !request.signal?.aborted
           ? new ProviderError("timeout", "Превышено время ожидания ChatGPT.")
           : normalizeProviderError(error, request.signal);
-      yield {
-        type: "error",
-        message: failure.message,
-        code: failure.code,
-        status: failure.status,
-        retryAfterMs: failure.retryAfterMs,
-      };
+      yield providerErrorEvent(failure);
     }
   }
 }

@@ -11,7 +11,7 @@ import {
   credentialDirectory,
 } from "../../../security/credentials.js";
 import { withLock } from "../../../sessions/lock.js";
-import { readChatGptJson } from "./transport.js";
+import { chatGptResponseError, readChatGptJson } from "./transport.js";
 
 const ISSUER = "https://auth.openai.com";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -270,13 +270,23 @@ export class ChatGptAuth implements ProviderConnection {
           ]),
         );
         if (!response.ok) {
-          await response.body?.cancel();
-          if (response.status === 400 || response.status === 401)
-            throw loginRequired();
-          throw new ProviderError(
-            "unavailable",
-            `Не удалось обновить вход в ChatGPT (HTTP ${response.status}).`,
+          const body = await readChatGptJson(response).catch(() => undefined);
+          signal?.throwIfAborted();
+          const failure = chatGptResponseError(
+            body,
+            response.headers,
+            response.status,
           );
+          if (response.status === 400)
+            throw new ProviderError(
+              "authentication",
+              loginRequired().message,
+              failure.status,
+              false,
+              failure.retryAfterMs,
+              failure.upstreamCode,
+            );
+          throw failure;
         }
         const refreshed = this.session(await readChatGptJson(response), latest);
         signal?.throwIfAborted();

@@ -16,6 +16,7 @@ export function attachSessionRecorder(
     if (
       (event.type === "context_summary_usage" ||
         event.type === "provider_failed" ||
+        event.type === "provider_request_retrying" ||
         event.type === "extension_notice") &&
       event.usage
     ) {

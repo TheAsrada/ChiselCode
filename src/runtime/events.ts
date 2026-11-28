@@ -12,6 +12,7 @@ import type { TurnState } from "./turn-state.js";
 export type RuntimeEventType =
   | "turn_state"
   | "provider_request_started"
+  | "provider_request_retrying"
   | "provider_text_delta"
   | "provider_thinking_delta"
   | "provider_tool_delta"
@@ -49,6 +50,9 @@ export interface RuntimeEvent {
   usage?: TokenUsage;
   state?: TurnState | ToolInvocationState;
   errorCode?: string;
+  upstreamCode?: string;
+  providerStatus?: number;
+  retryAfterMs?: number;
   durationMs?: number;
   progress?: number;
   total?: number;

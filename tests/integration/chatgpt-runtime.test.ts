@@ -15,10 +15,11 @@ import { CredentialStore } from "../../src/security/credentials.js";
 import { createSession } from "../../src/sessions/store.js";
 import { createLocalToolRuntime } from "../../src/tools/local-runtime.js";
 
-test("ChatGPT device login, encrypted profile, live HTTP Responses and real file tool complete an agent turn", async () => {
+test("ChatGPT device login, encrypted profile, HTTP Responses retries after a real file write in the same turn", async () => {
   const root = await mkdtemp(join(tmpdir(), "chisel-chatgpt-runtime-"));
   const token = `header.${Buffer.from(JSON.stringify({ email: "fixture@example.test", "https://api.openai.com/auth": { chatgpt_account_id: "fixture-account" } })).toString("base64url")}.signature`;
   let generations = 0;
+  let writes = 0;
   const inputs: unknown[][] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -67,6 +68,25 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
       expect(body.store).toBe(false);
       inputs.push(body.input);
       generations++;
+      if (generations === 2)
+        return new Response(
+          'data: {"type":"response.output_text.delta","delta":"Файл "}\n\n' +
+            'data: {"type":"error","code":"server_error"}\n\n',
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Retry-After": "0",
+            },
+          },
+        );
+      if (generations === 3)
+        return Response.json(
+          { error: { code: "overloaded_error" } },
+          {
+            status: 503,
+            headers: { "Retry-After": "0" },
+          },
+        );
       const output =
         generations === 1
           ? [
@@ -159,12 +179,35 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
     const events = new RuntimeEventBus(session.id);
     const activity: Pick<
       import("../../src/runtime/events.js").RuntimeEvent,
-      "type" | "text" | "afterToolResults"
+      | "type"
+      | "text"
+      | "afterToolResults"
+      | "upstreamCode"
+      | "retryAfterMs"
+      | "turnId"
     >[] = [];
-    events.subscribe(({ type, text, afterToolResults }) => {
-      if (type.startsWith("provider_"))
-        activity.push({ type, text, afterToolResults });
-    });
+    events.subscribe(
+      ({
+        type,
+        text,
+        afterToolResults,
+        name,
+        upstreamCode,
+        retryAfterMs,
+        turnId,
+      }) => {
+        if (type === "tool_started" && name === "write_file") writes++;
+        if (type.startsWith("provider_"))
+          activity.push({
+            type,
+            text,
+            afterToolResults,
+            upstreamCode,
+            retryAfterMs,
+            turnId,
+          });
+      },
+    );
     const gate = new ApprovalGate(
       DEFAULT_PROJECT_CONFIG,
       {
@@ -207,7 +250,11 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
     expect(await readFile(join(root, "result.txt"), "utf8")).toBe(
       "Подписка работает\n",
     );
-    expect(generations).toBe(2);
+    expect(result.status).toBe("completed");
+    expect(generations).toBe(4);
+    expect(writes).toBe(1);
+    expect(inputs[2]).toEqual(inputs[1]);
+    expect(inputs[3]).toEqual(inputs[1]);
     const [initialInput, toolInput] = inputs;
     const uiObservation = {
       role: "user",
@@ -253,11 +300,27 @@ test("ChatGPT device login, encrypted profile, live HTTP Responses and real file
       "provider_tool_delta",
       "provider_turn_completed",
       "provider_request_started",
+      "provider_request_retrying",
+      "provider_request_retrying",
       "provider_text_delta",
       "provider_turn_completed",
     ]);
     expect(activity[1]?.text).toBeUndefined();
     expect(activity[4]?.afterToolResults).toBe(true);
+    expect(activity.map(({ turnId }) => turnId)).toEqual(
+      activity.map(() => result.session.runtime?.turnId),
+    );
+    expect(
+      activity.filter(({ type }) => type === "provider_request_retrying"),
+    ).toMatchObject([
+      { upstreamCode: "server_error", retryAfterMs: 0 },
+      { upstreamCode: "overloaded_error", retryAfterMs: 0 },
+    ]);
+    expect(
+      activity
+        .filter(({ type }) => type === "provider_text_delta")
+        .map(({ text }) => text),
+    ).toEqual(["Файл записан"]);
   } finally {
     server.stop(true);
     await rm(root, { recursive: true, force: true });

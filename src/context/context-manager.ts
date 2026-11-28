@@ -1,5 +1,6 @@
 import { imageLabel } from "../media/image-attachment.js";
 import type { ModelCapabilities } from "../providers/capabilities.js";
+import { isProviderAccessError } from "../providers/errors.js";
 import { cancelled, RuntimeError } from "../runtime/errors.js";
 import type { RuntimeEventBus } from "../runtime/events.js";
 import type {
@@ -289,8 +290,9 @@ export class ContextManager {
               });
             },
           });
-        } catch {
+        } catch (error) {
           cancelled(input.signal);
+          if (isProviderAccessError(error)) throw error;
         }
         cancelled(input.signal);
         if (summary) {
@@ -370,7 +372,11 @@ export class ContextManager {
       await this.events?.emit({
         type: "context_compaction_failed",
         compactionId: candidate.id,
-        errorCode: input.signal?.aborted ? "CANCELLED" : "SUMMARY_FAILED",
+        errorCode: input.signal?.aborted
+          ? "CANCELLED"
+          : isProviderAccessError(error)
+            ? error.code
+            : "SUMMARY_FAILED",
       });
       cancelled(input.signal);
       throw error;

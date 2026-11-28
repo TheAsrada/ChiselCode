@@ -165,11 +165,13 @@ export interface ProviderRequest {
   signal?: AbortSignal;
   /** Internal auxiliary request; adapters may avoid expensive reasoning. */
   purpose?: "context_summary" | "extension_request";
-  /** Core-owned per-request transport policy; absent preserves foreground SDK defaults. */
+  /** Core-owned per-request transport policy; absent uses driver defaults. */
   transport?: {
     maxRetries: number;
     timeoutMs?: number;
     compatibilityRetries?: boolean;
+    /** Remaining physical requests shared by runtime and compatibility retries. */
+    retryBudget?: { remaining: number };
     validateTerminal?: boolean;
   };
 }
@@ -195,7 +197,9 @@ export type StreamEvent =
       code?: ProviderErrorCode;
       usage?: TokenUsage;
       status?: number;
+      retryable?: boolean;
       retryAfterMs?: number;
+      upstreamCode?: string;
     };
 
 export interface ProviderAdapter {

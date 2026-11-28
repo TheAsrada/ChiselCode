@@ -18,7 +18,11 @@ import type {
   ReasoningEffortCapability,
 } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
-import { normalizeProviderError, ProviderError } from "../errors.js";
+import {
+  normalizeProviderError,
+  ProviderError,
+  providerErrorEvent,
+} from "../errors.js";
 import { loadImageInputs } from "../image-input.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import {
@@ -184,21 +188,26 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       });
     } catch (error) {
       if (
-        request.transport?.compatibilityRetries !== false &&
+        request.transport?.compatibilityRetries === false ||
+        normalizeProviderError(error, request.signal).code !== "bad_request"
+      )
+        throw error;
+      if (
         includeUsage &&
         error instanceof OpenAI.APIError &&
         error.status === 400 &&
-        /stream_options|include_usage/i.test(error.message)
+        /stream_options|include_usage/i.test(error.message) &&
+        takeCompatibilityRetry(request)
       ) {
         this.usageSupported = false;
         return this.createCompletionStream(request, useLegacyMaxTokens, false);
       }
       if (
-        request.transport?.compatibilityRetries !== false &&
         !useLegacyMaxTokens &&
         request.maxTokens !== undefined &&
         this.options.tokenLimitFallback &&
-        isTokenLimitError(error)
+        isTokenLimitError(error) &&
+        takeCompatibilityRetry(request)
       ) {
         return this.createCompletionStream(request, true, includeUsage);
       }
@@ -296,6 +305,8 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
         throw new ProviderError(
           "transport",
           "Provider stream ended without a finish marker.",
+          undefined,
+          true,
         );
       if (finishReason === "length")
         throw new ProviderError(
@@ -339,17 +350,11 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
       };
     } catch (error) {
       const failure = normalizeStreamError(error, request.signal);
-      yield {
-        type: "error",
-        message:
-          error instanceof SyntaxError
-            ? failure.message
-            : formatOpenAIError(error),
-        code: failure.code,
-        status: failure.status,
-        retryAfterMs: failure.retryAfterMs,
-        usage: observedUsage,
-      };
+      if (failure.code === "quota_exhausted")
+        failure.message = "Квота провайдера исчерпана.";
+      else if (!(error instanceof SyntaxError))
+        failure.message = formatOpenAIError(error);
+      yield providerErrorEvent(failure, observedUsage);
     }
   }
 
@@ -416,6 +421,15 @@ export class OpenAIProtocolAdapter implements ProviderAdapter {
   async countTokens(): Promise<undefined> {
     return undefined;
   }
+}
+
+function takeCompatibilityRetry(request: ProviderRequest): boolean {
+  if (request.signal?.aborted) return false;
+  const budget = request.transport?.retryBudget;
+  if (!budget) return true;
+  if (budget.remaining === 0) return false;
+  budget.remaining--;
+  return true;
 }
 
 /**

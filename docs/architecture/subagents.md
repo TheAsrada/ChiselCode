@@ -40,7 +40,7 @@ Application ApprovalArbiter не вытесняет активный запро�
 
 Model capabilities передаются без уменьшения до искусственных потолков. Обычный ContextManager с auto-compaction обрабатывает историю родителя отдельно от закреплённого актуального поручения. Handoff не проходит через display clipping; полный большой результат сохраняется в родительский artifact store, preview ограничивается отдельно. Tool calls/results остаются атомарными units. Реальное переполнение обязательного контекста возвращает штатную ошибку окна модели.
 
-Transport использует настоящие drivers с SDK retries 0, compatibility fallback disabled и strict terminal validation. Единственный retry layer допускает максимум три попытки одного запроса после явного 429/5xx до text и соблюдает Retry-After. Общего deadline или квоты attempts помощника нет. Таймаут отдельного запроса наследуется от обычного SDK driver; отсутствие override не передаёт `timeout: undefined` в SDK. После partial/network ambiguity повтор всего поручения отсутствует. Native count_tokens заменён локальным подсчётом; это estimated planning, не provider billing.
+Помощники используют [общую политику повторов](provider-streams.md#решение-о-повторе-запроса). Их обёртка применяет политику доступа и записывает расход каждой попытки. Она отключает повторы совместимости, а драйвер проверяет завершение потока. Native `count_tokens` заменён локальной оценкой для подготовки запроса.
 
 ## Запись и расходы
 

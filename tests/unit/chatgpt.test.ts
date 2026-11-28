@@ -486,7 +486,7 @@ for (const scenario of [
       type: "error",
       code:
         scenario === "rate-limit"
-          ? "rate_limit"
+          ? "quota_exhausted"
           : scenario === "invalid-tool"
             ? "invalid_tool_arguments"
             : scenario === "incomplete"
@@ -539,4 +539,95 @@ test("quota uses observed windows, caches per profile, updates from headers and 
       (window) => window.id === "secondary",
     )?.remaining,
   ).toBe(35);
+});
+
+for (const [status, upstreamCode, code, retryable] of [
+  [503, "server_error", "unavailable", true],
+  [429, "rate_limit_exceeded", "rate_limit", true],
+  [429, "usage_limit_reached", "quota_exhausted", false],
+  [401, "invalid_token", "authentication", false],
+] as const) {
+  test(`ChatGPT preserves ${upstreamCode} over HTTP and SSE`, async () => {
+    let stream = false;
+    const f = await fixture(async (url) => {
+      if (!String(url).endsWith("/responses")) return loginFetch(url);
+      const headers = { "Retry-After": "4" };
+      if (stream)
+        return new Response(
+          `data: ${JSON.stringify({ type: "response.failed", response: { error: { code: upstreamCode } } })}\n\n`,
+          { headers: { ...headers, "Content-Type": "text/event-stream" } },
+        );
+      return Response.json(
+        code === "quota_exhausted"
+          ? { detail: { type: upstreamCode } }
+          : { error: { code: upstreamCode } },
+        { status, headers },
+      );
+    });
+    const auth = new ChatGptAuth(f.options);
+    await auth.connect({
+      profileId: "personal",
+      signal: new AbortController().signal,
+      challenge() {},
+    });
+    const transport = new ChatGptTransport(auth, f.options.fetch);
+    const adapter = new ChatGptAdapter(
+      "personal",
+      transport,
+      new ChatGptUsage(transport),
+    );
+    for (stream of [false, true]) {
+      const events = await Array.fromAsync(adapter.streamChat(request));
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: "error",
+        code,
+        retryable,
+        upstreamCode,
+        status: stream ? undefined : status,
+        retryAfterMs: 4000,
+      });
+    }
+  });
+}
+
+test("ChatGPT preserves a refused OAuth refresh without calling Responses", async () => {
+  let generations = 0;
+  const f = await fixture(async (url, init) => {
+    if (
+      String(url).endsWith("/oauth/token") &&
+      String(init?.body).includes("refresh_token")
+    )
+      return Response.json(
+        { error: "invalid_grant" },
+        {
+          status: 400,
+          headers: { "Retry-After": "4" },
+        },
+      );
+    if (String(url).endsWith("/responses")) generations++;
+    return loginFetch(url);
+  });
+  const auth = new ChatGptAuth(f.options);
+  await login(auth);
+  const key = "subscription:chatgpt:personal";
+  const session = JSON.parse(f.secrets.get(key) ?? "{}");
+  f.secrets.set(key, JSON.stringify({ ...session, expiresAt: 1 }));
+  const transport = new ChatGptTransport(auth, f.options.fetch);
+  const adapter = new ChatGptAdapter(
+    "personal",
+    transport,
+    new ChatGptUsage(transport),
+  );
+  const events = await Array.fromAsync(adapter.streamChat(request));
+  expect(generations).toBe(0);
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    type: "error",
+    code: "authentication",
+    upstreamCode: "invalid_grant",
+    status: 400,
+    retryAfterMs: 4000,
+    retryable: false,
+  });
 });

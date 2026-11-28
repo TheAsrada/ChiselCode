@@ -731,3 +731,66 @@ test("OpenAI opaque HTTP 400 DONE is an actionable rejection with one attempt, n
     "не сообщил причину",
   );
 });
+
+for (const anthropic of [false, true]) {
+  const protocol = anthropic ? "Anthropic" : "OpenAI";
+  const failures = [
+    {
+      status: 503,
+      upstream: anthropic ? "overloaded_error" : "server_error",
+      code: "unavailable",
+      retryable: true,
+    },
+    {
+      status: 429,
+      upstream: anthropic ? "rate_limit_error" : "rate_limit_exceeded",
+      code: "rate_limit",
+      retryable: true,
+    },
+    {
+      status: 429,
+      upstream: "insufficient_quota",
+      code: "quota_exhausted",
+      retryable: false,
+    },
+    {
+      status: 401,
+      upstream: anthropic ? "authentication_error" : "invalid_api_key",
+      code: "authentication",
+      retryable: false,
+    },
+  ];
+  for (const { status, upstream, code, retryable } of failures) {
+    test(`${protocol} preserves ${upstream} over HTTP and SSE`, async () => {
+      const error = anthropic ? { type: upstream } : { code: upstream };
+      const headers = { "Retry-After": "4" };
+      const http = adapter(
+        async () => Response.json({ error }, { status, headers }),
+        anthropic,
+      );
+      const sse = adapter(
+        async () =>
+          new Response(
+            `${anthropic ? "event: error\n" : ""}data: ${JSON.stringify({ type: "error", error })}\n\n`,
+            { headers: { ...headers, "Content-Type": "text/event-stream" } },
+          ),
+        anthropic,
+      );
+      for (const [provider, expectedStatus] of [
+        [http, status],
+        [sse, undefined],
+      ] as const) {
+        const events = await Array.fromAsync(provider.streamChat(request));
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+          type: "error",
+          code,
+          retryable,
+          upstreamCode: upstream,
+          status: expectedStatus,
+          retryAfterMs: 4000,
+        });
+      }
+    });
+  }
+}

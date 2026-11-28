@@ -15,7 +15,11 @@ import type {
 import { ToolNameSchema } from "../../types/domain.js";
 import type { ModelCapabilities, TokenCountRequest } from "../capabilities.js";
 import type { ProviderDriver } from "../contracts.js";
-import { normalizeProviderError, ProviderError } from "../errors.js";
+import {
+  normalizeProviderError,
+  ProviderError,
+  providerErrorEvent,
+} from "../errors.js";
 import { loadImageInputs } from "../image-input.js";
 import { catalogModelLimits, modelInfo } from "../model-metadata.js";
 import {
@@ -231,6 +235,8 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
         throw new ProviderError(
           "transport",
           "Provider stream ended without a message_stop marker.",
+          undefined,
+          true,
         );
       if (stopReason === "max_tokens")
         throw new ProviderError(
@@ -283,17 +289,14 @@ export class AnthropicProtocolAdapter implements ProviderAdapter {
       };
     } catch (error) {
       const failure = normalizeStreamError(error, request.signal);
-      yield {
-        type: "error",
-        message:
-          error instanceof SyntaxError
-            ? failure.message
-            : formatAnthropicError(error),
-        code: failure.code,
-        status: failure.status,
-        retryAfterMs: failure.retryAfterMs,
-        usage: usage ? normalizeAnthropicUsage(usage) : undefined,
-      };
+      if (failure.code === "quota_exhausted")
+        failure.message = "Квота провайдера исчерпана.";
+      else if (!(error instanceof SyntaxError))
+        failure.message = formatAnthropicError(error);
+      yield providerErrorEvent(
+        failure,
+        usage ? normalizeAnthropicUsage(usage) : undefined,
+      );
     }
   }
 

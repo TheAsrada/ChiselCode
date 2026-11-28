@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { builtinDefinitions } from "../../src/providers/definitions/index.js";
 import { AnthropicProtocolAdapter } from "../../src/providers/drivers/anthropic-messages.js";
 import { OpenAIProtocolAdapter } from "../../src/providers/drivers/openai-chat.js";
+import { retryProviderStream } from "../../src/runtime/provider-stream.js";
 import { SecretRedactor } from "../../src/security/redaction.js";
 import {
   ChildAccounting,
@@ -151,13 +152,13 @@ for (const protocol of ["openai", "anthropic"] as const)
         if (count < 3)
           return Response.json(
             { error: { message: "busy", type: "overloaded_error" } },
-            { status: 429 },
+            { status: 429, headers: { "Retry-After": "0" } },
           );
         if (protocol === "openai")
           return new Response(
             [
               `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: secret.slice(0, 15) }, finish_reason: null }] })}`,
-              `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: secret.slice(15) + " безопасный ответ" }, finish_reason: malformed ? null : "stop" }] })}`,
+              `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: secret.slice(15) + " безопасный ответ" }, finish_reason: malformed ? 42 : "stop" }] })}`,
               `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 2 } })}`,
               "data: [DONE]",
             ].join("\n\n") + "\n\n",
@@ -199,7 +200,7 @@ for (const protocol of ["openai", "anthropic"] as const)
             delta: { stop_reason: "end_turn", stop_sequence: null },
             usage: { output_tokens: 2 },
           },
-          ...(!malformed ? [{ type: "message_stop" }] : []),
+          { type: malformed ? "content_block_stop" : "message_stop" },
         ];
         return new Response(
           events
@@ -238,7 +239,7 @@ for (const protocol of ["openai", "anthropic"] as const)
         beforeRequest: async () => {},
       });
       const events: StreamEvent[] = [];
-      for await (const event of provider.streamChat(request()))
+      for await (const event of retryProviderStream(provider, request()))
         events.push(event);
       expect(count).toBe(3);
       expect(record.attempts).toHaveLength(3);
@@ -252,7 +253,8 @@ for (const protocol of ["openai", "anthropic"] as const)
       expect(JSON.stringify(events)).not.toContain(secret);
       malformed = true;
       const bad: StreamEvent[] = [];
-      for await (const event of provider.streamChat(request())) bad.push(event);
+      for await (const event of retryProviderStream(provider, request()))
+        bad.push(event);
       expect(count).toBe(4);
       expect(bad.some((event) => event.type === "turn_complete")).toBe(false);
       expect(bad.some((event) => event.type === "error")).toBe(true);

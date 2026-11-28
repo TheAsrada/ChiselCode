@@ -672,3 +672,172 @@ test("a successful tool resets the failure streak so corrected work can finish",
   expect((await setup.run(provider)).status).toBe("completed");
   expect(attempts).toBe(16);
 });
+
+test("OpenAI HTTP retry reuses the recorded result and never replays a file write", async () => {
+  const setup = await fixture();
+  const inputs: unknown[][] = [];
+  let writes = 0;
+  let streamedText = "";
+  setup.events.subscribe((event) => {
+    if (event.type === "tool_started" && event.name === "write_file") writes++;
+    if (event.type === "provider_text_delta") streamedText += event.text ?? "";
+  });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const body = (await request.json()) as { messages: unknown[] };
+      inputs.push(body.messages);
+      if (inputs.length === 2)
+        return Response.json(
+          { error: { code: "server_error" } },
+          {
+            status: 503,
+            headers: { "Retry-After": "0" },
+          },
+        );
+      const first = inputs.length === 1;
+      const delta = first
+        ? {
+            tool_calls: [
+              {
+                index: 0,
+                id: "write_once",
+                function: {
+                  name: "write_file",
+                  arguments: '{"path":"result.txt","content":"сохранено"}',
+                },
+              },
+            ],
+          }
+        : { content: "Готово" };
+      const event = {
+        choices: [
+          { index: 0, delta, finish_reason: first ? "tool_calls" : "stop" },
+        ],
+      };
+      return new Response(
+        `data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`,
+        {
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      );
+    },
+  });
+  try {
+    const provider = new OpenAIProtocolAdapter({
+      apiKey: "fixture",
+      allowModelMetadata: false,
+      baseUrl: `${server.url.origin}/v1`,
+    });
+    const result = await setup.run(provider);
+    expect(result).toMatchObject({ status: "completed", text: "Готово" });
+    expect(result.session.id).toBe(setup.session.id);
+    expect(inputs).toHaveLength(3);
+    expect(inputs[1]?.at(-1)).toMatchObject({
+      role: "tool",
+      tool_call_id: "write_once",
+    });
+    expect(inputs[2]).toEqual(inputs[1]);
+    expect(streamedText).toBe("Готово");
+    expect(result.session.runtime?.invocations.write_once).toMatchObject({
+      state: "succeeded",
+    });
+    expect(writes).toBe(1);
+    expect(await readFile(join(setup.root, "result.txt"), "utf8")).toBe(
+      "сохранено",
+    );
+  } finally {
+    server.stop(true);
+  }
+});
+
+for (const scenario of [
+  "cancel",
+  "exhausted",
+  "deadline",
+  "auth",
+  "quota",
+  "compatibility",
+] as const) {
+  test(`model retry policy: ${scenario}`, async () => {
+    const setup = await fixture();
+    const abort = new AbortController();
+    let calls = 0;
+    let retries = 0;
+    let failure: unknown;
+    setup.events.subscribe((event) => {
+      if (event.type === "provider_failed") failure = event;
+      if (event.type !== "provider_request_retrying") return;
+      retries++;
+      if (scenario === "cancel") setTimeout(() => abort.abort(), 20);
+    });
+    const provider = new OpenAIProtocolAdapter({
+      apiKey: "fixture",
+      allowModelMetadata: false,
+      tokenLimitFallback: true,
+      async fetch(_url, init) {
+        calls++;
+        if (scenario === "compatibility" && calls === 1)
+          return Response.json(
+            { error: { message: "Unsupported parameter: stream_options" } },
+            { status: 400 },
+          );
+        if (scenario === "compatibility") {
+          const body = JSON.parse(String(init?.body));
+          expect(body.stream_options).toBeUndefined();
+        }
+        const status =
+          scenario === "auth" ? 401 : scenario === "quota" ? 429 : 503;
+        const code =
+          scenario === "auth"
+            ? "invalid_api_key"
+            : scenario === "quota"
+              ? "insufficient_quota"
+              : "provider_overload";
+        return Response.json(
+          { error: { code } },
+          {
+            status,
+            headers: {
+              "Retry-After":
+                scenario === "cancel"
+                  ? "30"
+                  : scenario === "deadline"
+                    ? "601"
+                    : "0",
+            },
+          },
+        );
+      },
+    });
+    const result = await setup.run(provider, abort.signal);
+    expect(result.status).toBe(scenario === "cancel" ? "cancelled" : "failed");
+    const exhausted = scenario === "exhausted" || scenario === "compatibility";
+    expect(calls).toBe(exhausted ? 3 : 1);
+    expect(retries).toBe(
+      scenario === "exhausted"
+        ? 2
+        : scenario === "cancel" || scenario === "compatibility"
+          ? 1
+          : 0,
+    );
+    if (scenario === "cancel") {
+      expect(result.errorCode).toBe("cancelled");
+    } else if (scenario === "auth" || scenario === "quota") {
+      expect(result.errorCode).toBe(
+        scenario === "auth" ? "authentication" : "quota_exhausted",
+      );
+    } else {
+      expect(failure).toMatchObject({
+        upstreamCode: "provider_overload",
+        providerStatus: 503,
+      });
+      expect(result.error).toContain("provider_overload");
+      expect(result.error).toContain(
+        exhausted ? "Исчерпаны попытки" : "общий срок",
+      );
+    }
+    expect(setup.session.runtime?.invocations).toEqual({});
+  }, 2500);
+}

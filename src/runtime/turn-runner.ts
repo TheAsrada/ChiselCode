@@ -4,7 +4,12 @@ import {
   prepareAgentModelRequest,
   syntheticModelEvents,
 } from "../extensions/agent-provider.js";
-import { normalizeProviderError, ProviderError } from "../providers/errors.js";
+import {
+  normalizeProviderError,
+  ProviderError,
+  providerErrorDiagnostic,
+  providerErrorFromEvent,
+} from "../providers/errors.js";
 import type {
   ProviderAdapter,
   ProviderRequest,
@@ -15,7 +20,7 @@ import { RuntimeError } from "./errors.js";
 import type { RuntimeEventBus } from "./events.js";
 import {
   PROVIDER_IDLE_TIMEOUT_MS,
-  readProviderStream,
+  retryProviderStream,
 } from "./provider-stream.js";
 export type AssistantTurn = Extract<StreamEvent, { type: "turn_complete" }>;
 export class TurnRunner {
@@ -73,21 +78,29 @@ export class TurnRunner {
       let preparingTool = false;
       for await (const event of prepared.synthetic
         ? syntheticModelEvents(prepared.synthetic)
-        : readProviderStream(
-            this.provider,
-            request,
-            this.providerIdleTimeoutMs,
-          )) {
+        : retryProviderStream(this.provider, request, {
+            idleTimeoutMs: this.providerIdleTimeoutMs,
+            onRetry: async (failure, waitMs) => {
+              preparingTool = false;
+              await this.events.emit({
+                type: "provider_request_retrying",
+                errorCode: failure.code,
+                upstreamCode: failure.upstreamCode,
+                providerStatus: failure.status,
+                retryAfterMs: failure.retryAfterMs,
+                durationMs: waitMs,
+                usage: failure.usage,
+                model: request.model,
+              });
+            },
+          })) {
         if (event.type === "error" && event.usage) observedUsage = event.usage;
         if (event.type === "turn_complete" && !completed)
           observedUsage = event.usage;
         if (request.signal?.aborted)
           throw new ProviderError("cancelled", "Provider request cancelled.");
         if (event.type === "error") {
-          throw new ProviderError(
-            event.code ?? normalizeProviderError(new Error(event.message)).code,
-            event.message,
-          );
+          throw providerErrorFromEvent(event);
         }
         if (event.type === "tool_delta") {
           if (!preparingTool)
@@ -143,7 +156,8 @@ export class TurnRunner {
     } catch (error) {
       if (
         error instanceof RuntimeError &&
-        error.code.startsWith("EXTENSION_")
+        (error.code.startsWith("EXTENSION_") ||
+          error.code.startsWith("SUBAGENT_"))
       ) {
         if (observedUsage)
           await this.events.emit({
@@ -157,7 +171,10 @@ export class TurnRunner {
       await this.events.emit({
         type: "provider_failed",
         errorCode: failure.code,
-        text: failure.message,
+        upstreamCode: failure.upstreamCode,
+        providerStatus: failure.status,
+        retryAfterMs: failure.retryAfterMs,
+        text: providerErrorDiagnostic(failure),
         usage: observedUsage,
         model: request.model,
         durationMs: performance.now() - started,
