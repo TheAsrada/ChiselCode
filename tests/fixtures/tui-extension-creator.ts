@@ -285,6 +285,12 @@ async function action(index: number) {
   await key("RETURN");
 }
 async function verifyWorkbench() {
+  const feedback = () =>
+    ui.renderer.root.findDescendantById("command-feedback-popup");
+  const closeFeedback = async () => {
+    await key("RETURN");
+    await until(() => !feedback(), "Окно результата не закрылось");
+  };
   await until(
     () =>
       ui.captureCharFrame().includes("Фон: 0") &&
@@ -325,12 +331,12 @@ async function verifyWorkbench() {
   await capture("protected-approval");
   await click("approval-deny");
   await until(
-    () =>
-      !ui.renderer.root.findDescendantById("request-status") &&
-      !ui.renderer.root.findDescendantById("approval-popup"),
+    () => !!feedback() && ui.captureCharFrame().includes("PERMISSION_DENIED"),
     "Denied action did not settle",
   );
   assert.equal(await Bun.file(join(root, "mod-note.txt")).exists(), false);
+  await closeFeedback();
+  assert.doesNotMatch(ui.captureCharFrame(), /PERMISSION_DENIED/);
   await action(1);
   await until(
     () => !!ui.renderer.root.findDescendantById("approval-popup"),
@@ -338,13 +344,14 @@ async function verifyWorkbench() {
   );
   await click("approval-approve");
   await until(
-    () => !ui.renderer.root.findDescendantById("request-status"),
+    () => !!feedback() && ui.captureCharFrame().includes("Результат команды"),
     "Approved action did not settle",
   );
   assert.equal(
     await readFile(join(root, "mod-note.txt"), "utf8"),
     "Заметка через UI расширения\n",
   );
+  await closeFeedback();
   assert.equal(calls, 3);
   await act(async () => {
     ui.renderer.resize(46, 25);

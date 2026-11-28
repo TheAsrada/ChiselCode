@@ -596,6 +596,7 @@ async function runApplication(
   const saves = { pending: Promise.resolve() };
   const persistExecutionModes = (controller: TuiController) => {
     if (!controller.snapshot.sessionId || controller.snapshot.busy) return;
+    const generation = controller.currentGeneration;
     saves.pending = saves.pending
       .then(async () => {
         const {
@@ -607,7 +608,13 @@ async function runApplication(
           modelSelection,
           reasoningEfforts,
         } = controller.snapshot;
-        if (!sessionId || busy || !projectPath) return;
+        if (
+          !sessionId ||
+          busy ||
+          !projectPath ||
+          !controller.isCurrent(generation)
+        )
+          return;
         const store = await projectSessionStore(projectPath);
         await store.setPreferences(sessionId, {
           mode: agentMode,
@@ -616,18 +623,21 @@ async function runApplication(
           ...(modelSelection
             ? {
                 providerId: modelSelection.provider,
-                profileId: modelSelection.profileId,
+                ...(modelSelection.profileId
+                  ? { profileId: modelSelection.profileId }
+                  : {}),
                 model: modelSelection.model,
               }
             : {}),
         });
       })
-      .catch((error) =>
-        controller.append(
-          `Не удалось сохранить выбор сессии: ${String(error)}`,
-          "error",
-        ),
-      );
+      .catch((error) => {
+        if (controller.isCurrent(generation))
+          controller.showCommandFeedback(
+            `Не удалось сохранить выбор сессии.\n\n${safeDiagnostic(error instanceof Error ? error.message : String(error))}`,
+            "error",
+          );
+      });
   };
   const getEffortActions = (): OpenTuiEffortActions => {
     const controller = currentController();

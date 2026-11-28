@@ -576,19 +576,28 @@ export async function runLspTuiScenario(
       "Settings did not close",
     );
     await click("prompt-editor");
+    const resultPopup = () =>
+      setup.renderer.root.findDescendantById("command-feedback-popup");
+    const closeResult = async () => {
+      await wait(() => !!resultPopup(), "Окно результата не открылось");
+      assert.ok(
+        !setup.captureCharFrame().includes("Не удалось сохранить выбор сессии"),
+      );
+      await key("ENTER");
+      await wait(() => !resultPopup(), "Окно результата не закрылось");
+    };
+    let foundDiagnostic = false;
     for (let attempt = 0; attempt < 4; attempt++) {
       await command("/inspect-types");
-      await wait(
-        () =>
-          setup.captureCharFrame().includes("2322") ||
-          setup.captureCharFrame().includes("Завершено"),
-        "Real diagnostics unfinished",
-      );
-      if (setup.captureCharFrame().includes("2322")) break;
+      await wait(() => !!resultPopup(), "Real diagnostics unfinished");
+      await key("END");
+      foundDiagnostic = setup.captureCharFrame().includes("2322");
+      await closeResult();
+      if (foundDiagnostic) break;
     }
-    await wait(
-      () => setup.captureCharFrame().includes("2322"),
-      "Real diagnostics missing",
+    assert.ok(foundDiagnostic, "Real diagnostics missing from command result");
+    assert.ok(
+      !setup.captureCharFrame().includes("/inspect-types · fixture.lsp-ui"),
     );
     await command("/fix-type");
     await wait(
@@ -607,11 +616,15 @@ export async function runLspTuiScenario(
         ),
       "Real edit did not persist",
     );
+    await closeResult();
     await command("/inspect-status");
-    await wait(
-      () => setup.captureCharFrame().includes('"state": "ready"'),
+    await wait(() => !!resultPopup(), "Окно результата LSP не открылось");
+    await key("END");
+    assert.ok(
+      setup.captureCharFrame().includes('"state": "ready"'),
       "Status tool failed",
     );
+    await closeResult();
     await key("F9");
     await click("ui-overflow-builtin.lsp/status");
     await wait(

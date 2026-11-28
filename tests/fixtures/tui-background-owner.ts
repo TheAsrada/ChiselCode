@@ -188,8 +188,21 @@ try {
     });
   });
   await until(
-    () => ui.captureCharFrame().includes("Завершённая проверка"),
+    () => ui.renderer.currentFocusedEditor?.id === "prompt-editor",
+    "Восстановленный разговор не готов к вводу",
+  );
+  assert.doesNotMatch(ui.captureCharFrame(), /Завершённая проверка/);
+  await send("/tasks");
+  await until(
+    () =>
+      !!ui.renderer.root.findDescendantById("background-tasks-popup") &&
+      ui.captureCharFrame().includes("Завершённая проверка"),
     "История задач не восстановлена",
+  );
+  await act(async () => ui.mockInput.pressEscape());
+  await until(
+    () => !ui.renderer.root.findDescendantById("background-tasks-popup"),
+    "Список задач не вернул фокус в чат",
   );
   assert.equal(calls, 0, "Восстановление не обращается к модели");
   for (let turn = 1; turn <= 2; turn++) {

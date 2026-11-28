@@ -129,6 +129,8 @@ Linux выбран базовой средой ради скорости и ра
 
 Сценарий `extension-commands-tui.test.ts` проверяет отдельное окно результата, отсутствие карточки ручной команды в чате и её результата в `chatPresentations`, разрешения и открытие Browser во время другой команды. Он также проверяет отмену настоящего picker при задержанной активации, освобождение scope, отмену очереди и поздний callback своей вкладки. Совместное ожидание активации и сохранение чужого запроса при отмене покрывает `extensions-lifecycle.test.ts`. Гонку A → B и deadline с cleanup покрывает `project-admission.test.ts`.
 
+Сценарий `lsp-tui.test.ts` проверяет прокрутку результата до кода TypeScript, состояние сервера и редактирование с подтверждением. Сценарий восстановления фоновой задачи из `background-runtime.test.ts` открывает её в списке задач, проверяет чистую ленту и продолжает разговор через псевдоним пути.
+
 ## Навигация меню
 
 `bun test tests/unit/menu-keybindings.test.tsx` проверяет настоящий renderer на 120×40, 80×24, 60×15 и 32×10: действия моделей/навыков/истории, снятые сочетания, native input, прокрутку, подтверждение удаления и повтор клавиши. Файл не входит в быстрый профиль. Существующие `opentui-models`, `opentui-skills`, `opentui-sessions`, `opentui-settings`, `opentui-mcp`, `opentui-sidebar`, `opentui-subagents`, `opentui-background` и `opentui-worktrees` сохраняют сценарии фокуса, мыши, resize и отмены. Production fixtures истории, Settings, помощников, фона и рабочих копий используют обычную навигацию и прежние runtime assertions. [Кадры и результаты](reports/menu-keybindings.md).
