@@ -414,12 +414,22 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
       redactor,
       beforeRequest: () => policy.refresh(),
     });
+    let textBeforeRequest = record.text;
+    let truncatedBeforeRequest = record.textTruncated;
     detach = events.subscribe((event) => {
       if (signal.aborted) return;
       if (event.type === "provider_request_started") {
+        textBeforeRequest = record.text;
+        truncatedBeforeRequest = record.textTruncated;
         record.consumption.iterations++;
         input.progress({ type: "state", text: "Ожидает ответ модели" });
       }
+      if (event.type === "provider_response_recovery")
+        input.progress({
+          type: "replace_text",
+          text: textBeforeRequest,
+          truncated: truncatedBeforeRequest,
+        });
       if (event.type === "provider_text_delta")
         input.progress({ type: "text", text: safe(event.text ?? "") });
       if (event.type === "tool_started")
@@ -474,6 +484,7 @@ export async function runChildAgent(input: ChildRunInput): Promise<void> {
     const result = await runtime.run(session, task, {
       workspaceRoot: root,
       client: "subagent",
+      previewProviderText: true,
       mode: session.mode,
       signal,
       recovery: "new_child",

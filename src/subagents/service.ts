@@ -87,12 +87,16 @@ export interface ChildRunInput {
   accounting: ChildAccounting;
   worktrees: WorktreeService;
   checkpoint(): Promise<void>;
-  progress(event: {
-    type: "state" | "tool" | "text";
-    text: string;
-    tool?: string;
-    outcome?: "completed" | "failed";
-  }): void;
+  progress(
+    event:
+      | {
+          type: "state" | "tool" | "text";
+          text: string;
+          tool?: string;
+          outcome?: "completed" | "failed";
+        }
+      | { type: "replace_text"; text: string; truncated: boolean },
+  ): void;
   transition(state: SubagentStatus, step: string): Promise<void>;
 }
 export interface SubagentToolBinding {
@@ -713,9 +717,16 @@ export class SubagentService {
     if (!subagentActive(record.status) || active.abort.signal.aborted) return;
     const text = utf8Prefix(
       active.binding.redactor.text(event.text),
-      event.type === "text" ? 65536 : 4096,
+      event.type === "replace_text"
+        ? SUBAGENT_PRESENTATION.resultBytes
+        : event.type === "text"
+          ? 65536
+          : 4096,
     );
-    if (event.type === "text") {
+    if (event.type === "replace_text") {
+      record.text = text;
+      record.textTruncated = event.truncated;
+    } else if (event.type === "text") {
       const next = record.text + text;
       record.text = utf8Prefix(next, SUBAGENT_PRESENTATION.resultBytes);
       record.textTruncated ||=

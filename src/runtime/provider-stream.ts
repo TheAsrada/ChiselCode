@@ -139,6 +139,7 @@ export async function* retryProviderStream(
       if (signal.aborted || performance.now() >= deadline)
         throw deadlineExceeded(last);
       const pending: StreamEvent[] = [];
+      let thinking = false;
       let usage: TokenUsage | undefined;
       let failure: ProviderError | undefined;
       try {
@@ -153,6 +154,11 @@ export async function* retryProviderStream(
             break;
           }
           if (event.type === "turn_complete") usage = event.usage;
+          if (event.type === "thinking_start") thinking = true;
+          if (event.type === "thinking_delta" && !thinking) {
+            thinking = true;
+            yield { type: "thinking_start" };
+          }
           if (
             event.type === "thinking_start" ||
             event.type === "tool_delta" ||
